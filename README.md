@@ -33,14 +33,13 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 
 3. **Set up environment variables**
    
-   Create a `.env` file in the project root:
+   Create a `.env` file in the project root (you can copy from `.env.example`):
    ```env
+   # API Key for authentication
+   API_KEY=your_api_key_here
+   # OpenAI API Key for Text2SQL conversion
    OPENAI_API_KEY=your_openai_api_key_here
    ```
-
-4. **Configure API key**
-   
-   Update the `API_KEY` in `auth.py` with your desired API key for client authentication.
 
 ## 🚀 Usage
 
