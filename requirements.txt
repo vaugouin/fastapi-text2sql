@@ -1,0 +1,14 @@
+# Core dependencies
+numpy
+pandas
+fastapi
+uvicorn
+psutil
+
+# API and authentication
+openai>=1.0.0
+python-dotenv
+
+# LangChain components (used for prompts)
+langchain-core
+langchain-openai
