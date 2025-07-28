@@ -125,7 +125,7 @@ Based on real API usage data, here are examples of natural language questions th
 - "Who are the actors in The Big Lebowski movie?"
 - "50 most popular directors"
 - "Quelles sont les actrices du film The Big Sleep de 1946"
-" "Documentary movies about Sergio Leone"
+- "Documentary movies about Sergio Leone"
 
 ### 🏢 Companies & Collections
 - "List all collections with exactly 3 movies"
