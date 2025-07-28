@@ -15,7 +15,7 @@ print(f"Memory Usage: {memory_info.percent}%")
 
 dblavailableram=memory_info.available / (1024 ** 3)
 
-strprompttemplate = "prompt-chatgpt-4o-1-0-9-20250724.txt"
+strprompttemplate = "prompt-chatgpt-4o-1-0-10-20250728.txt"
 
 # Read the prompt_template from the data/prompt.txt file
 with open('./data/' + strprompttemplate, 'r') as file:

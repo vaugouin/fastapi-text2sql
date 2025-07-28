@@ -17,7 +17,7 @@ import time
 from urllib.parse import unquote_plus
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.0.9"
+strapiversion = "1.0.10"
 
 app = FastAPI(title="Text2SQL API", version=strapiversion, description="Text2SQL API for text to SQL query conversion")
 
@@ -56,7 +56,7 @@ async def f_hello_world(api_key: str = Depends(get_api_key)):
     log_usage("hello", result)
     return result
 
-@app.get("/text/{text}", response_model=TextExpr)
+@app.get("/search/text2sql/{text}", response_model=TextExpr)
 async def get_text(text: str, api_key: str = Depends(get_api_key)):
     start_time = time.time()
     decoded_text = unquote_plus(text)

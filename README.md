@@ -12,6 +12,13 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **Docker Support**: Containerized deployment ready
 - **UTF-8 Support**: Proper handling of Unicode characters in queries and logs
 
+## 📊 Database Scale
+
+The API operates on a comprehensive entertainment database containing:
+- **Movies**: More than 620,000 entries
+- **Series**: More than 88,000 entries  
+- **Persons**: More than 890,000 entries (actors, directors, crew members)
+
 ## 📋 Requirements
 
 - Python 3.8+
@@ -67,7 +74,7 @@ Returns a simple "Hello World" message to verify the API is running.
 
 #### 2. Text to SQL Conversion
 ```http
-GET /text2sql?text=your_natural_language_question
+GET /search/text2sql?text=your_natural_language_question
 ```
 
 **Headers Required:**
@@ -77,7 +84,7 @@ X-API-Key: your_api_key
 
 **Example:**
 ```bash
-curl -X GET "http://localhost:8000/text2sql?text=List all color movies with Humphrey Bogart" \
+curl -X GET "http://localhost:8000/search/text2sql?text=List all color movies with Humphrey Bogart" \
      -H "X-API-Key: your_api_key"
 ```
 
@@ -102,31 +109,35 @@ Based on real API usage data, here are examples of natural language questions th
 - "List all color movies with Humphrey Bogart"
 - "The Killer movie directed by John Woo"
 - "50 most popular movies in Persian language"
-- "List all movies from the 50s"
+- "List the 50 most popular movies from the 50s"
 - "Best rated Finnish movies on IMDB"
 - "Best rated Argentine movies"
 - "Top 100 best movies according to IMDB"
-- "Movies directed by William Friedkin"
-- "Movies with Clint Eastwood and Sergio Leone"
+- "Movies with Clint Eastwood directed by Sergio Leone"
+- "Movies having a Philip Marlowe character"
+- "Films dont un des personnages s'appelle Antoine Doinel"
+- "Movies with costumes created by Edith Head" 
+- "Movie adaptations of Charles Dickens books"
 
 ### 👥 People & Cast Queries
 - "I'm looking for all actors in The Big Lebowski movie"
 - "I'm looking for all actors in The Big Lebowski movie in casting order"
 - "Who are the actors in The Big Lebowski movie?"
 - "50 most popular directors"
-- "For all people born in France with the DAT_CREDITS_DOWNLOADED column filled, show all columns"
+- "Quelles sont les actrices du film The Big Sleep de 1946"
+" "Documentary movies about Sergio Leone"
 
 ### 🏢 Companies & Collections
-- "List all collections"
+- "List all collections with exactly 3 movies"
 - "What are the French production companies?"
-- "List all collections that contains exactly 3 movies and have the TIM_CREDITS_DOWNLOADED value not set"
 
 ### 🎭 Genre & Language Queries
 - "French New Wave movies"
 - "Movies in Persian language"
 - "Finnish movies"
 - "Argentine movies"
-- "Documentaries"
+- "Documentary movies directed in 2024"
+- "Quels sont tous les genres de films ?"
 
 ### 🏆 Special Collections
 - "Criterion Collection movies"
@@ -134,8 +145,7 @@ Based on real API usage data, here are examples of natural language questions th
 - "Classic film noir movies"
 
 ### 🔍 Advanced Filtering
-- "Color movies vs black and white movies"
-- "Silent movies"
+- "Silent movies released after 1999"
 - "Movies from the [specific decade]s"
 - "Movies with IMDB rating above [rating]"
 - "Movies by production country"
@@ -147,7 +157,16 @@ Based on real API usage data, here are examples of natural language questions th
 - "Directors with the most movies"
 - "Most prolific actors"
 
-**Note**: The API supports both English and French queries, and can handle complex multi-criteria searches involving actors, directors, genres, years, ratings, and technical specifications.
+### 📺 TV Series Queries
+- "TV series created by David Lynch"
+- "Most popular Netflix original series"
+- "British crime series from the 2010s"
+- "Anime series with highest ratings"
+- "Documentary series about nature"
+- "Comedy series from the 90s"
+- "Series starring Bryan Cranston"
+
+**Note**: Questions can be expressed in English or any language understood by the underlying LLM (currently OpenAI's models). The API can handle complex multi-criteria searches involving actors, directors, genres, years, ratings, and technical specifications for both movies and TV series.
 
 ## 🐳 Docker Deployment
 
@@ -169,7 +188,7 @@ fastapi-text2sql/
 ├── Dockerfile          # Docker configuration
 ├── .env                # Environment variables (create this)
 ├── data/               # Prompt templates and configuration
-│   └── prompt-chatgpt-4o-1-0-9-20250724.txt  # Current prompt template
+│   └── prompt-chatgpt-4o-1-0-10-20250728.txt  # Current prompt template
 ├── logs/               # API usage logs (auto-created)
 └── README.md           # This file
 ```
@@ -181,8 +200,6 @@ The API version is controlled by the `strapiversion` variable in `main.py`. Upda
 
 ### Prompt Templates
 The system uses prompt templates stored in the `data/` folder. The current template file is specified in `text2sql.py`.
-
-#### Current Prompt Template: `prompt-chatgpt-4o-1-0-9-20250724.txt`
 
 The current prompt template is specifically designed for a **movie and TV series database** using MariaDB. It includes:
 
@@ -258,7 +275,7 @@ Check the `logs/` folder for detailed request/response logs if you encounter iss
 All successful text2sql requests return:
 - `text`: The original natural language question
 - `sqlquery`: The generated SQL query
-- `processing_time`: Time taken to process the request (in seconds)
+- `processing_time`: Time taken to process the request and produce the SQL query (in seconds)
 
 ## 🤝 Contributing
 
