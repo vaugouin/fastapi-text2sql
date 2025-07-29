@@ -404,6 +404,23 @@ CREATE TABLE T_WC_TMDB_GENRE (
   name VARCHAR(250)
 );
 
+CREATE TABLE T_WC_TMDB_KEYWORD_ID_IMPORT (
+  id INT NOT NULL,
+  name VARCHAR(250)
+);
+
+CREATE TABLE T_WC_TMDB_MOVIE_KEYWORD (
+  ID_ROW INT NOT NULL,
+  ID_MOVIE INT NOT NULL,
+  ID_KEYWORD INT NOT NULL
+);
+
+CREATE TABLE T_WC_TMDB_SERIE_KEYWORD (
+  ID_ROW INT NOT NULL,
+  ID_SERIE INT NOT NULL,
+  ID_KEYWORD INT NOT NULL
+);
+
 ---
 
 ## 📌 Query Rules
@@ -412,12 +429,14 @@ CREATE TABLE T_WC_TMDB_GENRE (
 - Always filter: ADULT = 0 on movies, series and persons.
 - Always include: ID_IMDB != '' on movies, series and persons.
 - Use exact equality comparisons (=) for name, title, character, and ID matching — never use LIKE.
-- ORIGINAL_LANGUAGE and SPOKEN_LANGUAGE is a lower case 2-letters language code
+- ORIGINAL_LANGUAGE and SPOKEN_LANGUAGE is a lower case 2-letters language code telling the spoken language in a movie or serie
 - RUNTIME is the movie duration in minutes 
 - ORIGIN_COUNTRY AND COUNTRY_CODE is an upper case 2-letters country code
 - COUNTRY_OF_BIRTH is a lower case 2-letters country code
 - GENDER is 1 for female and 2 for male 
 - STATUS values are: Canceled, In Production, Planned, Post Production, Released, Rumored
+- The T_WC_TMDB_MOVIE_LANG table contains text info about movies in alternate languages, for instance in French if LANG = 'fr'. This table does not state that a movie with a 'fr' record is a French movie. 
+- It is the same for the T_WC_TMDB_SERIE_LANG table about tv series. 
 
 ### Result Columns
 
@@ -483,17 +502,25 @@ ORDER BY CASE WHEN T_WC_WIKIDATA_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END,
 - Movies → DAT_RELEASE ASC
 - Series → DAT_FIRST_AIR ASC
 - Persons → POPULARITY DESC
-- When display persons for a given movie or serie, ORDER BY T_WC_TMDB_PERSON_MOVIE.DISPLAY_ORDER 
+- When display persons for a given movie or serie, ORDER BY T_WC_TMDB_PERSON_MOVIE.DISPLAY_ORDER ASC
 - Lists → ID_LIST ASC
 - Collections → ID_COLLECTION ASC
 - Companies → ID_COMPANY ASC
 - Networks → ID_NETWORK ASC
+- Genres → id ASC
 
-### Genre Reference
+### Genre Reference for movies
 28: Action, 12: Adventure, 16: Animation, 35: Comedy, 80: Crime,
 18: Drama, 10751: Family, 14: Fantasy, 36: History, 27: Horror,
 10402: Music, 9648: Mystery, 10749: Romance, 878: Science Fiction,
 53: Thriller, 10770: TV Movie, 10752: War, 37: Western
+
+### Genre Reference for series
+16: Animation, 18: Drama, 35: Comedy, 36: History, 37: Western, 
+80: Crime, 99: Documentary, 9648: Mystery, 10749: Romance, 
+10751: Family, 10759: Action & Adventure, 10762: Kids, 10763: News, 
+10764: Reality, 10765: Sci-Fi & Fantasy, 10766: Soap, 10767: Talk, 
+10768: War & Politics
 
 ### List Reference
 10: Top 50 Grossing Films of All Time (Worldwide)
@@ -579,6 +606,8 @@ ORDER BY CASE WHEN T_WC_WIKIDATA_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END,
 - T_WC_TMDB_SERIE.ID_SERIE = T_WC_TMDB_SERIE_PRODUCTION_COUNTRY.ID_SERIE
 - T_WC_TMDB_SERIE.ID_SERIE = T_WC_TMDB_SERIE_SPOKEN_LANGUAGE.ID_SERIE
 - T_WC_TMDB_SERIE.ID_SERIE = T_WC_TMDB_SERIE_LIST.ID_SERIE
+- T_WC_TMDB_KEYWORD_ID_IMPORT.id = T_WC_TMDB_MOVIE_KEYWORD.ID_KEYWORD
+- T_WC_TMDB_KEYWORD_ID_IMPORT.id = T_WC_TMDB_SERIE_KEYWORD.ID_KEYWORD
 
 ---
 
