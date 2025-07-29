@@ -492,6 +492,7 @@ ORDER BY CASE WHEN T_WC_WIKIDATA_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END,
 - When searching for a cast CREDIT_TYPE for a movie, exclude the following values of the CAST_CHARACTER column: Self, Himself, Herself, (archive footage), Self (archive footage), Self (archive footage) (uncredited), Self (uncredited)
 - When searching for a cast CREDIT_TYPE for a documentary, search this person in the cast section of movie credits with no exclusion.
 - CREW_DEPARTMENT possible values: Art, Camera, Costume & Make-Up, Crew, Directing, Editing, Lighting, Production, Sound, Visual Effects, Writing
+- For a TV serie, there is an additional CREW_DEPARTMENT value: Creator
 - KNOWN_FOR_DEPARTMENT possible values: Acting, Art, Camera, Costume & Make-Up, Crew, Directing, Editing, Lighting, Production, Sound, Visual Effects, Writing
 - When requesting movies or series adapted from the work of a given person, search for a Writing credit for this person
 
