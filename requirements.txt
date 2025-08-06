@@ -4,6 +4,7 @@ pandas
 fastapi
 uvicorn
 psutil
+pymysql
 
 # API and authentication
 openai>=1.0.0

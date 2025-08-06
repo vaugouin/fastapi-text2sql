@@ -15,11 +15,33 @@ import hashlib
 from datetime import datetime
 import time
 from urllib.parse import unquote_plus
+import pymysql.cursors
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.0.12"
+strapiversion = "1.0.13"
 
 app = FastAPI(title="Text2SQL API", version=strapiversion, description="Text2SQL API for text to SQL query conversion")
+
+# Database connection function
+def get_db_connection():
+    strdbhost = os.getenv('DB_HOST')
+    lngdbport = int(os.getenv('DB_PORT', 3306))
+    strdbuser = os.getenv('DB_USER')
+    strdbpassword = os.getenv('DB_PASSWORD')
+    strdbname = os.getenv('DB_NAME')
+    
+    return pymysql.connect(
+        host=strdbhost,
+        port=lngdbport,
+        user=strdbuser,
+        password=strdbpassword,
+        database=strdbname,
+        cursorclass=pymysql.cursors.DictCursor
+    )
 
 answer=42
 

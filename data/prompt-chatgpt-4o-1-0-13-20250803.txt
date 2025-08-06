@@ -399,11 +399,6 @@ CREATE TABLE T_WC_TMDB_SERIE_IMAGE (
   TIM_UPDATED DATETIME
 );
 
-CREATE TABLE T_WC_TMDB_GENRE (
-  id INT NOT NULL,
-  name VARCHAR(250)
-);
-
 CREATE TABLE T_WC_TMDB_KEYWORD_ID_IMPORT (
   id INT NOT NULL,
   name VARCHAR(250)
@@ -492,7 +487,7 @@ ORDER BY CASE WHEN T_WC_WIKIDATA_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END,
 - When searching for a cast CREDIT_TYPE for a movie, exclude the following values of the CAST_CHARACTER column: Self, Himself, Herself, (archive footage), Self (archive footage), Self (archive footage) (uncredited), Self (uncredited)
 - When searching for a cast CREDIT_TYPE for a documentary, search this person in the cast section of movie credits with no exclusion.
 - CREW_DEPARTMENT possible values: Art, Camera, Costume & Make-Up, Crew, Directing, Editing, Lighting, Production, Sound, Visual Effects, Writing
-- For a TV serie, there is an additional CREW_DEPARTMENT value: Creator
+- For a TV serie, there is an additional CREW_DEPARTMENT value, Creator, that must be used when looking for the creator of a series.
 - KNOWN_FOR_DEPARTMENT possible values: Acting, Art, Camera, Costume & Make-Up, Crew, Directing, Editing, Lighting, Production, Sound, Visual Effects, Writing
 - When requesting movies or series adapted from the work of a given person, search for a Writing credit for this person
 
@@ -522,67 +517,6 @@ ORDER BY CASE WHEN T_WC_WIKIDATA_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END,
 10751: Family, 10759: Action & Adventure, 10762: Kids, 10763: News, 
 10764: Reality, 10765: Sci-Fi & Fantasy, 10766: Soap, 10767: Talk, 
 10768: War & Politics
-
-### List Reference
-10: Top 50 Grossing Films of All Time (Worldwide)
-28: Best Picture Winners - The Academy Awards
-2469: Best Picture Winners - The Golden Globes
-3673: Great films according to Roger Ebbert
-3681: BAFTA - Best Film winners
-6221: The BFI Top 100 films
-9728: Hammer Films
-28472: Frankenstein
-39157: 100 Films that are mostly taking place in one room
-42769: Artificial Intelligence Movies 
-42775: Best Movies Set in the 60's
-47407: Akira Kurosawa’s List of His 100 Favorite Movies
-80187: AFI Top 100 - 2007
-105619: Reddit Top 250
-7061303: IMDb Top 250
-7062270: New Hollywood
-7062317: Czechoslovak New Wave
-7062319: Absurdist Comedy
-7072867: THE 1000 FILMS OF DAVID THOMSON’S “HAVE YOU SEEN…?”
-7097249: French Cinema
-7100655: BBC 100 Greatest Foreign-Language Films
-7103942: The Middle-Earth Collection
-8191778: THE 200 BEST ROMANTIC COMEDIES OF ALL TIME
-8200604: Martin Scorcese
-8216936: BBC 100 Greatest Films of the 21st Century
-8228587:  DC Universe Animated Original Movies 
-8228591: Disney Live-Action Remakes
-8228627: Final Fantasy Collection
-8228628: Ghost in the Shell Collection
-8228637: Pokémon
-8228639: Resident Evil Collection
-8232253: Studio Ghibli Collection
-8243065: Pixar
-8264890: Shaw Brothers Movies
-8274225: Palmes d or - 1945-2023
-8275220: Serial Killers
-8276238: Spike Lee picks 95 essential films for every filmmaker
-8280209: Batman
-8301747: Disney Animated Films
-8304441: Star Wars Franchise Ranked
-8305081: Philip Marlowe
-8305731: Cesars meilleur film du cinéma français 
-8307803: Mike Hammer
-8307805: Maigret
-8307806: Nouvelle Vague française
-8310149: Sight and Sound’s Greatest Films of All Time 2022
-8312162: Alan J. Pakula Paranoia trilogy
-8312163: Yasujirō Ozu Noriko Trilogy
-8408903: Pier Paulo Pasolini's Trilogy of  Life
-8427334: Gregg Araki’s Teen Apocalypse Trilogy
-8428781: Edgar Wright’s Three Flavours Cornetto trilogy
-8468746: A Film Trilogy by Ingmar Bergman
-8496293: Theo Angelopoulos Trilogy of Silence
-8498972: Roberto Rossellini War Trilogy Neorealism
-8499671: Sergio Leone's Once Upon a Time trilogy
-8516108: Wim Wenders Road Movie Trilogy
-8516229: Tetralogie des Contes des Quatre Saisons par Eric Rohmer
-8518426: Rainer Werner Fassbinder’s BRD Trilogy
-8530225: Roman Polanski's Apartment Trilogy
 
 ### Join Conditions
 - T_WC_TMDB_MOVIE.ID_WIKIDATA = T_WC_WIKIDATA_MOVIE.ID_WIKIDATA
