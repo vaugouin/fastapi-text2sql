@@ -118,6 +118,10 @@ Based on real API usage data, here are examples of natural language questions th
 - "Films dont un des personnages s'appelle Antoine Doinel"
 - "Movies with costumes created by Edith Head" 
 - "Movie adaptations of Charles Dickens books"
+- "List all posters of the movie The Big Lebowski"
+- "List all polish posters of the movie The Big Lebowski"
+- "List all movies in Technicolor released in 1967"
+- "List all movies in CinemaScope released in 1960"
 
 ### 👥 People & Cast Queries
 - "I'm looking for all actors in The Big Lebowski movie"
@@ -126,6 +130,7 @@ Based on real API usage data, here are examples of natural language questions th
 - "50 most popular directors"
 - "Quelles sont les actrices du film The Big Sleep de 1946"
 - "Documentary movies about Sergio Leone"
+- "List all pictures of Humphrey Bogart"
 
 ### 🏢 Companies & Collections
 - "List all collections with exactly 3 movies"
@@ -165,6 +170,7 @@ Based on real API usage data, here are examples of natural language questions th
 - "Documentary series about nature"
 - "Comedy series from the 90s"
 - "Series starring Bryan Cranston"
+- "List all posters of the serie Game of Thrones"
 
 **Note**: Questions can be expressed in English or any language understood by the underlying LLM (currently OpenAI's models). The API can handle complex multi-criteria searches involving actors, directors, genres, years, ratings, and technical specifications for both movies and TV series.
 

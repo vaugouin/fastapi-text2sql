@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.0.13"
+strapiversion = "1.0.14"
 
 app = FastAPI(title="Text2SQL API", version=strapiversion, description="Text2SQL API for text to SQL query conversion")
 

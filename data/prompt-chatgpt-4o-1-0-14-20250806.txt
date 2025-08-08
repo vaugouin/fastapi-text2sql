@@ -185,6 +185,24 @@ CREATE TABLE T_WC_TMDB_SERIE_LANG (
   TIM_UPDATED DATETIME
 );
 
+CREATE TABLE T_WC_TMDB_COLLECTION_LANG (
+  ID_COLLECTION INT NOT NULL,
+  LANG VARCHAR(10),
+  NAME VARCHAR(250),
+  OVERVIEW MEDIUMTEXT,
+  POSTER_PATH VARCHAR(200),
+  DAT_CREAT DATE,
+  TIM_UPDATED DATETIME
+);
+
+CREATE TABLE T_WC_TMDB_LIST_LANG (
+  ID_LIST INT NOT NULL,
+  LANG VARCHAR(10),
+  SHORT_NAME VARCHAR(100),
+  DAT_CREAT DATE,
+  TIM_UPDATED DATETIME
+);
+
 CREATE TABLE T_WC_WIKIDATA_PERSON (
   ID_WIKIDATA VARCHAR(50) NOT NULL,
   ID_PERSON INT NOT NULL,
@@ -305,6 +323,12 @@ CREATE TABLE T_WC_TMDB_SERIE_SPOKEN_LANGUAGE (
   ID_ROW INT NOT NULL,
   ID_SERIE INT NOT NULL,
   SPOKEN_LANGUAGE VARCHAR(2) NOT NULL
+);
+
+CREATE TABLE T_WC_TMDB_MOVIE_TECHNICAL (
+  ID_ROW INT NOT NULL,
+  ID_MOVIE INT NOT NULL,
+  ID_TECHNICAL INT NOT NULL
 );
 
 ### Images about entities
@@ -430,8 +454,12 @@ CREATE TABLE T_WC_TMDB_SERIE_KEYWORD (
 - COUNTRY_OF_BIRTH is a lower case 2-letters country code
 - GENDER is 1 for female and 2 for male 
 - STATUS values are: Canceled, In Production, Planned, Post Production, Released, Rumored
-- The T_WC_TMDB_MOVIE_LANG table contains text info about movies in alternate languages, for instance in French if LANG = 'fr'. This table does not state that a movie with a 'fr' record is a French movie. 
-- It is the same for the T_WC_TMDB_SERIE_LANG table about tv series. 
+- The T_WC_TMDB_MOVIE_LANG table contains text info about movies in alternate languages, for instance in French if LANG = 'fr'. This table does not state that a movie with a 'fr' record is a French movie. This table just helps to find a movie by its French title when this movie is not French in the beginning. 
+- It is the same for the T_WC_TMDB_SERIE_LANG table about tv series. This table just helps to find a series by its French title when this series is not French in the beginning. 
+- The T_WC_MOVIE.ORIGINAL_TITLE is the original title of the movie in the language of the movie.
+- The T_WC_SERIE.ORIGINAL_TITLE is the original title of the series in the language of the series.
+- The T_WC_TMDB_COLLECTION_LANG table contains text info about collections in alternate languages, for instance in French if LANG = 'fr'. This table does not state that a collection with a 'fr' record is a French collection. This table just helps to find a collection by its French title when this collection is not French in the beginning. 
+- It is the same for the T_WC_TMDB_LIST_LANG table about lists. This table just helps to find a list by its French name when this list is not French in the beginning. 
 
 ### Result Columns
 
@@ -456,8 +484,23 @@ ID_COMPANY, NAME, DESCRIPTION, LOGO_PATH, HEADQUARTERS, ORIGIN_COUNTRY
 #### Networks – return:
 ID_NETWORK, NAME, LOGO_PATH, ORIGIN_COUNTRY
 
-#### Genres - return:
-id, name
+#### Movie images - return:
+IMAGE_PATH, TYPE_IMAGE, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT
+
+#### Serie images - return:
+IMAGE_PATH, TYPE_IMAGE, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT
+
+#### Collection images - return:
+IMAGE_PATH, TYPE_IMAGE, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT
+
+#### Company images - return:
+IMAGE_PATH, TYPE_IMAGE, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT
+
+#### Network images - return:
+IMAGE_PATH, TYPE_IMAGE, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT
+
+#### Person images - return:
+IMAGE_PATH, TYPE_IMAGE, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT
 
 ### Title Matching for movies
 - If the title is in English (ASCII only) → use T_WC_TMDB_MOVIE.TITLE
@@ -518,6 +561,63 @@ ORDER BY CASE WHEN T_WC_WIKIDATA_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END,
 10764: Reality, 10765: Sci-Fi & Fantasy, 10766: Soap, 10767: Talk, 
 10768: War & Politics
 
+### Film Format Reference for movies
+16 mm, 35 mm, 65 mm, 70 mm, dcp, digital
+
+### Aspect Ratio Reference for movies
+For instance: 1,37 2,35 1,85 1,33 1,66 2,39
+
+### Technical Reference for movies
+1: dolby
+2: stereo
+3: deluxe
+4: technicolor
+5: cinemascope
+6: panavision
+7: dts
+8: sdds
+9: mono
+10: technovision
+11: metrocolor
+12: super_35
+13: d_cinema
+14: 5.1
+15: eastmancolor
+16: vistavision
+17: western_electric
+18: westrex
+19: fujicolor
+20: photophone
+21: techniscope
+22: super_16
+23: agfacolor
+24: warnercolor
+25: arriflex
+26: panoramique
+27: 7.1
+28: ultra_panavision
+29: imax
+30: tobis_klangfilm
+31: panaflex
+32: technirama
+33: vitaphone
+34: perspecta
+35: tohoscope
+36: todd_ao
+37: colorfilm
+38: cinecolor
+39: sovcolor
+40: anscocolor
+41: pathécolor
+42: auro
+43: trucolor
+44: cinerama
+45: polyvision
+46: gevacolor
+47: movietone
+48: gasparcolor
+49: kodachrome
+
 ### Join Conditions
 - T_WC_TMDB_MOVIE.ID_WIKIDATA = T_WC_WIKIDATA_MOVIE.ID_WIKIDATA
 - T_WC_TMDB_PERSON.ID_WIKIDATA = T_WC_WIKIDATA_PERSON.ID_WIKIDATA
@@ -543,6 +643,11 @@ ORDER BY CASE WHEN T_WC_WIKIDATA_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END,
 - T_WC_TMDB_SERIE.ID_SERIE = T_WC_TMDB_SERIE_LIST.ID_SERIE
 - T_WC_TMDB_KEYWORD_ID_IMPORT.id = T_WC_TMDB_MOVIE_KEYWORD.ID_KEYWORD
 - T_WC_TMDB_KEYWORD_ID_IMPORT.id = T_WC_TMDB_SERIE_KEYWORD.ID_KEYWORD
+- T_WC_TMDB_MOVIE.ID_MOVIE = T_WC_MOVIE_LANG.ID_MOVIE
+- T_WC_TMDB_SERIE.ID_SERIE = T_WC_SERIE_LANG.ID_SERIE
+- T_WC_TMDB_COLLECTION.ID_COLLECTION = T_WC_COLLECTION_LANG.ID_COLLECTION
+- T_WC_TMDB_LIST.ID_LIST = T_WC_LIST_LANG.ID_LIST
+- T_WC_TMDB_MOVIE.ID_MOVIE = T_WC_TMDB_MOVIE_TECHNICAL.ID_MOVIE
 
 ---
 
