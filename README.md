@@ -21,8 +21,90 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 
 The API operates on a comprehensive entertainment database containing:
 - **Movies**: More than 620,000 entries
-- **Series**: More than 88,000 entries  
+- **Series**: More than 88,000 entries
 - **Persons**: More than 890,000 entries (actors, directors, crew members)
+
+## 🔄 Query Processing Pipeline
+
+The API implements a sophisticated multi-stage pipeline to efficiently convert natural language questions into SQL queries. The pipeline leverages multiple caching layers and entity extraction to maximize performance and accuracy:
+
+### Pipeline Steps
+
+1. **Exact Question Cache Lookup (SQL Database)**
+   - Search for the exact user question in the SQL cache (`T_WC_T2S_CACHE` table)
+   - If found, return the cached SQL query immediately
+   - This cache is also used for efficient pagination through result pages
+
+2. **Entity Extraction & Anonymization**
+   - If not found in exact cache, extract and anonymize entities from the user question using GPT-4o
+   - Entities extracted include:
+     - Person names (actors, directors, crew)
+     - Place names
+     - Movie titles
+     - TV series titles
+     - Company names
+     - Network names
+     - Years and temporal references
+   - Replace entities with placeholders (e.g., `{{PERSON_NAME}}`, `{{MOVIE_TITLE}}`)
+
+3. **Anonymized Question Cache Lookup (SQL Database)**
+   - Search for the anonymized question pattern in the SQL cache
+   - Enables reuse of SQL logic across similar questions with different entity values
+   - Example: "Movies with Brad Pitt" and "Movies with Tom Cruise" share the same anonymized pattern
+
+4. **Embeddings Cache Search (ChromaDB)**
+   - If not found in SQL caches, search for similar anonymized questions in the vector embeddings cache
+   - Uses semantic similarity matching with OpenAI's `text-embedding-3-large` model
+   - **Similarity threshold**: Distance < 0.1 (configurable)
+   - Returns cached SQL query if a sufficiently similar question is found
+
+5. **Entity Validation & Resolution**
+   - Validate and resolve each extracted entity using specialized SQL tables and ChromaDB collections:
+     - **Person names**: Search in `persons` collection/table
+     - **Places**: Search in relevant location tables
+     - **Movie titles**: Search in `movies` collection with multi-language support
+     - **TV series titles**: Search in `series` collection
+     - **Company names**: Search in `companies` collection
+     - **Network names**: Search in `networks` collection
+     - **Years**: Validate temporal references
+   - Vector similarity matching ensures fuzzy matching for misspellings and variations
+
+6. **Text-to-SQL Generation (LLM)**
+   - If no cache hit occurs, process the anonymized question through the LLM model
+   - Uses the prompt template from `data/` folder with comprehensive database schema
+   - GPT-4o generates a SQL query based on the anonymized question pattern
+   - This is the core text-to-SQL task
+
+7. **Query De-anonymization**
+   - Replace placeholders in the generated SQL query with actual validated entity values
+   - Apply parameters from the entity extraction step (person names, movie titles, etc.)
+   - Produce the complete, executable SQL query with proper SQL escaping
+
+8. **SQL Query Execution**
+   - Execute the final SQL query on the MariaDB/MySQL database
+   - Apply pagination parameters (page size, offset)
+   - Return the result set with timing metrics
+
+9. **Cache Population**
+   - **Exact question cache**: Save the original question and SQL query to `T_WC_T2S_CACHE` (if applicable)
+   - **Anonymized question cache**: Save the anonymized question and SQL pattern to SQL cache (if applicable)
+   - **Embeddings cache**: Save the anonymized question embedding and SQL query to ChromaDB for future semantic searches
+
+10. **Result Return**
+    - Return the result set to the client with comprehensive metadata:
+      - Generated SQL query
+      - Query results (paginated)
+      - Performance metrics (entity extraction time, text2SQL time, embeddings time, query execution time)
+      - Cache hit indicators
+      - Pagination information
+
+### Pipeline Benefits
+
+- **Performance**: Multi-tier caching dramatically reduces LLM API calls and processing time
+- **Accuracy**: Entity validation ensures correct matching even with misspellings
+- **Reusability**: Anonymization enables query pattern reuse across different entity values
+- **Scalability**: Vector embeddings enable semantic search across millions of questions
+- **Transparency**: Detailed timing metrics and cache indicators in every response
 
 ## 📋 Requirements
 
