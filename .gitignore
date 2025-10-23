@@ -62,3 +62,6 @@ logs/
 # Temporary files
 *.tmp
 *.temp
+
+global-light-secrets.inc.php
+citizenphilsecrets.py

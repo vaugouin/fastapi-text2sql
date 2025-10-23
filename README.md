@@ -4,11 +4,16 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 
 ## 🚀 Features
 
-- **Natural Language to SQL**: Convert plain English questions into SQL queries
+- **Natural Language to SQL**: Convert plain English questions into SQL queries using OpenAI's GPT-4o
 - **FastAPI Framework**: High-performance, modern Python web framework
 - **API Key Authentication**: Secure access with API key validation
-- **Comprehensive Logging**: Automatic logging of all API requests and responses
+- **ChromaDB Vector Search**: Advanced similarity search for entity matching and query optimization
+- **Entity Extraction**: Intelligent extraction and anonymization of entities (persons, movies, series, companies)
+- **Multi-Level Caching**: Three-tier caching system (exact questions, anonymized questions, vector embeddings)
+- **Comprehensive Logging**: Automatic logging of all API requests and responses with detailed timing metrics
 - **Memory Monitoring**: Built-in system memory usage tracking
+- **Pagination Support**: Built-in pagination with configurable page sizes
+- **Robust Error Handling**: Enhanced error handling for malformed responses and SQL escaping issues
 - **Docker Support**: Containerized deployment ready
 - **UTF-8 Support**: Proper handling of Unicode characters in queries and logs
 
@@ -23,6 +28,8 @@ The API operates on a comprehensive entertainment database containing:
 
 - Python 3.8+
 - OpenAI API key
+- ChromaDB server (for vector search functionality)
+- MariaDB/MySQL database
 - Dependencies listed in `requirements.txt`
 
 ## 🛠️ Installation
@@ -46,6 +53,21 @@ The API operates on a comprehensive entertainment database containing:
    API_KEY=your_api_key_here
    # OpenAI API Key for Text2SQL conversion
    OPENAI_API_KEY=your_openai_api_key_here
+   
+   # Database Configuration
+   DB_HOST=localhost
+   DB_PORT=3306
+   DB_USER=your_db_user
+   DB_PASSWORD=your_db_password
+   DB_NAME=your_database_name
+   
+   # ChromaDB Configuration
+   CHROMADB_HOST=localhost
+   CHROMADB_PORT=8000
+   
+   # API Port Configuration (Blue/Green deployment)
+   API_PORT_BLUE=8000
+   API_PORT_GREEN=8001
    ```
 
 ## 🚀 Usage
@@ -74,26 +96,82 @@ Returns a simple "Hello World" message to verify the API is running.
 
 #### 2. Text to SQL Conversion
 ```http
-GET /search/text2sql?text=your_natural_language_question
+POST /search/text2sql
 ```
 
 **Headers Required:**
 ```
 X-API-Key: your_api_key
+Content-Type: application/json
 ```
+
+**Request Body:**
+```json
+{
+  "question": "List all color movies with Humphrey Bogart",
+  "page": 1,
+  "retrieve_from_cache": true,
+  "store_to_cache": true,
+  "llm_model": "default"
+}
+```
+
+**Request Parameters:**
+- `question` (optional): Natural language question to convert to SQL
+- `question_hashed` (optional): SHA256 hash of a previously processed question for pagination
+- `page` (optional, default: 1): Page number for pagination
+- `disambiguation_data` (optional): Additional context for ambiguous queries
+- `retrieve_from_cache` (optional, default: true): Whether to check cache for existing results
+- `store_to_cache` (optional, default: true): Whether to store results in cache
+- `llm_model` (optional, default: "default"): LLM model to use
 
 **Example:**
 ```bash
-curl -X GET "http://localhost:8000/search/text2sql?text=List all color movies with Humphrey Bogart" \
-     -H "X-API-Key: your_api_key"
+curl -X POST "http://localhost:8000/search/text2sql" \
+     -H "X-API-Key: your_api_key" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "question": "List all color movies with Humphrey Bogart",
+       "page": 1,
+       "retrieve_from_cache": true,
+       "store_to_cache": true
+     }'
 ```
 
 **Response:**
 ```json
 {
-  "text": "List all color movies with Humphrey Bogart",
-  "sqlquery": "SELECT T_WC_TMDB_MOVIE.ID_MOVIE, T_WC_TMDB_MOVIE.TITLE, T_WC_TMDB_MOVIE.ORIGINAL_TITLE, CONCAT(T_WC_TMDB_MOVIE.RELEASE_YEAR, '-', T_WC_TMDB_MOVIE.RELEASE_MONTH, '-', T_WC_TMDB_MOVIE.RELEASE_DAY) AS DAT_RELEASE, T_WC_TMDB_MOVIE.ID_IMDB, T_WC_IMDB_MOVIE_RATING_IMPORT.averageRating, T_WC_TMDB_MOVIE.OVERVIEW, T_WC_TMDB_MOVIE.POSTER_PATH, T_WC_TMDB_MOVIE.ORIGINAL_LANGUAGE, T_WC_TMDB_MOVIE.RUNTIME, T_WC_TMDB_MOVIE.BUDGET, T_WC_TMDB_MOVIE.REVENUE, T_WC_TMDB_MOVIE.ID_WIKIDATA, T_WC_TMDB_MOVIE.ADULT, T_WC_TMDB_MOVIE.IS_COLOR, T_WC_TMDB_MOVIE.IS_BLACK_AND_WHITE, T_WC_TMDB_MOVIE.IS_SILENT, T_WC_TMDB_MOVIE.IS_MOVIE, T_WC_TMDB_MOVIE.IS_DOCUMENTARY, T_WC_TMDB_MOVIE.IS_SHORT_FILM, T_WC_TMDB_MOVIE.STATUS, T_WC_TMDB_MOVIE.POPULARITY, T_WC_TMDB_MOVIE.ID_COLLECTION FROM T_WC_TMDB_MOVIE JOIN T_WC_TMDB_PERSON_MOVIE ON T_WC_TMDB_MOVIE.ID_MOVIE = T_WC_TMDB_PERSON_MOVIE.ID_MOVIE JOIN T_WC_TMDB_PERSON ON T_WC_TMDB_PERSON_MOVIE.ID_PERSON = T_WC_TMDB_PERSON.ID_PERSON LEFT JOIN T_WC_IMDB_MOVIE_RATING_IMPORT ON T_WC_TMDB_MOVIE.ID_IMDB = T_WC_IMDB_MOVIE_RATING_IMPORT.tconst WHERE T_WC_TMDB_PERSON.NAME = 'Humphrey Bogart' AND T_WC_TMDB_MOVIE.ADULT = 0 AND T_WC_TMDB_MOVIE.IS_COLOR = 1 AND T_WC_TMDB_MOVIE.ID_IMDB IS NOT NULL AND T_WC_TMDB_MOVIE.ID_IMDB != '' ORDER BY DAT_RELEASE ASC;",
-  "processing_time": 1.23
+  "question": "List all color movies with Humphrey Bogart",
+  "question_hashed": "a1b2c3d4e5f6...",
+  "sql_query": "SELECT T_WC_T2S_MOVIE.ID_MOVIE, T_WC_T2S_MOVIE.TITLE... LIMIT 50",
+  "entity_extraction_processing_time": 0.45,
+  "text2sql_processing_time": 1.23,
+  "embeddings_processing_time": 0.12,
+  "embeddings_cache_search_time": 0.05,
+  "query_execution_time": 0.08,
+  "total_processing_time": 1.93,
+  "page": 1,
+  "llm_defined_limit": null,
+  "llm_defined_offset": null,
+  "limit": 50,
+  "offset": 0,
+  "rows_per_page": 50,
+  "cached_exact_question": false,
+  "cached_anonymized_question": false,
+  "cached_anonymized_question_embedding": false,
+  "ambiguous_question_for_text2sql": false,
+  "llm_model": "default",
+  "result": [
+    {
+      "index": 0,
+      "data": {
+        "ID_MOVIE": 488,
+        "TITLE": "The African Queen",
+        "RELEASE_YEAR": 1952,
+        "...": "..."
+      }
+    }
+  ]
 }
 ```
 
@@ -187,17 +265,23 @@ docker run -p 8000:8000 fastapi-text2sql
 
 ```
 fastapi-text2sql/
-├── main.py              # FastAPI application and endpoints
-├── text2sql.py          # Core text-to-SQL conversion logic
+├── main.py              # FastAPI application, endpoints, and ChromaDB integration
+├── text2sql.py          # Core text-to-SQL conversion and entity extraction logic
 ├── auth.py              # API key authentication
 ├── requirements.txt     # Python dependencies
 ├── Dockerfile          # Docker configuration
 ├── .env                # Environment variables (create this)
 ├── data/               # Prompt templates and configuration
 │   └── prompt-chatgpt-4o-1-0-10-20250728.txt  # Current prompt template
-├── logs/               # API usage logs (auto-created)
+├── logs/               # API usage logs with detailed timing metrics (auto-created)
 └── README.md           # This file
 ```
+
+**Key Architecture Components:**
+- **ChromaDB Integration**: Vector database for entity matching and similarity search
+- **Multi-Level Caching**: SQL cache + embeddings cache for performance optimization
+- **Entity Extraction**: GPT-4o powered entity recognition and anonymization
+- **Blue/Green Deployment**: Automatic port selection based on API version
 
 ## 🔧 Configuration
 
@@ -246,6 +330,58 @@ The template includes knowledge of famous film collections and trilogies like:
 
 This makes the API particularly powerful for film enthusiasts, researchers, and applications requiring sophisticated movie database queries.
 
+## 🚀 Advanced Features
+
+### Multi-Level Caching System
+
+The API implements a sophisticated three-tier caching system for optimal performance:
+
+#### 1. **Exact Question Cache (SQL Database)**
+- Stores exact question-to-SQL mappings in `T_WC_T2S_CACHE` table
+- Instant retrieval for previously asked questions
+- Includes processing time metrics and API version tracking
+- Supports both original and processed SQL queries
+
+#### 2. **Anonymized Question Cache (SQL Database)**  
+- Caches entity-extracted (anonymized) questions
+- Enables reuse of SQL logic across similar questions with different entity values
+- Example: "Movies with Brad Pitt" and "Movies with Tom Cruise" share the same anonymized pattern
+
+#### 3. **Vector Embeddings Cache (ChromaDB)**
+- Uses OpenAI's `text-embedding-3-large` model for semantic similarity
+- Finds similar questions even with different wording
+- Configurable similarity threshold (default: 0.1)
+- Stores anonymized SQL queries in metadata for quick retrieval
+
+### Entity Extraction & Anonymization
+
+The system intelligently extracts and replaces entities in natural language questions:
+
+- **Person Names**: Actors, directors, crew members
+- **Movie Titles**: English, French, and original language titles  
+- **TV Series Titles**: Series names in multiple languages
+- **Company Names**: Production companies and studios
+- **Network Names**: TV networks and streaming platforms
+- **Topic Names**: Genres, themes, and categories
+
+**Process Flow:**
+1. Extract entities from user question using GPT-4o
+2. Replace entities with placeholders (e.g., `{{PERSON_NAME}}`)
+3. Check cache for anonymized question pattern
+4. Generate SQL if not cached
+5. Replace placeholders with actual entity values using vector search
+
+### Vector Search Integration
+
+ChromaDB collections for entity matching:
+- `persons`: Actor/director/crew member embeddings
+- `movies`: Movie title embeddings (multiple languages)
+- `series`: TV series title embeddings
+- `companies`: Production company embeddings  
+- `networks`: TV network embeddings
+- `topics`: Genre/theme embeddings
+- `anonymizedqueries`: Cached anonymized question patterns
+
 ### Logging
 All API requests are automatically logged to the `logs/` folder with:
 - Timestamp
@@ -266,22 +402,81 @@ All API requests are automatically logged to the `logs/` folder with:
 
 1. **Missing OpenAI API Key**
    - Ensure your `.env` file contains a valid `OPENAI_API_KEY`
+   - Check that your OpenAI account has sufficient credits
 
 2. **Authentication Errors**
    - Verify you're sending the correct API key in the `X-API-Key` header
+   - Ensure `Content-Type: application/json` is set for POST requests
 
-3. **Memory Issues**
+3. **Database Connection Issues**
+   - Verify database credentials in `.env` file
+   - Ensure MariaDB/MySQL server is running and accessible
+   - Check that the database contains the required tables (`T_WC_T2S_CACHE`, etc.)
+
+4. **ChromaDB Connection Issues**
+   - Ensure ChromaDB server is running on the configured host/port
+   - Check `CHROMADB_HOST` and `CHROMADB_PORT` in `.env` file
+   - Verify ChromaDB collections are properly initialized
+
+5. **Entity Extraction Failures**
+   - The system includes fallback mechanisms for malformed OpenAI responses
+   - Check logs for JSON parsing errors and API response issues
+   - Entity extraction will fall back to original question if extraction fails
+
+6. **SQL Escaping Issues**
+   - The system now properly handles single quotes in movie titles (e.g., "The King's Speech")
+   - Uses proper SQL escaping (`''` instead of `\'`) for parameterized queries
+
+7. **Memory Issues**
    - The application monitors system memory and will display usage on startup
+   - Large embedding operations may require additional memory
+
+8. **Cache Performance**
+   - Monitor cache hit rates in response fields (`cached_exact_question`, etc.)
+   - Clear ChromaDB collections if embeddings become stale
+   - Check `T_WC_T2S_CACHE` table for SQL cache entries
 
 ### Logs
-Check the `logs/` folder for detailed request/response logs if you encounter issues.
+Check the `logs/` folder for detailed request/response logs with comprehensive timing metrics if you encounter issues. Each log file includes:
+- Entity extraction processing time
+- Text2SQL conversion time  
+- Embeddings processing time
+- Query execution time
+- Cache hit/miss information
 
 ## 📝 API Response Format
 
-All successful text2sql requests return:
-- `text`: The original natural language question
-- `sqlquery`: The generated SQL query
-- `processing_time`: Time taken to process the request and produce the SQL query (in seconds)
+All successful text2sql requests return a comprehensive response with:
+
+**Core Fields:**
+- `question`: The original natural language question
+- `question_hashed`: SHA256 hash of the question for pagination/caching
+- `sql_query`: The generated and optimized SQL query
+- `result`: Array of query results with index and data
+
+**Performance Metrics:**
+- `entity_extraction_processing_time`: Time for entity extraction (seconds)
+- `text2sql_processing_time`: Time for SQL generation (seconds)
+- `embeddings_processing_time`: Time for vector search operations (seconds)
+- `embeddings_cache_search_time`: Time for embeddings cache lookup (seconds)
+- `query_execution_time`: Time for SQL execution (seconds)
+- `total_processing_time`: Total request processing time (seconds)
+
+**Pagination:**
+- `page`: Current page number
+- `limit`: Records per page
+- `offset`: Current offset
+- `rows_per_page`: Configured page size
+- `llm_defined_limit`/`llm_defined_offset`: LLM-specified pagination (if any)
+
+**Cache Indicators:**
+- `cached_exact_question`: Whether exact question was found in cache
+- `cached_anonymized_question`: Whether anonymized question was cached
+- `cached_anonymized_question_embedding`: Whether similar question found via embeddings
+- `ambiguous_question_for_text2sql`: Whether question was too ambiguous for SQL generation
+
+**Configuration:**
+- `llm_model`: LLM model used for processing
 
 ## 🤝 Contributing
 

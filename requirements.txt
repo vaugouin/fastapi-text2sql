@@ -1,15 +1,17 @@
 # Core dependencies
-numpy
-pandas
-fastapi
-uvicorn
-psutil
-pymysql
+pandas>=1.5.0
+numpy>=1.24.0
+fastapi>=0.104.1
+uvicorn>=0.24.0
+psutil>=5.9.0
+pymysql>=1.0.2
 
 # API and authentication
 openai>=1.0.0
-python-dotenv
+python-dotenv>=1.0.0
 
 # LangChain components (used for prompts)
-langchain-core
+langchain-core>=0.0.266
 langchain-openai
+
+chromadb>=0.4.0
