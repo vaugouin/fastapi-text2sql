@@ -39,12 +39,10 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    - If not found in exact cache, extract and anonymize entities from the user question using GPT-4o
    - Entities extracted include:
      - Person names (actors, directors, crew)
-     - Place names
      - Movie titles
      - TV series titles
      - Company names
      - Network names
-     - Years and temporal references
    - Replace entities with placeholders (e.g., `{{PERSON_NAME}}`, `{{MOVIE_TITLE}}`)
 
 3. **Anonymized Question Cache Lookup (SQL Database)**
@@ -61,12 +59,10 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 5. **Entity Validation & Resolution**
    - Validate and resolve each extracted entity using specialized SQL tables and ChromaDB collections:
      - **Person names**: Search in `persons` collection/table
-     - **Places**: Search in relevant location tables
      - **Movie titles**: Search in `movies` collection with multi-language support
      - **TV series titles**: Search in `series` collection
      - **Company names**: Search in `companies` collection
      - **Network names**: Search in `networks` collection
-     - **Years**: Validate temporal references
    - Vector similarity matching ensures fuzzy matching for misspellings and variations
 
 6. **Text-to-SQL Generation (LLM)**
@@ -202,7 +198,6 @@ Content-Type: application/json
 - `question` (optional): Natural language question to convert to SQL
 - `question_hashed` (optional): SHA256 hash of a previously processed question for pagination
 - `page` (optional, default: 1): Page number for pagination
-- `disambiguation_data` (optional): Additional context for ambiguous queries
 - `retrieve_from_cache` (optional, default: true): Whether to check cache for existing results
 - `store_to_cache` (optional, default: true): Whether to store results in cache
 - `llm_model` (optional, default: "default"): LLM model to use
@@ -347,14 +342,15 @@ docker run -p 8000:8000 fastapi-text2sql
 
 ```
 fastapi-text2sql/
-├── main.py              # FastAPI application, endpoints, and ChromaDB integration
-├── text2sql.py          # Core text-to-SQL conversion and entity extraction logic
-├── auth.py              # API key authentication
-├── requirements.txt     # Python dependencies
+├── main.py             # FastAPI application, endpoints, and ChromaDB integration
+├── text2sql.py         # Core text-to-SQL conversion and entity extraction logic
+├── auth.py             # API key authentication
+├── requirements.txt    # Python dependencies
 ├── Dockerfile          # Docker configuration
 ├── .env                # Environment variables (create this)
 ├── data/               # Prompt templates and configuration
-│   └── prompt-chatgpt-4o-1-0-10-20250728.txt  # Current prompt template
+│   ├── entity-extraction-chatgpt-4o-1-1-4-20251008.txt # Entity extraction prompt template
+│   └── prompt-chatgpt-4o-1-1-4-20251008.txt # Text2SQL prompt template
 ├── logs/               # API usage logs with detailed timing metrics (auto-created)
 └── README.md           # This file
 ```
