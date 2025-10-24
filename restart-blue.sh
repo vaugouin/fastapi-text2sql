@@ -7,7 +7,6 @@ clear
 docker build -t fastapi-text2sql-blue-app .
 #docker run -it --rm --network="host" -v $(pwd):/app --name fastapi-text2sql-blue fastapi-text2sql-blue-app
 docker run -d --rm --network="host" -v $(pwd):/app --name fastapi-text2sql-blue fastapi-text2sql-blue-app
-#-p 8186:8000
 
 docker ps --filter "name=fastapi-text2sql-blue"
 

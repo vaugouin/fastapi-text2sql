@@ -65,3 +65,4 @@ logs/
 
 global-light-secrets.inc.php
 citizenphilsecrets.py
+test_api.php
