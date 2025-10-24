@@ -195,12 +195,15 @@ Content-Type: application/json
 ```
 
 **Request Parameters:**
-- `question` (optional): Natural language question to convert to SQL
-- `question_hashed` (optional): SHA256 hash of a previously processed question for pagination
-- `page` (optional, default: 1): Page number for pagination
-- `retrieve_from_cache` (optional, default: true): Whether to check cache for existing results
-- `store_to_cache` (optional, default: true): Whether to store results in cache
-- `llm_model` (optional, default: "default"): LLM model to use
+- `question` (optional, str): Natural language question to convert to SQL
+- `question_hashed` (optional, str): SHA256 hash of a previously processed question for pagination
+- `page` (optional, int, default: 1): Page number for pagination
+- `disambiguation_data` (optional, dict): Flexible structure for disambiguation data
+- `retrieve_from_cache` (optional, bool, default: true): Whether to check cache for existing results
+- `store_to_cache` (optional, bool, default: true): Whether to store results in cache
+- `llm_model` (optional, str, default: "default"): LLM model to use
+
+**Note:** Either `question` or `question_hashed` must be provided.
 
 **Example:**
 ```bash
@@ -250,6 +253,30 @@ curl -X POST "http://localhost:8000/search/text2sql" \
     }
   ]
 }
+```
+
+**Response Fields:**
+- `question` (str): The original or retrieved natural language question
+- `question_hashed` (str, optional): SHA256 hash of the question for pagination/caching
+- `sql_query` (str): The generated and optimized SQL query
+- `entity_extraction_processing_time` (float): Time for entity extraction in seconds
+- `text2sql_processing_time` (float): Time for SQL generation in seconds
+- `embeddings_processing_time` (float): Time for vector search operations in seconds
+- `embeddings_cache_search_time` (float): Time for embeddings cache lookup in seconds
+- `query_execution_time` (float): Time for SQL execution in seconds
+- `total_processing_time` (float): Total request processing time in seconds
+- `page` (int, optional): Current page number
+- `llm_defined_limit` (int, optional): LLM-specified limit if any
+- `llm_defined_offset` (int, optional): LLM-specified offset if any
+- `limit` (int, optional): Records per page
+- `offset` (int, optional): Current offset
+- `rows_per_page` (int, optional): Configured page size (default: 50)
+- `cached_exact_question` (bool): Whether exact question was found in cache
+- `cached_anonymized_question` (bool): Whether anonymized question was cached
+- `cached_anonymized_question_embedding` (bool): Whether similar question found via embeddings
+- `ambiguous_question_for_text2sql` (bool): Whether question was too ambiguous for SQL generation
+- `llm_model` (str): LLM model used for processing
+- `result` (list): Array of query results, each with `index` (int) and `data` (dict)
 ```
 
 ## 💡 Sample Usage Examples
@@ -342,24 +369,28 @@ docker run -p 8000:8000 fastapi-text2sql
 
 ```
 fastapi-text2sql/
-├── main.py             # FastAPI application, endpoints, and ChromaDB integration
-├── text2sql.py         # Core text-to-SQL conversion and entity extraction logic
-├── auth.py             # API key authentication
-├── requirements.txt    # Python dependencies
-├── Dockerfile          # Docker configuration
-├── .env                # Environment variables (create this)
-├── data/               # Prompt templates and configuration
-│   ├── entity-extraction-chatgpt-4o-1-1-4-20251008.txt # Entity extraction prompt template
-│   └── prompt-chatgpt-4o-1-1-4-20251008.txt # Text2SQL prompt template
-├── logs/               # API usage logs with detailed timing metrics (auto-created)
-└── README.md           # This file
+├── main.py                  # FastAPI application, endpoints, and ChromaDB integration
+├── text2sql.py              # Core text-to-SQL conversion and entity extraction logic
+├── auth.py                  # API key authentication middleware
+├── requirements.txt         # Python dependencies
+├── Dockerfile               # Docker configuration for containerized deployment
+├── .env.example             # Example environment variables template
+├── .env                     # Environment variables (create from .env.example)
+├── LICENSE                  # Project license file
+├── restart-blue.sh          # Blue deployment restart script
+├── restart-green.sh         # Green deployment restart script
+├── data/                    # Prompt templates and configuration
+│   ├── entity-extraction-chatgpt-4o-1-1-4-20251008.txt  # Entity extraction prompt
+│   └── prompt-chatgpt-4o-1-1-4-20251008.txt              # Text2SQL prompt
+├── logs/                    # API usage logs with timing metrics (auto-created)
+└── README.md                # This file
 ```
 
 **Key Architecture Components:**
 - **ChromaDB Integration**: Vector database for entity matching and similarity search
 - **Multi-Level Caching**: SQL cache + embeddings cache for performance optimization
 - **Entity Extraction**: GPT-4o powered entity recognition and anonymization
-- **Blue/Green Deployment**: Automatic port selection based on API version
+- **Blue/Green Deployment**: Automatic port selection based on API version (even: port 8000, odd: port 8001)
 
 ## 🔧 Configuration
 
