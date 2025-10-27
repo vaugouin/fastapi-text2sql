@@ -22,7 +22,7 @@ import chromadb
 load_dotenv()
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.4"
+strapiversion = "1.1.5"
 # Convert API version to XXX.YYY.ZZZ format
 version_parts = strapiversion.split('.')
 strapiversionformatted = f"{int(version_parts[0]):03d}.{int(version_parts[1]):03d}.{int(version_parts[2]):03d}"
@@ -118,6 +118,8 @@ anonymizedqueries = chroma_client.get_or_create_collection(
 )
 
 lngrowsperpage=50
+#similarity_threshold = 0.1
+similarity_threshold = 0.2
 
 app = FastAPI(title="Text2SQL API", version=strapiversion, description="Text2SQL API for text to SQL query conversion")
 
@@ -390,7 +392,7 @@ LIMIT 1 """
                         print(f"Found similar anonymized question in embeddings cache with distance: {distance}")
                         
                         # Use a similarity threshold (e.g., distance < 0.1 for very similar questions)
-                        similarity_threshold = 0.1
+                        
                         if distance < similarity_threshold:
                             print("Distance is below threshold, using cached result")
                             cached_anonymized_question_embedding = True
@@ -492,12 +494,25 @@ LIMIT 1 """
                         print("fieldname_value:", fieldname_value)
                         fieldname_value_escaped = fieldname_value.replace("'", "''")
                         print("Value escaped:", fieldname_value_escaped)
+                        sql_query_results = None
+                        """
+                        print("Looking for SQL query results")
                         cursor.execute(strsql_query, (fieldname_value_escaped,))
                         sql_query_results = cursor.fetchall()
                         #print("SQL query results:", sql_query_results)
+                        """
                         
                         # If query returned one or more records, read PERSON_NAME from first record
                         if sql_query_results:
+                            """
+                            This code is disabled because it is more pertinent to always use embeddings and not rely on exaxt SQL search 
+                            first because when searching "movie le bonheur", for instance, if "le bonheur" was found in the MOVIE_TITLE 
+                            field by SQL, it would have the final SQL query looking for "Le Bonheur" which is a French title with a condition
+                            on the MOVIE_TITLE column which is for the movies English title 
+                            In this case, that final result for "movie le bonheur" would find only two movies (MOVIE_TITLE = "Le Bonheur") 
+                            and when searching in the MOVIE_TITLE_FR column (French title), it would find 4 movies which is more relevant 
+                            (MOVIE_TITLE_FR = "Le Bonheur")
+                            
                             first_record = sql_query_results[0]
                             first_record_value = first_record.get(strfieldname, '')
                             first_record_value_escaped = first_record_value.replace("'", "''")
@@ -506,8 +521,9 @@ LIMIT 1 """
                             # Replace the original person_name in sql_query with first_person_name
                             sql_query = sql_query.replace(f"{strfieldname} = '{fieldname_value_escaped}'", f"{strfieldname} = '{first_record_value_escaped}'")
                             print(f"Updated SQL query with actual {strfieldname}")
+                            """
                         else:
-                            print(f"No records found with SQL for {strfieldname}: {fieldname_value}")
+                            print(f"Not looking for SQL query results or no records found with SQL for {strfieldname}: {fieldname_value}")
                             # Query ChromaDB using a text-based search with the correct collection
                             start_time_chromadb = time.time()
                             #print("Selecting the vector database")
@@ -528,6 +544,7 @@ LIMIT 1 """
                                 docid = parts[1]
                                 doclang = parts[2]
                                 strfieldnamenew = strfieldname
+                                print("first_record_id", first_record_id, docentity, docid, doclang)
                                 if strfieldname == "MOVIE_TITLE":
                                     if doclang == "en":
                                         strfieldnamenew = "MOVIE_TITLE"
@@ -542,13 +559,18 @@ LIMIT 1 """
                                         strfieldnamenew = "SERIE_TITLE_FR"
                                     else:
                                         strfieldnamenew = "ORIGINAL_TITLE"
+                                print("strfieldnamenew =", strfieldnamenew)
                                 
                                 #first_record_value = results['documents'][0][0]
                                 strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strtableid + " = %s"
+                                print("strsql_query =", strsql_query, docid)
                                 cursor.execute(strsql_query, (docid,))
                                 sql_query_results = cursor.fetchall()
                                 first_record = sql_query_results[0]
+                                print("first_record:", first_record)
+                                print("get", strfieldnamenew)
                                 first_record_value = first_record.get(strfieldnamenew, '')
+                                print("first_record_value:", first_record_value)
                                 # Escape single quotes for SQL integration
                                 first_record_value_escaped = first_record_value.replace("'", "''")
                                 print("First record value escaped:", first_record_value_escaped)
@@ -559,6 +581,7 @@ LIMIT 1 """
                                 print(f"First result ID: {first_record_id}")
                                 print(f"{strfieldname}: {first_record_value}")
                                 print(f"Distance: {results['distances'][0][0]:.4f}")
+                                print(f"{strfieldname} = '{fieldname_value_escaped}'", f"{strfieldnamenew} = '{first_record_value_escaped}'")
                                 sql_query = sql_query.replace(f"{strfieldname} = '{fieldname_value_escaped}'", f"{strfieldnamenew} = '{first_record_value_escaped}'")
                                 print(f"Updated SQL query with actual {strfieldname}")
     embeddings_end_time = time.time()
@@ -628,8 +651,8 @@ LIMIT 1 """
 INSERT INTO T_WC_T2S_CACHE 
 (QUESTION, QUESTION_HASHED, SQL_QUERY, SQL_PROCESSED, API_VERSION, 
 ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME, TOTAL_PROCESSING_TIME, 
-DELETED, DAT_CREAT, TIM_UPDATED) 
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW())
+DELETED, DAT_CREAT, TIM_UPDATED, IS_ANONYMIZED) 
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 0)
 """
                 print("Insert query:", insert_query)
                 # Use the actual measured query execution time
@@ -657,8 +680,8 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW())
 INSERT INTO T_WC_T2S_CACHE 
 (QUESTION, QUESTION_HASHED, SQL_QUERY, SQL_PROCESSED, API_VERSION, 
 ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME, TOTAL_PROCESSING_TIME, 
-DELETED, DAT_CREAT, TIM_UPDATED) 
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW())
+DELETED, DAT_CREAT, TIM_UPDATED, IS_ANONYMIZED) 
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
 """
                 print("Insert query:", insert_query)
                 # Use the actual measured query execution time
