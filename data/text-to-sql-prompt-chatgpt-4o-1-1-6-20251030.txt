@@ -292,7 +292,7 @@ Topics are comprehensive collections stored in T_WC_T2S_TOPIC and include:
 - Roger Ebert's Great Movies
 
 #### Other Topics
-Topics can also include thematic collections or other curated group of films.
+Topics can also include thematic collections, movies about a specific topic, or other curated group of films.
 
 CREATE TABLE T_WC_T2S_TOPIC (
   ID_TOPIC INT NOT NULL,

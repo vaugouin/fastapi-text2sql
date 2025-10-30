@@ -22,7 +22,7 @@ import chromadb
 load_dotenv()
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.5"
+strapiversion = "1.1.6"
 # Convert API version to XXX.YYY.ZZZ format
 version_parts = strapiversion.split('.')
 strapiversionformatted = f"{int(version_parts[0]):03d}.{int(version_parts[1]):03d}.{int(version_parts[2]):03d}"
@@ -150,7 +150,6 @@ class Text2SQLRequest(BaseModel):
     question: Optional[str] = None
     question_hashed: Optional[str] = None  # For pagination/disambiguation
     page: Optional[int] = 1
-    disambiguation_data: Optional[dict] = None  # Flexible structure
     retrieve_from_cache: bool = True
     store_to_cache: bool = True
     llm_model: Optional[str] = "default"
@@ -303,7 +302,7 @@ LIMIT 1 """
                 sql_query = cache_result_exact['SQL_PROCESSED'] or cache_result_exact['SQL_QUERY']
                 # Because the SQL query can be updated in the t2scache.php back-office script,
                 # we need to replace &#039; by ' because the back-office script stores &#039; instead of ' in the database
-                sql_query = sql_query.replace("&#039;", "'")
+                #sql_query = sql_query.replace("&#039;", "'")
                 #entity_extraction_processing_time = cache_result_exact['ENTITY_EXTRACTION_PROCESSING_TIME']
                 #text2sql_processing_time = cache_result_exact['TEXT2SQL_PROCESSING_TIME']
                 #embeddings_processing_time = cache_result_exact['EMBEDDINGS_TIME']
@@ -362,7 +361,7 @@ LIMIT 1 """
                 sql_query = cache_result_anonymized['SQL_PROCESSED'] or cache_result_anonymized['SQL_QUERY']
                 # Because the SQL query can be updated in the t2scache.php back-office script,
                 # we need to replace &#039; by ' because the back-office script stores &#039; instead of ' in the database
-                sql_query = sql_query.replace("&#039;", "'")
+                #sql_query = sql_query.replace("&#039;", "'")
                 sql_query_anonymized = sql_query
                 #entity_extraction_processing_time = cache_result_anonymized['ENTITY_EXTRACTION_PROCESSING_TIME']
                 #text2sql_processing_time = cache_result_anonymized['TEXT2SQL_PROCESSING_TIME']
@@ -631,7 +630,8 @@ LIMIT 1 """
                     })
             except Exception as e:
                 print(f"Database operation failed: {e}")
-                query_results = [{"error": str(e)}]
+                # Database errors not returned directly to clients
+                # query_results = [{"error": str(e)}]
         query_end_time = time.time()
         query_execution_time = query_end_time - query_start_time
     
@@ -703,7 +703,7 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
                 cursor2.close()
         
         if request.store_to_cache and not cached_anonymized_question_embedding and input_text_anonymized:
-            strdocid = hashlib.md5(input_text_anonymized.encode('utf-8')).hexdigest()
+            strdocid = hashlib.sha256(input_text_anonymized.encode('utf-8')).hexdigest()
             print("Anonymized query ID:", strdocid)
             existing_doc = anonymizedqueries.get(ids=[strdocid])
             if existing_doc and existing_doc['ids']:

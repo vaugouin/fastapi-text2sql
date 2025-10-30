@@ -198,7 +198,6 @@ Content-Type: application/json
 - `question` (optional, str): Natural language question to convert to SQL
 - `question_hashed` (optional, str): SHA256 hash of a previously processed question for pagination
 - `page` (optional, int, default: 1): Page number for pagination
-- `disambiguation_data` (optional, dict): Flexible structure for disambiguation data
 - `retrieve_from_cache` (optional, bool, default: true): Whether to check cache for existing results
 - `store_to_cache` (optional, bool, default: true): Whether to store results in cache
 - `llm_model` (optional, str, default: "default"): LLM model to use
