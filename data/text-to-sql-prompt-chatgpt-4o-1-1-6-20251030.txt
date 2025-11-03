@@ -405,7 +405,7 @@ CREATE TABLE T_WC_T2S_SERIE_KEYWORD (
 - SERIE_TITLE is the main title of the tv serie. Always use this field to search for a serie by its title 
 - PERSON_NAME is the name of the person. Always use this field to search for a person by her/his name
 - DAT_RELEASE is the release date of the movie which is also expressed in the RELEASE_YEAR, RELEASE_MONTH and RELEASE_DAY fields
-- ORIGINAL_LANGUAGE and SPOKEN_LANGUAGE is a lower case 2-letters language code telling the spoken language in a movie or serie
+- ORIGINAL_LANGUAGE, SPOKEN_LANGUAGE and LANG is a lower case 2-letters language code telling the spoken language in a movie or serie
 - RUNTIME is the movie duration in minutes 
 - IS_SHORT_FILM is a boolean value telling if the movie is a short film, so with a duration below 58 minutes
 - IS_COLOR is a boolean value telling if the movie is in color

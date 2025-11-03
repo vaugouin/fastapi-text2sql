@@ -117,9 +117,17 @@ anonymizedqueries = chroma_client.get_or_create_collection(
     embedding_function=embedding_function  # Custom embedding model
 )
 
-lngrowsperpage=50
+# How many rows per page in the result set
+lngrowsperpage = 50
 #similarity_threshold = 0.1
-similarity_threshold = 0.2
+"""
+Similarity 0.2 is too wide because the following queries are deemed similar:
+Movies with Humphrey Bogart
+Movies with Humphrey Bogart and Lauren Bacall
+Which is wrong
+"""
+#similarity_threshold = 0.2  
+similarity_threshold = 0.15
 
 app = FastAPI(title="Text2SQL API", version=strapiversion, description="Text2SQL API for text to SQL query conversion")
 
@@ -164,6 +172,7 @@ class Text2SQLResponse(BaseModel):
     question: str
     question_hashed: Optional[str] = None
     sql_query: str
+    #entity_extraction: Optional[dict] = None
     entity_extraction_processing_time: float
     text2sql_processing_time: float
     embeddings_processing_time: float
@@ -350,8 +359,6 @@ LIMIT 1 """
                 cursor.execute(cache_query, (input_text_anonymized, strapiversionformatted))
                 #print("Cache query executed")
                 cache_result_anonymized = cursor.fetchone()
-                if not cache_result_anonymized:
-                    print("Anonymized question not found in the SQL cache")
             
             if cache_result_anonymized:
                 # Found anonymized question in the SQL cache so we retrieved the question in cache and the SQL query
@@ -374,10 +381,20 @@ LIMIT 1 """
                 # Search for similar anonymized questions in the embeddings cache
                 embeddings_cache_start_time = time.time()
                 try:
+                    # Extract entity variable names from the entity_extraction dictionary
+                    entity_variables = []
+                    if isinstance(entity_extraction, dict) and 'error' not in entity_extraction:
+                        # Extract all entity variable names (e.g., Person_name1, Person_name2)
+                        entity_variables = [key for key in entity_extraction.keys() if key != 'question']
+                        print(f"Entity variables to match: {entity_variables}")
+                    
                     print(f"Searching embeddings cache for: {input_text_anonymized}")
+                    
+                    # First, get more results to filter through
+                    n_results_to_fetch = 10  # Get more results initially
                     embedding_results = anonymizedqueries.query(
                         query_texts=[input_text_anonymized],
-                        n_results=1,
+                        n_results=n_results_to_fetch,
                         include=['documents', 'metadatas', 'distances']
                     )
                     embeddings_cache_end_time = time.time()
@@ -386,18 +403,40 @@ LIMIT 1 """
                     print(f"Embeddings cache search completed in {embeddings_cache_search_time:.4f} seconds")
                     
                     if embedding_results['documents'][0] and len(embedding_results['documents'][0]) > 0:
-                        # Found similar question in embeddings cache
-                        distance = embedding_results['distances'][0][0]
-                        print(f"Found similar anonymized question in embeddings cache with distance: {distance}")
+                        # Filter results to find ones that contain all required entity variables
+                        valid_result_found = False
+                        valid_result_index = -1
                         
-                        # Use a similarity threshold (e.g., distance < 0.1 for very similar questions)
+                        for i in range(len(embedding_results['documents'][0])):
+                            document = embedding_results['documents'][0][i]
+                            distance = embedding_results['distances'][0][i]
+                            
+                            # Extract entity variables from the document using regex
+                            doc_entity_vars = re.findall(r'{{(\w+\d*)}}', document)
+                            print(f"Result {i}: document='{document}', distance={distance}, vars={doc_entity_vars}")
+                            
+                            # Check if all required entity variables are present in this document
+                            if all(var in doc_entity_vars for var in entity_variables):
+                                # Also check if distance is below threshold
+                                if distance < similarity_threshold:
+                                    print(f"Found valid result at index {i} with all required variables and acceptable distance")
+                                    valid_result_found = True
+                                    valid_result_index = i
+                                    break
+                                else:
+                                    print(f"Result {i} has all variables but distance {distance} exceeds threshold {similarity_threshold}")
+                            else:
+                                missing_vars = [var for var in entity_variables if var not in doc_entity_vars]
+                                print(f"Result {i} missing variables: {missing_vars}")
                         
-                        if distance < similarity_threshold:
-                            print("Distance is below threshold, using cached result")
+                        if valid_result_found:
+                            # Use the valid result
+                            distance = embedding_results['distances'][0][valid_result_index]
+                            print(f"Using valid anonymized question from embeddings cache with distance: {distance}")
                             cached_anonymized_question_embedding = True
                             
                             # Extract SQL query from metadata
-                            metadata = embedding_results['metadatas'][0][0]
+                            metadata = embedding_results['metadatas'][0][valid_result_index]
                             if 'sql_query_anonymized' in metadata:
                                 sql_query = metadata['sql_query_anonymized']
                                 sql_query_anonymized = sql_query
@@ -406,7 +445,7 @@ LIMIT 1 """
                                 print("Warning: No sql_query_anonymized found in metadata")
                                 cached_anonymized_question_embedding = False
                         else:
-                            print(f"Distance {distance} is above threshold {similarity_threshold}, not using cached result")
+                            print("No results found with all required entity variables and acceptable distance")
                     else:
                         print("No similar questions found in embeddings cache")
                         
@@ -709,18 +748,24 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
             if existing_doc and existing_doc['ids']:
                 print("Anonymized question already exists in the embeddings cache")
             else:
+                # Extract entity variables for metadata
+                entity_vars_for_metadata = []
+                if isinstance(entity_extraction, dict) and 'error' not in entity_extraction:
+                    entity_vars_for_metadata = [key for key in entity_extraction.keys() if key != 'question']
+                
                 anonymizedqueries.add(
                     ids=[strdocid],
                     documents=[input_text_anonymized],
                     metadatas=[{
                             "sql_query_anonymized": sql_query_anonymized,
                             "api_version": strapiversionformatted,
+                            "entity_variables": ",".join(entity_vars_for_metadata),  # Store as comma-separated string
                             "entity_extraction_processing_time": entity_extraction_processing_time,
                             "text2sql_processing_time": text2sql_processing_time,
                             "dat_creat": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     }]
                 )
-                print("Anonymized question added to the embeddings cache with the anonymized SQL query")
+                print(f"Anonymized question added to embeddings cache with entity variables: {entity_vars_for_metadata}")
     
     connection.close()
     
@@ -732,10 +777,17 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
     # Compute the final global processing time with also the write cache operations (SQL and embeddings)
     total_end_time = time.time()
     total_processing_time = total_end_time - total_start_time
+    """
+    # Prepare entity_extraction for response (exclude 'question' field and handle errors)
+    response_entity_extraction = None
+    if isinstance(entity_extraction, dict) and 'error' not in entity_extraction:
+        response_entity_extraction = {k: v for k, v in entity_extraction.items() if k != 'question'}
+    """
     response = Text2SQLResponse(
         question=input_text,
         question_hashed=response_question_hash,
         sql_query=sql_query,
+        #entity_extraction=response_entity_extraction,
         entity_extraction_processing_time=entity_extraction_processing_time,
         text2sql_processing_time=text2sql_processing_time,
         embeddings_processing_time=embeddings_processing_time,

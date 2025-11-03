@@ -242,7 +242,15 @@ Output:
 {
   "question": "What movies used the Technicolor technology?"
 }
-Do not extract entities from this question about technical specifications.
+Do not extract entities about technical specifications.
+
+#### Example 10: Query about language or country
+Input: "What are Japanese speaking movies?"
+Output:
+{
+  "question": "What are Japanese speaking movies?"
+}
+Do not extract entities about language or country from this question.
 
 ## ? Schema (Read-Only)
 
