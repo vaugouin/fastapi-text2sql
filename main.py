@@ -131,8 +131,19 @@ similarity_threshold = 0.15
 
 app = FastAPI(title="Text2SQL API", version=strapiversion, description="Text2SQL API for text to SQL query conversion")
 
-# Database connection function
 def get_db_connection():
+    """Establish and return a database connection to MySQL.
+    
+    Reads database configuration from environment variables and creates
+    a PyMySQL connection with DictCursor for dictionary-based results.
+    
+    Returns:
+        pymysql.Connection: Database connection object with DictCursor
+        
+    Raises:
+        pymysql.Error: If database connection fails
+        ValueError: If required environment variables are missing
+    """
     strdbhost = os.getenv('DB_HOST')
     lngdbport = int(os.getenv('DB_PORT', 3306))
     strdbuser = os.getenv('DB_USER')
@@ -198,6 +209,18 @@ class ResultItem(BaseModel):
 LOGS_FOLDER = "logs"
 
 def f_getlogfilename(endpoint, contenttext):
+    """Generate a unique log filename based on endpoint, timestamp, and content hash.
+    
+    Creates a filename in the format: YYYYMMDD-HHMMSS_endpoint_version_hash.json
+    Ensures the logs folder exists before generating the filename.
+    
+    Args:
+        endpoint (str): The API endpoint name (e.g., 'hello', 'text2sql')
+        contenttext (str): The content to be logged (used for MD5 hash)
+        
+    Returns:
+        str: Complete path to the log file
+    """
     os.makedirs(LOGS_FOLDER, exist_ok=True)
     now = datetime.now()
     date_time_str = now.strftime("%Y%m%d-%H%M%S")
@@ -206,6 +229,19 @@ def f_getlogfilename(endpoint, contenttext):
     return filename
 
 def log_usage(endpoint, content):
+    """Log API usage data to a JSON file.
+    
+    Serializes the provided content to JSON format with custom handling for
+    Decimal and datetime objects, then writes it to a uniquely named log file.
+    
+    Args:
+        endpoint (str): The API endpoint name for log categorization
+        content (dict): The data to be logged (request/response information)
+        
+    Note:
+        Creates log files only if they don't already exist to avoid overwrites.
+        Uses UTF-8 encoding and pretty-printed JSON format.
+    """
     def decimal_serializer(obj):
         """JSON serializer for objects not serializable by default json code"""
         from decimal import Decimal
@@ -226,6 +262,21 @@ def log_usage(endpoint, content):
 
 @app.get("/")
 async def f_hello_world(api_key: str = Depends(get_api_key)):
+    """Hello world endpoint for API health check.
+    
+    Returns a simple greeting message with the universal answer (42).
+    Requires valid API key authentication.
+    
+    Args:
+        api_key (str): Valid API key for authentication (injected by dependency)
+        
+    Returns:
+        dict: JSON response containing greeting message
+        
+    Example:
+        GET / with X-API-Key header
+        Returns: {"message": "hello world! The universal answer is 42"}
+    """
     global answer
     result = {"message": "hello world! The universal answer is " + str(answer)}
     log_usage("hello", result)
@@ -233,6 +284,34 @@ async def f_hello_world(api_key: str = Depends(get_api_key)):
 
 @app.post("/search/text2sql", response_model=Text2SQLResponse)
 async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_api_key)):
+    """Convert natural language questions to SQL queries with caching and entity extraction.
+    
+    This endpoint processes natural language questions and converts them to SQL queries using:
+    - Entity extraction to anonymize questions
+    - Multi-level caching (exact, anonymized, embeddings)
+    - Vector similarity search for entity matching
+    - Pagination support for results
+    
+    Args:
+        request (Text2SQLRequest): Request containing question and processing options
+        api_key (str): Valid API key for authentication (injected by dependency)
+        
+    Returns:
+        Text2SQLResponse: Complete response with SQL query, results, and performance metrics
+        
+    Raises:
+        ValueError: If neither question nor question_hashed is provided
+        HTTPException: If API key is invalid or database errors occur
+        
+    Example:
+        POST /search/text2sql
+        {
+            "question": "Show me movies with Tom Hanks",
+            "page": 1,
+            "retrieve_from_cache": true,
+            "store_to_cache": true
+        }
+    """
     total_start_time = time.time()
     
     # Strip whitespace and carriage return characters from question if provided
