@@ -179,6 +179,10 @@ class Text2SQLRequest(BaseModel):
             raise ValueError('Either question or question_hashed must be provided')
         return self
 
+class TextMessage(BaseModel):
+    position: int
+    text: str
+
 class Text2SQLResponse(BaseModel):
     question: str
     question_hashed: Optional[str] = None
@@ -201,6 +205,7 @@ class Text2SQLResponse(BaseModel):
     cached_anonymized_question_embedding: bool = False
     ambiguous_question_for_text2sql: bool = False
     llm_model: str
+    messages: List[TextMessage] = []
     result: List[dict] = []  # Array of records with index and data
 
 class ResultItem(BaseModel):
@@ -314,9 +319,20 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     """
     total_start_time = time.time()
     
+    # Initialize messages list and position counter
+    messages = []
+    position_counter = 1
+    
     # Strip whitespace and carriage return characters from question if provided
     if request.question:
-        request.question = request.question.strip().strip('\n').strip('\r').strip('\n')
+        original_question = request.question
+        # Strip all leading/trailing whitespace (including \n, \r, spaces, tabs)
+        request.question = request.question.strip()
+        # Remove any remaining internal carriage returns and normalize newlines to spaces
+        request.question = request.question.replace('\r', '').replace('\n', ' ').strip()
+        if original_question != request.question:
+            messages.append(TextMessage(position=position_counter, text="Stripped whitespace and carriage return characters from question."))
+            position_counter += 1
     
     lngpage = request.page or 1
 
@@ -345,11 +361,15 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     
     # Try to retrieve user question from cache if requested
     if request.retrieve_from_cache:
+        messages.append(TextMessage(position=position_counter, text="Attempting to retrieve exact question from cache."))
+        position_counter += 1
         with connection.cursor() as cursor:
             cache_result_exact = None
             
             # First, try to find by question_hashed if provided
             if request.question_hashed:
+                messages.append(TextMessage(position=position_counter, text="Searching cache by question hash."))
+                position_counter += 1
                 cache_query = """
 SELECT QUESTION, SQL_QUERY, SQL_PROCESSED, ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME 
 FROM T_WC_T2S_CACHE 
@@ -364,9 +384,13 @@ LIMIT 1 """
                 cache_result_exact = cursor.fetchone()
                 if not cache_result_exact:
                     print("Exact question hash not found in the SQL cache")
+                    messages.append(TextMessage(position=position_counter, text="Exact question hash not found in cache."))
+                    position_counter += 1
             
             # If not found by hash and we have a question, try to find by question text
             if not cache_result_exact and request.question:
+                messages.append(TextMessage(position=position_counter, text="Searching cache by question text."))
+                position_counter += 1
                 cache_query = """
 SELECT QUESTION, SQL_QUERY, SQL_PROCESSED, ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME 
 FROM T_WC_T2S_CACHE 
@@ -376,16 +400,25 @@ AND (DELETED IS NULL OR DELETED = 0)
 ORDER BY TIM_UPDATED DESC 
 LIMIT 1 """
                 print("Looking for the exact question in the SQL cache:", cache_query)
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Executing SQL query: {cache_query} | params: [{request.question}, {strapiversionformatted}]"
+                ))
+                position_counter += 1
                 cursor.execute(cache_query, (request.question, strapiversionformatted))
                 #print("Cache query executed")
                 cache_result_exact = cursor.fetchone()
                 if not cache_result_exact:
                     print("Exact question not found in the SQL cache")
+                    messages.append(TextMessage(position=position_counter, text="Exact question not found in cache."))
+                    position_counter += 1
             
             if cache_result_exact:
                 # Found exact result in the SQL cache
                 print("Found exact question in the SQL cache")
                 cached_exact_question = True
+                messages.append(TextMessage(position=position_counter, text="Exact question cache hit used for SQL query."))
+                position_counter += 1
                 input_text = cache_result_exact['QUESTION']
                 sql_query = cache_result_exact['SQL_PROCESSED'] or cache_result_exact['SQL_QUERY']
                 # Because the SQL query can be updated in the t2scache.php back-office script,
@@ -395,35 +428,75 @@ LIMIT 1 """
                 #text2sql_processing_time = cache_result_exact['TEXT2SQL_PROCESSING_TIME']
                 #embeddings_processing_time = cache_result_exact['EMBEDDINGS_TIME']
                 #query_execution_time = cache_result_exact['QUERY_TIME']
+    else:
+        messages.append(TextMessage(position=position_counter, text="Cache retrieval disabled; proceeding with full processing."))
+        position_counter += 1
     
     # If the exact question was not found in the exact cache, proceed to entity extraction and anonymization
     if not cached_exact_question:
         if request.question:
+            messages.append(TextMessage(position=position_counter, text="Using provided question text for processing."))
+            position_counter += 1
             input_text = request.question
         elif request.question_hashed:
             # If we have question_hashed but no cache hit, we can't proceed without the original question
             raise ValueError("question_hashed provided but no entry found in the SQL cache and no original question provided")
         else:
             raise ValueError("Either question or question_hashed must be provided")
-        
+        """
         # Anonymize question by entity extraction
         entity_extraction_start_time = time.time()
         entity_extraction = t2s.f_entity_extraction(input_text)
         print("Entity extraction:", entity_extraction)
         entity_extraction_end_time = time.time()
         entity_extraction_processing_time = entity_extraction_end_time - entity_extraction_start_time
+        messages.append(TextMessage(position=position_counter, text="Processed question with entity extraction and anonymization."))
+        position_counter += 1
+        """
+        # Anonymize question by entity extraction
+        entity_extraction_start_time = time.time()
+        entity_extraction = t2s.f_entity_extraction(input_text)
+        print("Entity extraction:", entity_extraction)
+        entity_extraction_end_time = time.time()
+        entity_extraction_processing_time = entity_extraction_end_time - entity_extraction_start_time
+
+        # High-level info
+        messages.append(TextMessage(
+            position=position_counter,
+            text="Processed question with entity extraction and anonymization."
+        ))
+        position_counter += 1
+
+        # Detailed JSON structure from f_entity_extraction()
+        try:
+            entity_extraction_json = json.dumps(entity_extraction, ensure_ascii=False)
+        except TypeError:
+            # Fallback if the result is not fully JSON-serializable
+            entity_extraction_json = str(entity_extraction)
+
+        messages.append(TextMessage(
+            position=position_counter,
+            text=f"Entity extraction result: {entity_extraction_json}"
+        ))
+        position_counter += 1
         
         # Check if entity extraction was successful
         if isinstance(entity_extraction, dict) and 'error' in entity_extraction:
             print(f"Entity extraction failed: {entity_extraction['error']}")
             print("Falling back to original question without entity extraction")
+            messages.append(TextMessage(position=position_counter, text="Entity extraction failed; using original question without anonymization."))
+            position_counter += 1
             input_text_anonymized = input_text  # Use original question as fallback
         else:
             print("Entity extraction successful and returned a dictionary:", entity_extraction)
+            messages.append(TextMessage(position=position_counter, text="Entity extraction successful; question anonymized."))
+            position_counter += 1
             input_text_anonymized = entity_extraction['question']
         cache_result_anonymized = None
 
         if request.retrieve_from_cache:
+            messages.append(TextMessage(position=position_counter, text="Searching cache for anonymized question."))
+            position_counter += 1
             # Is this anonymized query in the SQL cache?
             with connection.cursor() as cursor:
                 cache_query = """
@@ -435,6 +508,11 @@ AND (DELETED IS NULL OR DELETED = 0)
 ORDER BY TIM_UPDATED DESC 
 LIMIT 1 """
                 print("Looking for the anonymized question in the SQL cache:", cache_query)
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Executing SQL query: {cache_query} | params: [{input_text_anonymized}, {strapiversionformatted}]"
+                ))
+                position_counter += 1
                 cursor.execute(cache_query, (input_text_anonymized, strapiversionformatted))
                 #print("Cache query executed")
                 cache_result_anonymized = cursor.fetchone()
@@ -443,6 +521,8 @@ LIMIT 1 """
                 # Found anonymized question in the SQL cache so we retrieved the question in cache and the SQL query
                 print("Found anonymized question in the SQL cache")
                 cached_anonymized_question = True
+                messages.append(TextMessage(position=position_counter, text="Anonymized question cache hit used for SQL query."))
+                position_counter += 1
                 input_text_anonymized = cache_result_anonymized['QUESTION']
                 sql_query = cache_result_anonymized['SQL_PROCESSED'] or cache_result_anonymized['SQL_QUERY']
                 # Because the SQL query can be updated in the t2scache.php back-office script,
@@ -456,6 +536,8 @@ LIMIT 1 """
             else:
                 print("Anonymized question not found in the SQL cache")
                 print("So we will look for the anonymized question in the embeddings cache")
+                messages.append(TextMessage(position=position_counter, text="Anonymized question not found in SQL cache; searching embeddings cache."))
+                position_counter += 1
                 
                 # Search for similar anonymized questions in the embeddings cache
                 embeddings_cache_start_time = time.time()
@@ -482,6 +564,8 @@ LIMIT 1 """
                     print(f"Embeddings cache search completed in {embeddings_cache_search_time:.4f} seconds")
                     
                     if embedding_results['documents'][0] and len(embedding_results['documents'][0]) > 0:
+                        messages.append(TextMessage(position=position_counter, text="Found potential matches in embeddings cache; filtering by entity variables."))
+                        position_counter += 1
                         # Filter results to find ones that contain all required entity variables
                         valid_result_found = False
                         valid_result_index = -1
@@ -513,6 +597,8 @@ LIMIT 1 """
                             distance = embedding_results['distances'][0][valid_result_index]
                             print(f"Using valid anonymized question from embeddings cache with distance: {distance}")
                             cached_anonymized_question_embedding = True
+                            messages.append(TextMessage(position=position_counter, text="Embeddings cache hit used for SQL query based on anonymized question."))
+                            position_counter += 1
                             
                             # Extract SQL query from metadata
                             metadata = embedding_results['metadatas'][0][valid_result_index]
@@ -520,16 +606,26 @@ LIMIT 1 """
                                 sql_query = metadata['sql_query_anonymized']
                                 sql_query_anonymized = sql_query
                                 print(f"Retrieved SQL query from embeddings cache: {sql_query}")
+                                messages.append(TextMessage(position=position_counter, text="SQL query retrieved from embeddings cache metadata."))
+                                position_counter += 1
                             else:
                                 print("Warning: No sql_query_anonymized found in metadata")
+                                messages.append(TextMessage(position=position_counter, text="Warning: No SQL query found in embeddings cache metadata; invalidating cache hit."))
+                                position_counter += 1
                                 cached_anonymized_question_embedding = False
                         else:
                             print("No results found with all required entity variables and acceptable distance")
+                            messages.append(TextMessage(position=position_counter, text="No valid matches found in embeddings cache with required entity variables and acceptable similarity."))
+                            position_counter += 1
                     else:
                         print("No similar questions found in embeddings cache")
+                        messages.append(TextMessage(position=position_counter, text="No similar questions found in embeddings cache."))
+                        position_counter += 1
                         
                 except Exception as e:
                     print(f"Error searching embeddings cache: {e}")
+                    messages.append(TextMessage(position=position_counter, text=f"Error occurred while searching embeddings cache: {str(e)}"))
+                    position_counter += 1
                     embeddings_cache_search_time = time.time() - embeddings_cache_start_time
 
         if not cached_exact_question and not cached_anonymized_question and not cached_anonymized_question_embedding:
@@ -539,15 +635,21 @@ LIMIT 1 """
             sql_query_anonymized = sql_query
             text2sql_end_time = time.time()
             text2sql_processing_time = text2sql_end_time - text2sql_start_time
+            messages.append(TextMessage(position=position_counter, text="Generated new SQL query from anonymized question using Text2SQL LLM."))
+            position_counter += 1
     sql_query_llm = sql_query
     # if the ##AMBIGUOUS## string is found in sql_query
     if "##AMBIGUOUS##" in sql_query:
         print("AMBIGUOUS question so the Text-to-SQL cannot produce a SQL query")
         ambiguous_question_for_text2sql = 1
+        messages.append(TextMessage(position=position_counter, text="Question detected as ambiguous; SQL query may not be executable."))
+        position_counter += 1
 
     if not cached_exact_question:
         # Replace entity keys with their values in the SQL query
         if isinstance(entity_extraction, dict):
+            messages.append(TextMessage(position=position_counter, text="Replacing entity placeholders with actual values in SQL query."))
+            position_counter += 1
             for key, value in entity_extraction.items():
                 if key != "question":
                     sql_query = sql_query.replace("{{" + key + "}}", str(value).replace("'", "''"))
@@ -557,6 +659,8 @@ LIMIT 1 """
     if not cached_exact_question and not ambiguous_question_for_text2sql:
         # Now we compute embeddings for the SQL query 
         print("Computing embeddings for the SQL query")
+        messages.append(TextMessage(position=position_counter, text="Processing entity values using embeddings for entity matching."))
+        position_counter += 1
         arrentities = {1: "PERSON_NAME", 2: "MOVIE_TITLE", 3: "SERIE_TITLE", 4: "COMPANY_NAME", 5: "NETWORK_NAME", 6: "TOPIC_NAME"}
         # Map entity types to their corresponding ChromaDB collections
         chromadb_collections = {1: persons, 2: movies, 3: series, 4: companies, 5: networks, 6: topics}
@@ -606,6 +710,8 @@ LIMIT 1 """
             
             if fieldname_values:
                 print("Extracted " + strfieldname + " values:", fieldname_values)
+                messages.append(TextMessage(position=position_counter, text=f"Found {strfieldname} entities in SQL query; processing with embeddings."))
+                position_counter += 1
                 with connection.cursor() as cursor:
                     for fieldname_value in fieldname_values:
                         print("fieldname_value:", fieldname_value)
@@ -654,6 +760,8 @@ LIMIT 1 """
                             end_time_chromadb = time.time()
                             search_duration_chromadb = end_time_chromadb - start_time_chromadb
                             if results["documents"][0]:
+                                messages.append(TextMessage(position=position_counter, text=f"Found matching {strfieldname} entity in vector database."))
+                                position_counter += 1
                                 first_record_id = results['ids'][0][0]
                                 # Extract the 3 parts from first_record_id using underscore separator
                                 parts = first_record_id.split('_')
@@ -681,6 +789,11 @@ LIMIT 1 """
                                 #first_record_value = results['documents'][0][0]
                                 strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strtableid + " = %s"
                                 print("strsql_query =", strsql_query, docid)
+                                messages.append(TextMessage(
+                                    position=position_counter,
+                                    text=f"Executing SQL query: {strsql_query} | params: [{docid}]"
+                                ))
+                                position_counter += 1
                                 cursor.execute(strsql_query, (docid,))
                                 sql_query_results = cursor.fetchall()
                                 first_record = sql_query_results[0]
@@ -701,6 +814,11 @@ LIMIT 1 """
                                 print(f"{strfieldname} = '{fieldname_value_escaped}'", f"{strfieldnamenew} = '{first_record_value_escaped}'")
                                 sql_query = sql_query.replace(f"{strfieldname} = '{fieldname_value_escaped}'", f"{strfieldnamenew} = '{first_record_value_escaped}'")
                                 print(f"Updated SQL query with actual {strfieldname}")
+                                messages.append(TextMessage(position=position_counter, text=f"Updated SQL query: replaced {strfieldname} with matched entity value."))
+                                position_counter += 1
+                            else:
+                                messages.append(TextMessage(position=position_counter, text=f"No matching {strfieldname} entity found in vector database."))
+                                position_counter += 1
     embeddings_end_time = time.time()
     embeddings_processing_time = embeddings_end_time - embeddings_start_time
     
@@ -708,6 +826,8 @@ LIMIT 1 """
     query_results = []
     query_execution_time = 0.0
     if not ambiguous_question_for_text2sql:
+        messages.append(TextMessage(position=position_counter, text="Preparing to execute SQL query."))
+        position_counter += 1
         with connection.cursor() as cursor:
             # Measure SQL query execution time
             query_start_time = time.time()
@@ -718,6 +838,8 @@ LIMIT 1 """
             # Check if SQL query already has LIMIT/OFFSET
             match = re.search(r"\blimit\b\s+(\d+)(?:\s*,\s*(\d+))?", sql_query, re.IGNORECASE)
             if match:
+                messages.append(TextMessage(position=position_counter, text="SQL query contains existing LIMIT/OFFSET clause; removing for pagination."))
+                position_counter += 1
                 # SQL query already has LIMIT, extract existing values
                 llm_defined_limit = int(match.group(1))
                 llm_defined_offset = int(match.group(2)) if match.group(2) else None
@@ -728,9 +850,13 @@ LIMIT 1 """
             
             # Add pagination: LIMIT and OFFSET based on page number
             if lngpage > 1:
+                messages.append(TextMessage(position=position_counter, text=f"Adding pagination: LIMIT {limit} OFFSET {calculated_offset} for page {lngpage}."))
+                position_counter += 1
                 sql_query = sql_query + f" LIMIT {limit} OFFSET {calculated_offset}"
                 offset = calculated_offset
             else:
+                messages.append(TextMessage(position=position_counter, text=f"Adding pagination: LIMIT {limit} for first page."))
+                position_counter += 1
                 sql_query = sql_query + f" LIMIT {limit}"
                 offset = 0
                 
@@ -738,6 +864,11 @@ LIMIT 1 """
             print("LIMIT:", limit, "OFFSET:", offset)
             print("SQL query execution:", sql_query)
             try: 
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Executing SQL query: {sql_query}"
+                ))
+                position_counter += 1
                 cursor.execute(sql_query)
                 raw_results = cursor.fetchall()
                 # Format results with integer index and record data
@@ -748,14 +879,24 @@ LIMIT 1 """
                     })
             except Exception as e:
                 print(f"Database operation failed: {e}")
+                messages.append(TextMessage(position=position_counter, text=f"Database query execution failed: {str(e)}"))
+                position_counter += 1
                 # Database errors not returned directly to clients
                 # query_results = [{"error": str(e)}]
         query_end_time = time.time()
         query_execution_time = query_end_time - query_start_time
+        messages.append(TextMessage(position=position_counter, text=f"Executed SQL query with pagination: page={lngpage}, limit={limit}, offset={offset}."))
+        position_counter += 1
+    else:
+        messages.append(TextMessage(position=position_counter, text="Skipping SQL query execution due to ambiguous question."))
+        position_counter += 1
     
-        # Generate hash for the question if not provided
+    # Generate hash for the question if not provided
+    if not ambiguous_question_for_text2sql:
         question_hash = request.question_hashed
         if not question_hash:
+            messages.append(TextMessage(position=position_counter, text="Generating question hash for caching."))
+            position_counter += 1
             question_hash = hashlib.sha256(request.question.encode('utf-8')).hexdigest()
         
         # Compute the temporary global processing time before the write cache operations (SQL and embeddings)
@@ -763,6 +904,8 @@ LIMIT 1 """
         total_processing_time = total_end_time - total_start_time
         # Store to SQL cache if requested and not already stored as exact question or anonymized question
         if request.store_to_cache and not cached_exact_question and request.question:
+            messages.append(TextMessage(position=position_counter, text="Storing exact question and SQL query to cache."))
+            position_counter += 1
             with connection.cursor() as cursor2:
                 # Insert exact question into cache table
                 insert_query = """
@@ -775,6 +918,11 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 0)
                 print("Insert query:", insert_query)
                 # Use the actual measured query execution time
                 query_time = query_execution_time
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Executing SQL insert into cache: {insert_query} | params: [question={request.question}, hash={question_hash}]"
+                ))
+                position_counter += 1
                 cursor2.execute(insert_query, (
                     request.question,
                     question_hash,
@@ -792,6 +940,8 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 0)
 
         # Store to SQL cache if requested and not already stored as exact question or anonymized question
         if request.store_to_cache and not cached_exact_question and not cached_anonymized_question and request.question:
+            messages.append(TextMessage(position=position_counter, text="Storing anonymized question and SQL query to cache."))
+            position_counter += 1
             with connection.cursor() as cursor2:
                 # Insert anonymized question into cache table
                 insert_query = """
@@ -804,6 +954,11 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
                 print("Insert query:", insert_query)
                 # Use the actual measured query execution time
                 query_time = query_execution_time
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Executing SQL insert into cache (anonymized): {insert_query} | params: [question={input_text_anonymized}, hash={question_hash}]"
+                ))
+                position_counter += 1
                 cursor2.execute(insert_query, (
                     input_text_anonymized,
                     question_hash,
@@ -821,12 +976,18 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
                 cursor2.close()
         
         if request.store_to_cache and not cached_anonymized_question_embedding and input_text_anonymized:
+            messages.append(TextMessage(position=position_counter, text="Checking if anonymized question exists in embeddings cache before storing."))
+            position_counter += 1
             strdocid = hashlib.sha256(input_text_anonymized.encode('utf-8')).hexdigest()
             print("Anonymized query ID:", strdocid)
             existing_doc = anonymizedqueries.get(ids=[strdocid])
             if existing_doc and existing_doc['ids']:
                 print("Anonymized question already exists in the embeddings cache")
+                messages.append(TextMessage(position=position_counter, text="Anonymized question already exists in embeddings cache; skipping storage."))
+                position_counter += 1
             else:
+                messages.append(TextMessage(position=position_counter, text="Storing anonymized question and SQL query to embeddings cache."))
+                position_counter += 1
                 # Extract entity variables for metadata
                 entity_vars_for_metadata = []
                 if isinstance(entity_extraction, dict) and 'error' not in entity_extraction:
@@ -847,6 +1008,8 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
                 print(f"Anonymized question added to embeddings cache with entity variables: {entity_vars_for_metadata}")
     
     connection.close()
+    messages.append(TextMessage(position=position_counter, text="Database connection closed."))
+    position_counter += 1
     
     # Generate question hash if we have a question and no hash was provided
     response_question_hash = request.question_hashed
@@ -856,12 +1019,9 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
     # Compute the final global processing time with also the write cache operations (SQL and embeddings)
     total_end_time = time.time()
     total_processing_time = total_end_time - total_start_time
-    """
-    # Prepare entity_extraction for response (exclude 'question' field and handle errors)
-    response_entity_extraction = None
-    if isinstance(entity_extraction, dict) and 'error' not in entity_extraction:
-        response_entity_extraction = {k: v for k, v in entity_extraction.items() if k != 'question'}
-    """
+    
+    messages.append(TextMessage(position=position_counter, text="Completed request processing and prepared response."))
+
     response = Text2SQLResponse(
         question=input_text,
         question_hashed=response_question_hash,
@@ -884,7 +1044,8 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
         cached_anonymized_question_embedding=cached_anonymized_question_embedding,
         ambiguous_question_for_text2sql=ambiguous_question_for_text2sql,
         llm_model=request.llm_model,
-        result=query_results
+        result=query_results,
+        messages=messages
     )
     
     # Log the request and response
