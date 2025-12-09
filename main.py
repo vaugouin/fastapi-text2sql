@@ -22,7 +22,7 @@ import chromadb
 load_dotenv()
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.6"
+strapiversion = "1.1.8"
 # Convert API version to XXX.YYY.ZZZ format
 version_parts = strapiversion.split('.')
 strapiversionformatted = f"{int(version_parts[0]):03d}.{int(version_parts[1]):03d}.{int(version_parts[2]):03d}"

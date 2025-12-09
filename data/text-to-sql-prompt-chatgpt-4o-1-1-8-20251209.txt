@@ -66,9 +66,11 @@ CREATE TABLE T_WC_T2S_MOVIE (
 CREATE TABLE T_WC_T2S_SERIE (
   ID_SERIE INT NOT NULL,
   SERIE_TITLE VARCHAR(250),
+  DAT_FIRST_AIR DATE,
   FIRST_AIR_YEAR INT,
   FIRST_AIR_MONTH INT,
   FIRST_AIR_DAY INT,
+  DAT_LAST_AIR DATE,
   LAST_AIR_YEAR INT,
   LAST_AIR_MONTH INT,
   LAST_AIR_DAY INT,
@@ -296,7 +298,8 @@ Topics can also include thematic collections, movies about a specific topic, or 
 
 CREATE TABLE T_WC_T2S_TOPIC (
   ID_TOPIC INT NOT NULL,
-  TOPIC_NAME VARCHAR(250)
+  TOPIC_NAME VARCHAR(250),
+  POSTER_PATH VARCHAR(200)
 );
 
 ### Images about entities
@@ -376,23 +379,6 @@ CREATE TABLE T_WC_TMDB_SERIE_IMAGE (
   TIM_UPDATED DATETIME
 );
 
-CREATE TABLE T_WC_T2S_KEYWORD (
-  ID_KEYWORD INT NOT NULL,
-  KEYWORD_NAME VARCHAR(250)
-);
-
-CREATE TABLE T_WC_T2S_MOVIE_KEYWORD (
-  ID_ROW INT NOT NULL,
-  ID_MOVIE INT NOT NULL,
-  ID_KEYWORD INT NOT NULL
-);
-
-CREATE TABLE T_WC_T2S_SERIE_KEYWORD (
-  ID_ROW INT NOT NULL,
-  ID_SERIE INT NOT NULL,
-  ID_KEYWORD INT NOT NULL
-);
-
 ---
 
 ## ? Query Rules
@@ -452,14 +438,21 @@ Example: "Les films tournés en franscope" → ID_TECHNICAL = 50
 
 ### Result Columns
 
-#### Movies – return:
-ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, ID_IMDB, IMDB_RATING, POSTER_PATH 
-
 #### Persons – return:
 ID_PERSON, PERSON_NAME, POPULARITY
 
+#### Movies – return:
+ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, ID_IMDB, IMDB_RATING, POSTER_PATH 
+
 ### Series - return:
-ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR (from FIRST_AIR_YEAR + FIRST_AIR_MONTH + FIRST_AIR_DAY), DAT_LAST_AIR (from LAST_AIR_YEAR + LAST_AIR_MONTH + LAST_AIR_DAY), ID_IMDB, IMDB_RATING, POSTER_PATH
+ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, POSTER_PATH
+
+### Movies AND Series (UNION) - return for a movie and for a serie:
+ID_MOVIE AS ID_CONTENT, 'movie' AS CONTENT_TYPE, MOVIE_TITLE AS CONTENT_TITLE, DAT_RELEASE AS DAT_FIRST_AIR, DAT_RELEASE AS DAT_LAST_AIR, ID_IMDB, IMDB_RATING, POSTER_PATH 
+ID_SERIE AS ID_CONTENT, 'serie' AS CONTENT_TYPE, SERIE_TITLE AS CONTENT_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, POSTER_PATH
+
+#### Topics – return:
+ID_TOPIC, TOPIC_NAME, TOPIC_TYPE, POSTER_PATH
 
 #### Companies – return:
 ID_COMPANY, COMPANY_NAME, LOGO_PATH
@@ -497,10 +490,12 @@ ORDER BY CASE WHEN T_WC_T2S_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END, T_WC
 
 ### Person search
 - CREDIT_TYPE possible values are: cast, crew
+- Always use the CREDIT_TYPE field in the query to search for a person in the cast or crew of a movie or a serie.
 - When searching for a cast CREDIT_TYPE for a movie, exclude the following values of the CAST_CHARACTER column: Self, Himself, Herself, (archive footage), Self (archive footage), Self (archive footage), (uncredited), Self (uncredited), Self (archive footage) (uncredited)
 - When searching for a cast CREDIT_TYPE for a documentary, search this person in the cast section of movie credits with no exclusion.
 - CREW_DEPARTMENT possible values: Art, Camera, Costume & Make-Up, Crew, Directing, Editing, Lighting, Production, Sound, Visual Effects, Writing
-- For a TV serie, there is an additional CREW_DEPARTMENT value, Creator, that must be used when looking for the creator of a series.
+- For a TV serie, there is an additional CREW_DEPARTMENT value, Creator, that must be used when looking for the creator of a series. 
+- There is no Creator credit for a movie. When looking for a creator of a movie, use the Writing department instead.
 - KNOWN_FOR_DEPARTMENT possible values: Acting, Art, Camera, Costume & Make-Up, Crew, Directing, Editing, Lighting, Production, Sound, Visual Effects, Writing
 - When requesting movies or series adapted from the work of a given person, search for a Writing credit for this person
 
@@ -510,6 +505,8 @@ ORDER BY CASE WHEN T_WC_T2S_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END, T_WC
 ### Default Sorting
 - Movies → IMDB_RATING_ADJUSTED DESC
 - Series → IMDB_RATING_ADJUSTED DESC
+- When display movies for a given topic, ORDER BY T_WC_T2S_MOVIE_TOPIC.DISPLAY_ORDER ASC
+- When display series for a given topic, ORDER BY T_WC_T2S_SERIE_TOPIC.DISPLAY_ORDER ASC
 - Persons → POPULARITY DESC
 - When display persons for a given movie, ORDER BY T_WC_T2S_PERSON_MOVIE.DISPLAY_ORDER ASC
 - When display persons for a given serie, ORDER BY T_WC_T2S_PERSON_SERIE.DISPLAY_ORDER ASC
@@ -552,9 +549,15 @@ ORDER BY CASE WHEN T_WC_T2S_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END, T_WC
 - T_WC_T2S_SERIE.ID_SERIE = T_WC_TMDB_SERIE_SPOKEN_LANGUAGE.ID_SERIE
 - T_WC_T2S_SERIE.ID_SERIE = T_WC_T2S_SERIE_TOPIC.ID_SERIE
 - T_WC_T2S_TOPIC.ID_TOPIC = T_WC_T2S_SERIE_TOPIC.ID_TOPIC
-- T_WC_TMDB_KEYWORD_ID_IMPORT.id = T_WC_TMDB_MOVIE_KEYWORD.ID_KEYWORD
-- T_WC_TMDB_KEYWORD_ID_IMPORT.id = T_WC_TMDB_SERIE_KEYWORD.ID_KEYWORD
 - T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_TECHNICAL.ID_MOVIE
+- T_WC_TMDB_MOVIE_COMPANY.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE
+- T_WC_TMDB_SERIE_COMPANY.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE
+- T_WC_TMDB_SERIE_NETWORK.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE
+- T_WC_TMDB_COMPANY_IMAGE.ID_COMPANY = T_WC_T2S_COMPANY.ID_COMPANY
+- T_WC_TMDB_MOVIE_IMAGE.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE
+- T_WC_TMDB_NETWORK_IMAGE.ID_NETWORK = T_WC_T2S_NETWORK.ID_NETWORK
+- T_WC_TMDB_PERSON_IMAGE.ID_PERSON = T_WC_T2S_PERSON.ID_PERSON
+- T_WC_TMDB_SERIE_IMAGE.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE
 
 ---
 
