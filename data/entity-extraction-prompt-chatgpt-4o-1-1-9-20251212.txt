@@ -151,6 +151,7 @@ ORDER BY CASE WHEN T_WC_T2S_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END, T_WC
 
 ### Person search
 - CREDIT_TYPE possible values are: cast, crew
+- Always use the CREDIT_TYPE field in the query to search for a person in the cast or crew of a movie or a serie.
 - When searching for a cast CREDIT_TYPE for a movie, exclude the following values of the CAST_CHARACTER column: Self, Himself, Herself, (archive footage), Self (archive footage), Self (archive footage), (uncredited), Self (uncredited), Self (archive footage) (uncredited)
 - When searching for a cast CREDIT_TYPE for a documentary, search this person in the cast section of movie credits with no exclusion.
 - CREW_DEPARTMENT possible values: Art, Camera, Costume & Make-Up, Crew, Directing, Editing, Lighting, Production, Sound, Visual Effects, Writing
