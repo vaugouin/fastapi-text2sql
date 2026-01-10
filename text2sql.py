@@ -22,10 +22,13 @@ print(f"Memory Usage: {memory_info.percent}%")
 
 dblavailableram=memory_info.available / (1024 ** 3)
 
-strtext2sqlprompttemplate = "text-to-sql-prompt-chatgpt-4o-1-1-9-20251212.txt"
+# Text-to-SQL feature
+strtext2sqlprompttemplate = "text-to-sql-prompt-chatgpt-4o-1-1-12-20260104.txt"
+strtext2sqlmodeldefault = "gpt-4o"
 
 # Entity extraction feature
-strentityextractionprompttemplate = "entity-extraction-prompt-chatgpt-4o-1-1-9-20251212.txt"
+strentityextractionprompttemplate = "entity-extraction-prompt-chatgpt-4o-1-1-12-20260104.txt"
+strentityextractionmodeldefault = "gpt-4o"
 
 #print("Text to SQL prompt template", strtext2sqlprompttemplate)
 #print("Entity extraction prompt template", strentityextractionprompttemplate)
@@ -44,11 +47,12 @@ load_dotenv()
 # Check if API key is available
 api_key = os.getenv("OPENAI_API_KEY")
 
-def f_entity_extraction(user_question: str):
+def f_entity_extraction(user_question: str, strentityextractionmodel: str):
     """Extract entities from natural language question using LangChain and LLM.
     
     Args:
         user_question (str): The user's natural language question
+        strentityextractionmodel (str): The model to use for entity extraction
     
     Returns:
         dict: A dictionary containing the extracted entities
@@ -82,7 +86,7 @@ def f_entity_extraction(user_question: str):
         
         try:
             response = client.chat.completions.create(
-                model="gpt-4o",  # Using GPT-4o for better result
+                model=strentityextractionmodel,  # Using configured model
                 temperature=0,  # Use deterministic output for entity extraction
                 messages=[
                     {"role": "system", "content": "You are a powerful entity extraction tool. Respond only with the JSON content, no explanations."},
@@ -149,21 +153,15 @@ def f_entity_extraction(user_question: str):
         print(f"Error in entity extraction: {str(e)}")
         return {"error": str(e)}
 
-def f_text2sql(user_question: str):
-    """Convert natural language question to SQL query using LangChain and LLM.
+def f_text2sql(user_question: str, strtext2sqlmodel: str):
+    """Convert natural language question to JSON using LangChain and LLM.
     
     Args:
         user_question (str): The user's natural language question
+        strtext2sqlmodel (str): The model to use for SQL generation
         
     Returns:
-        str: The generated SQL query
-    """
-    """
-    import os
-    from dotenv import load_dotenv
-    import openai
-    from langchain_core.prompts import PromptTemplate
-    from langchain_openai import OpenAI
+        str: The generated JSON
     """
     print("Text to SQL")
     print("User question:", user_question)
@@ -183,36 +181,37 @@ def f_text2sql(user_question: str):
         # Make a direct call to OpenAI API
         #print("Making a direct call to OpenAI API")
         response = client.chat.completions.create(
-            model="gpt-4o",  # Using GPT-4o for better SQL generation
+            model=strtext2sqlmodel,  # Using configured model
             temperature=0,  # Use deterministic output for SQL queries
             messages=[
-                {"role": "system", "content": "You are a SQL query generator. Respond only with the SQL query, no explanations."},
+                {"role": "system", "content": "You are a SQL query generator. Respond only with the JSON content, no explanations."},
                 {"role": "user", "content": formatted_prompt}
             ]
         )
         
-        # Extract the SQL query from the response
-        sql_query = response.choices[0].message.content.strip()
+        # Extract the JSON from the response
+        json_content = response.choices[0].message.content.strip()
         
-        # Check if sql_query starts with ```sql and remove it
-        if sql_query.startswith("```sql"):
-            sql_query = sql_query[6:].strip()
+        # Check if json_content starts with ```json and remove it
+        if json_content.startswith("```json"):
+            json_content = json_content[7:].strip()
         
-        # Check if sql_query ends with ``` and remove it
-        if sql_query.endswith("```"):
-            sql_query = sql_query[:-3].strip()
+        # Check if json_content ends with ``` and remove it
+        if json_content.endswith("```"):
+            json_content = json_content[:-3].strip()
 
-        if sql_query.endswith(";"):
-            sql_query = sql_query[:-1].strip()
+        if json_content.endswith(";"):
+            json_content = json_content[:-1].strip()
             
         # Replace escaped newlines (\n) with spaces
-        sql_query = sql_query.replace("\\n", " ")
+        json_content = json_content.replace("\\n", " ")
             
         # Strip any remaining whitespace
-        sql_query = sql_query.strip()
+        json_content = json_content.strip()
         
-        print(f"Generated SQL query: {sql_query}")
-        return sql_query
+        print(f"Generated JSON: {json_content}")
+        data = json.loads(json_content)  # data is now a dict (or list)
+        return data
     
     except Exception as e:
         print(f"Error in text2sql conversion: {str(e)}")

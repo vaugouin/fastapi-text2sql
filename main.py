@@ -21,11 +21,31 @@ import chromadb
 # Load environment variables from .env file
 load_dotenv()
 
+# Convert API version to XXX.YYY.ZZZ format for comparison
+def format_api_version(version: str) -> str:
+    """Convert version string to XXX.YYY.ZZZ format for comparison."""
+    version_parts = version.split('.')
+    return f"{int(version_parts[0]):03d}.{int(version_parts[1]):03d}.{int(version_parts[2]):03d}"
+
+def compare_versions(version1: str, version2: str) -> int:
+    """
+    Compare two version strings.
+    Returns: -1 if version1 < version2, 0 if equal, 1 if version1 > version2
+    """
+    v1_formatted = format_api_version(version1)
+    v2_formatted = format_api_version(version2)
+    
+    if v1_formatted < v2_formatted:
+        return -1
+    elif v1_formatted > v2_formatted:
+        return 1
+    else:
+        return 0
+
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.9"
+strapiversion = "1.1.12"
 # Convert API version to XXX.YYY.ZZZ format
-version_parts = strapiversion.split('.')
-strapiversionformatted = f"{int(version_parts[0]):03d}.{int(version_parts[1]):03d}.{int(version_parts[2]):03d}"
+strapiversionformatted = format_api_version(strapiversion)
 
 API_PORT_BLUE = int(os.getenv('API_PORT_BLUE', 8000))
 API_PORT_GREEN = int(os.getenv('API_PORT_GREEN', 8001))
@@ -117,6 +137,92 @@ anonymizedqueries = chroma_client.get_or_create_collection(
     embedding_function=embedding_function  # Custom embedding model
 )
 
+def cleanup_anonymized_queries_collection():
+    """Cleanup the anonymized queries collection stored as embeddings in ChromaDB."""
+    print(f"Starting cleanup of anonymized queries cache...")
+    print(f"Current API version: {strapiversion}")
+    print(f"Formatted current version: {format_api_version(strapiversion)}")
+    
+    try:
+        # Fix to delete all query with id bb7f97e70d9481e0fc67d3b72508fd3fa78f939f06e8bdd1a8a533c37cda8461
+        stridtodelete = "bb7f97e70d9481e0fc67d3b72508fd3fa78f939f06e8bdd1a8a533c37cda8461"
+        print("Fix to delete all query with id", stridtodelete)
+        batch_size = 1000
+        offset = 0
+        while True:
+            # Step 1: get all ids matching bb7f97e70d9481e0fc67d3b72508fd3fa78f939f06e8bdd1a8a533c37cda8461
+            results = anonymizedqueries.get(include=[], limit=batch_size, offset=offset)
+            ids = results["ids"]
+            #print(results["ids"])
+            if not ids:
+                break
+            ids_to_delete = [r for r in ids if r.startswith(stridtodelete)]
+            print("offset", offset, "ids_to_delete", ids_to_delete)
+            if ids_to_delete:
+                anonymizedqueries.delete(ids=ids_to_delete)
+                print(f"Deleted {len(ids_to_delete)} docs with prefix {stridtodelete}")
+
+            if len(ids) < batch_size:
+                break
+            offset += batch_size
+
+        # Get all documents from the collection
+        print("Retrieving all documents from the collection...")
+        all_docs = anonymizedqueries.get(include=['metadatas'])
+        
+        if not all_docs['ids']:
+            print("No documents found in the collection.")
+            return
+        
+        print(f"Found {len(all_docs['ids'])} documents in the collection")
+        
+        # Find documents with older API versions
+        docs_to_delete = []
+        current_version_formatted = format_api_version(strapiversion)
+        
+        for i, doc_id in enumerate(all_docs['ids']):
+            metadata = all_docs['metadatas'][i]
+            
+            docs_to_delete.append({
+                'id': doc_id,
+                'created': metadata.get('dat_creat', 'Unknown')
+            })
+            print(f"Marked for deletion: ID={doc_id[:8]}..., Created={metadata.get('dat_creat', 'Unknown')}")
+        
+        if not docs_to_delete:
+            print("No old documents found. All documents are current.")
+            return
+        
+        print(f"\nFound {len(docs_to_delete)} documents to delete:")
+        for doc in docs_to_delete:
+            print(f"  - ID: {doc['id'][:8]}..., Created: {doc['created']}")
+        
+        # Confirm deletion
+        #response = input(f"\nDo you want to delete these {len(docs_to_delete)} documents? (y/N): ")
+        response = "y"
+        if response.lower() != 'y':
+            print("Deletion cancelled.")
+            return
+        
+        # Delete the documents
+        print("Deleting old documents...")
+        ids_to_delete = [doc['id'] for doc in docs_to_delete]
+        
+        # ChromaDB delete method expects a list of IDs
+        anonymizedqueries.delete(ids=ids_to_delete)
+        
+        print(f"Successfully deleted {len(docs_to_delete)} old documents from the anonymizedqueries collection.")
+        
+        # Verify deletion
+        remaining_docs = anonymizedqueries.get(include=['metadatas'])
+        print(f"Remaining documents in collection: {len(remaining_docs['ids'])}")
+        
+    except Exception as e:
+        print(f"Error during cleanup: {str(e)}")
+        raise
+
+cleanup_anonymized_queries_collection()
+
 # How many rows per page in the result set
 lngrowsperpage = 50
 #similarity_threshold = 0.1
@@ -159,7 +265,18 @@ def get_db_connection():
         cursorclass=pymysql.cursors.DictCursor
     )
 
+def cleanup_sql_cache():
+    """Cleanup the SQL cache stored as a table in MariaDB."""
+    print(f"Starting cleanup of SQL cache...")
+    print(f"Current API version: {strapiversion}")
+    strsql="DELETE FROM T_WC_T2S_CACHE WHERE API_VERSION = %s"
+    connection.cursor().execute(strsql, (strapiversionformatted,))
+    connection.commit()
+    print(f"Successfully deleted {connection.cursor().rowcount} rows from the SQL cache.")
+    
 answer=42
+connection = get_db_connection()
+cleanup_sql_cache()
 
 class TextExpr(BaseModel):
     text: str
@@ -171,7 +288,8 @@ class Text2SQLRequest(BaseModel):
     page: Optional[int] = 1
     retrieve_from_cache: bool = True
     store_to_cache: bool = True
-    llm_model: Optional[str] = "default"
+    llm_model_entity_extraction: Optional[str] = "default"
+    llm_model_text2sql: Optional[str] = "default"
     
     @model_validator(mode='after')
     def validate_question_or_hashed(self):
@@ -187,6 +305,8 @@ class Text2SQLResponse(BaseModel):
     question: str
     question_hashed: Optional[str] = None
     sql_query: str
+    justification: str
+    error: str
     #entity_extraction: Optional[dict] = None
     entity_extraction_processing_time: float
     text2sql_processing_time: float
@@ -204,7 +324,9 @@ class Text2SQLResponse(BaseModel):
     cached_anonymized_question: bool = False
     cached_anonymized_question_embedding: bool = False
     ambiguous_question_for_text2sql: bool = False
-    llm_model: str
+    llm_model_entity_extraction: str
+    llm_model_text2sql: str
+    api_version: str
     messages: List[TextMessage] = []
     result: List[dict] = []  # Array of records with index and data
 
@@ -329,9 +451,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # Strip all leading/trailing whitespace (including \n, \r, spaces, tabs)
         request.question = request.question.strip()
         # Remove any remaining internal carriage returns and normalize newlines to spaces
-        request.question = request.question.replace('\r', '').replace('\n', ' ').strip()
+        #request.question = request.question.replace('\t', ' ')  # Normalize tabs
+        #request.question = request.question.replace('\r', '').replace('\n', ' ').strip()
+        #request.question = request.question.replace('\\r', '').replace('\\n', ' ').strip()
+        request.question = request.question.replace('  ', ' ')  # Normalize multiple spaces
+        request.question = request.question.replace('&#039;', "'").replace('’', "'")
         if original_question != request.question:
-            messages.append(TextMessage(position=position_counter, text="Stripped whitespace and carriage return characters from question."))
+            messages.append(TextMessage(position=position_counter, text="Normalized characters in input question."))
             position_counter += 1
     
     lngpage = request.page or 1
@@ -345,6 +471,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     cached_anonymized_question = False
     cached_anonymized_question_embedding = False
     sql_query = None
+    justification = None
+    error_text2sql = None
     llm_defined_limit = None
     llm_defined_offset = None
     limit = None
@@ -358,6 +486,12 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     query_execution_time = 0.0
     total_processing_time = 0.0
     ambiguous_question_for_text2sql = 0
+    strentityextractionmodel = t2s.strentityextractionmodeldefault
+    if request.llm_model_entity_extraction and request.llm_model_entity_extraction != "default":
+        strentityextractionmodel = request.llm_model_entity_extraction
+    strtext2sqlmodel = t2s.strtext2sqlmodeldefault
+    if request.llm_model_text2sql and request.llm_model_text2sql != "default":
+        strtext2sqlmodel = request.llm_model_text2sql
     
     # Try to retrieve user question from cache if requested
     if request.retrieve_from_cache:
@@ -455,7 +589,7 @@ LIMIT 1 """
         """
         # Anonymize question by entity extraction
         entity_extraction_start_time = time.time()
-        entity_extraction = t2s.f_entity_extraction(input_text)
+        entity_extraction = t2s.f_entity_extraction(input_text, strentityextractionmodel)
         print("Entity extraction:", entity_extraction)
         entity_extraction_end_time = time.time()
         entity_extraction_processing_time = entity_extraction_end_time - entity_extraction_start_time
@@ -606,7 +740,7 @@ LIMIT 1 """
                                 sql_query = metadata['sql_query_anonymized']
                                 sql_query_anonymized = sql_query
                                 print(f"Retrieved SQL query from embeddings cache: {sql_query}")
-                                messages.append(TextMessage(position=position_counter, text="SQL query retrieved from embeddings cache metadata."))
+                                messages.append(TextMessage(position=position_counter, text="SQL query retrieved from embeddings cache metadata: " + sql_query_anonymized))
                                 position_counter += 1
                             else:
                                 print("Warning: No sql_query_anonymized found in metadata")
@@ -631,18 +765,29 @@ LIMIT 1 """
         if not cached_exact_question and not cached_anonymized_question and not cached_anonymized_question_embedding:
             # Generate SQL query using existing text2sql function
             text2sql_start_time = time.time()
-            sql_query = t2s.f_text2sql(input_text_anonymized)
+            json_content = t2s.f_text2sql(input_text_anonymized, strtext2sqlmodel)
+            print("JSON content:", json_content)
+            sql_query = json_content['sql_query']
             sql_query_anonymized = sql_query
+            justification = json_content['justification']
+            error_text2sql = json_content['error']
             text2sql_end_time = time.time()
             text2sql_processing_time = text2sql_end_time - text2sql_start_time
             messages.append(TextMessage(position=position_counter, text="Generated new SQL query from anonymized question using Text2SQL LLM."))
             position_counter += 1
+            messages.append(TextMessage(position=position_counter, text="SQL query: " + sql_query))
+            position_counter += 1
+            messages.append(TextMessage(position=position_counter, text="Justification: " + justification))
+            position_counter += 1
+            messages.append(TextMessage(position=position_counter, text="Error: " + error_text2sql))
+            position_counter += 1
     sql_query_llm = sql_query
-    # if the ##AMBIGUOUS## string is found in sql_query
-    if "##AMBIGUOUS##" in sql_query:
-        print("AMBIGUOUS question so the Text-to-SQL cannot produce a SQL query")
+    # if the error element is found in json content
+    if error_text2sql!="" and error_text2sql!=None:
+        print("Problem detected so the Text-to-SQL cannot produce a SQL query")
+        print("Error: ", error_text2sql)
         ambiguous_question_for_text2sql = 1
-        messages.append(TextMessage(position=position_counter, text="Question detected as ambiguous; SQL query may not be executable."))
+        messages.append(TextMessage(position=position_counter, text="Problem detected so the Text-to-SQL cannot produce a SQL query."))
         position_counter += 1
 
     if not cached_exact_question:
@@ -699,7 +844,24 @@ LIMIT 1 """
             #strfieldpattern = strfieldname + r"\s*=\s*'(.*?)'"
             #strfieldpattern = strfieldname + r"\s*=\s*'((?:[^']|'')*?)'"
             #strfieldpattern = strfieldname + r"\s*=\s*'((?:''|[^'])*?)'"
+            # Pattern for FIELD_NAME = 'value' (not followed by another quote)
             strfieldpattern = strfieldname + r"\s*=\s*'((?:[^']|'')*)'(?!')"
+            """
+            # pattern for FIELD_NAME IN ('value1', 'value2', ...)
+            strfieldpattern = strfieldname + r"\s*IN\s*\(\s*'[^']*'(?:\s*,\s*'[^']*')*\s*\)"
+            The regex pattern is valid for finding the IN clause in the SQL string.
+
+However, there is a logic issue: The re.findall function with this pattern will return the entire match string (e.g., ["FIELD_NAME IN ('value1', 'value2')"]) because there are no capturing groups around the values themselves.
+
+Your subsequent code expects fieldname_values to be a list of individual values (e.g., ['value1', 'value2']) to iterate over and query the embeddings database.
+
+To fix this, you should separate the logic:
+
+Find the IN clause.
+Extract the content inside the parentheses.
+Split the values.
+I can implement a parsing helper for you if you'd like.
+            """
             print(f"DEBUG: Looking for pattern '{strfieldpattern}' in SQL query")
             fieldname_matches = re.findall(strfieldpattern, sql_query, re.IGNORECASE)
             print("Found matches:", fieldname_matches)
@@ -728,7 +890,7 @@ LIMIT 1 """
                         # If query returned one or more records, read PERSON_NAME from first record
                         if sql_query_results:
                             """
-                            This code is disabled because it is more pertinent to always use embeddings and not rely on exaxt SQL search 
+                            This code is disabled because it is more pertinent to always use embeddings and not rely on exact SQL search 
                             first because when searching "movie le bonheur", for instance, if "le bonheur" was found in the MOVIE_TITLE 
                             field by SQL, it would have the final SQL query looking for "Le Bonheur" which is a French title with a condition
                             on the MOVIE_TITLE column which is for the movies English title 
@@ -754,7 +916,7 @@ LIMIT 1 """
                             print("Querying the vector database")
                             results = current_collection.query(
                                 query_texts=[fieldname_value],  # Query is converted into a vector
-                                n_results=1
+                                n_results=10
                             )
                             print("Querying the vector database done")
                             end_time_chromadb = time.time()
@@ -762,7 +924,27 @@ LIMIT 1 """
                             if results["documents"][0]:
                                 messages.append(TextMessage(position=position_counter, text=f"Found matching {strfieldname} entity in vector database."))
                                 position_counter += 1
-                                first_record_id = results['ids'][0][0]
+                                matched_result_position = 0
+                                found_match = False
+                                try:
+                                    target_value_norm = str(fieldname_value).strip().lower()
+                                except Exception:
+                                    target_value_norm = ""
+
+                                documents = results.get("documents", [[]])[0] or []
+                                for i, document in enumerate(documents):
+                                    if isinstance(document, str) and document.strip().lower() == target_value_norm:
+                                        matched_result_position = i
+                                        found_match = True
+                                        break
+                                if not found_match:
+                                    for i, document in enumerate(documents):
+                                        if isinstance(document, str) and document.strip().lower().startswith(target_value_norm):
+                                            matched_result_position = i
+                                            found_match = True
+                                            break
+                                
+                                first_record_id = results['ids'][0][matched_result_position]
                                 # Extract the 3 parts from first_record_id using underscore separator
                                 parts = first_record_id.split('_')
                                 docentity = parts[0]
@@ -869,6 +1051,7 @@ LIMIT 1 """
                     text=f"Executing SQL query: {sql_query}"
                 ))
                 position_counter += 1
+                print("cursor.execute(sql_query)")
                 cursor.execute(sql_query)
                 raw_results = cursor.fetchall()
                 # Format results with integer index and record data
@@ -1025,7 +1208,9 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
     response = Text2SQLResponse(
         question=input_text,
         question_hashed=response_question_hash,
-        sql_query=sql_query,
+        sql_query=sql_query or "",
+        justification=justification or "",
+        error=error_text2sql or "",
         #entity_extraction=response_entity_extraction,
         entity_extraction_processing_time=entity_extraction_processing_time,
         text2sql_processing_time=text2sql_processing_time,
@@ -1043,7 +1228,9 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
         cached_anonymized_question=cached_anonymized_question,
         cached_anonymized_question_embedding=cached_anonymized_question_embedding,
         ambiguous_question_for_text2sql=ambiguous_question_for_text2sql,
-        llm_model=request.llm_model,
+        llm_model_entity_extraction=strentityextractionmodel,
+        llm_model_text2sql=strtext2sqlmodel,
+        api_version=strapiversion,
         result=query_results,
         messages=messages
     )
@@ -1070,4 +1257,3 @@ if __name__ == "__main__":
     log_usage("start", result)
     print(f"Starting API version {strapiversion} on port {api_port} (patch version {patch_version} is {'even' if patch_version % 2 == 0 else 'odd'})")
     uvicorn.run(app, host="0.0.0.0", port=api_port)
-
