@@ -12,7 +12,7 @@ This is a FastAPI-based REST API that converts natural language questions into S
 - **Orchestration**: LangChain
 - **Deployment**: Docker with Blue/Green deployment strategy
 
-**Current Version**: 1.1.9 (see `strapiversion` in main.py:25)
+**Current Version**: 1.1.12 (see `strapiversion` in main.py:46)
 
 ## Architecture & Design Patterns
 
@@ -38,13 +38,19 @@ This is a FastAPI-based REST API that converts natural language questions into S
      - `networks`: TV network embeddings
      - `topics`: Genre/theme embeddings
      - `anonymizedqueries`: Cached anonymized question patterns
-   - Similarity threshold: 0.15 (configurable via `similarity_threshold` in main.py:130)
+   - Similarity threshold: 0.15 (configurable via `similarity_threshold` in main.py:236)
    - Embedding model: OpenAI `text-embedding-3-large`
 
 4. **Blue/Green Deployment**
    - Version-based port selection: even patch versions → port 8000 (Blue), odd → port 8001 (Green)
-   - Controlled by `strapiversion` variable in main.py:25
+   - Controlled by `strapiversion` variable in main.py:46
    - Restart scripts: `restart-blue.sh` and `restart-green.sh`
+
+5. **Automatic Cache Cleanup**
+   - Runs on application startup (main.py:224, 279)
+   - `cleanup_anonymized_queries_collection()`: Cleans ChromaDB embeddings cache (main.py:140-223)
+   - `cleanup_sql_cache()`: Cleans SQL cache table matching current API version (main.py:268-275)
+   - Ensures old cached queries from previous versions are removed automatically
 
 ### Request Processing Pipeline
 
@@ -65,26 +71,28 @@ The API follows a sophisticated 10-step pipeline:
 
 ### Core Application Files
 
-**main.py** (1073 lines)
+**main.py** (1299 lines)
 - FastAPI application setup and endpoint definitions
 - ChromaDB initialization and collection management
 - Database connection pooling (`get_db_connection()`)
-- Main `/search/text2sql` endpoint implementation (main.py:290-1059)
+- Version management utilities: `format_api_version()` and `compare_versions()` (main.py:25-43)
+- Automatic cache cleanup functions (main.py:140-275)
+- Main `/search/text2sql` endpoint implementation
 - Caching logic for all 3 tiers
 - Entity replacement in SQL queries
 - Pagination logic
-- Logging infrastructure (`log_usage()`, main.py:236-266)
-- Blue/Green deployment port selection (main.py:1061-1072)
+- Logging infrastructure (`log_usage()`)
+- Blue/Green deployment port selection
 
-**text2sql.py** (221 lines)
-- Core text-to-SQL conversion logic (`f_text2sql()`, text2sql.py:152-219)
-- Entity extraction logic (`f_entity_extraction()`, text2sql.py:47-150)
+**text2sql.py** (263 lines)
+- Core text-to-SQL conversion logic (`f_text2sql()`)
+- Entity extraction logic (`f_entity_extraction()`)
 - Prompt template loading from `data/` folder
-- OpenAI API client management
+- OpenAI API client management with configurable model selection
 - Memory monitoring (using psutil)
 - Current prompt templates:
-  - `text-to-sql-prompt-chatgpt-4o-1-1-9-20251212.txt`
-  - `entity-extraction-prompt-chatgpt-4o-1-1-9-20251212.txt`
+  - `text-to-sql-prompt-chatgpt-4o-1-1-12-20260104.txt`
+  - `entity-extraction-prompt-chatgpt-4o-1-1-12-20260104.txt`
 
 **auth.py** (40 lines)
 - API key authentication middleware
@@ -127,11 +135,16 @@ The API follows a sophisticated 10-step pipeline:
 ### Version Management
 
 **CRITICAL**: When updating prompt templates:
-1. Update `strapiversion` in main.py:25
-2. Create new prompt template files in `data/` with new version number
-3. Update template filenames in text2sql.py:25-28
+1. Update `strapiversion` in main.py:46
+2. Create new prompt template files in `data/` with new version number and date
+3. Update template filenames in text2sql.py:26 and text2sql.py:30
 4. Version format: `X.Y.Z` (Major.Minor.Patch)
 5. Patch version determines deployment port (even = Blue, odd = Green)
+6. On startup, cleanup functions automatically remove old cached queries from previous versions
+
+**Version Utility Functions** (main.py:25-43):
+- `format_api_version(version: str) -> str`: Converts version "X.Y.Z" to "XXX.YYY.ZZZ" format for comparison
+- `compare_versions(version1: str, version2: str) -> int`: Compares two version strings (-1, 0, or 1)
 
 ### Database Schema
 
@@ -406,16 +419,42 @@ docker run -p 8000:8000 --env-file .env fastapi-text2sql
 ### Version Updates
 
 **When Updating Prompts**:
-1. Increment `strapiversion` in main.py:25
-2. Create new prompt files in `data/` with version suffix
-3. Update filenames in text2sql.py:25-28
+1. Increment `strapiversion` in main.py:46
+2. Create new prompt files in `data/` with version suffix and date (format: `YYYYMMDD`)
+3. Update filenames in text2sql.py:26 and text2sql.py:30
 4. Test locally first
 5. Deploy using appropriate restart script
-6. Verify API version in response logs
+6. On startup, cleanup functions will automatically remove old cached queries
+7. Verify API version in response logs
 
-**Version Format Conversion** (main.py:26-28):
-- Input: `"1.1.9"`
-- Output: `"001.001.009"` (for SQL storage)
+**Version Format Conversion** (main.py:25-48):
+- Input: `"1.1.12"`
+- Output: `"001.001.012"` (for SQL storage)
+- Uses `format_api_version()` helper function for consistent formatting
+
+## Automatic Cache Cleanup
+
+### Cleanup Functions (New in v1.1.12)
+
+**cleanup_anonymized_queries_collection()** (main.py:140-223):
+- Runs automatically on application startup (main.py:224)
+- Deletes old embeddings from ChromaDB `anonymizedqueries` collection
+- Includes fix to delete specific problematic query IDs
+- Processes documents in batches of 1000
+- Removes all documents (currently configured to clean all, not just old versions)
+- Provides detailed console output for monitoring
+
+**cleanup_sql_cache()** (main.py:268-275):
+- Runs automatically on application startup (main.py:279)
+- Deletes SQL cache entries matching current API version
+- Executes: `DELETE FROM T_WC_T2S_CACHE WHERE API_VERSION = {current_version}`
+- Ensures fresh cache for new version deployments
+
+**Important Notes**:
+- Both functions run synchronously during startup
+- Application startup may take longer due to cleanup operations
+- Large cache cleanup may impact startup time
+- Console output shows progress and deletion counts
 
 ## Common Patterns and Gotchas
 
@@ -551,7 +590,7 @@ None currently defined. All variables in `.env.example` are required.
 
 1. **Enable Caching**: Keep `retrieve_from_cache=true` and `store_to_cache=true` for best performance
 2. **Pagination**: Use `question_hashed` for subsequent pages to avoid re-processing
-3. **Similarity Threshold**: Adjust `similarity_threshold` (main.py:130) for cache hit rate vs. accuracy trade-off
+3. **Similarity Threshold**: Adjust `similarity_threshold` (main.py:236) for cache hit rate vs. accuracy trade-off
 4. **ChromaDB Fetch Size**: Increase `n_results` in embeddings search if entity variable matching fails often
 5. **Database Indexing**: Ensure indexes on `QUESTION`, `QUESTION_HASHED`, `API_VERSION` in cache table
 
@@ -608,6 +647,6 @@ None currently defined. All variables in `.env.example` are required.
 
 ---
 
-**Last Updated**: 2026-01-10
-**Current Version**: 1.1.9
+**Last Updated**: 2026-01-11
+**Current Version**: 1.1.12
 **Maintainer**: See repository owner

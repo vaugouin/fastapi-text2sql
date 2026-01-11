@@ -53,7 +53,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 4. **Embeddings Cache Search (ChromaDB)**
    - If not found in SQL caches, search for similar anonymized questions in the vector embeddings cache
    - Uses semantic similarity matching with OpenAI's `text-embedding-3-large` model
-   - **Similarity threshold**: Distance < 0.1 (configurable)
+   - **Similarity threshold**: Distance < 0.15 (configurable)
    - Returns cached SQL query if a sufficiently similar question is found
 
 5. **Entity Validation & Resolution**
