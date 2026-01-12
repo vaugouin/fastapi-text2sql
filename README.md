@@ -4,18 +4,33 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 
 ## 🚀 Features
 
+### Core Capabilities
 - **Natural Language to SQL**: Convert plain English questions into SQL queries using OpenAI's GPT-4o
-- **FastAPI Framework**: High-performance, modern Python web framework
-- **API Key Authentication**: Secure access with API key validation
+- **FastAPI Framework**: High-performance, modern Python web framework with automatic API documentation
+- **API Key Authentication**: Secure access with API key validation using constant-time comparison
 - **ChromaDB Vector Search**: Advanced similarity search for entity matching and query optimization
-- **Entity Extraction**: Intelligent extraction and anonymization of entities (persons, movies, series, companies)
-- **Multi-Level Caching**: Three-tier caching system (exact questions, anonymized questions, vector embeddings)
+- **Entity Extraction & Anonymization**: Intelligent extraction of entities (persons, movies, series, companies, networks, topics) with placeholder replacement
+- **Multi-Level Caching**: Sophisticated three-tier caching system (exact questions, anonymized questions, vector embeddings)
 - **Comprehensive Logging**: Automatic logging of all API requests and responses with detailed timing metrics
-- **Memory Monitoring**: Built-in system memory usage tracking
-- **Pagination Support**: Built-in pagination with configurable page sizes
+- **Memory Monitoring**: Built-in system memory usage tracking and reporting
+- **Pagination Support**: Built-in pagination with configurable page sizes and question hashing
 - **Robust Error Handling**: Enhanced error handling for malformed responses and SQL escaping issues
-- **Docker Support**: Containerized deployment ready
+- **Docker Support**: Containerized deployment with Blue/Green deployment strategy
 - **UTF-8 Support**: Proper handling of Unicode characters in queries and logs
+
+### Advanced Features
+- **Multi-Language Support**: Handles English, French, and original language titles for movies and series
+- **Processing Transparency**: Detailed messages array showing each processing step
+- **Configurable LLM Models**: Separate model selection for entity extraction and text-to-SQL conversion
+- **Automatic Cache Cleanup**: On-startup cache cleanup to remove outdated entries from previous versions
+- **Blue/Green Deployment**: Version-based automatic port selection (even versions: port 8000, odd: port 8001)
+- **Ambiguous Question Detection**: Intelligent detection and handling of questions too vague for SQL generation
+- **Question Hashing**: SHA256 hashing for efficient pagination and cache lookup
+- **Fuzzy Entity Matching**: Vector similarity search handles misspellings and variations in entity names
+- **SQL Query Optimization**: Automatic removal and replacement of LLM-generated LIMIT/OFFSET clauses
+- **Video Search Support**: Search for movie and series videos, trailers, and clips
+- **Topic Extraction**: Intelligent genre and theme extraction for content categorization
+- **Version Management**: Utility functions for version comparison and formatting
 
 ## 📊 Database Scale
 
@@ -39,11 +54,12 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    - If not found in exact cache, extract and anonymize entities from the user question using GPT-4o
    - Entities extracted include:
      - Person names (actors, directors, crew)
-     - Movie titles
-     - TV series titles
-     - Company names
-     - Network names
-   - Replace entities with placeholders (e.g., `{{PERSON_NAME}}`, `{{MOVIE_TITLE}}`)
+     - Movie titles (English, French, and original language)
+     - TV series titles (multi-language support)
+     - Company names (production companies, studios)
+     - Network names (TV networks, streaming platforms)
+     - Topic names (genres, themes, categories)
+   - Replace entities with placeholders (e.g., `{{PERSON_NAME}}`, `{{MOVIE_TITLE}}`, `{{TOPIC_NAME}}`)
 
 3. **Anonymized Question Cache Lookup (SQL Database)**
    - Search for the anonymized question pattern in the SQL cache
@@ -53,17 +69,19 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 4. **Embeddings Cache Search (ChromaDB)**
    - If not found in SQL caches, search for similar anonymized questions in the vector embeddings cache
    - Uses semantic similarity matching with OpenAI's `text-embedding-3-large` model
-   - **Similarity threshold**: Distance < 0.1 (configurable)
+   - **Similarity threshold**: Distance < 0.15 (configurable)
    - Returns cached SQL query if a sufficiently similar question is found
 
 5. **Entity Validation & Resolution**
    - Validate and resolve each extracted entity using specialized SQL tables and ChromaDB collections:
      - **Person names**: Search in `persons` collection/table
-     - **Movie titles**: Search in `movies` collection with multi-language support
-     - **TV series titles**: Search in `series` collection
+     - **Movie titles**: Search in `movies` collection with multi-language support (English, French, original)
+     - **TV series titles**: Search in `series` collection with multi-language support
      - **Company names**: Search in `companies` collection
      - **Network names**: Search in `networks` collection
+     - **Topic names**: Search in `topics` collection
    - Vector similarity matching ensures fuzzy matching for misspellings and variations
+   - Similarity threshold of 0.15 for robust entity matching
 
 6. **Text-to-SQL Generation (LLM)**
    - If no cache hit occurs, process the anonymized question through the LLM model
@@ -190,7 +208,8 @@ Content-Type: application/json
   "page": 1,
   "retrieve_from_cache": true,
   "store_to_cache": true,
-  "llm_model": "default"
+  "llm_model_entity_extraction": "default",
+  "llm_model_text2sql": "default"
 }
 ```
 
@@ -200,7 +219,8 @@ Content-Type: application/json
 - `page` (optional, int, default: 1): Page number for pagination
 - `retrieve_from_cache` (optional, bool, default: true): Whether to check cache for existing results
 - `store_to_cache` (optional, bool, default: true): Whether to store results in cache
-- `llm_model` (optional, str, default: "default"): LLM model to use
+- `llm_model_entity_extraction` (optional, str, default: "default"): LLM model to use for entity extraction
+- `llm_model_text2sql` (optional, str, default: "default"): LLM model to use for text-to-SQL conversion
 
 **Note:** Either `question` or `question_hashed` must be provided.
 
@@ -223,6 +243,8 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "question": "List all color movies with Humphrey Bogart",
   "question_hashed": "a1b2c3d4e5f6...",
   "sql_query": "SELECT T_WC_T2S_MOVIE.ID_MOVIE, T_WC_T2S_MOVIE.TITLE... LIMIT 50",
+  "justification": "",
+  "error": "",
   "entity_extraction_processing_time": 0.45,
   "text2sql_processing_time": 1.23,
   "embeddings_processing_time": 0.12,
@@ -239,7 +261,23 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "cached_anonymized_question": false,
   "cached_anonymized_question_embedding": false,
   "ambiguous_question_for_text2sql": false,
-  "llm_model": "default",
+  "llm_model_entity_extraction": "default",
+  "llm_model_text2sql": "default",
+  "api_version": "1.1.12",
+  "messages": [
+    {
+      "position": 1,
+      "text": "Stripped whitespace and carriage return characters from question."
+    },
+    {
+      "position": 2,
+      "text": "Entity extraction successful; question anonymized."
+    },
+    {
+      "position": 3,
+      "text": "Executing SQL query: SELECT..."
+    }
+  ],
   "result": [
     {
       "index": 0,
@@ -255,27 +293,42 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 ```
 
 **Response Fields:**
+
+**Core Fields:**
 - `question` (str): The original or retrieved natural language question
 - `question_hashed` (str, optional): SHA256 hash of the question for pagination/caching
 - `sql_query` (str): The generated and optimized SQL query
+- `justification` (str): Explanation or reasoning for the SQL query (if provided by LLM)
+- `error` (str): Error message if query processing failed
+- `result` (list): Array of query results, each with `index` (int) and `data` (dict)
+
+**Performance Metrics:**
 - `entity_extraction_processing_time` (float): Time for entity extraction in seconds
 - `text2sql_processing_time` (float): Time for SQL generation in seconds
 - `embeddings_processing_time` (float): Time for vector search operations in seconds
 - `embeddings_cache_search_time` (float): Time for embeddings cache lookup in seconds
 - `query_execution_time` (float): Time for SQL execution in seconds
 - `total_processing_time` (float): Total request processing time in seconds
+
+**Pagination:**
 - `page` (int, optional): Current page number
 - `llm_defined_limit` (int, optional): LLM-specified limit if any
 - `llm_defined_offset` (int, optional): LLM-specified offset if any
 - `limit` (int, optional): Records per page
 - `offset` (int, optional): Current offset
 - `rows_per_page` (int, optional): Configured page size (default: 50)
+
+**Cache Indicators:**
 - `cached_exact_question` (bool): Whether exact question was found in cache
 - `cached_anonymized_question` (bool): Whether anonymized question was cached
 - `cached_anonymized_question_embedding` (bool): Whether similar question found via embeddings
+
+**Configuration & Status:**
 - `ambiguous_question_for_text2sql` (bool): Whether question was too ambiguous for SQL generation
-- `llm_model` (str): LLM model used for processing
-- `result` (list): Array of query results, each with `index` (int) and `data` (dict)
+- `llm_model_entity_extraction` (str): LLM model used for entity extraction
+- `llm_model_text2sql` (str): LLM model used for text-to-SQL conversion
+- `api_version` (str): Current API version (e.g., "1.1.12")
+- `messages` (list): Array of processing step messages, each with `position` (int) and `text` (str)
 ```
 
 ## 💡 Sample Usage Examples
@@ -353,7 +406,14 @@ Based on real API usage data, here are examples of natural language questions th
 - "Series starring Bryan Cranston"
 - "List all posters of the serie Game of Thrones"
 
-**Note**: Questions can be expressed in English or any language understood by the underlying LLM (currently OpenAI's models). The API can handle complex multi-criteria searches involving actors, directors, genres, years, ratings, and technical specifications for both movies and TV series.
+### 🎥 Video & Media Queries
+- "List all trailers for The Big Lebowski"
+- "Show me videos for the movie Inception"
+- "Find clips from Breaking Bad series"
+- "Videos and trailers for Dune"
+- "Behind the scenes videos for The Dark Knight"
+
+**Note**: Questions can be expressed in English or any language understood by the underlying LLM (currently OpenAI's models). The API can handle complex multi-criteria searches involving actors, directors, genres, years, ratings, and technical specifications for both movies and TV series. Video search capabilities allow finding trailers, clips, and other media content associated with movies and series.
 
 ## 🐳 Docker Deployment
 
@@ -379,17 +439,20 @@ fastapi-text2sql/
 ├── restart-blue.sh          # Blue deployment restart script
 ├── restart-green.sh         # Green deployment restart script
 ├── data/                    # Prompt templates and configuration
-│   ├── entity-extraction-chatgpt-4o-1-1-4-20251008.txt  # Entity extraction prompt
-│   └── prompt-chatgpt-4o-1-1-4-20251008.txt              # Text2SQL prompt
+│   ├── entity-extraction-prompt-chatgpt-4o-1-1-12-20260104.txt  # Entity extraction prompt
+│   └── text-to-sql-prompt-chatgpt-4o-1-1-12-20260104.txt        # Text2SQL prompt
 ├── logs/                    # API usage logs with timing metrics (auto-created)
+├── CLAUDE.md                # AI assistant guide for understanding the codebase
 └── README.md                # This file
 ```
 
 **Key Architecture Components:**
-- **ChromaDB Integration**: Vector database for entity matching and similarity search
-- **Multi-Level Caching**: SQL cache + embeddings cache for performance optimization
-- **Entity Extraction**: GPT-4o powered entity recognition and anonymization
+- **ChromaDB Integration**: Vector database for entity matching and similarity search with 7 specialized collections
+- **Multi-Level Caching**: SQL cache + embeddings cache for performance optimization with automatic cleanup
+- **Entity Extraction**: GPT-4o powered entity recognition and anonymization for 6 entity types
 - **Blue/Green Deployment**: Automatic port selection based on API version (even: port 8000, odd: port 8001)
+- **Processing Transparency**: Messages array tracks every processing step for debugging and analysis
+- **Version Management**: Utility functions for version comparison and automatic cache cleanup
 
 ## 🔧 Configuration
 
@@ -458,8 +521,26 @@ The API implements a sophisticated three-tier caching system for optimal perform
 #### 3. **Vector Embeddings Cache (ChromaDB)**
 - Uses OpenAI's `text-embedding-3-large` model for semantic similarity
 - Finds similar questions even with different wording
-- Configurable similarity threshold (default: 0.1)
+- Configurable similarity threshold (default: 0.15)
 - Stores anonymized SQL queries in metadata for quick retrieval
+
+### Automatic Cache Cleanup (New in v1.1.12)
+
+The system automatically cleans up cached data on startup to ensure optimal performance:
+
+#### **ChromaDB Embeddings Cleanup**
+- Runs on application startup before the API accepts requests
+- Cleans the `anonymizedqueries` collection in ChromaDB
+- Removes embeddings from previous API versions
+- Processes documents in batches of 1000 for efficient cleanup
+- Provides console output showing progress and deletion counts
+
+#### **SQL Cache Cleanup**
+- Automatically deletes SQL cache entries matching the current API version
+- Ensures fresh cache state for new version deployments
+- Executes on startup: `DELETE FROM T_WC_T2S_CACHE WHERE API_VERSION = {current_version}`
+
+**Impact**: Application startup may take slightly longer during cache cleanup operations, but this ensures optimal cache accuracy and prevents stale results from previous versions.
 
 ### Entity Extraction & Anonymization
 
@@ -490,6 +571,49 @@ ChromaDB collections for entity matching:
 - `topics`: Genre/theme embeddings
 - `anonymizedqueries`: Cached anonymized question patterns
 
+### Processing Transparency (Messages Array)
+
+Each API response includes a detailed `messages` array that tracks every processing step:
+
+**Example Messages:**
+```json
+"messages": [
+  {"position": 1, "text": "Stripped whitespace and carriage return characters from question."},
+  {"position": 2, "text": "Exact question cache hit used for SQL query."},
+  {"position": 3, "text": "Entity extraction successful; question anonymized."},
+  {"position": 4, "text": "Anonymized question cache hit found."},
+  {"position": 5, "text": "Embeddings cache search completed in 0.05s."},
+  {"position": 6, "text": "Executing SQL query: SELECT..."},
+  {"position": 7, "text": "Query execution completed successfully."}
+]
+```
+
+**Benefits:**
+- **Debugging**: Easily identify which processing stage succeeded or failed
+- **Performance Analysis**: See which steps take the most time
+- **Cache Visibility**: Know which cache tier was used (exact, anonymized, or embeddings)
+- **Transparency**: Understand exactly how your question was processed
+
+### Blue/Green Deployment
+
+The API supports Blue/Green deployment strategy for zero-downtime updates:
+
+**How It Works:**
+- **Even patch versions** (1.1.0, 1.1.2, 1.1.4, etc.) → **Blue environment** on port 8000
+- **Odd patch versions** (1.1.1, 1.1.3, 1.1.5, etc.) → **Green environment** on port 8001
+- Version controlled by `strapiversion` variable in `main.py`
+- Automatic port selection on startup
+
+**Deployment Scripts:**
+- `restart-blue.sh`: Deploys to Blue environment (port 8000)
+- `restart-green.sh`: Deploys to Green environment (port 8001)
+
+**Benefits:**
+- Zero-downtime deployments
+- Easy rollback to previous version
+- A/B testing capabilities
+- Parallel version testing
+
 ### Logging
 All API requests are automatically logged to the `logs/` folder with:
 - Timestamp
@@ -497,6 +621,7 @@ All API requests are automatically logged to the `logs/` folder with:
 - API version
 - Content hash
 - Full request/response data
+- Processing messages array
 
 ## 🔒 Security
 
@@ -560,7 +685,10 @@ All successful text2sql requests return a comprehensive response with:
 - `question`: The original natural language question
 - `question_hashed`: SHA256 hash of the question for pagination/caching
 - `sql_query`: The generated and optimized SQL query
+- `justification`: Explanation or reasoning for the SQL query (if provided)
+- `error`: Error message if query processing failed
 - `result`: Array of query results with index and data
+- `messages`: Array of processing step messages (position and text)
 
 **Performance Metrics:**
 - `entity_extraction_processing_time`: Time for entity extraction (seconds)
@@ -574,7 +702,7 @@ All successful text2sql requests return a comprehensive response with:
 - `page`: Current page number
 - `limit`: Records per page
 - `offset`: Current offset
-- `rows_per_page`: Configured page size
+- `rows_per_page`: Configured page size (default: 50)
 - `llm_defined_limit`/`llm_defined_offset`: LLM-specified pagination (if any)
 
 **Cache Indicators:**
@@ -583,8 +711,10 @@ All successful text2sql requests return a comprehensive response with:
 - `cached_anonymized_question_embedding`: Whether similar question found via embeddings
 - `ambiguous_question_for_text2sql`: Whether question was too ambiguous for SQL generation
 
-**Configuration:**
-- `llm_model`: LLM model used for processing
+**Configuration & Metadata:**
+- `llm_model_entity_extraction`: LLM model used for entity extraction
+- `llm_model_text2sql`: LLM model used for text-to-SQL conversion
+- `api_version`: Current API version (e.g., "1.1.12")
 
 ## 🤝 Contributing
 
@@ -606,4 +736,9 @@ This project is open source. Please check the repository for license details.
 
 ---
 
+**Current Version**: 1.1.12
+**Last Updated**: 2026-01-11
+
 **Note**: This API requires an active OpenAI API key to function. Make sure you have sufficient credits in your OpenAI account for the text-to-SQL conversions.
+
+For detailed technical documentation and AI assistant guidance, see [CLAUDE.md](CLAUDE.md).
