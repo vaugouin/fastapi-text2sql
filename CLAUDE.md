@@ -12,7 +12,7 @@ This is a FastAPI-based REST API that converts natural language questions into S
 - **Orchestration**: LangChain
 - **Deployment**: Docker with Blue/Green deployment strategy
 
-**Current Version**: 1.1.12 (see `strapiversion` in main.py:46)
+**Current Version**: 1.1.13 (see `strapiversion` in main.py:47)
 
 ## Architecture & Design Patterns
 
@@ -20,7 +20,7 @@ This is a FastAPI-based REST API that converts natural language questions into S
 
 1. **Multi-Tier Caching System** (Performance Optimization)
    - **Tier 1**: Exact question cache (SQL database `T_WC_T2S_CACHE`)
-   - **Tier 2**: Anonymized question cache (SQL database)
+   - **Tier 2**: Anonymized question cache (SQL database `T_WC_T2S_CACHE`)
    - **Tier 3**: Vector embeddings cache (ChromaDB `anonymizedqueries` collection)
 
 2. **Entity Extraction Pipeline**
@@ -46,10 +46,11 @@ This is a FastAPI-based REST API that converts natural language questions into S
    - Controlled by `strapiversion` variable in main.py:46
    - Restart scripts: `restart-blue.sh` and `restart-green.sh`
 
-5. **Automatic Cache Cleanup**
-   - Runs on application startup (main.py:224, 279)
-   - `cleanup_anonymized_queries_collection()`: Cleans ChromaDB embeddings cache (main.py:140-223)
-   - `cleanup_sql_cache()`: Cleans SQL cache table matching current API version (main.py:268-275)
+5. **Automatic Cache Cleanup** (Refactored in v1.1.13)
+   - Cleanup functions moved to separate `cleanup.py` module for better code organization
+   - Runs on application startup (main.py:141, 187)
+   - `cleanup.cleanup_anonymized_queries_collection()`: Cleans ChromaDB embeddings cache
+   - `cleanup.cleanup_sql_cache()`: Cleans SQL cache table matching current API version
    - Ensures old cached queries from previous versions are removed automatically
 
 ### Request Processing Pipeline
@@ -84,15 +85,22 @@ The API follows a sophisticated 10-step pipeline:
 - Logging infrastructure (`log_usage()`)
 - Blue/Green deployment port selection
 
-**text2sql.py** (263 lines)
+**text2sql.py** (220 lines)
 - Core text-to-SQL conversion logic (`f_text2sql()`)
 - Entity extraction logic (`f_entity_extraction()`)
 - Prompt template loading from `data/` folder
 - OpenAI API client management with configurable model selection
 - Memory monitoring (using psutil)
 - Current prompt templates:
-  - `text-to-sql-prompt-chatgpt-4o-1-1-12-20260104.txt`
-  - `entity-extraction-prompt-chatgpt-4o-1-1-12-20260104.txt`
+  - `text-to-sql-prompt-chatgpt-4o-1-1-13-20260115.txt`
+  - `entity-extraction-prompt-chatgpt-4o-1-1-13-20260115.txt`
+
+**cleanup.py** (103 lines) - New in v1.1.13
+- `format_api_version()`: Converts version string to XXX.YYY.ZZZ format
+- `cleanup_anonymized_queries_collection()`: Cleans ChromaDB embeddings cache
+- `cleanup_sql_cache()`: Cleans SQL cache table matching current API version
+- Processes documents in batches of 1000 for efficient cleanup
+- Includes fix to delete specific problematic query IDs
 
 **auth.py** (40 lines)
 - API key authentication middleware
@@ -135,23 +143,25 @@ The API follows a sophisticated 10-step pipeline:
 ### Version Management
 
 **CRITICAL**: When updating prompt templates:
-1. Update `strapiversion` in main.py:46
+1. Update `strapiversion` in main.py:47
 2. Create new prompt template files in `data/` with new version number and date
 3. Update template filenames in text2sql.py:26 and text2sql.py:30
 4. Version format: `X.Y.Z` (Major.Minor.Patch)
 5. Patch version determines deployment port (even = Blue, odd = Green)
 6. On startup, cleanup functions automatically remove old cached queries from previous versions
 
-**Version Utility Functions** (main.py:25-43):
+**Version Utility Functions** (main.py:26-44):
 - `format_api_version(version: str) -> str`: Converts version "X.Y.Z" to "XXX.YYY.ZZZ" format for comparison
 - `compare_versions(version1: str, version2: str) -> int`: Compares two version strings (-1, 0, or 1)
+- Note: `format_api_version()` is also available in `cleanup.py` for use during startup cleanup
 
 ### Database Schema
 
 The system expects these SQL tables:
 - `T_WC_T2S_CACHE`: Cache storage (exact and anonymized questions)
-  - Fields: `QUESTION`, `QUESTION_HASHED`, `SQL_QUERY`, `SQL_PROCESSED`, `API_VERSION`, timing metrics, etc.
+  - Fields: `QUESTION`, `QUESTION_HASHED`, `SQL_QUERY`, `SQL_PROCESSED`, `JUSTIFICATION`, `API_VERSION`, timing metrics, etc.
   - Important: `IS_ANONYMIZED` flag distinguishes anonymized vs exact questions
+  - `JUSTIFICATION` field stores the LLM's reasoning for the SQL query (added in v1.1.13)
 - `T_WC_T2S_MOVIE`: Movie data with `MOVIE_TITLE`, `MOVIE_TITLE_FR`, `ORIGINAL_TITLE`
 - `T_WC_T2S_SERIE`: Series data with similar multi-language title fields
 - `T_WC_T2S_PERSON`: Person data (actors, directors, crew)
@@ -178,7 +188,10 @@ The system expects these SQL tables:
 ### Response Fields
 
 Every response includes:
-- **Core**: `question`, `question_hashed`, `sql_query`, `result`
+- **Core**: `question`, `question_hashed`, `sql_query`, `sql_query_anonymized`, `justification`, `error`, `result`
+- **Entity Extraction** (New in v1.1.13):
+  - `entity_extraction`: Full entity extraction dictionary from LLM
+  - `question_anonymized`: The anonymized version of the question with placeholders
 - **Performance Metrics**:
   - `entity_extraction_processing_time`
   - `text2sql_processing_time`
@@ -188,7 +201,7 @@ Every response includes:
   - `total_processing_time`
 - **Pagination**: `page`, `limit`, `offset`, `rows_per_page`, `llm_defined_limit`, `llm_defined_offset`
 - **Cache Indicators**: `cached_exact_question`, `cached_anonymized_question`, `cached_anonymized_question_embedding`
-- **Messages**: Detailed processing steps in `messages` array (main.py:208)
+- **Messages**: Detailed processing steps in `messages` array (main.py:241)
 - **Flags**: `ambiguous_question_for_text2sql` (indicates if SQL generation failed)
 
 ## Code Conventions
@@ -270,6 +283,7 @@ results = collection.query(
 
 **Metadata Storage**:
 - Store SQL query in `sql_query_anonymized` metadata field
+- Store `justification` for the SQL query reasoning (added in v1.1.13)
 - Store entity variables as comma-separated string
 - Include timing metrics and API version
 
@@ -419,7 +433,7 @@ docker run -p 8000:8000 --env-file .env fastapi-text2sql
 ### Version Updates
 
 **When Updating Prompts**:
-1. Increment `strapiversion` in main.py:46
+1. Increment `strapiversion` in main.py:47
 2. Create new prompt files in `data/` with version suffix and date (format: `YYYYMMDD`)
 3. Update filenames in text2sql.py:26 and text2sql.py:30
 4. Test locally first
@@ -427,25 +441,28 @@ docker run -p 8000:8000 --env-file .env fastapi-text2sql
 6. On startup, cleanup functions will automatically remove old cached queries
 7. Verify API version in response logs
 
-**Version Format Conversion** (main.py:25-48):
-- Input: `"1.1.12"`
-- Output: `"001.001.012"` (for SQL storage)
+**Version Format Conversion** (main.py:26-49, cleanup.py:5-8):
+- Input: `"1.1.13"`
+- Output: `"001.001.013"` (for SQL storage)
 - Uses `format_api_version()` helper function for consistent formatting
+- Function available in both main.py and cleanup.py
 
 ## Automatic Cache Cleanup
 
-### Cleanup Functions (New in v1.1.12)
+### Cleanup Module (Refactored in v1.1.13)
 
-**cleanup_anonymized_queries_collection()** (main.py:140-223):
-- Runs automatically on application startup (main.py:224)
+The cleanup functions have been refactored into a separate `cleanup.py` module for better code organization and maintainability.
+
+**cleanup.cleanup_anonymized_queries_collection()** (cleanup.py:10-92):
+- Runs automatically on application startup (main.py:141)
 - Deletes old embeddings from ChromaDB `anonymizedqueries` collection
 - Includes fix to delete specific problematic query IDs
 - Processes documents in batches of 1000
 - Removes all documents (currently configured to clean all, not just old versions)
 - Provides detailed console output for monitoring
 
-**cleanup_sql_cache()** (main.py:268-275):
-- Runs automatically on application startup (main.py:279)
+**cleanup.cleanup_sql_cache()** (cleanup.py:94-102):
+- Runs automatically on application startup (main.py:187)
 - Deletes SQL cache entries matching current API version
 - Executes: `DELETE FROM T_WC_T2S_CACHE WHERE API_VERSION = {current_version}`
 - Ensures fresh cache for new version deployments
@@ -455,6 +472,7 @@ docker run -p 8000:8000 --env-file .env fastapi-text2sql
 - Application startup may take longer due to cleanup operations
 - Large cache cleanup may impact startup time
 - Console output shows progress and deletion counts
+- Import: `import cleanup` in main.py
 
 ## Common Patterns and Gotchas
 
@@ -647,6 +665,6 @@ None currently defined. All variables in `.env.example` are required.
 
 ---
 
-**Last Updated**: 2026-01-11
-**Current Version**: 1.1.12
+**Last Updated**: 2026-01-15
+**Current Version**: 1.1.13
 **Maintainer**: See repository owner

@@ -17,6 +17,7 @@ import re
 import openai
 import chromadb
 #from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+import cleanup
 
 # Load environment variables from .env file
 load_dotenv()
@@ -43,7 +44,7 @@ def compare_versions(version1: str, version2: str) -> int:
         return 0
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.12"
+strapiversion = "1.1.13"
 # Convert API version to XXX.YYY.ZZZ format
 strapiversionformatted = format_api_version(strapiversion)
 
@@ -137,91 +138,7 @@ anonymizedqueries = chroma_client.get_or_create_collection(
     embedding_function=embedding_function  # Custom embedding model
 )
 
-def cleanup_anonymized_queries_collection():
-    """Cleanup the anonymized queries collection stored as embeddings in ChromaDB."""
-    print(f"Starting cleanup of anonymized queries cache...")
-    print(f"Current API version: {strapiversion}")
-    print(f"Formatted current version: {format_api_version(strapiversion)}")
-    
-    try:
-        # Fix to delete all query with id bb7f97e70d9481e0fc67d3b72508fd3fa78f939f06e8bdd1a8a533c37cda8461
-        stridtodelete = "bb7f97e70d9481e0fc67d3b72508fd3fa78f939f06e8bdd1a8a533c37cda8461"
-        print("Fix to delete all query with id", stridtodelete)
-        batch_size = 1000
-        offset = 0
-        while True:
-            # Step 1: get all ids matching bb7f97e70d9481e0fc67d3b72508fd3fa78f939f06e8bdd1a8a533c37cda8461
-            results = anonymizedqueries.get(include=[], limit=batch_size, offset=offset)
-            ids = results["ids"]
-            #print(results["ids"])
-            if not ids:
-                break
-            ids_to_delete = [r for r in ids if r.startswith(stridtodelete)]
-            print("offset", offset, "ids_to_delete", ids_to_delete)
-            if ids_to_delete:
-                anonymizedqueries.delete(ids=ids_to_delete)
-                print(f"Deleted {len(ids_to_delete)} docs with prefix {stridtodelete}")
-
-            if len(ids) < batch_size:
-                break
-            offset += batch_size
-
-        # Get all documents from the collection
-        print("Retrieving all documents from the collection...")
-        all_docs = anonymizedqueries.get(include=['metadatas'])
-        
-        if not all_docs['ids']:
-            print("No documents found in the collection.")
-            return
-        
-        print(f"Found {len(all_docs['ids'])} documents in the collection")
-        
-        # Find documents with older API versions
-        docs_to_delete = []
-        current_version_formatted = format_api_version(strapiversion)
-        
-        for i, doc_id in enumerate(all_docs['ids']):
-            metadata = all_docs['metadatas'][i]
-            
-            docs_to_delete.append({
-                'id': doc_id,
-                'created': metadata.get('dat_creat', 'Unknown')
-            })
-            print(f"Marked for deletion: ID={doc_id[:8]}..., Created={metadata.get('dat_creat', 'Unknown')}")
-        
-        if not docs_to_delete:
-            print("No old documents found. All documents are current.")
-            return
-        
-        print(f"\nFound {len(docs_to_delete)} documents to delete:")
-        for doc in docs_to_delete:
-            print(f"  - ID: {doc['id'][:8]}..., Created: {doc['created']}")
-        
-        # Confirm deletion
-        #response = input(f"\nDo you want to delete these {len(docs_to_delete)} documents? (y/N): ")
-        response = "y"
-        if response.lower() != 'y':
-            print("Deletion cancelled.")
-            return
-        
-        # Delete the documents
-        print("Deleting old documents...")
-        ids_to_delete = [doc['id'] for doc in docs_to_delete]
-        
-        # ChromaDB delete method expects a list of IDs
-        anonymizedqueries.delete(ids=ids_to_delete)
-        
-        print(f"Successfully deleted {len(docs_to_delete)} old documents from the anonymizedqueries collection.")
-        
-        # Verify deletion
-        remaining_docs = anonymizedqueries.get(include=['metadatas'])
-        print(f"Remaining documents in collection: {len(remaining_docs['ids'])}")
-        
-    except Exception as e:
-        print(f"Error during cleanup: {str(e)}")
-        raise
-
-cleanup_anonymized_queries_collection()
+cleanup.cleanup_anonymized_queries_collection(anonymizedqueries, strapiversion)
 
 # How many rows per page in the result set
 lngrowsperpage = 50
@@ -265,18 +182,10 @@ def get_db_connection():
         cursorclass=pymysql.cursors.DictCursor
     )
 
-def cleanup_sql_cache():
-    """Cleanup the SQL cache stored as a table in MariaDB."""
-    print(f"Starting cleanup of SQL cache...")
-    print(f"Current API version: {strapiversion}")
-    strsql="DELETE FROM T_WC_T2S_CACHE WHERE API_VERSION = %s"
-    connection.cursor().execute(strsql, (strapiversionformatted,))
-    connection.commit()
-    print(f"Successfully deleted {connection.cursor().rowcount} rows from the SQL cache.")
-    
 answer=42
 connection = get_db_connection()
-cleanup_sql_cache()
+cleanup.cleanup_sql_cache(connection, strapiversion)
+
 
 class TextExpr(BaseModel):
     text: str
@@ -305,9 +214,11 @@ class Text2SQLResponse(BaseModel):
     question: str
     question_hashed: Optional[str] = None
     sql_query: str
+    sql_query_anonymized: str = ""
     justification: str
     error: str
-    #entity_extraction: Optional[dict] = None
+    entity_extraction: Optional[dict] = None
+    question_anonymized: Optional[str] = None
     entity_extraction_processing_time: float
     text2sql_processing_time: float
     embeddings_processing_time: float
@@ -470,7 +381,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     cached_exact_question = False
     cached_anonymized_question = False
     cached_anonymized_question_embedding = False
+    cached_anonymized_question_embedding = False
     sql_query = None
+    sql_query_anonymized = None
     justification = None
     error_text2sql = None
     llm_defined_limit = None
@@ -479,6 +392,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     offset = None
     input_text = None
     input_text_anonymized = None
+    entity_extraction = None
     entity_extraction_processing_time = 0.0
     text2sql_processing_time = 0.0
     embeddings_processing_time = 0.0
@@ -505,12 +419,12 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 messages.append(TextMessage(position=position_counter, text="Searching cache by question hash."))
                 position_counter += 1
                 cache_query = """
-SELECT QUESTION, SQL_QUERY, SQL_PROCESSED, ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME 
-FROM T_WC_T2S_CACHE 
-WHERE QUESTION_HASHED = %s 
-AND API_VERSION = %s 
+SELECT QUESTION, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME
+FROM T_WC_T2S_CACHE
+WHERE QUESTION_HASHED = %s
+AND API_VERSION = %s
 AND (DELETED IS NULL OR DELETED = 0)
-ORDER BY TIM_UPDATED DESC 
+ORDER BY TIM_UPDATED DESC
 LIMIT 1 """
                 print("Looking for the exact question hash in the SQL cache:", cache_query)
                 cursor.execute(cache_query, (request.question_hashed, strapiversionformatted))
@@ -526,12 +440,12 @@ LIMIT 1 """
                 messages.append(TextMessage(position=position_counter, text="Searching cache by question text."))
                 position_counter += 1
                 cache_query = """
-SELECT QUESTION, SQL_QUERY, SQL_PROCESSED, ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME 
-FROM T_WC_T2S_CACHE 
-WHERE QUESTION = %s 
-AND API_VERSION = %s 
+SELECT QUESTION, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME
+FROM T_WC_T2S_CACHE
+WHERE QUESTION = %s
+AND API_VERSION = %s
 AND (DELETED IS NULL OR DELETED = 0)
-ORDER BY TIM_UPDATED DESC 
+ORDER BY TIM_UPDATED DESC
 LIMIT 1 """
                 print("Looking for the exact question in the SQL cache:", cache_query)
                 messages.append(TextMessage(
@@ -554,7 +468,10 @@ LIMIT 1 """
                 messages.append(TextMessage(position=position_counter, text="Exact question cache hit used for SQL query."))
                 position_counter += 1
                 input_text = cache_result_exact['QUESTION']
+                input_text = cache_result_exact['QUESTION']
                 sql_query = cache_result_exact['SQL_PROCESSED'] or cache_result_exact['SQL_QUERY']
+                sql_query_anonymized = cache_result_exact['SQL_QUERY']
+                justification = cache_result_exact.get('JUSTIFICATION', '')
                 # Because the SQL query can be updated in the t2scache.php back-office script,
                 # we need to replace &#039; by ' because the back-office script stores &#039; instead of ' in the database
                 #sql_query = sql_query.replace("&#039;", "'")
@@ -634,12 +551,12 @@ LIMIT 1 """
             # Is this anonymized query in the SQL cache?
             with connection.cursor() as cursor:
                 cache_query = """
-SELECT QUESTION, SQL_QUERY, SQL_PROCESSED, ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME 
-FROM T_WC_T2S_CACHE 
-WHERE QUESTION = %s 
-AND API_VERSION = %s 
-AND (DELETED IS NULL OR DELETED = 0) 
-ORDER BY TIM_UPDATED DESC 
+SELECT QUESTION, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME
+FROM T_WC_T2S_CACHE
+WHERE QUESTION = %s
+AND API_VERSION = %s
+AND (DELETED IS NULL OR DELETED = 0)
+ORDER BY TIM_UPDATED DESC
 LIMIT 1 """
                 print("Looking for the anonymized question in the SQL cache:", cache_query)
                 messages.append(TextMessage(
@@ -659,6 +576,7 @@ LIMIT 1 """
                 position_counter += 1
                 input_text_anonymized = cache_result_anonymized['QUESTION']
                 sql_query = cache_result_anonymized['SQL_PROCESSED'] or cache_result_anonymized['SQL_QUERY']
+                justification = cache_result_anonymized.get('JUSTIFICATION', '')
                 # Because the SQL query can be updated in the t2scache.php back-office script,
                 # we need to replace &#039; by ' because the back-office script stores &#039; instead of ' in the database
                 #sql_query = sql_query.replace("&#039;", "'")
@@ -669,11 +587,11 @@ LIMIT 1 """
                 #query_execution_time = cache_result_anonymized['QUERY_TIME']
             else:
                 print("Anonymized question not found in the SQL cache")
-                print("So we will look for the anonymized question in the embeddings cache")
-                messages.append(TextMessage(position=position_counter, text="Anonymized question not found in SQL cache; searching embeddings cache."))
+                print("So we will look for the anonymized question in the questions embeddings cache")
+                messages.append(TextMessage(position=position_counter, text="Anonymized question not found in SQL cache; searching questions embeddings cache."))
                 position_counter += 1
                 
-                # Search for similar anonymized questions in the embeddings cache
+                # Search for similar anonymized questions in the questions embeddings cache
                 embeddings_cache_start_time = time.time()
                 try:
                     # Extract entity variable names from the entity_extraction dictionary
@@ -683,7 +601,7 @@ LIMIT 1 """
                         entity_variables = [key for key in entity_extraction.keys() if key != 'question']
                         print(f"Entity variables to match: {entity_variables}")
                     
-                    print(f"Searching embeddings cache for: {input_text_anonymized}")
+                    print(f"Searching questions embeddings cache for: {input_text_anonymized}")
                     
                     # First, get more results to filter through
                     n_results_to_fetch = 10  # Get more results initially
@@ -695,10 +613,10 @@ LIMIT 1 """
                     embeddings_cache_end_time = time.time()
                     embeddings_cache_search_time = embeddings_cache_end_time - embeddings_cache_start_time
                     
-                    print(f"Embeddings cache search completed in {embeddings_cache_search_time:.4f} seconds")
+                    print(f"Questions embeddings cache search completed in {embeddings_cache_search_time:.4f} seconds")
                     
                     if embedding_results['documents'][0] and len(embedding_results['documents'][0]) > 0:
-                        messages.append(TextMessage(position=position_counter, text="Found potential matches in embeddings cache; filtering by entity variables."))
+                        messages.append(TextMessage(position=position_counter, text="Found potential matches in questions embeddings cache; filtering by entity variables."))
                         position_counter += 1
                         # Filter results to find ones that contain all required entity variables
                         valid_result_found = False
@@ -739,26 +657,27 @@ LIMIT 1 """
                             if 'sql_query_anonymized' in metadata:
                                 sql_query = metadata['sql_query_anonymized']
                                 sql_query_anonymized = sql_query
-                                print(f"Retrieved SQL query from embeddings cache: {sql_query}")
-                                messages.append(TextMessage(position=position_counter, text="SQL query retrieved from embeddings cache metadata: " + sql_query_anonymized))
+                                justification = metadata.get('justification', '')
+                                print(f"Retrieved SQL query from questions embeddings cache: {sql_query}")
+                                messages.append(TextMessage(position=position_counter, text="SQL query retrieved from questions embeddings cache metadata: " + sql_query_anonymized))
                                 position_counter += 1
                             else:
                                 print("Warning: No sql_query_anonymized found in metadata")
-                                messages.append(TextMessage(position=position_counter, text="Warning: No SQL query found in embeddings cache metadata; invalidating cache hit."))
+                                messages.append(TextMessage(position=position_counter, text="Warning: No SQL query found in questions embeddings cache metadata; invalidating cache hit."))
                                 position_counter += 1
                                 cached_anonymized_question_embedding = False
                         else:
                             print("No results found with all required entity variables and acceptable distance")
-                            messages.append(TextMessage(position=position_counter, text="No valid matches found in embeddings cache with required entity variables and acceptable similarity."))
+                            messages.append(TextMessage(position=position_counter, text="No valid matches found in questions embeddings cache with required entity variables and acceptable similarity."))
                             position_counter += 1
                     else:
-                        print("No similar questions found in embeddings cache")
-                        messages.append(TextMessage(position=position_counter, text="No similar questions found in embeddings cache."))
+                        print("No similar questions found in questions embeddings cache")
+                        messages.append(TextMessage(position=position_counter, text="No similar questions found in questions embeddings cache."))
                         position_counter += 1
                         
                 except Exception as e:
-                    print(f"Error searching embeddings cache: {e}")
-                    messages.append(TextMessage(position=position_counter, text=f"Error occurred while searching embeddings cache: {str(e)}"))
+                    print(f"Error searching questions embeddings cache: {e}")
+                    messages.append(TextMessage(position=position_counter, text=f"Error occurred while searching questions embeddings cache: {str(e)}"))
                     position_counter += 1
                     embeddings_cache_search_time = time.time() - embeddings_cache_start_time
 
@@ -1092,11 +1011,11 @@ I can implement a parsing helper for you if you'd like.
             with connection.cursor() as cursor2:
                 # Insert exact question into cache table
                 insert_query = """
-INSERT INTO T_WC_T2S_CACHE 
-(QUESTION, QUESTION_HASHED, SQL_QUERY, SQL_PROCESSED, API_VERSION, 
-ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME, TOTAL_PROCESSING_TIME, 
-DELETED, DAT_CREAT, TIM_UPDATED, IS_ANONYMIZED) 
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 0)
+INSERT INTO T_WC_T2S_CACHE
+(QUESTION, QUESTION_HASHED, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, API_VERSION,
+ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME, TOTAL_PROCESSING_TIME,
+DELETED, DAT_CREAT, TIM_UPDATED, IS_ANONYMIZED)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 0)
 """
                 print("Insert query:", insert_query)
                 # Use the actual measured query execution time
@@ -1111,6 +1030,7 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 0)
                     question_hash,
                     sql_query_llm,
                     sql_query,
+                    justification or "",
                     strapiversionformatted,
                     entity_extraction_processing_time,
                     text2sql_processing_time,
@@ -1128,11 +1048,11 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 0)
             with connection.cursor() as cursor2:
                 # Insert anonymized question into cache table
                 insert_query = """
-INSERT INTO T_WC_T2S_CACHE 
-(QUESTION, QUESTION_HASHED, SQL_QUERY, SQL_PROCESSED, API_VERSION, 
-ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME, TOTAL_PROCESSING_TIME, 
-DELETED, DAT_CREAT, TIM_UPDATED, IS_ANONYMIZED) 
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
+INSERT INTO T_WC_T2S_CACHE
+(QUESTION, QUESTION_HASHED, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, API_VERSION,
+ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME, TOTAL_PROCESSING_TIME,
+DELETED, DAT_CREAT, TIM_UPDATED, IS_ANONYMIZED)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
 """
                 print("Insert query:", insert_query)
                 # Use the actual measured query execution time
@@ -1147,6 +1067,7 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
                     question_hash,
                     sql_query_llm,
                     sql_query_anonymized,
+                    justification or "",
                     strapiversionformatted,
                     entity_extraction_processing_time,
                     text2sql_processing_time,
@@ -1181,6 +1102,7 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
                     documents=[input_text_anonymized],
                     metadatas=[{
                             "sql_query_anonymized": sql_query_anonymized,
+                            "justification": justification or "",
                             "api_version": strapiversionformatted,
                             "entity_variables": ",".join(entity_vars_for_metadata),  # Store as comma-separated string
                             "entity_extraction_processing_time": entity_extraction_processing_time,
@@ -1209,9 +1131,11 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
         question=input_text,
         question_hashed=response_question_hash,
         sql_query=sql_query or "",
+        sql_query_anonymized=sql_query_anonymized or "",
         justification=justification or "",
         error=error_text2sql or "",
-        #entity_extraction=response_entity_extraction,
+        entity_extraction=entity_extraction,
+        question_anonymized=input_text_anonymized,
         entity_extraction_processing_time=entity_extraction_processing_time,
         text2sql_processing_time=text2sql_processing_time,
         embeddings_processing_time=embeddings_processing_time,

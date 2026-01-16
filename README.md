@@ -263,7 +263,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "ambiguous_question_for_text2sql": false,
   "llm_model_entity_extraction": "default",
   "llm_model_text2sql": "default",
-  "api_version": "1.1.12",
+  "api_version": "1.1.13",
   "messages": [
     {
       "position": 1,
@@ -327,7 +327,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `ambiguous_question_for_text2sql` (bool): Whether question was too ambiguous for SQL generation
 - `llm_model_entity_extraction` (str): LLM model used for entity extraction
 - `llm_model_text2sql` (str): LLM model used for text-to-SQL conversion
-- `api_version` (str): Current API version (e.g., "1.1.12")
+- `api_version` (str): Current API version (e.g., "1.1.13")
 - `messages` (list): Array of processing step messages, each with `position` (int) and `text` (str)
 ```
 
@@ -438,9 +438,10 @@ fastapi-text2sql/
 ├── LICENSE                  # Project license file
 ├── restart-blue.sh          # Blue deployment restart script
 ├── restart-green.sh         # Green deployment restart script
+├── cleanup.py               # Cache cleanup functions (ChromaDB and SQL)
 ├── data/                    # Prompt templates and configuration
-│   ├── entity-extraction-prompt-chatgpt-4o-1-1-12-20260104.txt  # Entity extraction prompt
-│   └── text-to-sql-prompt-chatgpt-4o-1-1-12-20260104.txt        # Text2SQL prompt
+│   ├── entity-extraction-prompt-chatgpt-4o-1-1-13-20260115.txt  # Entity extraction prompt
+│   └── text-to-sql-prompt-chatgpt-4o-1-1-13-20260115.txt        # Text2SQL prompt
 ├── logs/                    # API usage logs with timing metrics (auto-created)
 ├── CLAUDE.md                # AI assistant guide for understanding the codebase
 └── README.md                # This file
@@ -468,13 +469,13 @@ The current prompt template is specifically designed for a **movie and TV series
 - **Movies**: Complete TMDB (The Movie Database) schema with detailed movie information
 - **TV Series**: Full series data including episodes, seasons, and network information
 - **People**: Actors, directors, and crew members with their roles and relationships
-- **Collections**: Movie collections and franchises
 - **Companies**: Production companies and studios
 - **Ratings**: IMDB ratings integration
 - **Genres**: Movie and series genre classifications
 - **Languages**: Multi-language support for titles and content
-- **Lists**: Curated movie and series lists
+- **Topics**: Curated movie and series topics
 - **Images**: Poster, backdrop, and profile image management
+- **Videos**: Trailer, clip, and behind the scenes video management
 
 **🎯 Key Features:**
 - **Smart Title Matching**: Handles English, French, and original language titles
@@ -524,9 +525,9 @@ The API implements a sophisticated three-tier caching system for optimal perform
 - Configurable similarity threshold (default: 0.15)
 - Stores anonymized SQL queries in metadata for quick retrieval
 
-### Automatic Cache Cleanup (New in v1.1.12)
+### Automatic Cache Cleanup (Refactored in v1.1.13)
 
-The system automatically cleans up cached data on startup to ensure optimal performance:
+The system automatically cleans up cached data on startup to ensure optimal performance. In v1.1.13, cleanup functions were refactored into a separate `cleanup.py` module for better code organization.
 
 #### **ChromaDB Embeddings Cleanup**
 - Runs on application startup before the API accepts requests
@@ -685,8 +686,11 @@ All successful text2sql requests return a comprehensive response with:
 - `question`: The original natural language question
 - `question_hashed`: SHA256 hash of the question for pagination/caching
 - `sql_query`: The generated and optimized SQL query
+- `sql_query_anonymized`: The SQL query with entity placeholders (new in v1.1.13)
 - `justification`: Explanation or reasoning for the SQL query (if provided)
 - `error`: Error message if query processing failed
+- `entity_extraction`: Full entity extraction dictionary from LLM (new in v1.1.13)
+- `question_anonymized`: The anonymized version of the question with placeholders (new in v1.1.13)
 - `result`: Array of query results with index and data
 - `messages`: Array of processing step messages (position and text)
 
@@ -714,7 +718,13 @@ All successful text2sql requests return a comprehensive response with:
 **Configuration & Metadata:**
 - `llm_model_entity_extraction`: LLM model used for entity extraction
 - `llm_model_text2sql`: LLM model used for text-to-SQL conversion
-- `api_version`: Current API version (e.g., "1.1.12")
+- `api_version`: Current API version (e.g., "1.1.13")
+
+### New Features in v1.1.13
+
+- **Enhanced Response Fields**: Added `sql_query_anonymized`, `entity_extraction`, and `question_anonymized` to the API response for better transparency into the query processing pipeline
+- **Justification Caching**: The `justification` field is now stored in both SQL cache and ChromaDB embeddings cache for retrieval on cache hits
+- **Cleanup Module Refactoring**: Cleanup functions moved to separate `cleanup.py` module for better code organization and maintainability
 
 ## 🤝 Contributing
 
@@ -736,8 +746,8 @@ This project is open source. Please check the repository for license details.
 
 ---
 
-**Current Version**: 1.1.12
-**Last Updated**: 2026-01-11
+**Current Version**: 1.1.13
+**Last Updated**: 2026-01-15
 
 **Note**: This API requires an active OpenAI API key to function. Make sure you have sufficient credits in your OpenAI account for the text-to-SQL conversions.
 

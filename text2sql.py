@@ -23,11 +23,11 @@ print(f"Memory Usage: {memory_info.percent}%")
 dblavailableram=memory_info.available / (1024 ** 3)
 
 # Text-to-SQL feature
-strtext2sqlprompttemplate = "text-to-sql-prompt-chatgpt-4o-1-1-12-20260104.txt"
+strtext2sqlprompttemplate = "text-to-sql-prompt-chatgpt-4o-1-1-13-20260115.txt"
 strtext2sqlmodeldefault = "gpt-4o"
 
 # Entity extraction feature
-strentityextractionprompttemplate = "entity-extraction-prompt-chatgpt-4o-1-1-12-20260104.txt"
+strentityextractionprompttemplate = "entity-extraction-prompt-chatgpt-4o-1-1-13-20260115.txt"
 strentityextractionmodeldefault = "gpt-4o"
 
 #print("Text to SQL prompt template", strtext2sqlprompttemplate)
