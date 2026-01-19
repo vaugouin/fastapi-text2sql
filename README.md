@@ -488,7 +488,7 @@ The current prompt template is specifically designed for a **movie and TV series
 
 **📋 Query Rules:**
 - Returns only valid SQL queries for successful conversions
-- Returns `##AMBIGUOUS##` with explanations for unclear requests
+- For unclear requests, sets the `error` field with an explanation and `ambiguous_question_for_text2sql` to `true`
 - Includes comprehensive join conditions for complex relationships
 - Handles edge cases like archive footage exclusions for cast searches
 - Supports advanced filtering by decade, genre, rating, and more
@@ -724,6 +724,7 @@ All successful text2sql requests return a comprehensive response with:
 
 - **Enhanced Response Fields**: Added `sql_query_anonymized`, `entity_extraction`, and `question_anonymized` to the API response for better transparency into the query processing pipeline
 - **Justification Caching**: The `justification` field is now stored in both SQL cache and ChromaDB embeddings cache for retrieval on cache hits
+- **Improved Ambiguous Question Handling**: Ambiguous questions are now handled via the `error` response field instead of the previous `##AMBIGUOUS##` marker approach, providing clearer error messages
 - **Cleanup Module Refactoring**: Cleanup functions moved to separate `cleanup.py` module for better code organization and maintainability
 
 ## 🤝 Contributing

@@ -236,11 +236,12 @@ Every response includes:
 
 ### Ambiguous Questions
 
-When the LLM cannot generate a valid SQL query:
-- SQL query contains `##AMBIGUOUS##` marker
-- Set `ambiguous_question_for_text2sql = 1` (main.py:644)
-- Skip query execution (main.py:828-892)
-- Return empty results with explanation
+When the LLM cannot generate a valid SQL query (updated in v1.1.13):
+- The `error` response field contains the explanation from the LLM
+- Set `ambiguous_question_for_text2sql = True`
+- Skip query execution
+- Return empty results with the error explanation
+- Note: The previous `##AMBIGUOUS##` marker approach has been replaced with the `error` parameter
 
 ### Entity Extraction
 
@@ -642,7 +643,8 @@ None currently defined. All variables in `.env.example` are required.
 
 **Resolution**:
 - LLM cannot generate SQL (too vague or out of scope)
-- Returns `##AMBIGUOUS##` marker
+- Check the `error` field in the response for the LLM's explanation
+- The `ambiguous_question_for_text2sql` flag will be set to `True`
 - Check prompt template for guidance on what queries are supported
 - Refine question to be more specific
 
