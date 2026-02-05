@@ -316,6 +316,8 @@ CREATE TABLE T_WC_T2S_TOPIC (
 ### Locations
 Narrative locations apply to movies and series.
 If a question is about a narrative location, ID_PROPERTY must be equal to 'P840'.
+Filming locations apply to movies and series.
+If a question is about a filming location, ID_PROPERTY must be equal to 'P915'.
 
 CREATE TABLE T_WC_WIKIDATA_ITEM_PROPERTY (
   ID_ROW INT NOT NULL,
