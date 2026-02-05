@@ -12,7 +12,7 @@ This is a FastAPI-based REST API that converts natural language questions into S
 - **Orchestration**: LangChain
 - **Deployment**: Docker with Blue/Green deployment strategy
 
-**Current Version**: 1.1.13 (see `strapiversion` in main.py:47)
+**Current Version**: 1.1.14 (see `strapiversion` in main.py:47)
 
 ## Architecture & Design Patterns
 
@@ -27,7 +27,7 @@ This is a FastAPI-based REST API that converts natural language questions into S
    - Entities are extracted from natural language using GPT-4o
    - Questions are anonymized with placeholders (e.g., `{{PERSON_NAME}}`, `{{MOVIE_TITLE}}`)
    - Enables query pattern reuse across different entity values
-   - Entity types: Person names, Movie titles, Series titles, Company names, Network names, Topics
+   - Entity types: Person names, Movie titles, Series titles, Company names, Network names, Character names, Location names, Topics
 
 3. **Vector Search Integration**
    - ChromaDB collections for entity matching:
@@ -92,8 +92,8 @@ The API follows a sophisticated 10-step pipeline:
 - OpenAI API client management with configurable model selection
 - Memory monitoring (using psutil)
 - Current prompt templates:
-  - `text-to-sql-prompt-chatgpt-4o-1-1-13-20260115.txt`
-  - `entity-extraction-prompt-chatgpt-4o-1-1-13-20260115.txt`
+  - `text-to-sql-prompt-chatgpt-4o-1-1-14-20260124.txt`
+  - `entity-extraction-prompt-chatgpt-4o-1-1-14-20260124.txt`
 
 **cleanup.py** (103 lines) - New in v1.1.13
 - `format_api_version()`: Converts version string to XXX.YYY.ZZZ format
@@ -245,13 +245,15 @@ When the LLM cannot generate a valid SQL query (updated in v1.1.13):
 
 ### Entity Extraction
 
-**Entity Types** (main.py:664):
+**Entity Types** (main.py:750-752):
 1. `PERSON_NAME` → `persons` collection, `T_WC_T2S_PERSON` table
 2. `MOVIE_TITLE` → `movies` collection, `T_WC_T2S_MOVIE` table
 3. `SERIE_TITLE` → `series` collection, `T_WC_T2S_SERIE` table
 4. `COMPANY_NAME` → `companies` collection, `T_WC_T2S_COMPANY` table
 5. `NETWORK_NAME` → `networks` collection, `T_WC_T2S_NETWORK` table
 6. `TOPIC_NAME` → `topics` collection, `T_WC_T2S_TOPIC` table
+7. `CHARACTER_NAME` → `characters` collection (new in v1.1.14) - movie/series characters (e.g., "James Bond", "Sherlock Holmes")
+8. `LOCATION_NAME` → `locations` collection (new in v1.1.14) - narrative locations (e.g., "New York City", "Gotham City")
 
 **Multi-Language Title Handling** (main.py:773-786):
 - ChromaDB document IDs format: `{entity}_{id}_{lang}` (e.g., `movie_12345_en`)
@@ -268,10 +270,11 @@ When the LLM cannot generate a valid SQL query (updated in v1.1.13):
 
 ### ChromaDB Usage
 
-**Collection Initialization** (main.py:74-118):
+**Collection Initialization** (main.py:74-143):
 - Use `get_or_create_collection()` to ensure collections exist
 - Provide custom `OpenAIEmbeddingFunction` instance
 - Embedding function implements `__call__()` and `embed_query()` methods
+- Collections: `persons`, `movies`, `series`, `companies`, `networks`, `topics`, `locations`, `characters`, `groups`, `anonymizedqueries`
 
 **Query Pattern**:
 ```python
@@ -443,8 +446,8 @@ docker run -p 8000:8000 --env-file .env fastapi-text2sql
 7. Verify API version in response logs
 
 **Version Format Conversion** (main.py:26-49, cleanup.py:5-8):
-- Input: `"1.1.13"`
-- Output: `"001.001.013"` (for SQL storage)
+- Input: `"1.1.14"`
+- Output: `"001.001.014"` (for SQL storage)
 - Uses `format_api_version()` helper function for consistent formatting
 - Function available in both main.py and cleanup.py
 
@@ -667,6 +670,6 @@ None currently defined. All variables in `.env.example` are required.
 
 ---
 
-**Last Updated**: 2026-01-15
-**Current Version**: 1.1.13
+**Last Updated**: 2026-01-24
+**Current Version**: 1.1.14
 **Maintainer**: See repository owner

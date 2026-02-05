@@ -9,7 +9,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **FastAPI Framework**: High-performance, modern Python web framework with automatic API documentation
 - **API Key Authentication**: Secure access with API key validation using constant-time comparison
 - **ChromaDB Vector Search**: Advanced similarity search for entity matching and query optimization
-- **Entity Extraction & Anonymization**: Intelligent extraction of entities (persons, movies, series, companies, networks, topics) with placeholder replacement
+- **Entity Extraction & Anonymization**: Intelligent extraction of entities (persons, movies, series, companies, networks, characters, locations, topics) with placeholder replacement
 - **Multi-Level Caching**: Sophisticated three-tier caching system (exact questions, anonymized questions, vector embeddings)
 - **Comprehensive Logging**: Automatic logging of all API requests and responses with detailed timing metrics
 - **Memory Monitoring**: Built-in system memory usage tracking and reporting
@@ -58,8 +58,10 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - TV series titles (multi-language support)
      - Company names (production companies, studios)
      - Network names (TV networks, streaming platforms)
+     - Character names (movie/series characters like "James Bond", "Sherlock Holmes") - new in v1.1.14
+     - Location names (narrative locations like "New York City", "Gotham City") - new in v1.1.14
      - Topic names (genres, themes, categories)
-   - Replace entities with placeholders (e.g., `{{PERSON_NAME}}`, `{{MOVIE_TITLE}}`, `{{TOPIC_NAME}}`)
+   - Replace entities with placeholders (e.g., `{{PERSON_NAME}}`, `{{MOVIE_TITLE}}`, `{{CHARACTER_NAME}}`, `{{LOCATION_NAME}}`)
 
 3. **Anonymized Question Cache Lookup (SQL Database)**
    - Search for the anonymized question pattern in the SQL cache
@@ -79,6 +81,8 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **TV series titles**: Search in `series` collection with multi-language support
      - **Company names**: Search in `companies` collection
      - **Network names**: Search in `networks` collection
+     - **Character names**: Search in `characters` collection (new in v1.1.14)
+     - **Location names**: Search in `locations` collection (new in v1.1.14)
      - **Topic names**: Search in `topics` collection
    - Vector similarity matching ensures fuzzy matching for misspellings and variations
    - Similarity threshold of 0.15 for robust entity matching
@@ -263,7 +267,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "ambiguous_question_for_text2sql": false,
   "llm_model_entity_extraction": "default",
   "llm_model_text2sql": "default",
-  "api_version": "1.1.13",
+  "api_version": "1.1.14",
   "messages": [
     {
       "position": 1,
@@ -413,7 +417,21 @@ Based on real API usage data, here are examples of natural language questions th
 - "Videos and trailers for Dune"
 - "Behind the scenes videos for The Dark Knight"
 
-**Note**: Questions can be expressed in English or any language understood by the underlying LLM (currently OpenAI's models). The API can handle complex multi-criteria searches involving actors, directors, genres, years, ratings, and technical specifications for both movies and TV series. Video search capabilities allow finding trailers, clips, and other media content associated with movies and series.
+### 🎭 Character Queries (New in v1.1.14)
+- "Movies featuring James Bond"
+- "Films with Sherlock Holmes as a character"
+- "Movies with R2-D2"
+- "Series featuring Hamlet"
+- "All movies with a Philip Marlowe character"
+
+### 🌍 Location Queries (New in v1.1.14)
+- "Movies set in New York City"
+- "Films taking place in South America"
+- "Series set on the Moon"
+- "Movies filmed in Gotham City"
+- "Films set in Hollywood"
+
+**Note**: Questions can be expressed in English or any language understood by the underlying LLM (currently OpenAI's models). The API can handle complex multi-criteria searches involving actors, directors, genres, years, ratings, characters, locations, and technical specifications for both movies and TV series. Video search capabilities allow finding trailers, clips, and other media content associated with movies and series.
 
 ## 🐳 Docker Deployment
 
@@ -440,17 +458,17 @@ fastapi-text2sql/
 ├── restart-green.sh         # Green deployment restart script
 ├── cleanup.py               # Cache cleanup functions (ChromaDB and SQL)
 ├── data/                    # Prompt templates and configuration
-│   ├── entity-extraction-prompt-chatgpt-4o-1-1-13-20260115.txt  # Entity extraction prompt
-│   └── text-to-sql-prompt-chatgpt-4o-1-1-13-20260115.txt        # Text2SQL prompt
+│   ├── entity-extraction-prompt-chatgpt-4o-1-1-14-20260124.txt  # Entity extraction prompt
+│   └── text-to-sql-prompt-chatgpt-4o-1-1-14-20260124.txt        # Text2SQL prompt
 ├── logs/                    # API usage logs with timing metrics (auto-created)
 ├── CLAUDE.md                # AI assistant guide for understanding the codebase
 └── README.md                # This file
 ```
 
 **Key Architecture Components:**
-- **ChromaDB Integration**: Vector database for entity matching and similarity search with 7 specialized collections
+- **ChromaDB Integration**: Vector database for entity matching and similarity search with 10 specialized collections
 - **Multi-Level Caching**: SQL cache + embeddings cache for performance optimization with automatic cleanup
-- **Entity Extraction**: GPT-4o powered entity recognition and anonymization for 6 entity types
+- **Entity Extraction**: GPT-4o powered entity recognition and anonymization for 8 entity types
 - **Blue/Green Deployment**: Automatic port selection based on API version (even: port 8000, odd: port 8001)
 - **Processing Transparency**: Messages array tracks every processing step for debugging and analysis
 - **Version Management**: Utility functions for version comparison and automatic cache cleanup
@@ -548,15 +566,17 @@ The system automatically cleans up cached data on startup to ensure optimal perf
 The system intelligently extracts and replaces entities in natural language questions:
 
 - **Person Names**: Actors, directors, crew members
-- **Movie Titles**: English, French, and original language titles  
+- **Movie Titles**: English, French, and original language titles
 - **TV Series Titles**: Series names in multiple languages
 - **Company Names**: Production companies and studios
 - **Network Names**: TV networks and streaming platforms
+- **Character Names**: Movie/series characters (e.g., "James Bond", "Sherlock Holmes") - new in v1.1.14
+- **Location Names**: Narrative locations (e.g., "New York City", "Gotham City") - new in v1.1.14
 - **Topic Names**: Genres, themes, and categories
 
 **Process Flow:**
 1. Extract entities from user question using GPT-4o
-2. Replace entities with placeholders (e.g., `{{PERSON_NAME}}`)
+2. Replace entities with placeholders (e.g., `{{PERSON_NAME}}`, `{{CHARACTER_NAME}}`, `{{LOCATION_NAME}}`)
 3. Check cache for anonymized question pattern
 4. Generate SQL if not cached
 5. Replace placeholders with actual entity values using vector search
@@ -567,8 +587,11 @@ ChromaDB collections for entity matching:
 - `persons`: Actor/director/crew member embeddings
 - `movies`: Movie title embeddings (multiple languages)
 - `series`: TV series title embeddings
-- `companies`: Production company embeddings  
+- `companies`: Production company embeddings
 - `networks`: TV network embeddings
+- `characters`: Movie/series character name embeddings (new in v1.1.14)
+- `locations`: Narrative location embeddings (new in v1.1.14)
+- `groups`: Group/collection embeddings (new in v1.1.14)
 - `topics`: Genre/theme embeddings
 - `anonymizedqueries`: Cached anonymized question patterns
 
@@ -718,7 +741,13 @@ All successful text2sql requests return a comprehensive response with:
 **Configuration & Metadata:**
 - `llm_model_entity_extraction`: LLM model used for entity extraction
 - `llm_model_text2sql`: LLM model used for text-to-SQL conversion
-- `api_version`: Current API version (e.g., "1.1.13")
+- `api_version`: Current API version (e.g., "1.1.14")
+
+### New Features in v1.1.14
+
+- **Character Name Entity Extraction**: New entity type for extracting movie/series character names (e.g., "James Bond", "Sherlock Holmes", "R2-D2") with dedicated `characters` ChromaDB collection
+- **Location Name Entity Extraction**: New entity type for extracting narrative locations (e.g., "New York City", "Gotham City", "South America") with dedicated `locations` ChromaDB collection
+- **Groups Collection**: New `groups` ChromaDB collection for group/collection-based entity matching
 
 ### New Features in v1.1.13
 
@@ -747,8 +776,8 @@ This project is open source. Please check the repository for license details.
 
 ---
 
-**Current Version**: 1.1.13
-**Last Updated**: 2026-01-15
+**Current Version**: 1.1.14
+**Last Updated**: 2026-01-24
 
 **Note**: This API requires an active OpenAI API key to function. Make sure you have sufficient credits in your OpenAI account for the text-to-SQL conversions.
 
