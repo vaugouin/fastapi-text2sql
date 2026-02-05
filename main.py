@@ -44,7 +44,7 @@ def compare_versions(version1: str, version2: str) -> int:
         return 0
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.13"
+strapiversion = "1.1.14"
 # Convert API version to XXX.YYY.ZZZ format
 strapiversionformatted = format_api_version(strapiversion)
 
@@ -131,6 +131,22 @@ networks = chroma_client.get_or_create_collection(
     name=strentitycollection,
     embedding_function=embedding_function  # Custom embedding model
 )
+strentitycollection = "characters"
+characters = chroma_client.get_or_create_collection(
+    name=strentitycollection,
+    embedding_function=embedding_function  # Custom embedding model
+)
+strentitycollection = "groups"
+groups = chroma_client.get_or_create_collection(
+    name=strentitycollection,
+    embedding_function=embedding_function  # Custom embedding model
+)
+strentitycollection = "locations"
+locations = chroma_client.get_or_create_collection(
+    name=strentitycollection,
+    embedding_function=embedding_function  # Custom embedding model
+)
+
 #Anonymized queries collection
 strentitycollection = "anonymizedqueries"
 anonymizedqueries = chroma_client.get_or_create_collection(
@@ -216,6 +232,7 @@ class Text2SQLResponse(BaseModel):
     sql_query: str
     sql_query_anonymized: str = ""
     justification: str
+    justification_anonymized: str = ""
     error: str
     entity_extraction: Optional[dict] = None
     question_anonymized: Optional[str] = None
@@ -385,6 +402,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     sql_query = None
     sql_query_anonymized = None
     justification = None
+    justification_anonymized = None
     error_text2sql = None
     llm_defined_limit = None
     llm_defined_offset = None
@@ -581,6 +599,7 @@ LIMIT 1 """
                 # we need to replace &#039; by ' because the back-office script stores &#039; instead of ' in the database
                 #sql_query = sql_query.replace("&#039;", "'")
                 sql_query_anonymized = sql_query
+                justification_anonymized = justification
                 #entity_extraction_processing_time = cache_result_anonymized['ENTITY_EXTRACTION_PROCESSING_TIME']
                 #text2sql_processing_time = cache_result_anonymized['TEXT2SQL_PROCESSING_TIME']
                 #embeddings_processing_time = cache_result_anonymized['EMBEDDINGS_TIME']
@@ -658,6 +677,7 @@ LIMIT 1 """
                                 sql_query = metadata['sql_query_anonymized']
                                 sql_query_anonymized = sql_query
                                 justification = metadata.get('justification', '')
+                                justification_anonymized = justification
                                 print(f"Retrieved SQL query from questions embeddings cache: {sql_query}")
                                 messages.append(TextMessage(position=position_counter, text="SQL query retrieved from questions embeddings cache metadata: " + sql_query_anonymized))
                                 position_counter += 1
@@ -689,6 +709,7 @@ LIMIT 1 """
             sql_query = json_content['sql_query']
             sql_query_anonymized = sql_query
             justification = json_content['justification']
+            justification_anonymized = justification
             error_text2sql = json_content['error']
             text2sql_end_time = time.time()
             text2sql_processing_time = text2sql_end_time - text2sql_start_time
@@ -717,6 +738,7 @@ LIMIT 1 """
             for key, value in entity_extraction.items():
                 if key != "question":
                     sql_query = sql_query.replace("{{" + key + "}}", str(value).replace("'", "''"))
+                    justification = justification.replace("{{" + key + "}}", str(value).replace("'", "''"))
             print("SQL query after entity replacement:", sql_query)
     
     embeddings_start_time = time.time()
@@ -725,9 +747,9 @@ LIMIT 1 """
         print("Computing embeddings for the SQL query")
         messages.append(TextMessage(position=position_counter, text="Processing entity values using embeddings for entity matching."))
         position_counter += 1
-        arrentities = {1: "PERSON_NAME", 2: "MOVIE_TITLE", 3: "SERIE_TITLE", 4: "COMPANY_NAME", 5: "NETWORK_NAME", 6: "TOPIC_NAME"}
+        arrentities = {1: "PERSON_NAME", 2: "MOVIE_TITLE", 3: "SERIE_TITLE", 4: "COMPANY_NAME", 5: "NETWORK_NAME", 6: "TOPIC_NAME", 7: "ITEM_NAME"}
         # Map entity types to their corresponding ChromaDB collections
-        chromadb_collections = {1: persons, 2: movies, 3: series, 4: companies, 5: networks, 6: topics}
+        chromadb_collections = {1: persons, 2: movies, 3: series, 4: companies, 5: networks, 6: topics, 7: locations}
         
         for intentity,strfieldname in arrentities.items():
             if intentity == 1:
@@ -759,6 +781,11 @@ LIMIT 1 """
                 # Extract values from patterns like TOPIC_NAME = 'xxx'
                 strtablename = "T_WC_T2S_TOPIC"
                 strtableid = "ID_TOPIC"
+                strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strfieldname + " = %s"
+            elif intentity == 7:
+                # Extract values from patterns like ITEM_NAME = 'xxx'
+                strtablename = "T_WC_WIKIDATA_ITEM"
+                strtableid = "ID_WIKIDATA"
                 strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strfieldname + " = %s"
             #strfieldpattern = strfieldname + r"\s*=\s*'(.*?)'"
             #strfieldpattern = strfieldname + r"\s*=\s*'((?:[^']|'')*?)'"
@@ -831,95 +858,111 @@ I can implement a parsing helper for you if you'd like.
                             # Query ChromaDB using a text-based search with the correct collection
                             start_time_chromadb = time.time()
                             #print("Selecting the vector database")
-                            current_collection = chromadb_collections[intentity]
-                            print("Querying the vector database")
-                            results = current_collection.query(
-                                query_texts=[fieldname_value],  # Query is converted into a vector
-                                n_results=10
-                            )
-                            print("Querying the vector database done")
-                            end_time_chromadb = time.time()
-                            search_duration_chromadb = end_time_chromadb - start_time_chromadb
-                            if results["documents"][0]:
-                                messages.append(TextMessage(position=position_counter, text=f"Found matching {strfieldname} entity in vector database."))
-                                position_counter += 1
-                                matched_result_position = 0
-                                found_match = False
-                                try:
-                                    target_value_norm = str(fieldname_value).strip().lower()
-                                except Exception:
-                                    target_value_norm = ""
+                            if chromadb_collections[intentity] is None:
+                                print("No ChromaDB collection found for entity type", intentity)
+                                end_time_chromadb = time.time()
+                                search_duration_chromadb = end_time_chromadb - start_time_chromadb
+                            else:
+                                current_collection = chromadb_collections[intentity]
+                                print("Querying the vector database")
+                                results = current_collection.query(
+                                    query_texts=[fieldname_value],  # Query is converted into a vector
+                                    n_results=10
+                                )
+                                print("Querying the vector database done")
+                                end_time_chromadb = time.time()
+                                search_duration_chromadb = end_time_chromadb - start_time_chromadb
+                                if results["documents"][0]:
+                                    messages.append(TextMessage(position=position_counter, text=f"Found matching {strfieldname} entity in vector database."))
+                                    position_counter += 1
+                                    matched_result_position = 0
+                                    found_match = False
+                                    try:
+                                        target_value_norm = str(fieldname_value).strip().lower()
+                                    except Exception:
+                                        target_value_norm = ""
 
-                                documents = results.get("documents", [[]])[0] or []
-                                for i, document in enumerate(documents):
-                                    if isinstance(document, str) and document.strip().lower() == target_value_norm:
-                                        matched_result_position = i
-                                        found_match = True
-                                        break
-                                if not found_match:
+                                    documents = results.get("documents", [[]])[0] or []
                                     for i, document in enumerate(documents):
-                                        if isinstance(document, str) and document.strip().lower().startswith(target_value_norm):
+                                        if isinstance(document, str) and document.strip().lower() == target_value_norm:
                                             matched_result_position = i
                                             found_match = True
                                             break
-                                
-                                first_record_id = results['ids'][0][matched_result_position]
-                                # Extract the 3 parts from first_record_id using underscore separator
-                                parts = first_record_id.split('_')
-                                docentity = parts[0]
-                                docid = parts[1]
-                                doclang = parts[2]
-                                strfieldnamenew = strfieldname
-                                print("first_record_id", first_record_id, docentity, docid, doclang)
-                                if strfieldname == "MOVIE_TITLE":
-                                    if doclang == "en":
-                                        strfieldnamenew = "MOVIE_TITLE"
-                                    elif doclang == "fr":
-                                        strfieldnamenew = "MOVIE_TITLE_FR"
-                                    else:
-                                        strfieldnamenew = "ORIGINAL_TITLE"
-                                elif strfieldname == "SERIE_TITLE":
-                                    if doclang == "en":
-                                        strfieldnamenew = "SERIE_TITLE"
-                                    elif doclang == "fr":
-                                        strfieldnamenew = "SERIE_TITLE_FR"
-                                    else:
-                                        strfieldnamenew = "ORIGINAL_TITLE"
-                                print("strfieldnamenew =", strfieldnamenew)
-                                
-                                #first_record_value = results['documents'][0][0]
-                                strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strtableid + " = %s"
-                                print("strsql_query =", strsql_query, docid)
-                                messages.append(TextMessage(
-                                    position=position_counter,
-                                    text=f"Executing SQL query: {strsql_query} | params: [{docid}]"
-                                ))
-                                position_counter += 1
-                                cursor.execute(strsql_query, (docid,))
-                                sql_query_results = cursor.fetchall()
-                                first_record = sql_query_results[0]
-                                print("first_record:", first_record)
-                                print("get", strfieldnamenew)
-                                first_record_value = first_record.get(strfieldnamenew, '')
-                                print("first_record_value:", first_record_value)
-                                # Escape single quotes for SQL integration
-                                first_record_value_escaped = first_record_value.replace("'", "''")
-                                print("First record value escaped:", first_record_value_escaped)
-                                
-                                print(f"SQL query results for '{fieldname_value}'")
-                                print(f"{strfieldname} query: {fieldname_value}")
-                                print(f"Search time: {search_duration_chromadb:.4f} seconds")
-                                print(f"First result ID: {first_record_id}")
-                                print(f"{strfieldname}: {first_record_value}")
+                                    if not found_match:
+                                        for i, document in enumerate(documents):
+                                            if isinstance(document, str) and document.strip().lower().startswith(target_value_norm):
+                                                matched_result_position = i
+                                                found_match = True
+                                                break
+                                    
+                                    first_record_id = results['ids'][0][matched_result_position]
+                                    # Extract the 3 parts from first_record_id using underscore separator
+                                    parts = first_record_id.split('_')
+                                    docentity = parts[0]
+                                    docid = parts[1]
+                                    doclang = parts[2]
+                                else:
+                                    messages.append(TextMessage(position=position_counter, text=f"No matching {strfieldname} entity found in vector database."))
+                                    position_counter += 1
+                            strfieldnamenew = strfieldname
+                            strtableidlookup = strfieldnamenew
+                            print("first_record_id", first_record_id, docentity, docid, doclang)
+                            if strfieldname == "MOVIE_TITLE":
+                                if doclang == "en":
+                                    strfieldnamenew = "MOVIE_TITLE"
+                                    strtableidlookup = strfieldnamenew
+                                elif doclang == "fr":
+                                    strfieldnamenew = "MOVIE_TITLE_FR"
+                                    strtableidlookup = strfieldnamenew
+                                else:
+                                    strfieldnamenew = "ORIGINAL_TITLE"
+                                    strtableidlookup = strfieldnamenew
+                            elif strfieldname == "SERIE_TITLE":
+                                if doclang == "en":
+                                    strfieldnamenew = "SERIE_TITLE"
+                                    strtableidlookup = strfieldnamenew
+                                elif doclang == "fr":
+                                    strfieldnamenew = "SERIE_TITLE_FR"
+                                    strtableidlookup = strfieldnamenew
+                                else:
+                                    strfieldnamenew = "ORIGINAL_TITLE"
+                                    strtableidlookup = strfieldnamenew
+                            elif strfieldname == "ITEM_NAME":
+                                strfieldnamenew = "ID_ITEM"
+                                strtableidlookup = "ID_WIKIDATA"
+                            print("strfieldnamenew =", strfieldnamenew, "strtableidlookup =", strtableidlookup)
+                            
+                            #first_record_value = results['documents'][0][0]
+                            strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strtableid + " = %s"
+                            print("strsql_query =", strsql_query, docid)
+                            messages.append(TextMessage(
+                                position=position_counter,
+                                text=f"Executing SQL query: {strsql_query} | params: [{docid}]"
+                            ))
+                            position_counter += 1
+                            cursor.execute(strsql_query, (docid,))
+                            sql_query_results = cursor.fetchall()
+                            first_record = sql_query_results[0]
+                            print("first_record:", first_record)
+                            print("get", strtableidlookup)
+                            first_record_value = first_record.get(strtableidlookup, '')
+                            print("first_record_value:", first_record_value)
+                            # Escape single quotes for SQL integration
+                            first_record_value_escaped = first_record_value.replace("'", "''")
+                            print("First record value escaped:", first_record_value_escaped)
+                            
+                            print(f"SQL query results for '{fieldname_value}'")
+                            print(f"{strfieldname} query: {fieldname_value}")
+                            print(f"Search time: {search_duration_chromadb:.4f} seconds")
+                            print(f"First result ID: {first_record_id}")
+                            print(f"{strfieldname}: {first_record_value}")
+                            if chromadb_collections[intentity] is not None:
                                 print(f"Distance: {results['distances'][0][0]:.4f}")
-                                print(f"{strfieldname} = '{fieldname_value_escaped}'", f"{strfieldnamenew} = '{first_record_value_escaped}'")
-                                sql_query = sql_query.replace(f"{strfieldname} = '{fieldname_value_escaped}'", f"{strfieldnamenew} = '{first_record_value_escaped}'")
-                                print(f"Updated SQL query with actual {strfieldname}")
-                                messages.append(TextMessage(position=position_counter, text=f"Updated SQL query: replaced {strfieldname} with matched entity value."))
-                                position_counter += 1
-                            else:
-                                messages.append(TextMessage(position=position_counter, text=f"No matching {strfieldname} entity found in vector database."))
-                                position_counter += 1
+                            print(f"{strfieldname} = '{fieldname_value_escaped}'", f"{strfieldnamenew} = '{first_record_value_escaped}'")
+                            sql_query = sql_query.replace(f"{strfieldname} = '{fieldname_value_escaped}'", f"{strfieldnamenew} = '{first_record_value_escaped}'")
+                            print(f"Updated SQL query with actual {strfieldname}")
+                            messages.append(TextMessage(position=position_counter, text=f"Updated SQL query: replaced {strfieldname} with matched entity value."))
+                            position_counter += 1
     embeddings_end_time = time.time()
     embeddings_processing_time = embeddings_end_time - embeddings_start_time
     
@@ -1067,7 +1110,7 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
                     question_hash,
                     sql_query_llm,
                     sql_query_anonymized,
-                    justification or "",
+                    justification_anonymized or "",
                     strapiversionformatted,
                     entity_extraction_processing_time,
                     text2sql_processing_time,
@@ -1102,7 +1145,7 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
                     documents=[input_text_anonymized],
                     metadatas=[{
                             "sql_query_anonymized": sql_query_anonymized,
-                            "justification": justification or "",
+                            "justification": justification_anonymized or "",
                             "api_version": strapiversionformatted,
                             "entity_variables": ",".join(entity_vars_for_metadata),  # Store as comma-separated string
                             "entity_extraction_processing_time": entity_extraction_processing_time,
@@ -1133,6 +1176,7 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
         sql_query=sql_query or "",
         sql_query_anonymized=sql_query_anonymized or "",
         justification=justification or "",
+        justification_anonymized=justification_anonymized or "",
         error=error_text2sql or "",
         entity_extraction=entity_extraction,
         question_anonymized=input_text_anonymized,
