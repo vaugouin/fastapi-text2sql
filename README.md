@@ -59,7 +59,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - Company names (production companies, studios)
      - Network names (TV networks, streaming platforms)
      - Character names (movie/series characters like "James Bond", "Sherlock Holmes") - new in v1.1.14
-     - Location names (narrative locations like "New York City", "Gotham City") - new in v1.1.14
+     - Location names (narrative or filming locations like "New York City", "Gotham City") - new in v1.1.14
      - Topic names (genres, themes, categories)
    - Replace entities with placeholders (e.g., `{{PERSON_NAME}}`, `{{MOVIE_TITLE}}`, `{{CHARACTER_NAME}}`, `{{LOCATION_NAME}}`)
 
@@ -571,7 +571,7 @@ The system intelligently extracts and replaces entities in natural language ques
 - **Company Names**: Production companies and studios
 - **Network Names**: TV networks and streaming platforms
 - **Character Names**: Movie/series characters (e.g., "James Bond", "Sherlock Holmes") - new in v1.1.14
-- **Location Names**: Narrative locations (e.g., "New York City", "Gotham City") - new in v1.1.14
+- **Location Names**: Narrative or filming locations (e.g., "New York City", "Gotham City") - new in v1.1.14
 - **Topic Names**: Genres, themes, and categories
 
 **Process Flow:**
@@ -590,7 +590,7 @@ ChromaDB collections for entity matching:
 - `companies`: Production company embeddings
 - `networks`: TV network embeddings
 - `characters`: Movie/series character name embeddings (new in v1.1.14)
-- `locations`: Narrative location embeddings (new in v1.1.14)
+- `locations`: Narrative or filming location embeddings (new in v1.1.14)
 - `groups`: Group/collection embeddings (new in v1.1.14)
 - `topics`: Genre/theme embeddings
 - `anonymizedqueries`: Cached anonymized question patterns
@@ -746,7 +746,7 @@ All successful text2sql requests return a comprehensive response with:
 ### New Features in v1.1.14
 
 - **Character Name Entity Extraction**: New entity type for extracting movie/series character names (e.g., "James Bond", "Sherlock Holmes", "R2-D2") with dedicated `characters` ChromaDB collection
-- **Location Name Entity Extraction**: New entity type for extracting narrative locations (e.g., "New York City", "Gotham City", "South America") with dedicated `locations` ChromaDB collection
+- **Location Name Entity Extraction**: New entity type for extracting narrative or filming locations (e.g., "New York City", "Gotham City", "South America") with dedicated `locations` ChromaDB collection
 - **Groups Collection**: New `groups` ChromaDB collection for group/collection-based entity matching
 
 ### New Features in v1.1.13

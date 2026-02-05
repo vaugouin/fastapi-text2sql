@@ -253,7 +253,7 @@ When the LLM cannot generate a valid SQL query (updated in v1.1.13):
 5. `NETWORK_NAME` → `networks` collection, `T_WC_T2S_NETWORK` table
 6. `TOPIC_NAME` → `topics` collection, `T_WC_T2S_TOPIC` table
 7. `CHARACTER_NAME` → `characters` collection (new in v1.1.14) - movie/series characters (e.g., "James Bond", "Sherlock Holmes")
-8. `LOCATION_NAME` → `locations` collection (new in v1.1.14) - narrative locations (e.g., "New York City", "Gotham City")
+8. `LOCATION_NAME` → `locations` collection (new in v1.1.14) - narrative or filming locations (e.g., "New York City", "Gotham City")
 
 **Multi-Language Title Handling** (main.py:773-786):
 - ChromaDB document IDs format: `{entity}_{id}_{lang}` (e.g., `movie_12345_en`)

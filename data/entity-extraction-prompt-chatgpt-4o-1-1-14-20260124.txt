@@ -37,7 +37,7 @@ Extract characters names.
 Examples: "James Bond", "Sherlock Holmes", "R2-D2", "Hamlet"
 
 ### 7. Location Names (Location_name)
-Extract location names for narrative location applying to movies and series.
+Extract location names for narrative location or filming location applying to movies and series.
 Examples: "New York City", "South America", "Moon", "France", "Gotham City", "British Columbia", "Hollywood"
 
 ### 8. Topic Names (Topic_name)
