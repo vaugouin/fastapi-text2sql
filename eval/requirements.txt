@@ -1,0 +1,13 @@
+# Core dependencies for FastAPI Text2SQL Evaluator
+requests
+pymysql
+pandas>=1.5.0
+numpy>=1.21.0
+pytest>=7.0.0
+pytz
+python-dotenv>=1.0.0
+
+# Optional: For enhanced data analysis capabilities
+# scipy>=1.9.0
+# matplotlib>=3.5.0
+# seaborn>=0.11.0

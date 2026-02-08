@@ -182,6 +182,7 @@ The system expects these SQL tables:
 - Request body: `Text2SQLRequest` (Pydantic model, main.py:168-180)
 - Response: `Text2SQLResponse` (Pydantic model, main.py:186-209)
 - Supports pagination via `page` parameter
+- Supports page size control via `rows_per_page` parameter (default: 50)
 - Can use `question_hashed` for subsequent pages (avoids re-processing)
 - Cache control via `retrieve_from_cache` and `store_to_cache` flags
 
@@ -366,7 +367,7 @@ results = collection.query(
 ### Pagination
 
 **Page Calculation** (main.py:832-864):
-- `limit = lngrowsperpage` (default: 50, main.py:121)
+- `limit = lngrowsperpage` (default: 50)
 - `offset = (page - 1) * lngrowsperpage`
 - Strip existing LLM LIMIT/OFFSET using regex: `r"\blimit\b\s+\d+(?:\s*,\s*\d+)?"`
 - Append new pagination: `LIMIT {limit} OFFSET {offset}`

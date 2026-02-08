@@ -157,7 +157,7 @@ anonymizedqueries = chroma_client.get_or_create_collection(
 cleanup.cleanup_anonymized_queries_collection(anonymizedqueries, strapiversion)
 
 # How many rows per page in the result set
-lngrowsperpage = 50
+lngrowsperpagedefault = 50
 #similarity_threshold = 0.1
 """
 Similarity 0.2 is too wide because the following queries are deemed similar:
@@ -211,6 +211,7 @@ class Text2SQLRequest(BaseModel):
     question: Optional[str] = None
     question_hashed: Optional[str] = None  # For pagination/disambiguation
     page: Optional[int] = 1
+    rows_per_page: Optional[int] = 50
     retrieve_from_cache: bool = True
     store_to_cache: bool = True
     llm_model_entity_extraction: Optional[str] = "default"
@@ -389,6 +390,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             position_counter += 1
     
     lngpage = request.page or 1
+    lngrowsperpage = request.rows_per_page or lngrowsperpagedefault
 
     # Open database connection once at the start
     connection = get_db_connection()
@@ -545,7 +547,7 @@ LIMIT 1 """
 
         messages.append(TextMessage(
             position=position_counter,
-            text=f"Entity extraction result: {entity_extraction_json}"
+            text=f"Entity extraction result: {entity_extraction_json.replace('\"', '\\\"')}"
         ))
         position_counter += 1
         
@@ -1063,11 +1065,13 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 0)
                 print("Insert query:", insert_query)
                 # Use the actual measured query execution time
                 query_time = query_execution_time
+                """
                 messages.append(TextMessage(
                     position=position_counter,
                     text=f"Executing SQL insert into cache: {insert_query} | params: [question={request.question}, hash={question_hash}]"
                 ))
                 position_counter += 1
+                """
                 cursor2.execute(insert_query, (
                     request.question,
                     question_hash,
@@ -1100,11 +1104,13 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
                 print("Insert query:", insert_query)
                 # Use the actual measured query execution time
                 query_time = query_execution_time
+                """
                 messages.append(TextMessage(
                     position=position_counter,
                     text=f"Executing SQL insert into cache (anonymized): {insert_query} | params: [question={input_text_anonymized}, hash={question_hash}]"
                 ))
                 position_counter += 1
+                """
                 cursor2.execute(insert_query, (
                     input_text_anonymized,
                     question_hash,

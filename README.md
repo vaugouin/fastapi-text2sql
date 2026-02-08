@@ -210,6 +210,7 @@ Content-Type: application/json
 {
   "question": "List all color movies with Humphrey Bogart",
   "page": 1,
+  "rows_per_page": 50,
   "retrieve_from_cache": true,
   "store_to_cache": true,
   "llm_model_entity_extraction": "default",
@@ -221,6 +222,7 @@ Content-Type: application/json
 - `question` (optional, str): Natural language question to convert to SQL
 - `question_hashed` (optional, str): SHA256 hash of a previously processed question for pagination
 - `page` (optional, int, default: 1): Page number for pagination
+- `rows_per_page` (optional, int, default: 50): Number of rows per page (used to compute `limit` and `offset`)
 - `retrieve_from_cache` (optional, bool, default: true): Whether to check cache for existing results
 - `store_to_cache` (optional, bool, default: true): Whether to store results in cache
 - `llm_model_entity_extraction` (optional, str, default: "default"): LLM model to use for entity extraction
@@ -236,6 +238,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
      -d '{
        "question": "List all color movies with Humphrey Bogart",
        "page": 1,
+       "rows_per_page": 50,
        "retrieve_from_cache": true,
        "store_to_cache": true
      }'
