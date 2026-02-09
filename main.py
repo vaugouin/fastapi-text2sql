@@ -51,6 +51,9 @@ strapiversionformatted = format_api_version(strapiversion)
 API_PORT_BLUE = int(os.getenv('API_PORT_BLUE', 8000))
 API_PORT_GREEN = int(os.getenv('API_PORT_GREEN', 8001))
 
+#intcleanupenabled = False
+intcleanupenabled = True
+
 # Set your OpenAI API key from environment variable
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
@@ -154,7 +157,8 @@ anonymizedqueries = chroma_client.get_or_create_collection(
     embedding_function=embedding_function  # Custom embedding model
 )
 
-cleanup.cleanup_anonymized_queries_collection(anonymizedqueries, strapiversion)
+if intcleanupenabled:
+    cleanup.cleanup_anonymized_queries_collection(anonymizedqueries, strapiversion)
 
 # How many rows per page in the result set
 lngrowsperpagedefault = 50
@@ -200,8 +204,9 @@ def get_db_connection():
 
 answer=42
 connection = get_db_connection()
-cleanup.cleanup_sql_cache(connection, strapiversion)
 
+if intcleanupenabled:
+    cleanup.cleanup_sql_cache(connection, strapiversion)
 
 class TextExpr(BaseModel):
     text: str
@@ -468,11 +473,6 @@ AND (DELETED IS NULL OR DELETED = 0)
 ORDER BY TIM_UPDATED DESC
 LIMIT 1 """
                 print("Looking for the exact question in the SQL cache:", cache_query)
-                messages.append(TextMessage(
-                    position=position_counter,
-                    text=f"Executing SQL query: {cache_query} | params: [{request.question}, {strapiversionformatted}]"
-                ))
-                position_counter += 1
                 cursor.execute(cache_query, (request.question, strapiversionformatted))
                 #print("Cache query executed")
                 cache_result_exact = cursor.fetchone()
@@ -579,11 +579,6 @@ AND (DELETED IS NULL OR DELETED = 0)
 ORDER BY TIM_UPDATED DESC
 LIMIT 1 """
                 print("Looking for the anonymized question in the SQL cache:", cache_query)
-                messages.append(TextMessage(
-                    position=position_counter,
-                    text=f"Executing SQL query: {cache_query} | params: [{input_text_anonymized}, {strapiversionformatted}]"
-                ))
-                position_counter += 1
                 cursor.execute(cache_query, (input_text_anonymized, strapiversionformatted))
                 #print("Cache query executed")
                 cache_result_anonymized = cursor.fetchone()
@@ -709,6 +704,9 @@ LIMIT 1 """
             json_content = t2s.f_text2sql(input_text_anonymized, strtext2sqlmodel)
             print("JSON content:", json_content)
             sql_query = json_content['sql_query']
+            # if rightmost character is ;, remove it
+            if sql_query.endswith(';'):
+                sql_query = sql_query[:-1]
             sql_query_anonymized = sql_query
             justification = json_content['justification']
             justification_anonymized = justification

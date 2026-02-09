@@ -1,6 +1,6 @@
 # 📚 DataFrame Assertion Evaluator - Complete Documentation
 
-**Version:** 2.2  
+**Version:** 1.0  
 **Last Updated:** 2025-02-08  
 **Status:** ✅ Production Ready  
 **File:** text2sql-eval.py
@@ -9,18 +9,16 @@
 
 ## 📋 Table of Contents
 
-1. [Quick Start](#quick-start)
-2. [Current Implementation Status](#current-implementation-status)
-3. [Complete Feature Set](#complete-feature-set)
-4. [API Reference](#api-reference)
-5. [Assertion Types](#assertion-types)
-6. [Error Reporting](#error-reporting)
-7. [Database Integration](#database-integration)
-8. [Usage Examples](#usage-examples)
-9. [Testing](#testing)
-10. [Migration Guide](#migration-guide)
-11. [Troubleshooting](#troubleshooting)
-12. [Appendix](#appendix)
+1. [Quick Start](#1-quick-start)
+2. [Complete Feature Set](#2-complete-feature-set)
+3. [Assertion Types](#3-assertion-types)
+4. [Error Reporting](#4-error-reporting)
+5. [Database Integration](#5-database-integration)
+6. [Usage Examples](#6-usage-examples)
+7. [Testing](#7-testing)
+8. [Migration Guide](#8-migration-guide)
+9. [Troubleshooting](#9-troubleshooting)
+10. [Appendix](#10-appendix)
 
 ---
 
@@ -30,145 +28,17 @@
 
 The DataFrame assertion evaluator validates SQL query results against expected conditions and provides detailed error reporting.
 
-### Basic Usage
-
-```python
-# Evaluate assertions
-evaluation_result, detailed_results = evaluate_dataframe_assertions(df_results, strassertions)
-
-# Check overall result
-if evaluation_result:
-    print("All assertions passed!")
-else:
-    # See detailed failures
-    for result in detailed_results:
-        if not result["passed"]:
-            print(f"Failed: {result['message']}")
-```
-
 ### Key Features
 
 ✅ **Detailed error messages** - See exactly what failed and why  
 ✅ **Correct IN semantics** - Required values must be present  
-✅ **Database storage** - Complete audit trail  
 ✅ **Multiple assertion types** - COUNT, IN, NOT IN, comparisons  
 ✅ **AND/OR logic** - Complex multi-part assertions  
 
 ---
 
-# 2. Current Implementation Status
+# 2. Complete Feature Set
 
-## 📊 Implementation Details
-
-**Location:** `C:\Users\vaugo\Downloads\Claude\fastapi-text2sql\eval\text2sql-eval.py`
-
-### Main Function (Line 249+)
-
-```python
-def evaluate_dataframe_assertions(df_results: pd.DataFrame, strassertions: str) -> tuple[bool, list[dict]]:
-    """
-    Evaluate assertions against a pandas DataFrame with detailed error reporting.
-    
-    Returns:
-        tuple: (overall_pass: bool, results: list[dict])
-    """
-```
-
-### Helper Functions
-
-1. **Line 370:** `_evaluate_single_assertion()` - Routes to specific evaluators
-2. **Line 380:** `_evaluate_count_assertion()` - Handles COUNT(*) operations
-3. **Line 428:** `_evaluate_in_assertion()` - Handles IN/NOT IN checks
-4. **Line 528:** `_evaluate_comparison_assertion()` - Handles comparisons
-5. **Line 613:** `format_detailed_results_for_db()` - Formats for database storage
-
-### Integration Point (Line 640+)
-
-```python
-# Evaluate assertions
-evaluation_result, detailed_results = evaluate_dataframe_assertions(df_results, strassertions)
-assertions_result_score = 1 if evaluation_result else 0
-
-# Format for database storage
-detailed_results_string = format_detailed_results_for_db(detailed_results, evaluation_result)
-
-# Store to database
-arrevalexeccouples["ASSERTIONS_RESULT_SCORE"] = assertions_result_score
-arrevalexeccouples["ASSERTIONS_DETAILED_RESULTS"] = detailed_results_string
-```
-
----
-
-# 3. Complete Feature Set
-
-## 🎯 Three Major Enhancements
-
-### Enhancement 1: Detailed Error Reporting
-
-**Before:**
-```python
-result = evaluate_dataframe_assertions(df, assertions)  # Returns True/False
-```
-
-**After:**
-```python
-overall_pass, detailed_results = evaluate_dataframe_assertions(df, assertions)
-# Returns (bool, list[dict]) with complete error details
-```
-
-**What You Get:**
-- Overall pass/fail status
-- Individual result for each assertion
-- Detailed error messages
-- Expected vs actual values
-- Specific violation lists
-
-### Enhancement 2: Fixed IN Assertion Semantics
-
-**Correct Behavior:**
-- `IN (x, y, z)` checks: "Are all these required values present in the DataFrame?"
-- Extra values in DataFrame are **OK**
-- Missing required values cause **FAIL**
-
-**Example:**
-```python
-DataFrame: [910, 22584, 11016, 324241]  # 4 values
-Assertion: "ID_MOVIE IN (910, 22584, 11016)"  # 3 required
-
-Result: PASS ✓
-Message: "All 3 required values found (DataFrame has 4 unique values)"
-```
-
-### Enhancement 3: Database Storage
-
-**New Variable:** `detailed_results_string`
-
-Contains formatted text with:
-- Overall result (PASS/FAIL)
-- Each assertion status
-- Detailed error messages
-- Expected vs actual values
-
-**Database Field:**
-```sql
-ALTER TABLE T_WC_T2S_EVALUATION_EXECUTION 
-ADD COLUMN ASSERTIONS_DETAILED_RESULTS TEXT;
-```
-
----
-
-# 4. API Reference
-
-## Function: `evaluate_dataframe_assertions()`
-
-### Signature
-
-```python
-def evaluate_dataframe_assertions(
-    df_results: pd.DataFrame, 
-    strassertions: str
-) -> tuple[bool, list[dict]]:
-```
 
 ### Parameters
 
@@ -184,48 +54,11 @@ def evaluate_dataframe_assertions(
 | `bool` | Overall pass/fail status (True if all pass) |
 | `list[dict]` | List of detailed results for each assertion |
 
-### Result Dictionary Structure
-
-```python
-{
-    "passed": bool,              # True if assertion passed
-    "assertion": str,            # The assertion statement
-    "message": str,              # Human-readable explanation
-    "expected": str,             # What was expected (if failed)
-    "actual": str,               # What was found (if failed)
-    "error": str                 # Error details (if parsing failed)
-}
-```
-
-## Function: `format_detailed_results_for_db()`
-
-### Signature
-
-```python
-def format_detailed_results_for_db(
-    detailed_results: list[dict], 
-    overall_pass: bool
-) -> str:
-```
-
-### Parameters
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `detailed_results` | `list[dict]` | List of assertion results |
-| `overall_pass` | `bool` | Overall evaluation result |
-
-### Returns
-
-| Type | Description |
-|------|-------------|
-| `str` | Formatted string suitable for database TEXT field |
-
 ---
 
-# 5. Assertion Types
+# 3. Assertion Types
 
-## 5.1 COUNT(*) Assertions
+## 3.1 COUNT(*) Assertions
 
 **Syntax:**
 ```
@@ -251,7 +84,7 @@ Expected: COUNT(*) == 5
 Actual: COUNT(*) = 3
 ```
 
-## 5.2 IN Assertions (Required Values)
+## 3.2 IN Assertions (Required Values)
 
 **Syntax:**
 ```
@@ -283,7 +116,7 @@ Expected: All values present
 Actual: Missing: [11016]. Found 3 unique values in DataFrame
 ```
 
-## 5.3 NOT IN Assertions (Forbidden Values)
+## 3.3 NOT IN Assertions (Forbidden Values)
 
 **Syntax:**
 ```
@@ -315,7 +148,7 @@ Expected: ID_MOVIE NOT IN (289, 3090)
 Actual: Found violations: [289] (occurred 1 time(s))
 ```
 
-## 5.4 Comparison Assertions
+## 3.4 Comparison Assertions
 
 **Syntax:**
 ```
@@ -348,7 +181,7 @@ Expected: IMDB_RATING >= 7.0
 Actual: Found 2 violations: [6.5, 6.0]
 ```
 
-## 5.5 Logical Operators (AND/OR)
+## 3.5 Logical Operators (AND/OR)
 
 **Syntax:**
 ```
@@ -376,9 +209,9 @@ Actual: Found 2 violations: [6.5, 6.0]
 
 ---
 
-# 6. Error Reporting
+# 4. Error Reporting
 
-## 6.1 Console Output Format
+## 4.1 Console Output Format
 
 ```
 ================================================================================
@@ -411,27 +244,7 @@ Assertion #3: ✗ FAIL
 ================================================================================
 ```
 
-## 6.2 Programmatic Access
-
-```python
-overall_pass, detailed_results = evaluate_dataframe_assertions(df, assertions)
-
-# Check overall
-if not overall_pass:
-    print("Evaluation failed!")
-    
-    # Find failed assertions
-    failed_assertions = [r for r in detailed_results if not r['passed']]
-    
-    for failed in failed_assertions:
-        print(f"Failed: {failed['assertion']}")
-        print(f"Reason: {failed['message']}")
-        
-        if 'actual' in failed:
-            print(f"Details: {failed['actual']}")
-```
-
-## 6.3 Error Types
+## 4.2 Error Types
 
 ### 1. Count Mismatch
 ```
@@ -470,38 +283,9 @@ Actual: Available columns: ID_MOVIE, TITLE
 
 ---
 
-# 7. Database Integration
+# 5. Database Integration
 
-## 7.1 Database Schema
-
-### Add Column to Existing Table
-
-```sql
--- MySQL
-ALTER TABLE T_WC_T2S_EVALUATION_EXECUTION 
-ADD COLUMN ASSERTIONS_DETAILED_RESULTS TEXT;
-
--- For larger text (recommended)
-ALTER TABLE T_WC_T2S_EVALUATION_EXECUTION 
-ADD COLUMN ASSERTIONS_DETAILED_RESULTS LONGTEXT;
-
--- PostgreSQL
-ALTER TABLE T_WC_T2S_EVALUATION_EXECUTION 
-ADD COLUMN ASSERTIONS_DETAILED_RESULTS TEXT;
-```
-
-### Field Specifications
-
-| Aspect | Recommendation |
-|--------|----------------|
-| Column Name | `ASSERTIONS_DETAILED_RESULTS` |
-| Type | TEXT or LONGTEXT (MySQL), TEXT (PostgreSQL) |
-| Max Length | 4000+ characters (depends on # assertions) |
-| Nullable | YES (NULL if no assertions) |
-| Default | NULL |
-| Index | Optional (for searching error messages) |
-
-## 7.2 Storage Format
+## 5.2 Storage Format
 
 ### Example Stored String
 
@@ -520,29 +304,7 @@ Expected: ID_MOVIE NOT IN (289)
 Actual: Found violations: [289] (occurred 1 time(s))
 ```
 
-## 7.3 Code Implementation
-
-```python
-# In text2sql-eval.py (already implemented)
-
-# Evaluate assertions
-evaluation_result, detailed_results = evaluate_dataframe_assertions(df_results, strassertions)
-assertions_result_score = 1 if evaluation_result else 0
-
-# Format for database storage
-detailed_results_string = format_detailed_results_for_db(detailed_results, evaluation_result)
-
-# Store to database
-arrevalexeccouples = {}
-arrevalexeccouples["ID_ROW"] = lngid
-arrevalexeccouples["ASSERTIONS_RESULT_SCORE"] = assertions_result_score
-arrevalexeccouples["ASSERTIONS_DETAILED_RESULTS"] = detailed_results_string
-
-# Update database
-cp.f_sqlupdatearray(strsqltablename, arrevalexeccouples, strsqlupdatecondition, 1)
-```
-
-## 7.4 Query Examples
+## 5.3 Query Examples
 
 ### Find All Failures
 
@@ -567,94 +329,11 @@ WHERE ASSERTIONS_DETAILED_RESULTS LIKE '%Missing%required value%';
 SELECT * FROM T_WC_T2S_EVALUATION_EXECUTION 
 WHERE ASSERTIONS_DETAILED_RESULTS LIKE '%should NOT be in the list%';
 ```
-
-### Historical Analysis
-
-```sql
-SELECT 
-    DATE(CREATED_AT) as evaluation_date,
-    COUNT(*) as total_failures,
-    SUM(CASE WHEN ASSERTIONS_DETAILED_RESULTS LIKE '%Row count%' THEN 1 ELSE 0 END) as count_failures,
-    SUM(CASE WHEN ASSERTIONS_DETAILED_RESULTS LIKE '%Missing%value%' THEN 1 ELSE 0 END) as missing_value_failures
-FROM T_WC_T2S_EVALUATION_EXECUTION 
-WHERE ASSERTIONS_RESULT_SCORE = 0
-GROUP BY DATE(CREATED_AT)
-ORDER BY evaluation_date DESC;
-```
-
 ---
 
-# 8. Usage Examples
+# 6. Usage Examples
 
-## 8.1 Basic Example
-
-```python
-import pandas as pd
-
-# Your query results
-df = pd.DataFrame({
-    'ID_MOVIE': [910, 22584, 11016],
-    'RATING': [7.9, 7.8, 7.7]
-})
-
-# Your assertions
-assertions = "COUNT(*) == 3 AND RATING >= 7.0"
-
-# Evaluate
-passed, details = evaluate_dataframe_assertions(df, assertions)
-
-if passed:
-    print("✓ All assertions passed!")
-else:
-    print("✗ Some assertions failed:")
-    for result in details:
-        if not result["passed"]:
-            print(f"  - {result['message']}")
-```
-
-## 8.2 Complex Multi-Part Assertions
-
-```python
-# Complex assertion with OR and AND
-assertions = """
-(COUNT(*) == 5 OR COUNT(*) == 6) AND 
-ID_MOVIE IN (488, 10178, 5996, 34689, 63618) AND 
-ID_MOVIE NOT IN (289, 3090, 11016) AND 
-IMDB_RATING >= 7.0
-"""
-
-passed, details = evaluate_dataframe_assertions(df, assertions)
-
-# Show detailed breakdown
-for i, result in enumerate(details, 1):
-    status = "PASS" if result["passed"] else "FAIL"
-    print(f"Assertion #{i}: {status}")
-    print(f"  {result['assertion']}")
-    if not result["passed"]:
-        print(f"  Problem: {result['message']}")
-```
-
-## 8.3 Error Handling
-
-```python
-try:
-    passed, details = evaluate_dataframe_assertions(df, assertions)
-    
-    if not passed:
-        # Log failures
-        failed = [r for r in details if not r['passed']]
-        for fail in failed:
-            logger.error(f"Assertion failed: {fail['assertion']}")
-            logger.error(f"Reason: {fail['message']}")
-            
-        # Send alert
-        send_alert(f"{len(failed)} assertions failed")
-        
-except Exception as e:
-    logger.error(f"Evaluation error: {e}")
-```
-
-## 8.4 Real-World Example (Your Use Case)
+## 6.1 Real-World Example (Your Use Case)
 
 ```python
 # Your actual data
@@ -679,9 +358,9 @@ evaluation_result, detailed_results = evaluate_dataframe_assertions(df_results, 
 
 ---
 
-# 9. Testing
+# 7. Testing
 
-## 9.1 Test Files
+## 7.1 Test Files
 
 ### demo_detailed_errors.py
 - 7 comprehensive examples
@@ -705,23 +384,7 @@ evaluation_result, detailed_results = evaluate_dataframe_assertions(df_results, 
 - Tests new behavior
 - Run: `python test_corrected_in_behavior.py`
 
-## 9.2 Running Tests
-
-```bash
-# Test detailed error reporting
-python C:\Users\vaugo\Downloads\Claude\fastapi-text2sql\eval\demo_detailed_errors.py
-
-# Test database storage format
-python C:\Users\vaugo\Downloads\Claude\fastapi-text2sql\eval\demo_database_storage.py
-
-# Test your specific example
-python C:\Users\vaugo\Downloads\Claude\fastapi-text2sql\eval\test_philippe_example.py
-
-# Test IN assertion behavior
-python C:\Users\vaugo\Downloads\Claude\fastapi-text2sql\eval\test_corrected_in_behavior.py
-```
-
-## 9.3 Expected Results
+## 7.2 Expected Results
 
 All tests should show:
 - ✓ Detailed error messages for failures
@@ -731,69 +394,10 @@ All tests should show:
 
 ---
 
-# 10. Migration Guide
+# 8. Migration Guide
 
-## 10.1 Function Signature Changed
+## 8.1 IN Assertion Behavior Change
 
-### Before
-```python
-result = evaluate_dataframe_assertions(df, assertions)
-# Returns: bool
-```
-
-### After
-```python
-overall_pass, detailed_results = evaluate_dataframe_assertions(df, assertions)
-# Returns: (bool, list[dict])
-```
-
-## 10.2 Update Patterns
-
-### Pattern 1: Simple If/Else
-```python
-# Before
-if evaluate_dataframe_assertions(df, assertions):
-    do_something()
-
-# After
-passed, _ = evaluate_dataframe_assertions(df, assertions)
-if passed:
-    do_something()
-```
-
-### Pattern 2: Storing Results
-```python
-# Before
-results[test_id] = evaluate_dataframe_assertions(df, assertions)
-
-# After
-passed, details = evaluate_dataframe_assertions(df, assertions)
-results[test_id] = {
-    'passed': passed,
-    'details': details
-}
-```
-
-### Pattern 3: Assert Statements
-```python
-# Before
-assert evaluate_dataframe_assertions(df, "COUNT(*) == 5")
-
-# After
-passed, _ = evaluate_dataframe_assertions(df, "COUNT(*) == 5")
-assert passed
-```
-
-## 10.3 IN Assertion Behavior Change
-
-### Old Behavior (Wrong)
-`IN` was a whitelist - DataFrame couldn't have extra values
-
-```python
-DataFrame: [910, 22584, 11016, 324241]
-Assertion: "ID_MOVIE IN (910, 22584, 11016)"
-Result: FAIL (324241 not in list)
-```
 
 ### New Behavior (Correct)
 `IN` checks required values - DataFrame can have extra values
@@ -812,56 +416,9 @@ Result: PASS (all 3 required values found, extra OK)
 
 ---
 
-# 11. Troubleshooting
+# 9. Troubleshooting
 
-## 11.1 Common Errors
-
-### Error: "Too many values to unpack"
-
-**Symptom:**
-```python
-result = evaluate_dataframe_assertions(df, assertions)
-# ValueError: too many values to unpack
-```
-
-**Fix:**
-```python
-result, details = evaluate_dataframe_assertions(df, assertions)
-# OR
-result, _ = evaluate_dataframe_assertions(df, assertions)
-```
-
-### Error: "Truth value of tuple is ambiguous"
-
-**Symptom:**
-```python
-if evaluate_dataframe_assertions(df, assertions):
-    # TypeError: truth value of tuple is ambiguous
-```
-
-**Fix:**
-```python
-passed, _ = evaluate_dataframe_assertions(df, assertions)
-if passed:
-    ...
-```
-
-### Error: "Can't index boolean"
-
-**Symptom:**
-```python
-result = evaluate_dataframe_assertions(df, assertions)
-print(result['passed'])
-# TypeError: 'bool' object is not subscriptable
-```
-
-**Fix:**
-```python
-passed, details = evaluate_dataframe_assertions(df, assertions)
-print(details[0]['passed'])
-```
-
-## 11.2 Assertion Syntax Issues
+## 9.1 Assertion Syntax Issues
 
 ### Invalid Syntax
 ```python
@@ -889,7 +446,7 @@ print(details[0]['passed'])
 "COUNT(*) == 5"  # Double ==
 ```
 
-## 11.3 Performance Issues
+## 9.3 Performance Issues
 
 ### Large DataFrames
 - IN/NOT IN assertions scan entire column
@@ -903,9 +460,9 @@ print(details[0]['passed'])
 
 ---
 
-# 12. Appendix
+# 10. Appendix
 
-## 12.1 Version History
+## 10.1 Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
@@ -914,7 +471,7 @@ print(details[0]['passed'])
 | 2.0 | 2025-02-08 | Added detailed error reporting |
 | 1.0 | 2025-02-07 | Initial implementation |
 
-## 12.2 File Locations
+## 10.2 File Locations
 
 | File | Purpose |
 |------|---------|
@@ -924,7 +481,7 @@ print(details[0]['passed'])
 | `test_philippe_example.py` | Your use case test |
 | `test_corrected_in_behavior.py` | IN assertion tests |
 
-## 12.3 Key Line Numbers in text2sql-eval.py
+## 10.3 Key Line Numbers in text2sql-eval.py
 
 | Line | Function/Section |
 |------|------------------|
@@ -937,20 +494,20 @@ print(details[0]['passed'])
 | 640 | Integration point - evaluation call |
 | 671 | Database storage |
 
-## 12.4 Supported Python Libraries
+## 10.4 Supported Python Libraries
 
 - pandas (DataFrame operations)
 - re (Regular expressions)
 - Standard library only (no external dependencies for evaluator)
 
-## 12.5 Database Compatibility
+## 10.5 Database Compatibility
 
 - MySQL (TEXT, LONGTEXT)
 - PostgreSQL (TEXT)
 - MariaDB (TEXT, LONGTEXT)
 - SQLite (TEXT)
 
-## 12.6 Best Practices
+## 10.6 Best Practices
 
 1. ✅ Always use absolute paths in file operations
 2. ✅ Store detailed results in database for audit trail
@@ -1009,15 +566,14 @@ The DataFrame assertion evaluator provides:
 
 1. **Detailed Error Reporting** - See exactly what failed and why
 2. **Correct IN Semantics** - Required values must be present (extra values OK)
-3. **Database Storage** - Complete audit trail automatically stored
-4. **Multiple Assertion Types** - COUNT, IN, NOT IN, comparisons, AND/OR logic
-5. **Production Ready** - Tested, documented, and deployed
+3. **Multiple Assertion Types** - COUNT, IN, NOT IN, comparisons, AND/OR logic
+4. **Production Ready** - Tested, documented, and deployed
 
 **Status: ✅ Ready for Production Use**
 
 ---
 
-**Documentation Version:** 2.2  
+**Documentation Version:** 1.0  
 **Last Updated:** 2025-02-08  
 **Maintainer:** Claude + Philippe  
 **File:** `text2sql-eval.py`  

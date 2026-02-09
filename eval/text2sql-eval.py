@@ -12,6 +12,14 @@ import pandas as pd
 import pytest
 import re
 
+from text2sql_eval_functions import (
+    evaluate_dataframe_assertions,
+    format_api_version,
+    format_detailed_results_for_db,
+    format_single_line_record,
+    safe_json_loads,
+)
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -23,42 +31,6 @@ datjminus1 = datnow - delta
 #strdatjminus1 = datjminus1.strftime("%Y-%m-%d %H:%M:%S")
 strdattodayminus1 = datjminus1.strftime("%Y-%m-%d")
 strdattodayminus1us = datjminus1.strftime("%m_%d_%Y")
-
-# Convert API version to XXX.YYY.ZZZ format for comparison
-def format_api_version(version: str) -> str:
-    """Convert version string to XXX.YYY.ZZZ format for comparison."""
-    version_parts = version.split('.')
-    return f"{int(version_parts[0]):03d}.{int(version_parts[1]):03d}.{int(version_parts[2]):03d}"
-
-def safe_json_loads(value: str):
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        return value
-    s = value.strip()
-    try:
-        return json.loads(s)
-    except json.JSONDecodeError:
-        start = s.find('{')
-        end = s.rfind('}')
-        if start != -1 and end != -1 and end > start:
-            return json.loads(s[start:end + 1])
-        raise
-
-def format_single_line_record(record):
-    if isinstance(record, str):
-        s = record.strip()
-        while s.endswith('}}'):
-            try:
-                record = json.loads(s)
-                break
-            except Exception:
-                s = s[:-1]
-        if isinstance(record, str):
-            record = safe_json_loads(record)
-    if isinstance(record, dict):
-        return " | ".join([f"{k}={v}" for k, v in record.items()])
-    return str(record)
 
 try:
     with cp.connectioncp:
@@ -145,6 +117,16 @@ try:
                     #strsql += "LIMIT 5 "
                     dblcumulatedscore = 0
                     dblevalcount = 0
+                    dbl_entity_extraction_processing_time_sum = 0.0
+                    lng_entity_extraction_processing_time_count = 0
+                    dbl_text2sql_processing_time_sum = 0.0
+                    lng_text2sql_processing_time_count = 0
+                    dbl_embeddings_processing_time_sum = 0.0
+                    lng_embeddings_processing_time_count = 0
+                    dbl_query_execution_time_sum = 0.0
+                    lng_query_execution_time_count = 0
+                    dbl_total_processing_time_sum = 0.0
+                    lng_total_processing_time_count = 0
                 if strsql != "":
                     print(strcurrentprocess)
                     cp.f_setservervariable("strtext2sqlevalcurrentprocess",strcurrentprocess,"Current process in the Text2SQL evaluation",0)
@@ -257,393 +239,6 @@ try:
                                 df_results.index = [r["index"] for r in result_rows]
                             print(df_results)
 
-                            # === NEW EVALUATION SYSTEM ===
-                            # Line 249: Completely new evaluation system using df_results and strassertions
-                            
-                            def evaluate_dataframe_assertions(df_results: pd.DataFrame, strassertions: str) -> tuple[bool, list[dict]]:
-                                """
-                                Evaluate assertions against a pandas DataFrame with detailed error reporting.
-                                
-                                Supports:
-                                - COUNT(*) operations with comparisons
-                                - Column IN (values) / NOT IN (values)
-                                - AND / OR logical operators
-                                - Comparison operators: ==, !=, <, >, <=, >=
-                                
-                                Args:
-                                    df_results: pandas DataFrame containing the query results
-                                    strassertions: String containing SQL-like assertions
-                                
-                                Returns:
-                                    tuple: (overall_pass: bool, results: list[dict])
-                                        - overall_pass: True if all assertions pass, False otherwise
-                                        - results: List of dicts with detailed results for each assertion
-                                """
-                                results = []
-                                
-                                if not strassertions or not strassertions.strip():
-                                    return True, [{"passed": True, "message": "No assertions to evaluate"}]
-                                
-                                if df_results is None or df_results.empty:
-                                    # Check if assertions allow empty results
-                                    if "COUNT(*)" in strassertions and "== 0" in strassertions:
-                                        return True, [{"passed": True, "assertion": strassertions, "message": "Empty DataFrame as expected"}]
-                                    return False, [{
-                                        "passed": False,
-                                        "assertion": strassertions,
-                                        "message": "DataFrame is empty but assertions expect data",
-                                        "actual": "0 rows",
-                                        "expected": "Non-empty DataFrame"
-                                    }]
-                                
-                                try:
-                                    # Split by AND/OR but keep track of the operators
-                                    assertions_str = strassertions.strip()
-                                    
-                                    # Split by AND/OR while preserving the operators
-                                    parts = re.split(r'\s+(AND|OR)\s+', assertions_str, flags=re.IGNORECASE)
-                                    
-                                    # Process parts: odd indices are operators, even indices are assertions
-                                    assertions_list = []
-                                    operators_list = []
-                                    
-                                    for i, part in enumerate(parts):
-                                        part_stripped = part.strip()
-                                        if i % 2 == 0:  # Assertion
-                                            # Remove outer parentheses if they wrap the entire assertion
-                                            if part_stripped.startswith('(') and part_stripped.endswith(')'):
-                                                part_stripped = part_stripped[1:-1].strip()
-                                            assertions_list.append(part_stripped)
-                                        else:  # Operator (AND/OR)
-                                            operators_list.append(part_stripped.upper())
-                                    
-                                    # Evaluate each assertion
-                                    assertion_results = []
-                                    for assertion in assertions_list:
-                                        result = _evaluate_single_assertion(df_results, assertion)
-                                        assertion_results.append(result)
-                                        results.append(result)
-                                    
-                                    # Apply logical operators
-                                    if not assertion_results:
-                                        return True, [{"passed": True, "message": "No assertions to evaluate"}]
-                                    
-                                    # Calculate overall result
-                                    bool_results = [r["passed"] for r in assertion_results]
-                                    final_result = bool_results[0]
-                                    for i, operator in enumerate(operators_list):
-                                        if operator == 'AND':
-                                            final_result = final_result and bool_results[i + 1]
-                                        elif operator == 'OR':
-                                            final_result = final_result or bool_results[i + 1]
-                                    
-                                    return final_result, results
-                                
-                                except Exception as e:
-                                    return False, [{
-                                        "passed": False,
-                                        "assertion": strassertions,
-                                        "message": f"Error evaluating assertions: {str(e)}",
-                                        "error": str(e)
-                                    }]
-                            
-                            def _evaluate_single_assertion(df: pd.DataFrame, assertion: str) -> dict:
-                                """
-                                Evaluate a single assertion against the DataFrame with detailed results.
-                                
-                                Args:
-                                    df: pandas DataFrame
-                                    assertion: Single assertion string
-                                
-                                Returns:
-                                    dict: Result with 'passed', 'assertion', 'message', 'expected', 'actual' keys
-                                """
-                                assertion = assertion.strip()
-                                
-                                # Handle COUNT(*) assertions
-                                if 'COUNT(*)' in assertion.upper():
-                                    return _evaluate_count_assertion(df, assertion)
-                                
-                                # Handle IN / NOT IN assertions
-                                if ' IN ' in assertion.upper() or ' NOT IN ' in assertion.upper():
-                                    return _evaluate_in_assertion(df, assertion)
-                                
-                                # Handle other column comparisons
-                                return _evaluate_comparison_assertion(df, assertion)
-                            
-                            def _evaluate_count_assertion(df: pd.DataFrame, assertion: str) -> dict:
-                                """Evaluate COUNT(*) assertions with detailed results."""
-                                actual_count = len(df)
-                                
-                                # Extract the comparison pattern
-                                pattern = r'COUNT\(\*\)\s*(==|!=|<=|>=|<|>)\s*(\d+)'
-                                match = re.search(pattern, assertion, re.IGNORECASE)
-                                
-                                if not match:
-                                    return {
-                                        "passed": False,
-                                        "assertion": assertion,
-                                        "message": "Invalid COUNT(*) syntax",
-                                        "error": "Could not parse COUNT(*) assertion"
-                                    }
-                                
-                                operator = match.group(1)
-                                expected_value = int(match.group(2))
-                                
-                                # Evaluate the comparison
-                                passed = False
-                                if operator == '==':
-                                    passed = actual_count == expected_value
-                                elif operator == '!=':
-                                    passed = actual_count != expected_value
-                                elif operator == '<':
-                                    passed = actual_count < expected_value
-                                elif operator == '>':
-                                    passed = actual_count > expected_value
-                                elif operator == '<=':
-                                    passed = actual_count <= expected_value
-                                elif operator == '>=':
-                                    passed = actual_count >= expected_value
-                                
-                                if passed:
-                                    return {
-                                        "passed": True,
-                                        "assertion": assertion,
-                                        "message": f"Row count check passed",
-                                        "expected": f"COUNT(*) {operator} {expected_value}",
-                                        "actual": f"COUNT(*) = {actual_count}"
-                                    }
-                                else:
-                                    return {
-                                        "passed": False,
-                                        "assertion": assertion,
-                                        "message": f"Row count mismatch: Expected {operator} {expected_value}, but got {actual_count}",
-                                        "expected": f"COUNT(*) {operator} {expected_value}",
-                                        "actual": f"COUNT(*) = {actual_count}"
-                                    }
-                            
-                            def _evaluate_in_assertion(df: pd.DataFrame, assertion: str) -> dict:
-                                """Evaluate IN / NOT IN assertions with detailed results."""
-                                is_not_in = 'NOT IN' in assertion.upper()
-                                
-                                if is_not_in:
-                                    pattern = r'(\w+)\s+NOT\s+IN\s*\(([^)]+)\)'
-                                else:
-                                    pattern = r'(\w+)\s+IN\s*\(([^)]+)\)'
-                                
-                                match = re.search(pattern, assertion, re.IGNORECASE)
-                                
-                                if not match:
-                                    return {
-                                        "passed": False,
-                                        "assertion": assertion,
-                                        "message": "Invalid IN/NOT IN syntax",
-                                        "error": "Could not parse IN/NOT IN assertion"
-                                    }
-                                
-                                column_name = match.group(1).strip()
-                                values_str = match.group(2).strip()
-                                
-                                # Check if column exists
-                                if column_name not in df.columns:
-                                    return {
-                                        "passed": False,
-                                        "assertion": assertion,
-                                        "message": f"Column '{column_name}' does not exist in DataFrame",
-                                        "expected": f"Column '{column_name}' to exist",
-                                        "actual": f"Available columns: {', '.join(df.columns.tolist())}"
-                                    }
-                                
-                                # Parse the values list
-                                values = []
-                                for val in values_str.split(','):
-                                    val = val.strip()
-                                    if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
-                                        val = val[1:-1]
-                                    try:
-                                        val = int(val)
-                                    except ValueError:
-                                        try:
-                                            val = float(val)
-                                        except ValueError:
-                                            pass
-                                    values.append(val)
-                                
-                                # Get the column values
-                                column_values = df[column_name].tolist()
-                                
-                                # Evaluate IN / NOT IN
-                                if is_not_in:
-                                    # Find values that ARE in the exclusion list (violations)
-                                    violations = [val for val in column_values if val in values]
-                                    passed = len(violations) == 0
-                                    
-                                    if passed:
-                                        return {
-                                            "passed": True,
-                                            "assertion": assertion,
-                                            "message": f"All {len(column_values)} values in '{column_name}' are not in the exclusion list",
-                                            "expected": f"{column_name} NOT IN ({values_str})",
-                                            "actual": f"No violations found"
-                                        }
-                                    else:
-                                        unique_violations = list(set(violations))
-                                        violation_count = len(violations)
-                                        return {
-                                            "passed": False,
-                                            "assertion": assertion,
-                                            "message": f"Found {violation_count} value(s) in '{column_name}' that should NOT be in the list: {unique_violations}",
-                                            "expected": f"{column_name} NOT IN ({values_str})",
-                                            "actual": f"Found violations: {unique_violations} (occurred {violation_count} time(s))"
-                                        }
-                                else:
-                                    # IN assertion: Check that ALL required values are present in the DataFrame
-                                    # Extra values in DataFrame are OK
-                                    missing_values = [val for val in values if val not in column_values]
-                                    passed = len(missing_values) == 0
-                                    
-                                    unique_df_values = len(set(column_values))
-                                    
-                                    if passed:
-                                        return {
-                                            "passed": True,
-                                            "assertion": assertion,
-                                            "message": f"All {len(values)} required values found in '{column_name}' (DataFrame has {unique_df_values} unique values)",
-                                            "expected": f"All values from IN list present in {column_name}",
-                                            "actual": f"All {len(values)} required values found in DataFrame"
-                                        }
-                                    else:
-                                        return {
-                                            "passed": False,
-                                            "assertion": assertion,
-                                            "message": f"Missing {len(missing_values)} required value(s) in '{column_name}': {missing_values}",
-                                            "expected": f"{column_name} IN ({values_str}) - all values should be present",
-                                            "actual": f"Missing values: {missing_values}. Found {unique_df_values} unique values in DataFrame"
-                                        }
-                            
-                            def _evaluate_comparison_assertion(df: pd.DataFrame, assertion: str) -> dict:
-                                """Evaluate simple comparison assertions with detailed results."""
-                                pattern = r'(\w+)\s*(==|!=|<=|>=|<|>)\s*(.+)'
-                                match = re.match(pattern, assertion)
-                                
-                                if not match:
-                                    return {
-                                        "passed": False,
-                                        "assertion": assertion,
-                                        "message": "Invalid comparison syntax",
-                                        "error": "Could not parse comparison assertion"
-                                    }
-                                
-                                column_name = match.group(1).strip()
-                                operator = match.group(2)
-                                value_str = match.group(3).strip()
-                                
-                                # Check if column exists
-                                if column_name not in df.columns:
-                                    return {
-                                        "passed": False,
-                                        "assertion": assertion,
-                                        "message": f"Column '{column_name}' does not exist in DataFrame",
-                                        "expected": f"Column '{column_name}' to exist",
-                                        "actual": f"Available columns: {', '.join(df.columns.tolist())}"
-                                    }
-                                
-                                # Parse the value
-                                value = value_str
-                                if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
-                                    value = value[1:-1]
-                                try:
-                                    value = int(value)
-                                except ValueError:
-                                    try:
-                                        value = float(value)
-                                    except ValueError:
-                                        pass
-                                
-                                # Get column values
-                                column_values = df[column_name].tolist()
-                                
-                                # Find violations
-                                violations = []
-                                if operator == '==':
-                                    violations = [v for v in column_values if v != value]
-                                    passed = len(violations) == 0
-                                elif operator == '!=':
-                                    violations = [v for v in column_values if v == value]
-                                    passed = len(violations) == 0
-                                elif operator == '<':
-                                    violations = [v for v in column_values if v >= value]
-                                    passed = len(violations) == 0
-                                elif operator == '>':
-                                    violations = [v for v in column_values if v <= value]
-                                    passed = len(violations) == 0
-                                elif operator == '<=':
-                                    violations = [v for v in column_values if v > value]
-                                    passed = len(violations) == 0
-                                elif operator == '>=':
-                                    violations = [v for v in column_values if v < value]
-                                    passed = len(violations) == 0
-                                else:
-                                    return {
-                                        "passed": False,
-                                        "assertion": assertion,
-                                        "message": f"Unknown operator '{operator}'",
-                                        "error": "Unsupported comparison operator"
-                                    }
-                                
-                                if passed:
-                                    return {
-                                        "passed": True,
-                                        "assertion": assertion,
-                                        "message": f"All {len(column_values)} values in '{column_name}' satisfy {column_name} {operator} {value}",
-                                        "expected": f"{column_name} {operator} {value}",
-                                        "actual": f"All values match condition"
-                                    }
-                                else:
-                                    unique_violations = list(set(violations))
-                                    violation_count = len(violations)
-                                    sample_violations = unique_violations[:5]  # Show first 5 unique violations
-                                    
-                                    return {
-                                        "passed": False,
-                                        "assertion": assertion,
-                                        "message": f"Found {violation_count} value(s) in '{column_name}' that violate {column_name} {operator} {value}. Sample violations: {sample_violations}",
-                                        "expected": f"{column_name} {operator} {value}",
-                                        "actual": f"Found {violation_count} violations: {sample_violations}{' (showing first 5)' if len(unique_violations) > 5 else ''}"
-                                    }
-                            
-                            def format_detailed_results_for_db(detailed_results: list[dict], overall_pass: bool) -> str:
-                                """
-                                Format detailed assertion results into a string for database storage.
-                                
-                                Args:
-                                    detailed_results: List of assertion result dictionaries
-                                    overall_pass: Overall evaluation result
-                                
-                                Returns:
-                                    Formatted string suitable for database storage
-                                """
-                                lines = []
-                                lines.append(f"OVERALL: {'PASS' if overall_pass else 'FAIL'}")
-                                #lines.append("="*80)
-                                
-                                for i, result in enumerate(detailed_results, 1):
-                                    status = "PASS" if result["passed"] else "FAIL"
-                                    lines.append(f"\nAssertion #{i}: [{status}]")
-                                    lines.append(f"Statement: {result.get('assertion', 'N/A')}")
-                                    lines.append(f"Message: {result['message']}")
-                                    
-                                    if not result["passed"]:
-                                        if 'expected' in result:
-                                            lines.append(f"Expected: {result['expected']}")
-                                        if 'actual' in result:
-                                            lines.append(f"Actual: {result['actual']}")
-                                        if 'error' in result:
-                                            lines.append(f"Error: {result['error']}")
-                                
-                                return "\n".join(lines)
-                            
-                            # Use the new evaluator
                             evaluation_result, detailed_results = evaluate_dataframe_assertions(df_results, strassertions)
                             status = "PASS ✓" if evaluation_result else "FAIL ✗"
                             assertions_result_score = 1 if evaluation_result else 0
@@ -684,6 +279,45 @@ try:
                             arrevalexeccouples["ID_ROW"] = lngid
                             arrevalexeccouples["ASSERTIONS_RESULT_SCORE"] = assertions_result_score
                             arrevalexeccouples["ASSERTIONS_RESULT_DETAILED"] = detailed_results_string  # NEW: Store detailed results
+                            def _safe_float(v):
+                                try:
+                                    if v is None:
+                                        return None
+                                    return float(v)
+                                except (TypeError, ValueError):
+                                    return None
+
+                            arrevalexeccouples["ENTITY_EXTRACTION_PROCESSING_TIME"] = _safe_float(
+                                (response_json or {}).get("entity_extraction_processing_time")
+                            )
+                            arrevalexeccouples["TEXT2SQL_PROCESSING_TIME"] = _safe_float(
+                                (response_json or {}).get("text2sql_processing_time")
+                            )
+                            arrevalexeccouples["EMBEDDINGS_PROCESSING_TIME"] = _safe_float(
+                                (response_json or {}).get("embeddings_processing_time")
+                            )
+                            arrevalexeccouples["QUERY_EXECUTION_TIME"] = _safe_float(
+                                (response_json or {}).get("query_execution_time")
+                            )
+                            arrevalexeccouples["TOTAL_PROCESSING_TIME"] = _safe_float(
+                                (response_json or {}).get("total_processing_time")
+                            )
+
+                            if arrevalexeccouples["ENTITY_EXTRACTION_PROCESSING_TIME"] is not None:
+                                dbl_entity_extraction_processing_time_sum += arrevalexeccouples["ENTITY_EXTRACTION_PROCESSING_TIME"]
+                                lng_entity_extraction_processing_time_count += 1
+                            if arrevalexeccouples["TEXT2SQL_PROCESSING_TIME"] is not None:
+                                dbl_text2sql_processing_time_sum += arrevalexeccouples["TEXT2SQL_PROCESSING_TIME"]
+                                lng_text2sql_processing_time_count += 1
+                            if arrevalexeccouples["EMBEDDINGS_PROCESSING_TIME"] is not None:
+                                dbl_embeddings_processing_time_sum += arrevalexeccouples["EMBEDDINGS_PROCESSING_TIME"]
+                                lng_embeddings_processing_time_count += 1
+                            if arrevalexeccouples["QUERY_EXECUTION_TIME"] is not None:
+                                dbl_query_execution_time_sum += arrevalexeccouples["QUERY_EXECUTION_TIME"]
+                                lng_query_execution_time_count += 1
+                            if arrevalexeccouples["TOTAL_PROCESSING_TIME"] is not None:
+                                dbl_total_processing_time_sum += arrevalexeccouples["TOTAL_PROCESSING_TIME"]
+                                lng_total_processing_time_count += 1
                             #print("\nArrmoviecouples:")
                             #print(arrevalexeccouples)
                             #time.sleep(5)
@@ -704,6 +338,87 @@ try:
                 print(f"Entity extraction model: {strentityextractionmodeleval}")
                 print(f"Text2SQL model: {strtext2sqlmodeleval}")
                 print(f"Global score: {dblcumulatedscore}/{dblevalcount} = {dblglobalscore:.2%}")
+                if lng_entity_extraction_processing_time_count > 0:
+                    str_entity_extraction_processing_time_sum_duration = cp.convert_seconds_to_duration(
+                        int(dbl_entity_extraction_processing_time_sum)
+                    )
+                    print(
+                        f"Sum entity_extraction_processing_time: "
+                        f"{dbl_entity_extraction_processing_time_sum:.3f}s "
+                        f"({str_entity_extraction_processing_time_sum_duration}) "
+                        f"(n={lng_entity_extraction_processing_time_count})"
+                    )
+                if lng_entity_extraction_processing_time_count > 0:
+                    print(
+                        f"Avg entity_extraction_processing_time: "
+                        f"{dbl_entity_extraction_processing_time_sum / lng_entity_extraction_processing_time_count:.3f}s "
+                        f"(n={lng_entity_extraction_processing_time_count})"
+                    )
+                if lng_text2sql_processing_time_count > 0:
+                    str_text2sql_processing_time_sum_duration = cp.convert_seconds_to_duration(
+                        int(dbl_text2sql_processing_time_sum)
+                    )
+                    print(
+                        f"Sum text2sql_processing_time: "
+                        f"{dbl_text2sql_processing_time_sum:.3f}s "
+                        f"({str_text2sql_processing_time_sum_duration}) "
+                        f"(n={lng_text2sql_processing_time_count})"
+                    )
+                if lng_text2sql_processing_time_count > 0:
+                    print(
+                        f"Avg text2sql_processing_time: "
+                        f"{dbl_text2sql_processing_time_sum / lng_text2sql_processing_time_count:.3f}s "
+                        f"(n={lng_text2sql_processing_time_count})"
+                    )
+                if lng_embeddings_processing_time_count > 0:
+                    str_embeddings_processing_time_sum_duration = cp.convert_seconds_to_duration(
+                        int(dbl_embeddings_processing_time_sum)
+                    )
+                    print(
+                        f"Sum embeddings_processing_time: "
+                        f"{dbl_embeddings_processing_time_sum:.3f}s "
+                        f"({str_embeddings_processing_time_sum_duration}) "
+                        f"(n={lng_embeddings_processing_time_count})"
+                    )
+                if lng_embeddings_processing_time_count > 0:
+                    print(
+                        f"Avg embeddings_processing_time: "
+                        f"{dbl_embeddings_processing_time_sum / lng_embeddings_processing_time_count:.3f}s "
+                        f"(n={lng_embeddings_processing_time_count})"
+                    )
+                if lng_query_execution_time_count > 0:
+                    str_query_execution_time_sum_duration = cp.convert_seconds_to_duration(
+                        int(dbl_query_execution_time_sum)
+                    )
+                    print(
+                        f"Sum query_execution_time: "
+                        f"{dbl_query_execution_time_sum:.3f}s "
+                        f"({str_query_execution_time_sum_duration}) "
+                        f"(n={lng_query_execution_time_count})"
+                    )
+                if lng_query_execution_time_count > 0:
+                    print(
+                        f"Avg query_execution_time: "
+                        f"{dbl_query_execution_time_sum / lng_query_execution_time_count:.3f}s "
+                        f"(n={lng_query_execution_time_count})"
+                    )
+                if lng_total_processing_time_count > 0:
+                    str_total_processing_time_sum_duration = cp.convert_seconds_to_duration(
+                        int(dbl_total_processing_time_sum)
+                    )
+                    print(
+                        f"Sum total_processing_time: "
+                        f"{dbl_total_processing_time_sum:.3f}s "
+                        f"({str_total_processing_time_sum_duration}) "
+                        f"(n={lng_total_processing_time_count})"
+                    )
+                if lng_total_processing_time_count > 0:
+                    print(
+                        f"Avg total_processing_time: "
+                        f"{dbl_total_processing_time_sum / lng_total_processing_time_count:.3f}s "
+                        f"(n={lng_total_processing_time_count})"
+                    )
+            print("------------------------------------------")
             strcurrentprocess = ""
             cp.f_setservervariable("strtext2sqlevalcurrentprocess",strcurrentprocess,"Current process in the Text2SQL evaluation",0)
             strnow = datetime.now(cp.paris_tz).strftime("%Y-%m-%d %H:%M:%S")
