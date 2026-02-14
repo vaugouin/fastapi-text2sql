@@ -50,6 +50,7 @@ def evaluate_dataframe_assertions(df_results: pd.DataFrame, strassertions: str) 
 
     Supports:
     - COUNT(*) operations with comparisons
+    - CELL(row, col) for position-based single cell assertions (0-indexed)
     - Column IN (values) / NOT IN (values)
     - AND / OR logical operators
     - Comparison operators: ==, !=, <, >, <=, >=
@@ -147,6 +148,10 @@ def _evaluate_single_assertion(df: pd.DataFrame, assertion: str) -> dict:
     if "COUNT(*)" in assertion.upper():
         return _evaluate_count_assertion(df, assertion)
 
+    # Handle CELL(row, col) assertions
+    if re.match(r"CELL\s*\(", assertion, re.IGNORECASE):
+        return _evaluate_cell_assertion(df, assertion)
+
     # Handle IN / NOT IN assertions
     if " IN " in assertion.upper() or " NOT IN " in assertion.upper():
         return _evaluate_in_assertion(df, assertion)
@@ -201,6 +206,111 @@ def _evaluate_count_assertion(df: pd.DataFrame, assertion: str) -> dict:
         "message": f"Row count mismatch: Expected {operator} {expected_value}, but got {actual_count}",
         "expected": f"COUNT(*) {operator} {expected_value}",
         "actual": f"COUNT(*) = {actual_count}",
+    }
+
+
+def _evaluate_cell_assertion(df: pd.DataFrame, assertion: str) -> dict:
+    """
+    Evaluate a CELL(row, col) assertion against a DataFrame.
+
+    Syntax: CELL(row, col) <operator> <value>
+    Row and col are 0-indexed integers.
+
+    Examples:
+        CELL(0, 0) == 40
+        CELL(0, 0) >= 10
+        CELL(0, 0) == 'some text'
+
+    Args:
+        df: pandas DataFrame containing the query results
+        assertion: String like "CELL(0, 0) == 40"
+
+    Returns:
+        dict with passed, assertion, message, expected, actual keys
+    """
+    pattern = r"CELL\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)\s*(==|!=|<=|>=|<|>)\s*(.+)"
+    match = re.match(pattern, assertion, re.IGNORECASE)
+
+    if not match:
+        return {
+            "passed": False,
+            "assertion": assertion,
+            "message": "Invalid CELL() syntax. Expected: CELL(row, col) <operator> <value>",
+            "error": "Could not parse CELL() assertion",
+        }
+
+    row_idx = int(match.group(1))
+    col_idx = int(match.group(2))
+    operator = match.group(3)
+    value_str = match.group(4).strip()
+
+    # Parse value
+    value: Any = value_str
+    if (value.startswith('"') and value.endswith('"')) or (
+        value.startswith("'") and value.endswith("'")
+    ):
+        value = value[1:-1]
+    try:
+        value = int(value)
+    except ValueError:
+        try:
+            value = float(value)
+        except ValueError:
+            pass
+
+    # Validate row index
+    if row_idx >= len(df):
+        return {
+            "passed": False,
+            "assertion": assertion,
+            "message": f"Row index {row_idx} is out of range. DataFrame has {len(df)} row(s) (0-indexed)",
+            "expected": f"Row index < {len(df)}",
+            "actual": f"Row index {row_idx} requested",
+        }
+
+    # Validate column index
+    if col_idx >= len(df.columns):
+        return {
+            "passed": False,
+            "assertion": assertion,
+            "message": f"Column index {col_idx} is out of range. DataFrame has {len(df.columns)} column(s) (0-indexed)",
+            "expected": f"Column index < {len(df.columns)}",
+            "actual": f"Column index {col_idx} requested. Available columns: {', '.join(df.columns.tolist())}",
+        }
+
+    actual_value = df.iloc[row_idx, col_idx]
+    column_name = df.columns[col_idx]
+
+    # Perform comparison
+    passed = False
+    if operator == "==":
+        passed = actual_value == value
+    elif operator == "!=":
+        passed = actual_value != value
+    elif operator == "<":
+        passed = actual_value < value
+    elif operator == ">":
+        passed = actual_value > value
+    elif operator == "<=":
+        passed = actual_value <= value
+    elif operator == ">=":
+        passed = actual_value >= value
+
+    if passed:
+        return {
+            "passed": True,
+            "assertion": assertion,
+            "message": f"Cell({row_idx}, {col_idx}) value check passed (column '{column_name}')",
+            "expected": f"CELL({row_idx}, {col_idx}) {operator} {value}",
+            "actual": f"Value = {actual_value}",
+        }
+
+    return {
+        "passed": False,
+        "assertion": assertion,
+        "message": f"Cell({row_idx}, {col_idx}) value mismatch (column '{column_name}'): expected {operator} {value}, but got {actual_value}",
+        "expected": f"CELL({row_idx}, {col_idx}) {operator} {value}",
+        "actual": f"Value = {actual_value}",
     }
 
 
