@@ -1,7 +1,7 @@
 # 📚 DataFrame Assertion Evaluator - Complete Documentation
 
-**Version:** 1.0  
-**Last Updated:** 2025-02-08  
+**Version:** 1.1  
+**Last Updated:** 2026-02-20  
 **Status:** ✅ Production Ready  
 **File:** text2sql-eval.py
 
@@ -32,8 +32,9 @@ The DataFrame assertion evaluator validates SQL query results against expected c
 
 ✅ **Detailed error messages** - See exactly what failed and why  
 ✅ **Correct IN semantics** - Required values must be present  
-✅ **Multiple assertion types** - COUNT, IN, NOT IN, comparisons  
+✅ **Multiple assertion types** - COUNT(*), COUNT(column), CELL(row,col), IN, NOT IN, comparisons  
 ✅ **AND/OR logic** - Complex multi-part assertions  
+✅ **HTML-escaped operators supported** - `&gt;`, `&lt;` are accepted in assertions (unescaped before parsing)
 
 ---
 
@@ -58,7 +59,7 @@ The DataFrame assertion evaluator validates SQL query results against expected c
 
 # 3. Assertion Types
 
-## 3.1 COUNT(*) Assertions
+## 3.1 COUNT(*) Assertions (Row count)
 
 **Syntax:**
 ```
@@ -77,14 +78,35 @@ COUNT(*) <operator> <number>
 
 **Error Output:**
 ```
-Assertion #1: [FAIL]
+Assertion #1: FAIL
 Statement: COUNT(*) == 5
 Message: Row count mismatch: Expected == 5, but got 3
 Expected: COUNT(*) == 5
 Actual: COUNT(*) = 3
 ```
 
-## 3.2 IN Assertions (Required Values)
+## 3.2 COUNT(COLUMN_NAME) Assertions (Unique value count)
+
+`COUNT(<column_name>)` returns the number of **unique non-null** values in that DataFrame column.
+
+**Syntax:**
+```
+COUNT(<column_name>) <operator> <number>
+```
+
+**Supported Operators:** `==`, `!=`, `<`, `>`, `<=`, `>=`
+
+**Examples:**
+```python
+"COUNT(ID_MOVIE) == 10"     # 10 unique non-null ID_MOVIE values
+"COUNT(ID_MOVIE) >= 3"      # at least 3 unique non-null values
+```
+
+**Notes:**
+- Null values are ignored.
+- This is different from `COUNT(*)`, which is the number of rows.
+
+## 3.3 IN Assertions (Required Values)
 
 **Syntax:**
 ```
@@ -102,21 +124,21 @@ Actual: COUNT(*) = 3
 
 **Success Output:**
 ```
-Assertion #1: [PASS]
+Assertion #1: PASS
 Statement: ID_MOVIE IN (910, 22584, 11016)
 Message: All 3 required values found (DataFrame has 4 unique values)
 ```
 
 **Failure Output:**
 ```
-Assertion #1: [FAIL]
+Assertion #1: FAIL
 Statement: ID_MOVIE IN (910, 22584, 11016)
-Message: Missing 1 required value(s) in 'ID_MOVIE': [11016]
+Message: Missing 1 required value(s) in 'ID_MOVIE': 11016
 Expected: All values present
-Actual: Missing: [11016]. Found 3 unique values in DataFrame
+Actual: Missing: 11016. Found 3 unique values in DataFrame
 ```
 
-## 3.3 NOT IN Assertions (Forbidden Values)
+## 3.4 NOT IN Assertions (Forbidden Values)
 
 **Syntax:**
 ```
@@ -134,21 +156,21 @@ Actual: Missing: [11016]. Found 3 unique values in DataFrame
 
 **Success Output:**
 ```
-Assertion #1: [PASS]
+Assertion #1: PASS
 Statement: ID_MOVIE NOT IN (289, 3090)
 Message: All 5 values in 'ID_MOVIE' are not in the exclusion list
 ```
 
 **Failure Output:**
 ```
-Assertion #1: [FAIL]
+Assertion #1: FAIL
 Statement: ID_MOVIE NOT IN (289, 3090)
-Message: Found 1 value(s) in 'ID_MOVIE' that should NOT be in the list: [289]
+Message: Found 1 value(s) in 'ID_MOVIE' that should NOT be in the list: 289
 Expected: ID_MOVIE NOT IN (289, 3090)
-Actual: Found violations: [289] (occurred 1 time(s))
+Actual: Found violations: 289 (occurred 1 time(s))
 ```
 
-## 3.4 Comparison Assertions
+## 3.5 Comparison Assertions
 
 **Syntax:**
 ```
@@ -167,21 +189,39 @@ Actual: Found violations: [289] (occurred 1 time(s))
 
 **Success Output:**
 ```
-Assertion #1: [PASS]
+Assertion #1: PASS
 Statement: IMDB_RATING >= 7.0
 Message: All 5 values in 'IMDB_RATING' satisfy IMDB_RATING >= 7.0
 ```
 
 **Failure Output:**
 ```
-Assertion #1: [FAIL]
+Assertion #1: FAIL
 Statement: IMDB_RATING >= 7.0
-Message: Found 2 value(s) in 'IMDB_RATING' that violate IMDB_RATING >= 7.0. Sample: [6.5, 6.0]
+Message: Found 2 value(s) in 'IMDB_RATING' that violate IMDB_RATING >= 7.0. Sample violations: 6.5, 6.0
 Expected: IMDB_RATING >= 7.0
-Actual: Found 2 violations: [6.5, 6.0]
+Actual: Found 2 violations: 6.5, 6.0
 ```
 
-## 3.5 Logical Operators (AND/OR)
+## 3.6 CELL(row, col) Assertions (Single cell)
+
+Use `CELL(row, col)` to assert on a single value by position. Indices are **0-based**.
+
+**Syntax:**
+```
+CELL(<row_index>, <col_index>) <operator> <value>
+```
+
+**Supported Operators:** `==`, `!=`, `<`, `>`, `<=`, `>=`
+
+**Examples:**
+```python
+"CELL(0, 0) == 40"
+"CELL(0, 1) > 500000"
+"CELL(0, 0) == 'Naples'"
+```
+
+## 3.7 Logical Operators (AND/OR)
 
 **Syntax:**
 ```
@@ -237,9 +277,9 @@ Assertion #2: ✓ PASS
 
 Assertion #3: ✗ FAIL
   Statement: ID_MOVIE NOT IN (289, 3090, 11016, 910, 963, 27725)
-  Message: Found 1 value(s) in 'ID_MOVIE' that should NOT be in the list: [289]
+  Message: Found 1 value(s) in 'ID_MOVIE' that should NOT be in the list: 289
   Expected: ID_MOVIE NOT IN (289, 3090, 11016, 910, 963, 27725)
-  Actual: Found violations: [289] (occurred 1 time(s))
+  Actual: Found violations: 289 (occurred 1 time(s))
 
 ================================================================================
 ```
@@ -255,16 +295,16 @@ Actual: COUNT(*) = 3
 
 ### 2. Missing Required Values (IN)
 ```
-Message: Missing 1 required value(s) in 'ID_MOVIE': [11016]
+Message: Missing 1 required value(s) in 'ID_MOVIE': 11016
 Expected: All values present
-Actual: Missing: [11016]. Found 3 unique values in DataFrame
+Actual: Missing: 11016. Found 3 unique values in DataFrame
 ```
 
 ### 3. Forbidden Values Found (NOT IN)
 ```
-Message: Found 1 value(s) in 'ID_MOVIE' that should NOT be in the list: [289]
+Message: Found 1 value(s) in 'ID_MOVIE' that should NOT be in the list: 289
 Expected: ID_MOVIE NOT IN (289, 3090)
-Actual: Found violations: [289] (occurred 1 time(s))
+Actual: Found violations: 289 (occurred 1 time(s))
 ```
 
 ### 4. Comparison Violations
@@ -293,15 +333,15 @@ Actual: Available columns: ID_MOVIE, TITLE
 OVERALL: FAIL
 ================================================================================
 
-Assertion #1: [PASS]
+Assertion #1: PASS
 Statement: COUNT(*) == 4
 Message: Row count check passed
 
-Assertion #2: [FAIL]
+Assertion #2: FAIL
 Statement: ID_MOVIE NOT IN (289)
-Message: Found 1 value(s) in 'ID_MOVIE' that should NOT be in the list: [289]
+Message: Found 1 value(s) in 'ID_MOVIE' that should NOT be in the list: 289
 Expected: ID_MOVIE NOT IN (289)
-Actual: Found violations: [289] (occurred 1 time(s))
+Actual: Found violations: 289 (occurred 1 time(s))
 ```
 
 ## 5.3 Query Examples
@@ -466,6 +506,7 @@ Result: PASS (all 3 required values found, extra OK)
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.3 | 2026-02-20 | Added CELL(row,col) and COUNT(column) unique count |
 | 2.2 | 2025-02-08 | Added database storage |
 | 2.1 | 2025-02-08 | Fixed IN assertion semantics |
 | 2.0 | 2025-02-08 | Added detailed error reporting |
@@ -525,6 +566,8 @@ Result: PASS (all 3 required values found, extra OK)
 | Operation | Performance | Notes |
 |-----------|-------------|-------|
 | COUNT(*) | O(1) | Just len(df) |
+| COUNT(column) | O(n) | nunique() on the column (unique non-null values) |
+| CELL(row,col) | O(1) | Constant-time access by iloc |
 | IN | O(n) | Scans column |
 | NOT IN | O(n) | Scans column |
 | Comparison | O(n) | Scans column |
@@ -573,8 +616,8 @@ The DataFrame assertion evaluator provides:
 
 ---
 
-**Documentation Version:** 1.0  
-**Last Updated:** 2025-02-08  
+**Documentation Version:** 1.1  
+**Last Updated:** 2026-02-20  
 **Maintainer:** Claude + Philippe  
 **File:** `text2sql-eval.py`  
 **Status:** ✅ Production Ready
