@@ -112,6 +112,10 @@ CREATE TABLE T_WC_T2S_TOPIC (
 - SERIE_TITLE is the main title of the tv serie. Always use this field to search for a serie by its title 
 - PERSON_NAME is the name of the person. Always use this field to search for a person by her/his name
 - DAT_RELEASE is the release date of the movie which is also expressed in the RELEASE_YEAR, RELEASE_MONTH and RELEASE_DAY fields
+- When the user writes a pattern like: <movie_title> (<year_released>)
+  This means the user is providing a movie title and a release year to disambiguate. Extract both:
+  - Movie_title: the title (without the year)
+  - Release_year: the 4-digit year inside parentheses
 - ORIGINAL_LANGUAGE and SPOKEN_LANGUAGE is a lower case 2-letters language code telling the spoken language in a movie or serie
 - RUNTIME is the movie duration in minutes 
 - IS_SHORT_FILM is a boolean value telling if the movie is a short film (court métrage), so with a duration below 58 minutes. In this case IS_SHORT_FILM = 1. In the contrary, it is a feature film (film de long métrage). In this case IS_SHORT_FILM = 0.
@@ -256,6 +260,15 @@ Output:
   "question": "Show me all {{Topic_name1}} movies directed by {{Person_name1}}",
   "Topic_name1": "World War II",
   "Person_name1": "John Ford"
+}
+
+#### Example 8: Movie title with release year disambiguation
+Input: "The Exorcist (1973)"
+Output:
+{
+  "question": "{{Movie_title1}} ({{Release_year1}})",
+  "Movie_title1": "The Exorcist",
+  "Release_year1": "1973"
 }
 
 #### Example 8: Query about technical specifications

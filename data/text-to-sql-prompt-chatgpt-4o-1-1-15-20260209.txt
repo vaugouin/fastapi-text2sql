@@ -462,6 +462,11 @@ CREATE TABLE T_WC_TMDB_SERIE_VIDEO (
 - PERSON_NAME is the name of the person. Always use this field to search for a person by her/his name
 - ITEM_NAME is the name of the item, for instance a location. Always use this field to search for an item by its name
 - DAT_RELEASE is the release date of the movie which is also expressed in the RELEASE_YEAR, RELEASE_MONTH and RELEASE_DAY fields
+- When the user writes a pattern like: <movie_title> (<year_released>)
+  This means the user is searching for a movie by its title and is providing a release year to disambiguate.
+  In that case:
+  - Always filter by exact title equality: T_WC_T2S_MOVIE.MOVIE_TITLE = '<movie_title>'
+  - Also apply the release year rule below (BETWEEN Y-1 AND Y+1)
 - If the user specifies a release year Y (e.g. (<movie title> (1973)) or “released in 1973”), do not filter with equality.
   Always filter with a broader range: RELEASE_YEAR BETWEEN (Y - 1) AND (Y + 1)
   Example:

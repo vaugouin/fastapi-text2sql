@@ -579,10 +579,12 @@ The system intelligently extracts and replaces entities in natural language ques
 
 **Process Flow:**
 1. Extract entities from user question using GPT-4o
-2. Replace entities with placeholders (e.g., `{{PERSON_NAME}}`, `{{CHARACTER_NAME}}`, `{{LOCATION_NAME}}`)
+2. Replace entities with placeholders (e.g., `{{PERSON_NAME}}`, `{{CHARACTER_NAME}}`, `{{LOCATION_NAME}}`, `{{Release_year1}}`)
 3. Check cache for anonymized question pattern
 4. Generate SQL if not cached
 5. Replace placeholders with actual entity values using vector search
+
+If the user provides a disambiguation pattern like `<movie_title> (YYYY)`, entity extraction can also return a release year placeholder (e.g., `{{Release_year1}}`) in addition to the movie title.
 
 ### Vector Search Integration
 

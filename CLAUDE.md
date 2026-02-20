@@ -25,9 +25,10 @@ This is a FastAPI-based REST API that converts natural language questions into S
 
 2. **Entity Extraction Pipeline**
    - Entities are extracted from natural language using GPT-4o
-   - Questions are anonymized with placeholders (e.g., `{{PERSON_NAME}}`, `{{MOVIE_TITLE}}`)
+   - Questions are anonymized with placeholders (e.g., `{{PERSON_NAME}}`, `{{MOVIE_TITLE}}`, `{{Release_year1}}`)
    - Enables query pattern reuse across different entity values
    - Entity types: Person names, Movie titles, Series titles, Company names, Network names, Character names, Location names, Topics
+   - If the user provides a disambiguation pattern like `<movie_title> (YYYY)`, entity extraction can also return a release year placeholder (e.g., `{{Release_year1}}`) in addition to the movie title.
 
 3. **Vector Search Integration**
    - ChromaDB collections for entity matching:
@@ -255,6 +256,10 @@ When the LLM cannot generate a valid SQL query (updated in v1.1.13):
 6. `TOPIC_NAME` → `topics` collection, `T_WC_T2S_TOPIC` table
 7. `CHARACTER_NAME` → `characters` collection (new in v1.1.14) - movie/series characters (e.g., "James Bond", "Sherlock Holmes")
 8. `LOCATION_NAME` → `locations` collection (new in v1.1.14) - narrative or filming locations (e.g., "New York City", "Gotham City")
+
+**Release year disambiguation**:
+- When a user writes a pattern like `<movie_title> (YYYY)`, entity extraction can return a `Release_year` variable (e.g., `{{Release_year1}}`).
+- Downstream, this should be used together with the extracted movie title to narrow the SQL query (title equality + release year range filtering).
 
 **Multi-Language Title Handling** (main.py:773-786):
 - ChromaDB document IDs format: `{entity}_{id}_{lang}` (e.g., `movie_12345_en`)
