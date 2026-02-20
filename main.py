@@ -18,6 +18,7 @@ import openai
 import chromadb
 #from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 import cleanup
+import logs
 
 # Load environment variables from .env file
 load_dotenv()
@@ -44,7 +45,7 @@ def compare_versions(version1: str, version2: str) -> int:
         return 0
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.14"
+strapiversion = "1.1.15"
 # Convert API version to XXX.YYY.ZZZ format
 strapiversionformatted = format_api_version(strapiversion)
 
@@ -267,60 +268,6 @@ class Text2SQLResponse(BaseModel):
 class ResultItem(BaseModel):
     sql_query: str
 
-LOGS_FOLDER = "logs"
-
-def f_getlogfilename(endpoint, contenttext):
-    """Generate a unique log filename based on endpoint, timestamp, and content hash.
-    
-    Creates a filename in the format: YYYYMMDD-HHMMSS_endpoint_version_hash.json
-    Ensures the logs folder exists before generating the filename.
-    
-    Args:
-        endpoint (str): The API endpoint name (e.g., 'hello', 'text2sql')
-        contenttext (str): The content to be logged (used for MD5 hash)
-        
-    Returns:
-        str: Complete path to the log file
-    """
-    os.makedirs(LOGS_FOLDER, exist_ok=True)
-    now = datetime.now()
-    date_time_str = now.strftime("%Y%m%d-%H%M%S")
-    md5_hash = hashlib.md5(contenttext.encode('utf-8')).hexdigest()
-    filename = f"{LOGS_FOLDER}/{date_time_str}_{endpoint}_{strapiversion}_{md5_hash}.json"
-    return filename
-
-def log_usage(endpoint, content):
-    """Log API usage data to a JSON file.
-    
-    Serializes the provided content to JSON format with custom handling for
-    Decimal and datetime objects, then writes it to a uniquely named log file.
-    
-    Args:
-        endpoint (str): The API endpoint name for log categorization
-        content (dict): The data to be logged (request/response information)
-        
-    Note:
-        Creates log files only if they don't already exist to avoid overwrites.
-        Uses UTF-8 encoding and pretty-printed JSON format.
-    """
-    def decimal_serializer(obj):
-        """JSON serializer for objects not serializable by default json code"""
-        from decimal import Decimal
-        import datetime
-        
-        if isinstance(obj, Decimal):
-            return float(obj)
-        elif isinstance(obj, (datetime.date, datetime.datetime)):
-            return obj.isoformat()
-        raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
-    
-    contenttext = json.dumps(content, indent=4, ensure_ascii=False, default=decimal_serializer)
-    log_filename = f_getlogfilename(endpoint, contenttext)
-    # Create the JSON file if it doesn't exist
-    if not os.path.exists(log_filename):
-        with open(log_filename, 'w', encoding='utf-8') as file:
-            file.write(contenttext)
-
 @app.get("/")
 async def f_hello_world(api_key: str = Depends(get_api_key)):
     """Hello world endpoint for API health check.
@@ -340,7 +287,7 @@ async def f_hello_world(api_key: str = Depends(get_api_key)):
     """
     global answer
     result = {"message": "hello world! The universal answer is " + str(answer)}
-    log_usage("hello", result)
+    logs.log_usage("hello", result, strapiversion)
     return result
 
 @app.post("/search/text2sql", response_model=Text2SQLResponse)
@@ -391,7 +338,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         request.question = request.question.replace('  ', ' ')  # Normalize multiple spaces
         request.question = request.question.replace('&#039;', "'").replace('’', "'")
         if original_question != request.question:
-            messages.append(TextMessage(position=position_counter, text="Normalized characters in input question."))
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="Normalized characters in input question."
+            ))
             position_counter += 1
     
     lngpage = request.page or 1
@@ -434,14 +384,20 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     
     # Try to retrieve user question from cache if requested
     if request.retrieve_from_cache:
-        messages.append(TextMessage(position=position_counter, text="Attempting to retrieve exact question from cache."))
+        messages.append(TextMessage(
+            position=position_counter, 
+            text="Attempting to retrieve exact question from cache."
+        ))
         position_counter += 1
         with connection.cursor() as cursor:
             cache_result_exact = None
             
             # First, try to find by question_hashed if provided
             if request.question_hashed:
-                messages.append(TextMessage(position=position_counter, text="Searching cache by question hash."))
+                messages.append(TextMessage(
+                    position=position_counter, 
+                    text="Searching cache by question hash."
+                ))
                 position_counter += 1
                 cache_query = """
 SELECT QUESTION, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME
@@ -457,12 +413,18 @@ LIMIT 1 """
                 cache_result_exact = cursor.fetchone()
                 if not cache_result_exact:
                     print("Exact question hash not found in the SQL cache")
-                    messages.append(TextMessage(position=position_counter, text="Exact question hash not found in cache."))
+                    messages.append(TextMessage(
+                        position=position_counter, 
+                        text="Exact question hash not found in cache."
+                    ))
                     position_counter += 1
             
             # If not found by hash and we have a question, try to find by question text
             if not cache_result_exact and request.question:
-                messages.append(TextMessage(position=position_counter, text="Searching cache by question text."))
+                messages.append(TextMessage(
+                    position=position_counter, 
+                    text="Searching cache by question text."
+                ))
                 position_counter += 1
                 cache_query = """
 SELECT QUESTION, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME
@@ -478,14 +440,20 @@ LIMIT 1 """
                 cache_result_exact = cursor.fetchone()
                 if not cache_result_exact:
                     print("Exact question not found in the SQL cache")
-                    messages.append(TextMessage(position=position_counter, text="Exact question not found in cache."))
+                    messages.append(TextMessage(
+                        position=position_counter, 
+                        text="Exact question not found in cache."
+                    ))
                     position_counter += 1
             
             if cache_result_exact:
                 # Found exact result in the SQL cache
                 print("Found exact question in the SQL cache")
                 cached_exact_question = True
-                messages.append(TextMessage(position=position_counter, text="Exact question cache hit used for SQL query."))
+                messages.append(TextMessage(
+                    position=position_counter, 
+                    text="Exact question cache hit used for SQL query."
+                ))
                 position_counter += 1
                 input_text = cache_result_exact['QUESTION']
                 input_text = cache_result_exact['QUESTION']
@@ -500,13 +468,19 @@ LIMIT 1 """
                 #embeddings_processing_time = cache_result_exact['EMBEDDINGS_TIME']
                 #query_execution_time = cache_result_exact['QUERY_TIME']
     else:
-        messages.append(TextMessage(position=position_counter, text="Cache retrieval disabled; proceeding with full processing."))
+        messages.append(TextMessage(
+            position=position_counter, 
+            text="Cache retrieval disabled; proceeding with full processing."
+        ))
         position_counter += 1
     
     # If the exact question was not found in the exact cache, proceed to entity extraction and anonymization
     if not cached_exact_question:
         if request.question:
-            messages.append(TextMessage(position=position_counter, text="Using provided question text for processing."))
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="Using provided question text for processing."
+            ))
             position_counter += 1
             input_text = request.question
         elif request.question_hashed:
@@ -521,7 +495,10 @@ LIMIT 1 """
         print("Entity extraction:", entity_extraction)
         entity_extraction_end_time = time.time()
         entity_extraction_processing_time = entity_extraction_end_time - entity_extraction_start_time
-        messages.append(TextMessage(position=position_counter, text="Processed question with entity extraction and anonymization."))
+        messages.append(TextMessage(
+            position=position_counter, 
+            text="Processed question with entity extraction and anonymization."
+        ))
         position_counter += 1
         """
         # Anonymize question by entity extraction
@@ -555,18 +532,27 @@ LIMIT 1 """
         if isinstance(entity_extraction, dict) and 'error' in entity_extraction:
             print(f"Entity extraction failed: {entity_extraction['error']}")
             print("Falling back to original question without entity extraction")
-            messages.append(TextMessage(position=position_counter, text="Entity extraction failed; using original question without anonymization."))
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="Entity extraction failed; using original question without anonymization."
+            ))
             position_counter += 1
             input_text_anonymized = input_text  # Use original question as fallback
         else:
             print("Entity extraction successful and returned a dictionary:", entity_extraction)
-            messages.append(TextMessage(position=position_counter, text="Entity extraction successful; question anonymized."))
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="Entity extraction successful; question anonymized."
+            ))
             position_counter += 1
             input_text_anonymized = entity_extraction['question']
         cache_result_anonymized = None
 
         if request.retrieve_from_cache:
-            messages.append(TextMessage(position=position_counter, text="Searching cache for anonymized question."))
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="Searching cache for anonymized question."
+            ))
             position_counter += 1
             # Is this anonymized query in the SQL cache?
             with connection.cursor() as cursor:
@@ -587,10 +573,30 @@ LIMIT 1 """
                 # Found anonymized question in the SQL cache so we retrieved the question in cache and the SQL query
                 print("Found anonymized question in the SQL cache")
                 cached_anonymized_question = True
-                messages.append(TextMessage(position=position_counter, text="Anonymized question cache hit used for SQL query."))
+                messages.append(TextMessage(
+                    position=position_counter, 
+                    text="Anonymized question cache hit used for SQL query."
+                ))
                 position_counter += 1
                 input_text_anonymized = cache_result_anonymized['QUESTION']
-                sql_query = cache_result_anonymized['SQL_PROCESSED'] or cache_result_anonymized['SQL_QUERY']
+                sql_query_cached_processed = cache_result_anonymized['SQL_PROCESSED'] or ""
+                sql_query_cached_raw = cache_result_anonymized['SQL_QUERY'] or ""
+
+                sql_query = sql_query_cached_processed or sql_query_cached_raw
+                if sql_query_cached_processed and sql_query_cached_raw and '{{' not in sql_query_cached_raw:
+                    match_raw_limit = re.search(r"\blimit\b\s+(\d+)", sql_query_cached_raw, re.IGNORECASE)
+                    match_processed_limit = re.search(r"\blimit\b\s+(\d+)", sql_query_cached_processed, re.IGNORECASE)
+                    if match_raw_limit and match_processed_limit:
+                        raw_limit = int(match_raw_limit.group(1))
+                        processed_limit = int(match_processed_limit.group(1))
+                        if raw_limit < processed_limit:
+                            sql_query = sql_query_cached_raw
+                            messages.append(TextMessage(
+                                position=position_counter,
+                                text="Cache hit: using SQL_QUERY instead of SQL_PROCESSED to preserve smaller LIMIT."
+                            ))
+                            position_counter += 1
+
                 justification = cache_result_anonymized.get('JUSTIFICATION', '')
                 # Because the SQL query can be updated in the t2scache.php back-office script,
                 # we need to replace &#039; by ' because the back-office script stores &#039; instead of ' in the database
@@ -604,7 +610,10 @@ LIMIT 1 """
             else:
                 print("Anonymized question not found in the SQL cache")
                 print("So we will look for the anonymized question in the questions embeddings cache")
-                messages.append(TextMessage(position=position_counter, text="Anonymized question not found in SQL cache; searching questions embeddings cache."))
+                messages.append(TextMessage(
+                    position=position_counter, 
+                    text="Anonymized question not found in SQL cache; searching questions embeddings cache."
+                ))
                 position_counter += 1
                 
                 # Search for similar anonymized questions in the questions embeddings cache
@@ -632,7 +641,10 @@ LIMIT 1 """
                     print(f"Questions embeddings cache search completed in {embeddings_cache_search_time:.4f} seconds")
                     
                     if embedding_results['documents'][0] and len(embedding_results['documents'][0]) > 0:
-                        messages.append(TextMessage(position=position_counter, text="Found potential matches in questions embeddings cache; filtering by entity variables."))
+                        messages.append(TextMessage(
+                            position=position_counter, 
+                            text="Found potential matches in questions embeddings cache; filtering by entity variables."
+                        ))
                         position_counter += 1
                         # Filter results to find ones that contain all required entity variables
                         valid_result_found = False
@@ -665,7 +677,10 @@ LIMIT 1 """
                             distance = embedding_results['distances'][0][valid_result_index]
                             print(f"Using valid anonymized question from embeddings cache with distance: {distance}")
                             cached_anonymized_question_embedding = True
-                            messages.append(TextMessage(position=position_counter, text="Embeddings cache hit used for SQL query based on anonymized question."))
+                            messages.append(TextMessage(
+                                position=position_counter, 
+                                text="Embeddings cache hit used for SQL query based on anonymized question."
+                            ))
                             position_counter += 1
                             
                             # Extract SQL query from metadata
@@ -676,25 +691,40 @@ LIMIT 1 """
                                 justification = metadata.get('justification', '')
                                 justification_anonymized = justification
                                 print(f"Retrieved SQL query from questions embeddings cache: {sql_query}")
-                                messages.append(TextMessage(position=position_counter, text="SQL query retrieved from questions embeddings cache metadata: " + sql_query_anonymized))
+                                messages.append(TextMessage(
+                                    position=position_counter, 
+                                    text="SQL query retrieved from questions embeddings cache metadata: " + sql_query_anonymized
+                                ))
                                 position_counter += 1
                             else:
                                 print("Warning: No sql_query_anonymized found in metadata")
-                                messages.append(TextMessage(position=position_counter, text="Warning: No SQL query found in questions embeddings cache metadata; invalidating cache hit."))
+                                messages.append(TextMessage(
+                                    position=position_counter, 
+                                    text="Warning: No SQL query found in questions embeddings cache metadata; invalidating cache hit."
+                                ))
                                 position_counter += 1
                                 cached_anonymized_question_embedding = False
                         else:
                             print("No results found with all required entity variables and acceptable distance")
-                            messages.append(TextMessage(position=position_counter, text="No valid matches found in questions embeddings cache with required entity variables and acceptable similarity."))
+                            messages.append(TextMessage(
+                                position=position_counter, 
+                                text="No valid matches found in questions embeddings cache with required entity variables and acceptable similarity."
+                            ))
                             position_counter += 1
                     else:
                         print("No similar questions found in questions embeddings cache")
-                        messages.append(TextMessage(position=position_counter, text="No similar questions found in questions embeddings cache."))
+                        messages.append(TextMessage(
+                            position=position_counter, 
+                            text="No similar questions found in questions embeddings cache."
+                        ))
                         position_counter += 1
                         
                 except Exception as e:
                     print(f"Error searching questions embeddings cache: {e}")
-                    messages.append(TextMessage(position=position_counter, text=f"Error occurred while searching questions embeddings cache: {str(e)}"))
+                    messages.append(TextMessage(
+                        position=position_counter, 
+                        text=f"Error occurred while searching questions embeddings cache: {str(e)}"
+                    ))
                     position_counter += 1
                     embeddings_cache_search_time = time.time() - embeddings_cache_start_time
 
@@ -713,13 +743,25 @@ LIMIT 1 """
             error_text2sql = json_content['error']
             text2sql_end_time = time.time()
             text2sql_processing_time = text2sql_end_time - text2sql_start_time
-            messages.append(TextMessage(position=position_counter, text="Generated new SQL query from anonymized question using Text2SQL LLM."))
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="Generated new SQL query from anonymized question using Text2SQL LLM."
+            ))
             position_counter += 1
-            messages.append(TextMessage(position=position_counter, text="SQL query: " + sql_query))
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="SQL query: " + sql_query
+            ))
             position_counter += 1
-            messages.append(TextMessage(position=position_counter, text="Justification: " + justification))
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="Justification: " + justification
+            ))
             position_counter += 1
-            messages.append(TextMessage(position=position_counter, text="Error: " + error_text2sql))
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="Error: " + error_text2sql
+            ))
             position_counter += 1
     sql_query_llm = sql_query
     # if the error element is found in json content
@@ -727,13 +769,19 @@ LIMIT 1 """
         print("Problem detected so the Text-to-SQL cannot produce a SQL query")
         print("Error: ", error_text2sql)
         ambiguous_question_for_text2sql = 1
-        messages.append(TextMessage(position=position_counter, text="Problem detected so the Text-to-SQL cannot produce a SQL query."))
+        messages.append(TextMessage(
+            position=position_counter, 
+            text="Problem detected so the Text-to-SQL cannot produce a SQL query."
+        ))
         position_counter += 1
 
     if not cached_exact_question:
         # Replace entity keys with their values in the SQL query
         if isinstance(entity_extraction, dict):
-            messages.append(TextMessage(position=position_counter, text="Replacing entity placeholders with actual values in SQL query."))
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="Replacing entity placeholders with actual values in SQL query."
+            ))
             position_counter += 1
             for key, value in entity_extraction.items():
                 if key != "question":
@@ -745,7 +793,10 @@ LIMIT 1 """
     if not cached_exact_question and not ambiguous_question_for_text2sql:
         # Now we compute embeddings for the SQL query 
         print("Computing embeddings for the SQL query")
-        messages.append(TextMessage(position=position_counter, text="Processing entity values using embeddings for entity matching."))
+        messages.append(TextMessage(
+            position=position_counter, 
+            text="Processing entity values using embeddings for entity matching."
+        ))
         position_counter += 1
         arrentities = {1: "PERSON_NAME", 2: "MOVIE_TITLE", 3: "SERIE_TITLE", 4: "COMPANY_NAME", 5: "NETWORK_NAME", 6: "TOPIC_NAME", 7: "ITEM_NAME"}
         # Map entity types to their corresponding ChromaDB collections
@@ -818,7 +869,10 @@ I can implement a parsing helper for you if you'd like.
             
             if fieldname_values:
                 print("Extracted " + strfieldname + " values:", fieldname_values)
-                messages.append(TextMessage(position=position_counter, text=f"Found {strfieldname} entities in SQL query; processing with embeddings."))
+                messages.append(TextMessage(
+                    position=position_counter, 
+                    text=f"Found {strfieldname} entities in SQL query; processing with embeddings."
+                ))
                 position_counter += 1
                 with connection.cursor() as cursor:
                     for fieldname_value in fieldname_values:
@@ -873,7 +927,10 @@ I can implement a parsing helper for you if you'd like.
                                 end_time_chromadb = time.time()
                                 search_duration_chromadb = end_time_chromadb - start_time_chromadb
                                 if results["documents"][0]:
-                                    messages.append(TextMessage(position=position_counter, text=f"Found matching {strfieldname} entity in vector database."))
+                                    messages.append(TextMessage(
+                                        position=position_counter, 
+                                        text=f"Found matching {strfieldname} entity '{fieldname_value}' in vector database."
+                                    ))
                                     position_counter += 1
                                     matched_result_position = 0
                                     found_match = False
@@ -902,11 +959,23 @@ I can implement a parsing helper for you if you'd like.
                                     docid = parts[1]
                                     doclang = parts[2]
                                 else:
-                                    messages.append(TextMessage(position=position_counter, text=f"No matching {strfieldname} entity found in vector database."))
+                                    messages.append(TextMessage(
+                                        position=position_counter, 
+                                        text=f"No matching {strfieldname} entity found in vector database."
+                                    ))
                                     position_counter += 1
+                                    first_record_id = None
+                                    docentity = None
+                                    docid = None
+                                    doclang = None
                             strfieldnamenew = strfieldname
                             strtableidlookup = strfieldnamenew
                             print("first_record_id", first_record_id, docentity, docid, doclang)
+                            messages.append(TextMessage(
+                                position=position_counter, 
+                                text=f"Entity found in vector database: {first_record_id}, docentity: {docentity}, docid: {docid}, doclang: {doclang}"
+                            ))
+                            position_counter += 1
                             if strfieldname == "MOVIE_TITLE":
                                 if doclang == "en":
                                     strfieldnamenew = "MOVIE_TITLE"
@@ -935,11 +1004,11 @@ I can implement a parsing helper for you if you'd like.
                             #first_record_value = results['documents'][0][0]
                             strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strtableid + " = %s"
                             print("strsql_query =", strsql_query, docid)
-                            messages.append(TextMessage(
-                                position=position_counter,
-                                text=f"Executing SQL query: {strsql_query} | params: [{docid}]"
-                            ))
-                            position_counter += 1
+                            #messages.append(TextMessage(
+                            #    position=position_counter,
+                            #    text=f"Executing SQL query: {strsql_query} | params: [{docid}]"
+                            #))
+                            #position_counter += 1
                             cursor.execute(strsql_query, (docid,))
                             sql_query_results = cursor.fetchall()
                             first_record = sql_query_results[0]
@@ -959,10 +1028,21 @@ I can implement a parsing helper for you if you'd like.
                             if chromadb_collections[intentity] is not None:
                                 print(f"Distance: {results['distances'][0][0]:.4f}")
                             print(f"{strfieldname} = '{fieldname_value_escaped}'", f"{strfieldnamenew} = '{first_record_value_escaped}'")
-                            sql_query = sql_query.replace(f"{strfieldname} = '{fieldname_value_escaped}'", f"{strfieldnamenew} = '{first_record_value_escaped}'")
-                            print(f"Updated SQL query with actual {strfieldname}")
-                            messages.append(TextMessage(position=position_counter, text=f"Updated SQL query: replaced {strfieldname} with matched entity value."))
-                            position_counter += 1
+                            if strfieldnamenew != strfieldname or first_record_value_escaped != fieldname_value_escaped:
+                                sql_query = sql_query.replace(f"{strfieldname} = '{fieldname_value_escaped}'", f"{strfieldnamenew} = '{first_record_value_escaped}'")
+                                print(f"Updated SQL query with actual {strfieldname}")
+                                if strfieldnamenew != strfieldname:
+                                    messages.append(TextMessage(
+                                        position=position_counter, 
+                                        text=f"Updated SQL query: replaced {strfieldname} column with {strfieldnamenew}."
+                                    ))
+                                    position_counter += 1
+                                if first_record_value_escaped != fieldname_value_escaped:
+                                    messages.append(TextMessage(
+                                        position=position_counter, 
+                                        text=f"Updated SQL query: column {strfieldnamenew} matched with entity value '{fieldname_value_escaped}' -> '{first_record_value_escaped}'."
+                                    ))
+                                    position_counter += 1
     embeddings_end_time = time.time()
     embeddings_processing_time = embeddings_end_time - embeddings_start_time
     
@@ -970,7 +1050,15 @@ I can implement a parsing helper for you if you'd like.
     query_results = []
     query_execution_time = 0.0
     if not ambiguous_question_for_text2sql:
-        messages.append(TextMessage(position=position_counter, text="Preparing to execute SQL query."))
+        # Keep a copy of the SQL query before pagination is appended.
+        # This is what we want to store in cache so that per-request pagination
+        # (and any LLM-provided smaller LIMIT) can be applied dynamically.
+        sql_query_processed_base = sql_query
+        sql_query_anonymized_base = sql_query_anonymized
+        messages.append(TextMessage(
+            position=position_counter, 
+            text="Preparing to execute SQL query."
+        ))
         position_counter += 1
         with connection.cursor() as cursor:
             # Measure SQL query execution time
@@ -980,29 +1068,61 @@ I can implement a parsing helper for you if you'd like.
             calculated_offset = (lngpage - 1) * lngrowsperpage
             
             # Check if SQL query already has LIMIT/OFFSET
-            match = re.search(r"\blimit\b\s+(\d+)(?:\s*,\s*(\d+))?", sql_query, re.IGNORECASE)
-            if match:
-                messages.append(TextMessage(position=position_counter, text="SQL query contains existing LIMIT/OFFSET clause; removing for pagination."))
+            match_limit_offset = re.search(r"\blimit\b\s+(\d+)\s+\boffset\b\s+(\d+)", sql_query, re.IGNORECASE)
+            match_limit_comma = re.search(r"\blimit\b\s+(\d+)\s*,\s*(\d+)", sql_query, re.IGNORECASE)
+            match_limit_only = re.search(r"\blimit\b\s+(\d+)", sql_query, re.IGNORECASE)
+
+            if match_limit_offset or match_limit_comma or match_limit_only:
+                messages.append(TextMessage(
+                    position=position_counter, 
+                    text="SQL query contains existing LIMIT/OFFSET clause; removing for pagination if greater than page size."
+                ))
                 position_counter += 1
+
                 # SQL query already has LIMIT, extract existing values
-                llm_defined_limit = int(match.group(1))
-                llm_defined_offset = int(match.group(2)) if match.group(2) else None
+                if match_limit_offset:
+                    llm_defined_limit = int(match_limit_offset.group(1))
+                    llm_defined_offset = int(match_limit_offset.group(2))
+                elif match_limit_comma:
+                    # MariaDB syntax: LIMIT offset, count
+                    llm_defined_offset = int(match_limit_comma.group(1))
+                    llm_defined_limit = int(match_limit_comma.group(2))
+                else:
+                    llm_defined_limit = int(match_limit_only.group(1))
+                    llm_defined_offset = 0
+
                 print("FOUND EXISTING LIMIT:", llm_defined_limit, "OFFSET:", llm_defined_offset)
-                
-                # Remove existing LIMIT clause to replace with paginated version
-                sql_query = re.sub(r"\blimit\b\s+\d+(?:\s*,\s*\d+)?", "", sql_query, flags=re.IGNORECASE).strip()
-            
-            # Add pagination: LIMIT and OFFSET based on page number
-            if lngpage > 1:
-                messages.append(TextMessage(position=position_counter, text=f"Adding pagination: LIMIT {limit} OFFSET {calculated_offset} for page {lngpage}."))
-                position_counter += 1
-                sql_query = sql_query + f" LIMIT {limit} OFFSET {calculated_offset}"
-                offset = calculated_offset
+
+                # Remove any existing LIMIT/OFFSET clause to replace with paginated version
+                sql_query = re.sub(r"\blimit\b\s+\d+\s+\boffset\b\s+\d+", "", sql_query, flags=re.IGNORECASE)
+                sql_query = re.sub(r"\blimit\b\s+\d+\s*,\s*\d+", "", sql_query, flags=re.IGNORECASE)
+                sql_query = re.sub(r"\blimit\b\s+\d+", "", sql_query, flags=re.IGNORECASE).strip()
+
+                # Respect a smaller LLM-defined limit if present
+                if llm_defined_limit < limit:
+                    limit = llm_defined_limit
+
+                base_offset = llm_defined_offset or 0
+                offset = base_offset + calculated_offset
+                sql_query = sql_query + f" LIMIT {limit} OFFSET {offset}"
             else:
-                messages.append(TextMessage(position=position_counter, text=f"Adding pagination: LIMIT {limit} for first page."))
-                position_counter += 1
-                sql_query = sql_query + f" LIMIT {limit}"
-                offset = 0
+                # Add pagination: LIMIT and OFFSET based on page number
+                offset = calculated_offset
+                if lngpage > 1:
+                    messages.append(TextMessage(
+                        position=position_counter, 
+                        text=f"Adding pagination: LIMIT {limit} OFFSET {offset} for page {lngpage}."
+                    ))
+                    position_counter += 1
+                    sql_query = sql_query + f" LIMIT {limit} OFFSET {offset}"
+                else:
+                    messages.append(TextMessage(
+                        position=position_counter, 
+                        text=f"Adding pagination: LIMIT {limit} for first page."
+                    ))
+                    position_counter += 1
+                    sql_query = sql_query + f" LIMIT {limit}"
+                    offset = 0
                 
             print(f"PAGINATION: Page={lngpage}, LIMIT={limit}, OFFSET={offset}")
             print("LIMIT:", limit, "OFFSET:", offset)
@@ -1024,23 +1144,35 @@ I can implement a parsing helper for you if you'd like.
                     })
             except Exception as e:
                 print(f"Database operation failed: {e}")
-                messages.append(TextMessage(position=position_counter, text=f"Database query execution failed: {str(e)}"))
+                messages.append(TextMessage(
+                    position=position_counter, 
+                    text=f"Database query execution failed: {str(e)}"
+                ))
                 position_counter += 1
                 # Database errors not returned directly to clients
                 # query_results = [{"error": str(e)}]
         query_end_time = time.time()
         query_execution_time = query_end_time - query_start_time
-        messages.append(TextMessage(position=position_counter, text=f"Executed SQL query with pagination: page={lngpage}, limit={limit}, offset={offset}."))
+        messages.append(TextMessage(
+            position=position_counter, 
+            text=f"Executed SQL query with pagination: page={lngpage}, limit={limit}, offset={offset}."
+        ))
         position_counter += 1
     else:
-        messages.append(TextMessage(position=position_counter, text="Skipping SQL query execution due to ambiguous question."))
+        messages.append(TextMessage(
+            position=position_counter, 
+            text="Skipping SQL query execution due to ambiguous question."
+        ))
         position_counter += 1
     
     # Generate hash for the question if not provided
     if not ambiguous_question_for_text2sql:
         question_hash = request.question_hashed
         if not question_hash:
-            messages.append(TextMessage(position=position_counter, text="Generating question hash for caching."))
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="Generating question hash for caching."
+            ))
             position_counter += 1
             question_hash = hashlib.sha256(request.question.encode('utf-8')).hexdigest()
         
@@ -1074,7 +1206,7 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 0)
                     request.question,
                     question_hash,
                     sql_query_llm,
-                    sql_query,
+                    sql_query_processed_base,
                     justification or "",
                     strapiversionformatted,
                     entity_extraction_processing_time,
@@ -1088,7 +1220,10 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 0)
 
         # Store to SQL cache if requested and not already stored as exact question or anonymized question
         if request.store_to_cache and not cached_exact_question and not cached_anonymized_question and request.question:
-            messages.append(TextMessage(position=position_counter, text="Storing anonymized question and SQL query to cache."))
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="Storing anonymized question and SQL query to cache."
+            ))
             position_counter += 1
             with connection.cursor() as cursor2:
                 # Insert anonymized question into cache table
@@ -1113,7 +1248,7 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
                     input_text_anonymized,
                     question_hash,
                     sql_query_llm,
-                    sql_query_anonymized,
+                    sql_query_anonymized_base,
                     justification_anonymized or "",
                     strapiversionformatted,
                     entity_extraction_processing_time,
@@ -1127,17 +1262,26 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
                 cursor2.close()
         
         if request.store_to_cache and not cached_anonymized_question_embedding and input_text_anonymized:
-            messages.append(TextMessage(position=position_counter, text="Checking if anonymized question exists in embeddings cache before storing."))
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="Checking if anonymized question exists in embeddings cache before storing."
+            ))
             position_counter += 1
             strdocid = hashlib.sha256(input_text_anonymized.encode('utf-8')).hexdigest()
             print("Anonymized query ID:", strdocid)
             existing_doc = anonymizedqueries.get(ids=[strdocid])
             if existing_doc and existing_doc['ids']:
                 print("Anonymized question already exists in the embeddings cache")
-                messages.append(TextMessage(position=position_counter, text="Anonymized question already exists in embeddings cache; skipping storage."))
+                messages.append(TextMessage(
+                    position=position_counter, 
+                    text="Anonymized question already exists in embeddings cache; skipping storage."
+                ))
                 position_counter += 1
             else:
-                messages.append(TextMessage(position=position_counter, text="Storing anonymized question and SQL query to embeddings cache."))
+                messages.append(TextMessage(
+                    position=position_counter, 
+                    text="Storing anonymized question and SQL query to embeddings cache."
+                ))
                 position_counter += 1
                 # Extract entity variables for metadata
                 entity_vars_for_metadata = []
@@ -1160,7 +1304,10 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
                 print(f"Anonymized question added to embeddings cache with entity variables: {entity_vars_for_metadata}")
     
     connection.close()
-    messages.append(TextMessage(position=position_counter, text="Database connection closed."))
+    messages.append(TextMessage(
+        position=position_counter, 
+        text="Database connection closed."
+    ))
     position_counter += 1
     
     # Generate question hash if we have a question and no hash was provided
@@ -1172,7 +1319,11 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
     total_end_time = time.time()
     total_processing_time = total_end_time - total_start_time
     
-    messages.append(TextMessage(position=position_counter, text="Completed request processing and prepared response."))
+    messages.append(TextMessage(
+        position=position_counter, 
+        text="Completed request processing and prepared response."
+    ))
+    position_counter += 1
 
     response = Text2SQLResponse(
         question=input_text,
@@ -1213,7 +1364,7 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
         "response": response.model_dump()
     }
     print("LOG DATA:", log_data)
-    log_usage("text2sql_post", log_data)
+    logs.log_usage("text2sql_post", log_data, strapiversion)
     
     return response
 
@@ -1226,6 +1377,6 @@ if __name__ == "__main__":
     api_port = API_PORT_BLUE if patch_version % 2 == 0 else API_PORT_GREEN
     
     result = {"message": f"Text2SQL API start version {strapiversion} on port {api_port}"}
-    log_usage("start", result)
+    logs.log_usage("start", result, strapiversion)
     print(f"Starting API version {strapiversion} on port {api_port} (patch version {patch_version} is {'even' if patch_version % 2 == 0 else 'odd'})")
     uvicorn.run(app, host="0.0.0.0", port=api_port)

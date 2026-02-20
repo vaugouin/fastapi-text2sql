@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 import pandas as pd
 import pytest
 import re
+import html
 
 from text2sql_eval_functions import (
     evaluate_dataframe_assertions,
@@ -53,7 +54,7 @@ try:
             
             #arrprocessscope = {11: 'run evals'}
             #arrprocessscope = {12: 'process evals'}
-            arrprocessscope = {11: 'run evals', 12: 'process evals'}
+            arrprocessscope = {10: 'cleanup deleted eval executions', 11: 'run evals', 12: 'process evals'}
             strrunevalidold = cp.f_getservervariable("strtext2sqlevalrunevalid",0)
             for intindex, strdesc in arrprocessscope.items():
                 # Get the current date and time
@@ -79,7 +80,16 @@ try:
                 #strapiversioneval = "1.1.15"
                 strapiversionevalformatted = format_api_version(strapiversioneval)
                 lngrowsperpageeval = 100
-                if intindex == 11:
+                if intindex == 10:
+                    strcurrentprocess = f"{intindex}: deleting deleted records from T_WC_T2S_EVALUATION_EXECUTION "
+                    print(strcurrentprocess)
+                    cp.f_setservervariable("strtext2sqlevalcurrentprocess",strcurrentprocess,"Current process in the Text2SQL evaluation",0)
+                    strsql = "DELETE FROM T_WC_T2S_EVALUATION_EXECUTION WHERE DELETED = 1"
+                    print(strsql)
+                    cursor.execute(strsql)
+                    cp.connectioncp.commit()
+                    continue
+                elif intindex == 11:
                     # Running evaluations on the FastAPI text2SQL API 
                     strcurrentprocess = f"{intindex}: running evaluations on the FastAPI text2SQL API "
                     strsql = ""
@@ -87,8 +97,11 @@ try:
                     strsql += "FROM T_WC_T2S_EVALUATION "
                     strsql += "WHERE IS_EVAL = 1 "
                     strsql += "AND DELETED = 0 "
-                    strsql += "AND ASSERTIONS <> '' "
-                    strsql += "AND ASSERTIONS IS NOT NULL "
+                    strsql += "AND ( "
+                    strsql += "(ASSERTIONS_QUERY_RESULT <> '' AND ASSERTIONS_QUERY_RESULT IS NOT NULL) "
+                    strsql += "OR (ASSERTIONS_ENTITY_EXTRACTION <> '' AND ASSERTIONS_ENTITY_EXTRACTION IS NOT NULL) "
+                    strsql += "OR (ASSERTIONS_SQL_QUERY <> '' AND ASSERTIONS_SQL_QUERY IS NOT NULL) "
+                    strsql += ") "
                     strsql += "AND ID_T2S_EVALUATION NOT IN ( "
                     strsql += "SELECT T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION "
                     strsql += "FROM T_WC_T2S_EVALUATION_EXECUTION "
@@ -105,7 +118,7 @@ try:
                     # Processing evaluations results to compute the scoring
                     strcurrentprocess = f"{intindex}: processing evaluations to compute the results "
                     strsql = ""
-                    strsql += "SELECT T_WC_T2S_EVALUATION_EXECUTION.ID_ROW AS id, T_WC_T2S_EVALUATION_EXECUTION.JSON_RESULT, T_WC_T2S_EVALUATION.ASSERTIONS "
+                    strsql += "SELECT T_WC_T2S_EVALUATION_EXECUTION.ID_ROW AS id, T_WC_T2S_EVALUATION_EXECUTION.JSON_RESULT, T_WC_T2S_EVALUATION.ASSERTIONS_QUERY_RESULT, T_WC_T2S_EVALUATION.ASSERTIONS_ENTITY_EXTRACTION, T_WC_T2S_EVALUATION.ASSERTIONS_SQL_QUERY "
                     strsql += "FROM T_WC_T2S_EVALUATION_EXECUTION "
                     strsql += "INNER JOIN T_WC_T2S_EVALUATION ON T_WC_T2S_EVALUATION.ID_T2S_EVALUATION = T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION "
                     strsql += "WHERE T_WC_T2S_EVALUATION.DELETED = 0 "
@@ -213,12 +226,14 @@ try:
                             cp.f_sqlupdatearray(strsqltablename,arrevalexeccouples,strsqlupdatecondition,1)
                         elif intindex == 12:
                             # Processing evaluations results to compute the scoring
-                            strassertions = row['ASSERTIONS']
+                            strassertions_entity_extraction = row.get('ASSERTIONS_ENTITY_EXTRACTION')
+                            strassertions_sql_query = row.get('ASSERTIONS_SQL_QUERY')
+                            strassertions_query_result = row.get('ASSERTIONS_QUERY_RESULT')
+
                             response_text = row['JSON_RESULT']
                             response_json = safe_json_loads(response_text)
                             print("question:", response_json['question'])
                             #print("sql_query:", response_json['sql_query'])
-                            #print("assertions:", strassertions)
                             """
                             # enum response_json["result"] and display all values in a tabular way
                             for resultrow in response_json["result"]:
@@ -239,23 +254,65 @@ try:
                                 df_results.index = [r["index"] for r in result_rows]
                             print(df_results)
 
-                            evaluation_result, detailed_results = evaluate_dataframe_assertions(df_results, strassertions)
-                            status = "PASS ✓" if evaluation_result else "FAIL ✗"
-                            assertions_result_score = 1 if evaluation_result else 0
+                            detailed_results = []
+                            detailed_results_string = ""
+                            status = "SKIPPED"
+                            assertions_result_score = None
+
+                            if strassertions_query_result is not None and str(strassertions_query_result).strip() != "":
+                                evaluation_result, detailed_results = evaluate_dataframe_assertions(df_results, strassertions_query_result)
+                                status = "PASS ✓" if evaluation_result else "FAIL ✗"
+                                assertions_result_score = 1 if evaluation_result else 0
+                                # Format detailed results for database storage
+                                detailed_results_string = format_detailed_results_for_db(detailed_results, evaluation_result)
+                            else:
+                                detailed_results_string = "OVERALL: SKIPPED\nReason: ASSERTIONS_QUERY_RESULT is empty"
+
+                            # === SQL query regex evaluation (ASSERTIONS_SQL_QUERY) ===
+                            assertions_sql_query_score = None
+                            assertions_sql_query_details_lines = []
+                            sql_query_value = (response_json or {}).get("sql_query")
+                            sql_query_value = (sql_query_value or "").strip() if isinstance(sql_query_value, str) else ""
+
+                            if strassertions_sql_query is not None and str(strassertions_sql_query).strip() != "":
+                                pattern = html.unescape(str(strassertions_sql_query).strip())
+                                if sql_query_value == "":
+                                    assertions_sql_query_score = 0
+                                    assertions_sql_query_details_lines.append("ASSERTIONS_SQL_QUERY: FAIL")
+                                    assertions_sql_query_details_lines.append(f"Regex: {pattern}")
+                                    assertions_sql_query_details_lines.append("Reason: sql_query is missing or empty in JSON_RESULT")
+                                else:
+                                    try:
+                                        matched = re.search(pattern, sql_query_value) is not None
+                                        assertions_sql_query_score = 1 if matched else 0
+                                        assertions_sql_query_details_lines.append(
+                                            f"ASSERTIONS_SQL_QUERY: {'PASS' if matched else 'FAIL'}"
+                                        )
+                                        assertions_sql_query_details_lines.append(f"Regex: {pattern}")
+                                        assertions_sql_query_details_lines.append(f"SQL query: {sql_query_value}")
+                                    except re.error as e:
+                                        assertions_sql_query_score = 0
+                                        assertions_sql_query_details_lines.append("ASSERTIONS_SQL_QUERY: FAIL")
+                                        assertions_sql_query_details_lines.append(f"Regex: {pattern}")
+                                        assertions_sql_query_details_lines.append(f"Regex error: {str(e)}")
+
+                            if assertions_sql_query_score is not None:
+                                detailed_results_string = (
+                                    detailed_results_string
+                                    + "\n\n"
+                                    + "\n".join(assertions_sql_query_details_lines)
+                                )
                             
-                            # Format detailed results for database storage
-                            detailed_results_string = format_detailed_results_for_db(detailed_results, evaluation_result)
-                            
-                            print(f"\n{'='*80}")
+                            print(f"\n{'='*40}")
                             print(f"Evaluation Result: {status}")
-                            print(f"{'='*80}")
-                            print(f"\nAssertions: {strassertions}")
+                            print(f"{'='*40}")
+                            print(f"\nAssertions on result set: {strassertions_query_result}")
                             print(f"DataFrame shape: {df_results.shape[0]} rows, {df_results.shape[1]} columns")
                             
                             # Display detailed results for each assertion
-                            print(f"\n{'='*80}")
+                            print(f"\n{'='*40}")
                             print("Detailed Results:")
-                            print(f"{'='*80}")
+                            print(f"{'='*40}")
                             for i, result in enumerate(detailed_results, 1):
                                 status_symbol = "✓" if result["passed"] else "✗"
                                 status_text = "PASS" if result["passed"] else "FAIL"
@@ -269,15 +326,29 @@ try:
                                         print(f"  Actual: {result['actual']}")
                                     if 'error' in result:
                                         print(f"  Error: {result['error']}")
-                            print(f"\n{'='*80}\n")
+                            print(f"\n{'='*40}\n")
                             # === END NEW EVALUATION SYSTEM ===
 
-                            dblcumulatedscore += assertions_result_score
-                            dblevalcount += 1
+                            if assertions_result_score is not None:
+                                dblcumulatedscore += assertions_result_score
+                                dblevalcount += 1
                             #Store to the database
                             arrevalexeccouples = {}
                             arrevalexeccouples["ID_ROW"] = lngid
+                            #arrevalexeccouples["DELETED"] = 0
+                            #if assertions_sql_query_score is not None:
+                            arrevalexeccouples["ASSERTIONS_SQL_QUERY_SCORE"] = assertions_sql_query_score
+                            #if assertions_result_score is not None:
                             arrevalexeccouples["ASSERTIONS_RESULT_SCORE"] = assertions_result_score
+                            # Compute total score across available (non-null) assertion scores
+                            scores_for_total = []
+                            if assertions_result_score is not None:
+                                scores_for_total.append(assertions_result_score)
+                            if assertions_sql_query_score is not None:
+                                scores_for_total.append(assertions_sql_query_score)
+                            if len(scores_for_total) > 0:
+                                assertions_total_score = 1 if all(s == 1 for s in scores_for_total) else 0
+                                arrevalexeccouples["ASSERTIONS_TOTAL_SCORE"] = assertions_total_score
                             arrevalexeccouples["ASSERTIONS_RESULT_DETAILED"] = detailed_results_string  # NEW: Store detailed results
                             def _safe_float(v):
                                 try:
@@ -324,7 +395,7 @@ try:
                             strsqltablename = "T_WC_T2S_EVALUATION_EXECUTION"
                             strsqlupdatecondition = f"ID_ROW = {lngid} "
                             cp.f_sqlupdatearray(strsqltablename,arrevalexeccouples,strsqlupdatecondition,1)
-                            print(f"{'*'*80}")
+                            print("*" * 40)
 
                         lngcount += 1
                         cp.f_setservervariable("strtext2sqlevalprocess"+str(intindex)+strdescvarname+"count",str(lngcount),"Count of rows processed for process "+str(intindex)+" : "+strdesc+"",0)

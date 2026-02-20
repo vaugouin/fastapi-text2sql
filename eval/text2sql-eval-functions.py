@@ -1,5 +1,6 @@
 import json
 import re
+import html
 from typing import Any
 
 import pandas as pd
@@ -68,6 +69,9 @@ def evaluate_dataframe_assertions(df_results: pd.DataFrame, strassertions: str) 
 
     if not strassertions or not strassertions.strip():
         return True, [{"passed": True, "message": "No assertions to evaluate"}]
+
+    # Assertions can be stored HTML-escaped in DB exports (e.g. &gt; instead of >)
+    strassertions = html.unescape(strassertions)
 
     if df_results is None or df_results.empty:
         # Check if assertions allow empty results
@@ -144,6 +148,10 @@ def evaluate_dataframe_assertions(df_results: pd.DataFrame, strassertions: str) 
 def _evaluate_single_assertion(df: pd.DataFrame, assertion: str) -> dict:
     assertion = assertion.strip()
 
+    # Handle COUNT(column) assertions (unique non-null values)
+    if re.search(r"\bCOUNT\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)", assertion, re.IGNORECASE) and "COUNT(*)" not in assertion.upper():
+        return _evaluate_count_unique_assertion(df, assertion)
+
     # Handle COUNT(*) assertions
     if "COUNT(*)" in assertion.upper():
         return _evaluate_count_assertion(df, assertion)
@@ -206,6 +214,67 @@ def _evaluate_count_assertion(df: pd.DataFrame, assertion: str) -> dict:
         "message": f"Row count mismatch: Expected {operator} {expected_value}, but got {actual_count}",
         "expected": f"COUNT(*) {operator} {expected_value}",
         "actual": f"COUNT(*) = {actual_count}",
+    }
+
+
+def _evaluate_count_unique_assertion(df: pd.DataFrame, assertion: str) -> dict:
+    pattern = r"COUNT\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*(==|!=|<=|>=|<|>)\s*(\d+)"
+    match = re.search(pattern, assertion, re.IGNORECASE)
+
+    if not match:
+        return {
+            "passed": False,
+            "assertion": assertion,
+            "message": "Invalid COUNT(column) syntax",
+            "error": "Could not parse COUNT(column) assertion",
+        }
+
+    column_name = match.group(1)
+    operator = match.group(2)
+    expected_value = int(match.group(3))
+
+    if column_name not in df.columns:
+        return {
+            "passed": False,
+            "assertion": assertion,
+            "message": f"Unknown column '{column_name}' for COUNT({column_name})",
+            "error": f"DataFrame has columns: {', '.join([str(c) for c in df.columns])}",
+        }
+
+    actual_unique_count = int(df[column_name].dropna().nunique())
+
+    passed = False
+    if operator == "==":
+        passed = actual_unique_count == expected_value
+    elif operator == "!=":
+        passed = actual_unique_count != expected_value
+    elif operator == "<":
+        passed = actual_unique_count < expected_value
+    elif operator == ">":
+        passed = actual_unique_count > expected_value
+    elif operator == "<=":
+        passed = actual_unique_count <= expected_value
+    elif operator == ">=":
+        passed = actual_unique_count >= expected_value
+
+    expected_str = f"COUNT({column_name}) {operator} {expected_value}"
+    actual_str = f"COUNT({column_name}) = {actual_unique_count} (unique non-null)"
+
+    if passed:
+        return {
+            "passed": True,
+            "assertion": assertion,
+            "message": f"Unique count check passed for column '{column_name}'",
+            "expected": expected_str,
+            "actual": actual_str,
+        }
+
+    return {
+        "passed": False,
+        "assertion": assertion,
+        "message": f"Unique count mismatch for column '{column_name}': Expected {operator} {expected_value}, but got {actual_unique_count}",
+        "expected": expected_str,
+        "actual": actual_str,
     }
 
 
@@ -487,13 +556,14 @@ def _evaluate_comparison_assertion(df: pd.DataFrame, assertion: str) -> dict:
     unique_violations = list(set(violations))
     violation_count = len(violations)
     sample_violations = unique_violations[:5]
+    sample_violations_str = ", ".join([str(v) for v in sample_violations])
 
     return {
         "passed": False,
         "assertion": assertion,
-        "message": f"Found {violation_count} value(s) in '{column_name}' that violate {column_name} {operator} {value}. Sample violations: {sample_violations}",
+        "message": f"Found {violation_count} value(s) in '{column_name}' that violate {column_name} {operator} {value}. Sample violations: {sample_violations_str}",
         "expected": f"{column_name} {operator} {value}",
-        "actual": f"Found {violation_count} violations: {sample_violations}{' (showing first 5)' if len(unique_violations) > 5 else ''}",
+        "actual": f"Found {violation_count} violations: {sample_violations_str}{' (showing first 5)' if len(unique_violations) > 5 else ''}",
     }
 
 
@@ -504,7 +574,7 @@ def format_detailed_results_for_db(detailed_results: list[dict], overall_pass: b
 
     for i, result in enumerate(detailed_results, 1):
         status = "PASS" if result["passed"] else "FAIL"
-        lines.append(f"\nAssertion #{i}: [{status}]")
+        lines.append(f"\nAssertion #{i}: {status}")
         lines.append(f"Statement: {result.get('assertion', 'N/A')}")
         lines.append(f"Message: {result['message']}")
 
@@ -516,4 +586,6 @@ def format_detailed_results_for_db(detailed_results: list[dict], overall_pass: b
             if "error" in result:
                 lines.append(f"Error: {result['error']}")
 
-    return "\n".join(lines)
+    formatted = "\n".join(lines)
+    formatted = formatted.replace("[", "(").replace("]", ")")
+    return formatted
