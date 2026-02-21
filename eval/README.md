@@ -35,6 +35,7 @@ The DataFrame assertion evaluator validates SQL query results against expected c
 ✅ **Multiple assertion types** - COUNT(*), COUNT(column), CELL(row,col), IN, NOT IN, comparisons  
 ✅ **AND/OR logic** - Complex multi-part assertions  
 ✅ **HTML-escaped operators supported** - `&gt;`, `&lt;` are accepted in assertions (unescaped before parsing)
+✅ **Entity extraction assertions** - Validate `entity_extraction` output (0/1) via `ASSERTIONS_ENTITY_EXTRACTION`
 
 ---
 
@@ -247,6 +248,52 @@ CELL(<row_index>, <col_index>) <operator> <value>
 
 **Output:** Each assertion is evaluated separately and shown in the results.
 
+## 3.8 Entity Extraction Assertions (Two-layer EE DSL)
+
+Entity extraction assertions validate the `entity_extraction` dictionary returned by the API.
+
+They are evaluated by `ee_eval_two_layer()` (in `entity_extraction_eval_functions.py`) and return a **0/1 score** stored in `ASSERTIONS_ENTITY_EXTRACTION_SCORE`.
+
+**When it runs:**
+- `ASSERTIONS_ENTITY_EXTRACTION` is not null and not empty
+- `JSON_RESULT` contains a non-empty `entity_extraction` dictionary
+
+**Inputs:**
+- `entity_extraction` is expected to be a `dict` with at least:
+  - `{"question": "..."}`
+- `ASSERTIONS_ENTITY_EXTRACTION` contains a Layer-2 expression in a small DSL.
+
+**Layer 1 (hard gate):**
+- `entity_extraction["question"]` must be a non-empty string
+- Placeholders in `question` (e.g. `{{Movie_title1}}`) must match entity keys present in the dict (excluding `question`)
+- Each entity value must be a non-empty string
+
+**Layer 2 (expression DSL):**
+- Boolean operators: `AND`, `OR`, `NOT` (parentheses supported)
+- Functions:
+  - `eq(a, b)`
+  - `nonempty(x)`
+  - `seteq(listA, listB)`
+  - `placeholders($.question)`
+  - `entity_keys($)`
+  - `keys($)`
+  - `matches(x, /regex/flags)` (flags: `i`, `m`, `s`)
+- Root key access: `$.<Key>`
+
+**Syntax example (no entities):**
+```
+eq($.question, "What are the highest-grossing movies of all time?") AND seteq(entity_keys($), [])
+```
+
+**Syntax example (with entities):**
+```
+(eq($.question, "{{Movie_title1}} ({{Release_year1}})") AND eq($.Movie_title1, "Tommy") AND eq($.Release_year1, "1975"))
+```
+
+**Notes:**
+- Newlines inside expressions can cause evaluation failures unless the expression is wrapped in parentheses.
+- Expression evaluation is fail-closed: any parsing/eval error results in score `0`.
+
 ---
 
 # 4. Error Reporting
@@ -352,6 +399,14 @@ Actual: Found violations: 289 (occurred 1 time(s))
 SELECT ID_ROW, ASSERTIONS_DETAILED_RESULTS 
 FROM T_WC_T2S_EVALUATION_EXECUTION 
 WHERE ASSERTIONS_RESULT_SCORE = 0;
+```
+
+### Find Entity Extraction Assertion Failures
+
+```sql
+SELECT ID_ROW, ASSERTIONS_ENTITY_EXTRACTION_SCORE, ASSERTIONS_RESULT_DETAILED
+FROM T_WC_T2S_EVALUATION_EXECUTION
+WHERE ASSERTIONS_ENTITY_EXTRACTION_SCORE = 0;
 ```
 
 ### Search for Specific Error Types

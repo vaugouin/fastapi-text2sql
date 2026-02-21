@@ -13,13 +13,8 @@ import pytest
 import re
 import html
 
-from text2sql_eval_functions import (
-    evaluate_dataframe_assertions,
-    format_api_version,
-    format_detailed_results_for_db,
-    format_single_line_record,
-    safe_json_loads,
-)
+import entity_extraction_eval_functions as ee_eval
+import text2sql_eval_functions as t2s_eval
 
 # Load environment variables from .env file
 load_dotenv()
@@ -78,7 +73,7 @@ try:
                 #strtext2sqlmodeleval = "newmodel"
                 strapiversioneval = "1.1.14"
                 #strapiversioneval = "1.1.15"
-                strapiversionevalformatted = format_api_version(strapiversioneval)
+                strapiversionevalformatted = t2s_eval.format_api_version(strapiversioneval)
                 lngrowsperpageeval = 100
                 if intindex == 10:
                     strcurrentprocess = f"{intindex}: deleting deleted records from T_WC_T2S_EVALUATION_EXECUTION "
@@ -124,7 +119,7 @@ try:
                     strsql += "WHERE T_WC_T2S_EVALUATION.DELETED = 0 "
                     strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.DELETED = 0 "
                     strsql += "AND API_VERSION = '" + strapiversionevalformatted + "' AND ENTITY_EXTRACTION_MODEL = '" + strentityextractionmodeleval + "' AND TEXT2SQL_MODEL = '" + strtext2sqlmodeleval + "' "
-                    #strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION = 2140 "
+                    #strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION IN (1) "
                     #strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 2139) "
                     strsql += "ORDER BY T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION ASC "
                     #strsql += "LIMIT 5 "
@@ -229,9 +224,10 @@ try:
                             strassertions_entity_extraction = row.get('ASSERTIONS_ENTITY_EXTRACTION')
                             strassertions_sql_query = row.get('ASSERTIONS_SQL_QUERY')
                             strassertions_query_result = row.get('ASSERTIONS_QUERY_RESULT')
+                            #print("ASSERTIONS_ENTITY_EXTRACTION:", strassertions_entity_extraction)
 
                             response_text = row['JSON_RESULT']
-                            response_json = safe_json_loads(response_text)
+                            response_json = t2s_eval.safe_json_loads(response_text)
                             print("question:", response_json['question'])
                             #print("sql_query:", response_json['sql_query'])
                             """
@@ -243,7 +239,7 @@ try:
                                 else:
                                     result_index = None
                                     result_data = resultrow
-                                print(f"index={result_index} | {format_single_line_record(result_data)}")
+                                print(f"index={result_index} | {t2s_eval.format_single_line_record(result_data)}")
                             """
                             result_rows = response_json.get("result", [])
                             df_results = pd.DataFrame([
@@ -260,11 +256,12 @@ try:
                             assertions_result_score = None
 
                             if strassertions_query_result is not None and str(strassertions_query_result).strip() != "":
-                                evaluation_result, detailed_results = evaluate_dataframe_assertions(df_results, strassertions_query_result)
+                                strassertions_query_result = html.unescape(str(strassertions_query_result).strip())
+                                evaluation_result, detailed_results = t2s_eval.evaluate_dataframe_assertions(df_results, strassertions_query_result)
                                 status = "PASS ✓" if evaluation_result else "FAIL ✗"
                                 assertions_result_score = 1 if evaluation_result else 0
                                 # Format detailed results for database storage
-                                detailed_results_string = format_detailed_results_for_db(detailed_results, evaluation_result)
+                                detailed_results_string = t2s_eval.format_detailed_results_for_db(detailed_results, evaluation_result)
                             else:
                                 detailed_results_string = "OVERALL: SKIPPED\nReason: ASSERTIONS_QUERY_RESULT is empty"
 
@@ -275,7 +272,8 @@ try:
                             sql_query_value = (sql_query_value or "").strip() if isinstance(sql_query_value, str) else ""
 
                             if strassertions_sql_query is not None and str(strassertions_sql_query).strip() != "":
-                                pattern = html.unescape(str(strassertions_sql_query).strip())
+                                strassertions_sql_query = html.unescape(str(strassertions_sql_query).strip())
+                                pattern = str(strassertions_sql_query).strip()
                                 if sql_query_value == "":
                                     assertions_sql_query_score = 0
                                     assertions_sql_query_details_lines.append("ASSERTIONS_SQL_QUERY: FAIL")
@@ -301,6 +299,37 @@ try:
                                     detailed_results_string
                                     + "\n\n"
                                     + "\n".join(assertions_sql_query_details_lines)
+                                )
+
+                            # === Entity extraction evaluation (ASSERTIONS_ENTITY_EXTRACTION) ===
+                            assertions_entity_extraction_score = None
+                            assertions_entity_extraction_details_lines = []
+                            entity_extraction_value = (response_json or {}).get("entity_extraction")
+
+                            if strassertions_entity_extraction is not None and str(strassertions_entity_extraction).strip() != "":
+                                strassertions_entity_extraction = html.unescape(str(strassertions_entity_extraction).strip())
+                                if isinstance(entity_extraction_value, dict) and len(entity_extraction_value) > 0:
+                                    try:
+                                        ee_ok = ee_eval.ee_eval_two_layer(entity_extraction_value, strassertions_entity_extraction)
+                                        assertions_entity_extraction_score = 1 if ee_ok else 0
+                                        assertions_entity_extraction_details_lines.append(
+                                            f"ASSERTIONS_ENTITY_EXTRACTION: {'PASS' if ee_ok else 'FAIL'}"
+                                        )
+                                    except Exception as e:
+                                        assertions_entity_extraction_score = 0
+                                        assertions_entity_extraction_details_lines.append("ASSERTIONS_ENTITY_EXTRACTION: FAIL")
+                                        assertions_entity_extraction_details_lines.append(f"Error: {str(e)}")
+                                else:
+                                    # Assertion provided but entity_extraction missing from JSON_RESULT: do not evaluate
+                                    assertions_entity_extraction_score = None
+                                    assertions_entity_extraction_details_lines.append("ASSERTIONS_ENTITY_EXTRACTION: SKIPPED")
+                                    assertions_entity_extraction_details_lines.append("Reason: entity_extraction dict is missing or empty in JSON_RESULT")
+
+                            if len(assertions_entity_extraction_details_lines) > 0:
+                                detailed_results_string = (
+                                    detailed_results_string
+                                    + "\n\n"
+                                    + "\n".join(assertions_entity_extraction_details_lines)
                                 )
                             
                             print(f"\n{'='*40}")
@@ -335,10 +364,8 @@ try:
                             #Store to the database
                             arrevalexeccouples = {}
                             arrevalexeccouples["ID_ROW"] = lngid
-                            #arrevalexeccouples["DELETED"] = 0
-                            #if assertions_sql_query_score is not None:
                             arrevalexeccouples["ASSERTIONS_SQL_QUERY_SCORE"] = assertions_sql_query_score
-                            #if assertions_result_score is not None:
+                            arrevalexeccouples["ASSERTIONS_ENTITY_EXTRACTION_SCORE"] = assertions_entity_extraction_score
                             arrevalexeccouples["ASSERTIONS_RESULT_SCORE"] = assertions_result_score
                             # Compute total score across available (non-null) assertion scores
                             scores_for_total = []
@@ -346,6 +373,8 @@ try:
                                 scores_for_total.append(assertions_result_score)
                             if assertions_sql_query_score is not None:
                                 scores_for_total.append(assertions_sql_query_score)
+                            if assertions_entity_extraction_score is not None:
+                                scores_for_total.append(assertions_entity_extraction_score)
                             if len(scores_for_total) > 0:
                                 assertions_total_score = 1 if all(s == 1 for s in scores_for_total) else 0
                                 arrevalexeccouples["ASSERTIONS_TOTAL_SCORE"] = assertions_total_score
