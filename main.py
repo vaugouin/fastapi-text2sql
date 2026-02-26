@@ -19,6 +19,7 @@ import chromadb
 #from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 import cleanup
 import logs
+import rapidfuzz_query
 
 # Load environment variables from .env file
 load_dotenv()
@@ -151,6 +152,92 @@ locations = chroma_client.get_or_create_collection(
     embedding_function=embedding_function  # Custom embedding model
 )
 
+CHROMADB_COLLECTIONS_BY_NAME = {
+    "persons": persons,
+    "movies": movies,
+    "series": series,
+    "companies": companies,
+    "networks": networks,
+    "topics": topics,
+    "locations": locations,
+}
+
+ENTITY_RESOLUTION_CONFIG = [
+    {
+        "search_mode": "rapidfuzz",
+        "placeholder_prefix": "Person_name",
+        "strtablename": "T_WC_T2S_PERSON",
+        "strtableid": "ID_PERSON",
+        "collection": "persons",
+        "default_field": "PERSON_NAME",
+        "order_by": "POPULARITY",
+        "languages": {"*": "PERSON_NAME"},
+        "rapidfuzz_col_norm": "PERSON_NAME_NORM",
+        "rapidfuzz_col_key": "PERSON_NAME_KEY",
+        "rapidfuzz_col_popularity": "POPULARITY",
+    },
+    {
+        "search_mode": "embeddings",
+        "placeholder_prefix": "Movie_title",
+        "strtablename": "T_WC_T2S_MOVIE",
+        "strtableid": "ID_MOVIE",
+        "collection": "movies",
+        "default_field": "MOVIE_TITLE",
+        "order_by": "POPULARITY",
+        "languages": {"en": "MOVIE_TITLE", "fr": "MOVIE_TITLE_FR", "*": "ORIGINAL_TITLE"},
+    },
+    {
+        "search_mode": "embeddings",
+        "placeholder_prefix": "Serie_title",
+        "strtablename": "T_WC_T2S_SERIE",
+        "strtableid": "ID_SERIE",
+        "collection": "series",
+        "default_field": "SERIE_TITLE",
+        "order_by": "POPULARITY",
+        "languages": {"en": "SERIE_TITLE", "fr": "SERIE_TITLE_FR", "*": "ORIGINAL_TITLE"},
+    },
+    {
+        "search_mode": "embeddings",
+        "placeholder_prefix": "Company_name",
+        "strtablename": "T_WC_T2S_COMPANY",
+        "strtableid": "ID_COMPANY",
+        "collection": "companies",
+        "default_field": "COMPANY_NAME",
+        "order_by": None,
+        "languages": {"*": "COMPANY_NAME"},
+    },
+    {
+        "search_mode": "embeddings",
+        "placeholder_prefix": "Network_name",
+        "strtablename": "T_WC_T2S_NETWORK",
+        "strtableid": "ID_NETWORK",
+        "collection": "networks",
+        "default_field": "NETWORK_NAME",
+        "order_by": None,
+        "languages": {"*": "NETWORK_NAME"},
+    },
+    {
+        "search_mode": "embeddings",
+        "placeholder_prefix": "Topic_name",
+        "strtablename": "T_WC_T2S_TOPIC",
+        "strtableid": "ID_TOPIC",
+        "collection": "topics",
+        "default_field": "TOPIC_NAME",
+        "order_by": None,
+        "languages": {"*": "TOPIC_NAME"},
+    },
+    {
+        "search_mode": "embeddings",
+        "placeholder_prefix": "Item_name",
+        "strtablename": "T_WC_WIKIDATA_ITEM",
+        "strtableid": "ID_WIKIDATA",
+        "collection": "locations",
+        "default_field": "ITEM_NAME",
+        "order_by": None,
+        "languages": {"*": "ID_ITEM"},
+    },
+]
+
 #Anonymized queries collection
 strentitycollection = "anonymizedqueries"
 anonymizedqueries = chroma_client.get_or_create_collection(
@@ -158,8 +245,12 @@ anonymizedqueries = chroma_client.get_or_create_collection(
     embedding_function=embedding_function  # Custom embedding model
 )
 
+# By default, do not use embeddings-based question cache (read/write) for anonymized queries.
+USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE = False
+
 if intcleanupenabled:
-    cleanup.cleanup_anonymized_queries_collection(anonymizedqueries, strapiversion)
+    if USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE:
+        cleanup.cleanup_anonymized_queries_collection(anonymizedqueries, strapiversion)
 
 # How many rows per page in the result set
 lngrowsperpagedefault = 50
@@ -615,154 +706,167 @@ LIMIT 1 """
                     text="Anonymized question not found in SQL cache; searching questions embeddings cache."
                 ))
                 position_counter += 1
-                
+
                 # Search for similar anonymized questions in the questions embeddings cache
-                embeddings_cache_start_time = time.time()
-                try:
-                    # Extract entity variable names from the entity_extraction dictionary
-                    entity_variables = []
-                    if isinstance(entity_extraction, dict) and 'error' not in entity_extraction:
-                        # Extract all entity variable names (e.g., Person_name1, Person_name2)
-                        entity_variables = [key for key in entity_extraction.keys() if key != 'question']
-                        print(f"Entity variables to match: {entity_variables}")
-                    
-                    print(f"Searching questions embeddings cache for: {input_text_anonymized}")
-                    
-                    # First, get more results to filter through
-                    n_results_to_fetch = 10  # Get more results initially
-                    embedding_results = anonymizedqueries.query(
-                        query_texts=[input_text_anonymized],
-                        n_results=n_results_to_fetch,
-                        include=['documents', 'metadatas', 'distances']
-                    )
-                    embeddings_cache_end_time = time.time()
-                    embeddings_cache_search_time = embeddings_cache_end_time - embeddings_cache_start_time
-                    
-                    print(f"Questions embeddings cache search completed in {embeddings_cache_search_time:.4f} seconds")
-                    
-                    if embedding_results['documents'][0] and len(embedding_results['documents'][0]) > 0:
-                        messages.append(TextMessage(
-                            position=position_counter, 
-                            text="Found potential matches in questions embeddings cache; filtering by entity variables."
-                        ))
-                        position_counter += 1
-                        # Filter results to find ones that contain all required entity variables
-                        valid_result_found = False
-                        valid_result_index = -1
-                        
-                        for i in range(len(embedding_results['documents'][0])):
-                            document = embedding_results['documents'][0][i]
-                            distance = embedding_results['distances'][0][i]
-                            
-                            # Extract entity variables from the document using regex
-                            doc_entity_vars = re.findall(r'{{(\w+\d*)}}', document)
-                            print(f"Result {i}: document='{document}', distance={distance}, vars={doc_entity_vars}")
-                            
-                            # Check if all required entity variables are present in this document
-                            if all(var in doc_entity_vars for var in entity_variables):
-                                # Also check if distance is below threshold
-                                if distance < similarity_threshold:
-                                    print(f"Found valid result at index {i} with all required variables and acceptable distance")
-                                    valid_result_found = True
-                                    valid_result_index = i
-                                    break
-                                else:
-                                    print(f"Result {i} has all variables but distance {distance} exceeds threshold {similarity_threshold}")
-                            else:
-                                missing_vars = [var for var in entity_variables if var not in doc_entity_vars]
-                                print(f"Result {i} missing variables: {missing_vars}")
-                        
-                        if valid_result_found:
-                            # Use the valid result
-                            distance = embedding_results['distances'][0][valid_result_index]
-                            print(f"Using valid anonymized question from embeddings cache with distance: {distance}")
-                            cached_anonymized_question_embedding = True
-                            messages.append(TextMessage(
-                                position=position_counter, 
-                                text="Embeddings cache hit used for SQL query based on anonymized question."
-                            ))
-                            position_counter += 1
-                            
-                            # Extract SQL query from metadata
-                            metadata = embedding_results['metadatas'][0][valid_result_index]
-                            if 'sql_query_anonymized' in metadata:
-                                sql_query = metadata['sql_query_anonymized']
-                                sql_query_anonymized = sql_query
-                                justification = metadata.get('justification', '')
-                                justification_anonymized = justification
-                                print(f"Retrieved SQL query from questions embeddings cache: {sql_query}")
-                                messages.append(TextMessage(
-                                    position=position_counter, 
-                                    text="SQL query retrieved from questions embeddings cache metadata: " + sql_query_anonymized
-                                ))
-                                position_counter += 1
-                            else:
-                                print("Warning: No sql_query_anonymized found in metadata")
-                                messages.append(TextMessage(
-                                    position=position_counter, 
-                                    text="Warning: No SQL query found in questions embeddings cache metadata; invalidating cache hit."
-                                ))
-                                position_counter += 1
-                                cached_anonymized_question_embedding = False
-                        else:
-                            print("No results found with all required entity variables and acceptable distance")
-                            messages.append(TextMessage(
-                                position=position_counter, 
-                                text="No valid matches found in questions embeddings cache with required entity variables and acceptable similarity."
-                            ))
-                            position_counter += 1
-                    else:
-                        print("No similar questions found in questions embeddings cache")
-                        messages.append(TextMessage(
-                            position=position_counter, 
-                            text="No similar questions found in questions embeddings cache."
-                        ))
-                        position_counter += 1
-                        
-                except Exception as e:
-                    print(f"Error searching questions embeddings cache: {e}")
+                if not USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE:
+                    print("Questions embeddings cache is disabled; skipping embeddings lookup")
                     messages.append(TextMessage(
-                        position=position_counter, 
-                        text=f"Error occurred while searching questions embeddings cache: {str(e)}"
+                        position=position_counter,
+                        text="Questions embeddings cache is disabled; skipping embeddings lookup."
                     ))
                     position_counter += 1
-                    embeddings_cache_search_time = time.time() - embeddings_cache_start_time
+                else:
+                    embeddings_cache_start_time = time.time()
+                    try:
+                        # Extract entity variable names from the entity_extraction dictionary
+                        entity_variables = []
+                        if isinstance(entity_extraction, dict) and 'error' not in entity_extraction:
+                            # Extract all entity variable names (e.g., Person_name1, Person_name2)
+                            entity_variables = [key for key in entity_extraction.keys() if key != 'question']
+                            print(f"Entity variables to match: {entity_variables}")
 
-        if not cached_exact_question and not cached_anonymized_question and not cached_anonymized_question_embedding:
-            # Generate SQL query using existing text2sql function
-            text2sql_start_time = time.time()
-            json_content = t2s.f_text2sql(input_text_anonymized, strtext2sqlmodel)
-            print("JSON content:", json_content)
-            sql_query = json_content['sql_query']
-            # if rightmost character is ;, remove it
-            if sql_query.endswith(';'):
-                sql_query = sql_query[:-1]
-            sql_query_anonymized = sql_query
-            justification = json_content['justification']
-            justification_anonymized = justification
-            error_text2sql = json_content['error']
-            text2sql_end_time = time.time()
-            text2sql_processing_time = text2sql_end_time - text2sql_start_time
-            messages.append(TextMessage(
-                position=position_counter, 
-                text="Generated new SQL query from anonymized question using Text2SQL LLM."
-            ))
-            position_counter += 1
-            messages.append(TextMessage(
-                position=position_counter, 
-                text="SQL query: " + sql_query
-            ))
-            position_counter += 1
-            messages.append(TextMessage(
-                position=position_counter, 
-                text="Justification: " + justification
-            ))
-            position_counter += 1
-            messages.append(TextMessage(
-                position=position_counter, 
-                text="Error: " + error_text2sql
-            ))
-            position_counter += 1
+                        print(f"Searching questions embeddings cache for: {input_text_anonymized}")
+
+                        # First, get more results to filter through
+                        n_results_to_fetch = 10  # Get more results initially
+                        embedding_results = anonymizedqueries.query(
+                            query_texts=[input_text_anonymized],
+                            n_results=n_results_to_fetch,
+                            include=['documents', 'metadatas', 'distances']
+                        )
+                        embeddings_cache_end_time = time.time()
+                        embeddings_cache_search_time = embeddings_cache_end_time - embeddings_cache_start_time
+
+                        print(f"Questions embeddings cache search completed in {embeddings_cache_search_time:.4f} seconds")
+
+                        if embedding_results['documents'][0] and len(embedding_results['documents'][0]) > 0:
+                            messages.append(TextMessage(
+                                position=position_counter,
+                                text="Found potential matches in questions embeddings cache; filtering by entity variables."
+                            ))
+                            position_counter += 1
+                            # Filter results to find ones that contain all required entity variables
+                            valid_result_found = False
+                            valid_result_index = -1
+
+                            for i in range(len(embedding_results['documents'][0])):
+                                document = embedding_results['documents'][0][i]
+                                distance = embedding_results['distances'][0][i]
+
+                                # Extract entity variables from the document using regex
+                                doc_entity_vars = re.findall(r'{{(\w+\d*)}}', document)
+                                print(f"Result {i}: document='{document}', distance={distance}, vars={doc_entity_vars}")
+
+                                # Check if all required entity variables are present in this document
+                                if all(var in doc_entity_vars for var in entity_variables):
+                                    # Also check if distance is below threshold
+                                    if distance < similarity_threshold:
+                                        print(f"Found valid result at index {i} with all required variables and acceptable distance")
+                                        valid_result_found = True
+                                        valid_result_index = i
+                                        break
+                                    else:
+                                        print(f"Result {i} has all variables but distance {distance} exceeds threshold {similarity_threshold}")
+                                else:
+                                    missing_vars = [var for var in entity_variables if var not in doc_entity_vars]
+                                    print(f"Result {i} missing variables: {missing_vars}")
+
+                            if valid_result_found:
+                                # Use the valid result
+                                distance = embedding_results['distances'][0][valid_result_index]
+                                print(f"Using valid anonymized question from embeddings cache with distance: {distance}")
+                                cached_anonymized_question_embedding = True
+                                messages.append(TextMessage(
+                                    position=position_counter,
+                                    text="Embeddings cache hit used for SQL query based on anonymized question."
+                                ))
+                                position_counter += 1
+
+                                # Extract SQL query from metadata
+                                metadata = embedding_results['metadatas'][0][valid_result_index]
+                                if 'sql_query_anonymized' in metadata:
+                                    sql_query = metadata['sql_query_anonymized']
+                                    sql_query_anonymized = sql_query
+                                    justification = metadata.get('justification', '')
+                                    justification_anonymized = justification
+                                    print(f"Retrieved SQL query from questions embeddings cache: {sql_query}")
+                                    messages.append(TextMessage(
+                                        position=position_counter,
+                                        text="SQL query retrieved from questions embeddings cache metadata: " + sql_query_anonymized
+                                    ))
+                                    position_counter += 1
+                                else:
+                                    print("Warning: No sql_query_anonymized found in metadata")
+                                    messages.append(TextMessage(
+                                        position=position_counter,
+                                        text="Warning: No SQL query found in questions embeddings cache metadata; invalidating cache hit."
+                                    ))
+                                    position_counter += 1
+                                    cached_anonymized_question_embedding = False
+                            else:
+                                print("No results found with all required entity variables and acceptable distance")
+                                messages.append(TextMessage(
+                                    position=position_counter,
+                                    text="No valid matches found in questions embeddings cache with required entity variables and acceptable similarity."
+                                ))
+                                position_counter += 1
+                        else:
+                            print("No similar questions found in questions embeddings cache")
+                            messages.append(TextMessage(
+                                position=position_counter,
+                                text="No similar questions found in questions embeddings cache."
+                            ))
+                            position_counter += 1
+
+                    except Exception as e:
+                        print(f"Error searching questions embeddings cache: {e}")
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"Error occurred while searching questions embeddings cache: {str(e)}"
+                        ))
+                        position_counter += 1
+                        embeddings_cache_search_time = time.time() - embeddings_cache_start_time
+
+                # If no cache hit, call Text2SQL on anonymized question
+                if not cached_anonymized_question_embedding:
+                    text2sql_start_time = time.time()
+                    json_content = t2s.f_text2sql(input_text_anonymized, strtext2sqlmodel)
+                    if not isinstance(json_content, dict):
+                        json_content = {"error": str(json_content)}
+
+            # Only use json_content when we actually executed Text2SQL (no SQL cache hit, no embeddings cache hit)
+            if not cached_anonymized_question and not cached_anonymized_question_embedding:
+                print("JSON content:", json_content)
+                sql_query = json_content['sql_query']
+                # if rightmost character is ;, remove it
+                if sql_query.endswith(';'):
+                    sql_query = sql_query[:-1]
+                sql_query_anonymized = sql_query
+                justification = json_content['justification']
+                justification_anonymized = justification
+                error_text2sql = json_content['error']
+                text2sql_end_time = time.time()
+                text2sql_processing_time = text2sql_end_time - text2sql_start_time
+                messages.append(TextMessage(
+                    position=position_counter, 
+                    text="Generated new SQL query from anonymized question using Text2SQL LLM."
+                ))
+                position_counter += 1
+                messages.append(TextMessage(
+                    position=position_counter, 
+                    text="SQL query: " + sql_query
+                ))
+                position_counter += 1
+                messages.append(TextMessage(
+                    position=position_counter, 
+                    text="Justification: " + justification
+                ))
+                position_counter += 1
+                messages.append(TextMessage(
+                    position=position_counter, 
+                    text="Error: " + error_text2sql
+                ))
+                position_counter += 1
     sql_query_llm = sql_query
     # if the error element is found in json content
     if error_text2sql!="" and error_text2sql!=None:
@@ -776,18 +880,12 @@ LIMIT 1 """
         position_counter += 1
 
     if not cached_exact_question:
-        # Replace entity keys with their values in the SQL query
         if isinstance(entity_extraction, dict):
             messages.append(TextMessage(
                 position=position_counter, 
-                text="Replacing entity placeholders with actual values in SQL query."
+                text="Processing entity resolution using embeddings and language-specific columns."
             ))
             position_counter += 1
-            for key, value in entity_extraction.items():
-                if key != "question":
-                    sql_query = sql_query.replace("{{" + key + "}}", str(value).replace("'", "''"))
-                    justification = justification.replace("{{" + key + "}}", str(value).replace("'", "''"))
-            print("SQL query after entity replacement:", sql_query)
     
     embeddings_start_time = time.time()
     if not cached_exact_question and not ambiguous_question_for_text2sql:
@@ -798,251 +896,242 @@ LIMIT 1 """
             text="Processing entity values using embeddings for entity matching."
         ))
         position_counter += 1
-        arrentities = {1: "PERSON_NAME", 2: "MOVIE_TITLE", 3: "SERIE_TITLE", 4: "COMPANY_NAME", 5: "NETWORK_NAME", 6: "TOPIC_NAME", 7: "ITEM_NAME"}
-        # Map entity types to their corresponding ChromaDB collections
-        chromadb_collections = {1: persons, 2: movies, 3: series, 4: companies, 5: networks, 6: topics, 7: locations}
-        
-        for intentity,strfieldname in arrentities.items():
-            if intentity == 1:
-                # Extract values from patterns like PERSON_NAME = 'xxx'
-                strtablename = "T_WC_T2S_PERSON"
-                strtableid = "ID_PERSON"
-                strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strfieldname + " = %s ORDER BY POPULARITY DESC"
-            elif intentity == 2:
-                # Extract values from patterns like MOVIE_TITLE = 'xxx'
-                strtablename = "T_WC_T2S_MOVIE"
-                strtableid = "ID_MOVIE"
-                strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strfieldname + " = %s ORDER BY POPULARITY DESC"
-            elif intentity == 3:
-                # Extract values from patterns like SERIE_TITLE = 'xxx'
-                strtablename = "T_WC_T2S_SERIE"
-                strtableid = "ID_SERIE"
-                strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strfieldname + " = %s ORDER BY POPULARITY DESC"
-            elif intentity == 4:
-                # Extract values from patterns like COMPANY_NAME = 'xxx'
-                strtablename = "T_WC_T2S_COMPANY"
-                strtableid = "ID_COMPANY"
-                strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strfieldname + " = %s"
-            elif intentity == 5:
-                # Extract values from patterns like NETWORK_NAME = 'xxx'
-                strtablename = "T_WC_T2S_NETWORK"
-                strtableid = "ID_NETWORK"
-                strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strfieldname + " = %s"
-            elif intentity == 6:
-                # Extract values from patterns like TOPIC_NAME = 'xxx'
-                strtablename = "T_WC_T2S_TOPIC"
-                strtableid = "ID_TOPIC"
-                strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strfieldname + " = %s"
-            elif intentity == 7:
-                # Extract values from patterns like ITEM_NAME = 'xxx'
-                strtablename = "T_WC_WIKIDATA_ITEM"
-                strtableid = "ID_WIKIDATA"
-                strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strfieldname + " = %s"
-            #strfieldpattern = strfieldname + r"\s*=\s*'(.*?)'"
-            #strfieldpattern = strfieldname + r"\s*=\s*'((?:[^']|'')*?)'"
-            #strfieldpattern = strfieldname + r"\s*=\s*'((?:''|[^'])*?)'"
-            # Pattern for FIELD_NAME = 'value' (not followed by another quote)
-            strfieldpattern = strfieldname + r"\s*=\s*'((?:[^']|'')*)'(?!')"
-            """
-            # pattern for FIELD_NAME IN ('value1', 'value2', ...)
-            strfieldpattern = strfieldname + r"\s*IN\s*\(\s*'[^']*'(?:\s*,\s*'[^']*')*\s*\)"
-            The regex pattern is valid for finding the IN clause in the SQL string.
+        def _find_entity_config(placeholder_key: str):
+            for cfg in ENTITY_RESOLUTION_CONFIG:
+                if isinstance(placeholder_key, str) and placeholder_key.startswith(cfg.get("placeholder_prefix", "")):
+                    return cfg
+            return None
 
-However, there is a logic issue: The re.findall function with this pattern will return the entire match string (e.g., ["FIELD_NAME IN ('value1', 'value2')"]) because there are no capturing groups around the values themselves.
+        def _sql_escape_literal(v: str) -> str:
+            return str(v).replace("'", "''")
 
-Your subsequent code expects fieldname_values to be a list of individual values (e.g., ['value1', 'value2']) to iterate over and query the embeddings database.
+        def _apply_entity_match_from_docid(
+            *,
+            cursor,
+            key: str,
+            cfg: dict,
+            docid,
+            doclang: str,
+            message: str,
+        ) -> bool:
+            nonlocal sql_query, justification, position_counter
 
-To fix this, you should separate the logic:
+            if docid is None:
+                return False
 
-Find the IN clause.
-Extract the content inside the parentheses.
-Split the values.
-I can implement a parsing helper for you if you'd like.
-            """
-            print(f"DEBUG: Looking for pattern '{strfieldpattern}' in SQL query")
-            fieldname_matches = re.findall(strfieldpattern, sql_query, re.IGNORECASE)
-            print("Found matches:", fieldname_matches)
-            print("Unescaping SQL quotes")
-            # Unescape SQL quotes
-            fieldname_matches = [match.replace("''", "'") for match in fieldname_matches]
-            fieldname_values = [match for match in fieldname_matches]
-            
-            if fieldname_values:
-                print("Extracted " + strfieldname + " values:", fieldname_values)
-                messages.append(TextMessage(
-                    position=position_counter, 
-                    text=f"Found {strfieldname} entities in SQL query; processing with embeddings."
-                ))
-                position_counter += 1
-                with connection.cursor() as cursor:
-                    for fieldname_value in fieldname_values:
-                        print("fieldname_value:", fieldname_value)
-                        fieldname_value_escaped = fieldname_value.replace("'", "''")
-                        print("Value escaped:", fieldname_value_escaped)
-                        sql_query_results = None
-                        """
-                        print("Looking for SQL query results")
-                        cursor.execute(strsql_query, (fieldname_value_escaped,))
-                        sql_query_results = cursor.fetchall()
-                        #print("SQL query results:", sql_query_results)
-                        """
-                        
-                        # If query returned one or more records, read PERSON_NAME from first record
-                        if sql_query_results:
-                            """
-                            This code is disabled because it is more pertinent to always use embeddings and not rely on exact SQL search 
-                            first because when searching "movie le bonheur", for instance, if "le bonheur" was found in the MOVIE_TITLE 
-                            field by SQL, it would have the final SQL query looking for "Le Bonheur" which is a French title with a condition
-                            on the MOVIE_TITLE column which is for the movies English title 
-                            In this case, that final result for "movie le bonheur" would find only two movies (MOVIE_TITLE = "Le Bonheur") 
-                            and when searching in the MOVIE_TITLE_FR column (French title), it would find 4 movies which is more relevant 
-                            (MOVIE_TITLE_FR = "Le Bonheur")
-                            
-                            first_record = sql_query_results[0]
-                            first_record_value = first_record.get(strfieldname, '')
-                            first_record_value_escaped = first_record_value.replace("'", "''")
-                            print(f"First SQL record {strfieldname}: {first_record_value}")
-                            
-                            # Replace the original person_name in sql_query with first_person_name
-                            sql_query = sql_query.replace(f"{strfieldname} = '{fieldname_value_escaped}'", f"{strfieldname} = '{first_record_value_escaped}'")
-                            print(f"Updated SQL query with actual {strfieldname}")
-                            """
-                        else:
-                            print(f"Not looking for SQL query results or no records found with SQL for {strfieldname}: {fieldname_value}")
-                            # Query ChromaDB using a text-based search with the correct collection
-                            start_time_chromadb = time.time()
-                            #print("Selecting the vector database")
-                            if chromadb_collections[intentity] is None:
-                                print("No ChromaDB collection found for entity type", intentity)
-                                end_time_chromadb = time.time()
-                                search_duration_chromadb = end_time_chromadb - start_time_chromadb
-                            else:
-                                current_collection = chromadb_collections[intentity]
-                                print("Querying the vector database")
-                                results = current_collection.query(
-                                    query_texts=[fieldname_value],  # Query is converted into a vector
-                                    n_results=10
-                                )
-                                print("Querying the vector database done")
-                                end_time_chromadb = time.time()
-                                search_duration_chromadb = end_time_chromadb - start_time_chromadb
-                                if results["documents"][0]:
-                                    messages.append(TextMessage(
-                                        position=position_counter, 
-                                        text=f"Found matching {strfieldname} entity '{fieldname_value}' in vector database."
-                                    ))
-                                    position_counter += 1
-                                    matched_result_position = 0
-                                    found_match = False
-                                    try:
-                                        target_value_norm = str(fieldname_value).strip().lower()
-                                    except Exception:
-                                        target_value_norm = ""
+            languages_map = cfg.get("languages", {}) or {}
+            strfieldnamenew = languages_map.get(doclang) or languages_map.get("*") or cfg.get("default_field")
+            strtableidlookup = strfieldnamenew
 
-                                    documents = results.get("documents", [[]])[0] or []
-                                    for i, document in enumerate(documents):
-                                        if isinstance(document, str) and document.strip().lower() == target_value_norm:
-                                            matched_result_position = i
-                                            found_match = True
-                                            break
-                                    if not found_match:
-                                        for i, document in enumerate(documents):
-                                            if isinstance(document, str) and document.strip().lower().startswith(target_value_norm):
-                                                matched_result_position = i
-                                                found_match = True
-                                                break
-                                    
-                                    first_record_id = results['ids'][0][matched_result_position]
-                                    # Extract the 3 parts from first_record_id using underscore separator
-                                    parts = first_record_id.split('_')
-                                    docentity = parts[0]
-                                    docid = parts[1]
-                                    doclang = parts[2]
-                                else:
-                                    messages.append(TextMessage(
-                                        position=position_counter, 
-                                        text=f"No matching {strfieldname} entity found in vector database."
-                                    ))
-                                    position_counter += 1
-                                    first_record_id = None
-                                    docentity = None
-                                    docid = None
-                                    doclang = None
-                            strfieldnamenew = strfieldname
-                            strtableidlookup = strfieldnamenew
-                            print("first_record_id", first_record_id, docentity, docid, doclang)
+            strtablename = cfg.get("strtablename")
+            strtableid = cfg.get("strtableid")
+            if not strtablename or not strtableid:
+                return False
+
+            strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strtableid + " = %s"
+            cursor.execute(strsql_query, (docid,))
+            sql_query_results = cursor.fetchall()
+            if not sql_query_results:
+                return False
+            first_record = sql_query_results[0]
+
+            first_record_value = first_record.get(strtableidlookup, '')
+            first_record_value_sql = _sql_escape_literal(first_record_value)
+
+            placeholder = "{{" + str(key) + "}}"
+            target_col = cfg.get("default_field")
+            if not target_col:
+                return False
+
+            sql_query = re.sub(
+                rf"\b{re.escape(target_col)}\b\s*=\s*'{re.escape(placeholder)}'",
+                f"{strfieldnamenew} = '{first_record_value_sql}'",
+                sql_query,
+                flags=re.IGNORECASE,
+            )
+            sql_query = re.sub(
+                rf"\b{re.escape(target_col)}\b\s*=\s*{re.escape(placeholder)}",
+                f"{strfieldnamenew} = '{first_record_value_sql}'",
+                sql_query,
+                flags=re.IGNORECASE,
+            )
+
+            justification = justification.replace(placeholder, str(first_record_value))
+
+            messages.append(TextMessage(
+                position=position_counter,
+                text=message.format(placeholder=placeholder, resolved=first_record_value)
+            ))
+            position_counter += 1
+            return True
+
+        if isinstance(entity_extraction, dict):
+            with connection.cursor() as cursor:
+                for key, value in entity_extraction.items():
+                    if key == "question":
+                        continue
+
+                    # Numeric placeholders (e.g. {{Release_year1}}) should be substituted directly
+                    # so expressions like BETWEEN {{Release_year1}} - 1 AND {{Release_year1}} + 1 keep working.
+                    if isinstance(key, str) and key.startswith("Release_year"):
+                        raw_value = "" if value is None else str(value).strip()
+                        if raw_value == "":
+                            continue
+                        if not re.fullmatch(r"\d{4}", raw_value):
+                            continue
+
+                        placeholder = "{{" + key + "}}"
+                        # Replace both quoted and unquoted forms with a numeric literal
+                        sql_query = re.sub(
+                            rf"'{re.escape(placeholder)}'",
+                            raw_value,
+                            sql_query,
+                            flags=re.IGNORECASE,
+                        )
+                        sql_query = re.sub(
+                            rf"{re.escape(placeholder)}",
+                            raw_value,
+                            sql_query,
+                            flags=re.IGNORECASE,
+                        )
+                        justification = justification.replace(placeholder, raw_value)
+
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"Entity resolution: {placeholder} -> {raw_value} (numeric)"
+                        ))
+                        position_counter += 1
+                        continue
+
+                    cfg = _find_entity_config(key)
+                    if cfg is None:
+                        raw_value = "" if value is None else str(value)
+                        if raw_value.strip() == "":
+                            continue
+
+                        placeholder = "{{" + str(key) + "}}"
+                        raw_value_sql = _sql_escape_literal(raw_value)
+
+                        # Generic fallback: unknown entity types still need placeholder substitution.
+                        # Keep surrounding quotes intact by replacing only the placeholder token.
+                        if placeholder in sql_query or placeholder in justification:
+                            sql_query = sql_query.replace(placeholder, raw_value_sql)
+                            justification = justification.replace(placeholder, raw_value)
                             messages.append(TextMessage(
-                                position=position_counter, 
-                                text=f"Entity found in vector database: {first_record_id}, docentity: {docentity}, docid: {docid}, doclang: {doclang}"
+                                position=position_counter,
+                                text=f"Entity resolution: {placeholder} -> {raw_value} (generic)"
                             ))
                             position_counter += 1
-                            if strfieldname == "MOVIE_TITLE":
-                                if doclang == "en":
-                                    strfieldnamenew = "MOVIE_TITLE"
-                                    strtableidlookup = strfieldnamenew
-                                elif doclang == "fr":
-                                    strfieldnamenew = "MOVIE_TITLE_FR"
-                                    strtableidlookup = strfieldnamenew
-                                else:
-                                    strfieldnamenew = "ORIGINAL_TITLE"
-                                    strtableidlookup = strfieldnamenew
-                            elif strfieldname == "SERIE_TITLE":
-                                if doclang == "en":
-                                    strfieldnamenew = "SERIE_TITLE"
-                                    strtableidlookup = strfieldnamenew
-                                elif doclang == "fr":
-                                    strfieldnamenew = "SERIE_TITLE_FR"
-                                    strtableidlookup = strfieldnamenew
-                                else:
-                                    strfieldnamenew = "ORIGINAL_TITLE"
-                                    strtableidlookup = strfieldnamenew
-                            elif strfieldname == "ITEM_NAME":
-                                strfieldnamenew = "ID_ITEM"
-                                strtableidlookup = "ID_WIKIDATA"
-                            print("strfieldnamenew =", strfieldnamenew, "strtableidlookup =", strtableidlookup)
-                            
-                            #first_record_value = results['documents'][0][0]
-                            strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strtableid + " = %s"
-                            print("strsql_query =", strsql_query, docid)
-                            #messages.append(TextMessage(
-                            #    position=position_counter,
-                            #    text=f"Executing SQL query: {strsql_query} | params: [{docid}]"
-                            #))
-                            #position_counter += 1
-                            cursor.execute(strsql_query, (docid,))
-                            sql_query_results = cursor.fetchall()
-                            first_record = sql_query_results[0]
-                            print("first_record:", first_record)
-                            print("get", strtableidlookup)
-                            first_record_value = first_record.get(strtableidlookup, '')
-                            print("first_record_value:", first_record_value)
-                            # Escape single quotes for SQL integration
-                            first_record_value_escaped = first_record_value.replace("'", "''")
-                            print("First record value escaped:", first_record_value_escaped)
-                            
-                            print(f"SQL query results for '{fieldname_value}'")
-                            print(f"{strfieldname} query: {fieldname_value}")
-                            print(f"Search time: {search_duration_chromadb:.4f} seconds")
-                            print(f"First result ID: {first_record_id}")
-                            print(f"{strfieldname}: {first_record_value}")
-                            if chromadb_collections[intentity] is not None:
-                                print(f"Distance: {results['distances'][0][0]:.4f}")
-                            print(f"{strfieldname} = '{fieldname_value_escaped}'", f"{strfieldnamenew} = '{first_record_value_escaped}'")
-                            if strfieldnamenew != strfieldname or first_record_value_escaped != fieldname_value_escaped:
-                                sql_query = sql_query.replace(f"{strfieldname} = '{fieldname_value_escaped}'", f"{strfieldnamenew} = '{first_record_value_escaped}'")
-                                print(f"Updated SQL query with actual {strfieldname}")
-                                if strfieldnamenew != strfieldname:
-                                    messages.append(TextMessage(
-                                        position=position_counter, 
-                                        text=f"Updated SQL query: replaced {strfieldname} column with {strfieldnamenew}."
-                                    ))
-                                    position_counter += 1
-                                if first_record_value_escaped != fieldname_value_escaped:
-                                    messages.append(TextMessage(
-                                        position=position_counter, 
-                                        text=f"Updated SQL query: column {strfieldnamenew} matched with entity value '{fieldname_value_escaped}' -> '{first_record_value_escaped}'."
-                                    ))
-                                    position_counter += 1
+                        continue
+
+                    raw_value = "" if value is None else str(value)
+                    if raw_value.strip() == "":
+                        continue
+
+                    search_mode = str(cfg.get("search_mode") or "embeddings").strip().lower()
+                    if search_mode == "rapidfuzz":
+                        strtablename = cfg.get("strtablename")
+                        strtableid = cfg.get("strtableid")
+                        if not strtablename or not strtableid:
+                            continue
+
+                        strcolumndesc = cfg.get("default_field")
+                        strcolumndescnorm = cfg.get("rapidfuzz_col_norm") or (f"{strcolumndesc}_NORM" if strcolumndesc else None)
+                        strcolumndesckey = cfg.get("rapidfuzz_col_key") or (f"{strcolumndesc}_KEY" if strcolumndesc else None)
+                        strcolumnpopularity = cfg.get("rapidfuzz_col_popularity") or cfg.get("order_by") or "POPULARITY"
+                        if not strcolumndesc or not strcolumndescnorm or not strcolumndesckey:
+                            continue
+
+                        try:
+                            has_fulltext = rapidfuzz_query.db_has_fulltext(cursor, strtablename, strcolumndescnorm)
+                            rapidfuzz_result = rapidfuzz_query.search_first_match(
+                                cursor,
+                                strtablename,
+                                strtableid,
+                                strcolumndesc,
+                                strcolumndescnorm,
+                                strcolumndesckey,
+                                strcolumnpopularity,
+                                raw=raw_value,
+                                has_fulltext=has_fulltext,
+                                timings_enabled=False,
+                            )
+                        except Exception:
+                            continue
+
+                        best = (rapidfuzz_result or {}).get("best")
+                        if not isinstance(best, dict):
+                            continue
+
+                        docid = best.get(strtableid)
+                        doclang = "*"
+                        if docid is None:
+                            continue
+
+                        _apply_entity_match_from_docid(
+                            cursor=cursor,
+                            key=str(key),
+                            cfg=cfg,
+                            docid=docid,
+                            doclang=doclang,
+                            message="Entity resolution: {placeholder} -> {resolved} (rapidfuzz)",
+                        )
+                        continue
+
+                    if search_mode != "embeddings":
+                        continue
+
+                    collection_name = cfg.get("collection")
+                    current_collection = CHROMADB_COLLECTIONS_BY_NAME.get(collection_name)
+                    if current_collection is None:
+                        continue
+
+                    start_time_chromadb = time.time()
+                    results = current_collection.query(query_texts=[raw_value], n_results=10)
+                    end_time_chromadb = time.time()
+                    search_duration_chromadb = end_time_chromadb - start_time_chromadb
+
+                    documents = (results.get("documents", [[]]) or [[]])[0] or []
+                    ids = (results.get("ids", [[]]) or [[]])[0] or []
+
+                    if not documents or not ids:
+                        continue
+
+                    matched_result_position = 0
+                    found_match = False
+                    try:
+                        target_value_norm = raw_value.strip().lower()
+                    except Exception:
+                        target_value_norm = ""
+
+                    for i, document in enumerate(documents):
+                        if isinstance(document, str) and document.strip().lower() == target_value_norm:
+                            matched_result_position = i
+                            found_match = True
+                            break
+                    if not found_match:
+                        for i, document in enumerate(documents):
+                            if isinstance(document, str) and document.strip().lower().startswith(target_value_norm):
+                                matched_result_position = i
+                                found_match = True
+                                break
+
+                    first_record_id = ids[matched_result_position]
+                    parts = str(first_record_id).split('_')
+                    docid = parts[1] if len(parts) > 1 else None
+                    doclang = parts[2] if len(parts) > 2 else "*"
+
+                    if docid is None:
+                        continue
+
+                    _apply_entity_match_from_docid(
+                        cursor=cursor,
+                        key=str(key),
+                        cfg=cfg,
+                        docid=docid,
+                        doclang=doclang,
+                        message=f"Entity resolution: {{placeholder}} -> {{resolved}} (lang={doclang}, {search_duration_chromadb:.4f}s)",
+                    )
     embeddings_end_time = time.time()
     embeddings_processing_time = embeddings_end_time - embeddings_start_time
     
@@ -1261,7 +1350,7 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
                 connection.commit()
                 cursor2.close()
         
-        if request.store_to_cache and not cached_anonymized_question_embedding and input_text_anonymized:
+        if USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE and request.store_to_cache and not cached_anonymized_question_embedding and input_text_anonymized:
             messages.append(TextMessage(
                 position=position_counter, 
                 text="Checking if anonymized question exists in embeddings cache before storing."
