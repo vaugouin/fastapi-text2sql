@@ -14,5 +14,7 @@ python-dotenv>=1.0.0
 # LangChain components (used for prompts)
 langchain-core>=0.0.266
 langchain-openai
+langchain-anthropic
+google-generativeai
 
 chromadb>=0.4.0

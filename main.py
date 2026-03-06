@@ -56,112 +56,6 @@ API_PORT_GREEN = int(os.getenv('API_PORT_GREEN', 8001))
 #intcleanupenabled = False
 intcleanupenabled = True
 
-# Set your OpenAI API key from environment variable
-openai.api_key = os.getenv("OPENAI_API_KEY")
-
-# Validate that the API key was loaded
-if not openai.api_key:
-    raise ValueError("OPENAI_API_KEY not found in environment variables. Please check your .env file.")
-
-class OpenAIEmbeddingFunction:
-    def __init__(self, model="text-embedding-3-large"):
-        self.model = model
-
-    def __call__(self, input):
-        """Generate embeddings for a list of texts using OpenAI's embedding model."""
-        response = openai.embeddings.create(
-            input=input, # Ensure parameter name matches ChromaDB's expectations
-            model=self.model
-        )
-        # Convert to numpy arrays for ChromaDB compatibility
-        embeddings = [item.embedding for item in response.data]
-        return [np.array(embedding) for embedding in embeddings]
-    
-    def embed_query(self, input):
-        """Generate embedding for a single query text - required by ChromaDB."""
-        # Handle both single string and list inputs
-        if isinstance(input, str):
-            query_input = [input]
-        else:
-            query_input = input
-            
-        response = openai.embeddings.create(
-            input=query_input,
-            model=self.model
-        )
-        # Return as a list of numpy arrays (same format as __call__ method)
-        embeddings = [item.embedding for item in response.data]
-        return [np.array(embedding) for embedding in embeddings]
-    
-    def name(self):
-        """Return the name of the embedding function for ChromaDB compatibility."""
-        return f"openai_{self.model.replace('-', '_')}"
-
-# Initialize ChromaDB with persistent storage
-chroma_client = chromadb.HttpClient(host=os.getenv("CHROMADB_HOST", "localhost"), port=os.getenv("CHROMADB_PORT", 8000))
-
-# Initialize ChromaDB with OpenAI's embedding function
-embedding_function = OpenAIEmbeddingFunction(model="text-embedding-3-large")
-
-print("ChromaDB initialized with a text-embedding-3-large model.")
-
-# Create or load a collection with the custom embedding function
-strentitycollection = "topics"
-topics = chroma_client.get_or_create_collection(
-    name=strentitycollection,
-    embedding_function=embedding_function  # Custom embedding model
-)
-strentitycollection = "movies"
-movies = chroma_client.get_or_create_collection(
-    name=strentitycollection,
-    embedding_function=embedding_function  # Custom embedding model
-)
-strentitycollection = "series"
-series = chroma_client.get_or_create_collection(
-    name=strentitycollection,
-    embedding_function=embedding_function  # Custom embedding model
-)
-strentitycollection = "persons"
-persons = chroma_client.get_or_create_collection(
-    name=strentitycollection,
-    embedding_function=embedding_function  # Custom embedding model
-)
-strentitycollection = "companies"
-companies = chroma_client.get_or_create_collection(
-    name=strentitycollection,
-    embedding_function=embedding_function  # Custom embedding model
-)
-strentitycollection = "networks"
-networks = chroma_client.get_or_create_collection(
-    name=strentitycollection,
-    embedding_function=embedding_function  # Custom embedding model
-)
-strentitycollection = "characters"
-characters = chroma_client.get_or_create_collection(
-    name=strentitycollection,
-    embedding_function=embedding_function  # Custom embedding model
-)
-strentitycollection = "groups"
-groups = chroma_client.get_or_create_collection(
-    name=strentitycollection,
-    embedding_function=embedding_function  # Custom embedding model
-)
-strentitycollection = "locations"
-locations = chroma_client.get_or_create_collection(
-    name=strentitycollection,
-    embedding_function=embedding_function  # Custom embedding model
-)
-
-CHROMADB_COLLECTIONS_BY_NAME = {
-    "persons": persons,
-    "movies": movies,
-    "series": series,
-    "companies": companies,
-    "networks": networks,
-    "topics": topics,
-    "locations": locations,
-}
-
 ENTITY_RESOLUTION_CONFIG = [
     {
         "search_mode": "rapidfuzz",
@@ -224,19 +118,74 @@ ENTITY_RESOLUTION_CONFIG = [
         "collection": "topics",
         "default_field": "TOPIC_NAME",
         "order_by": None,
-        "languages": {"*": "TOPIC_NAME"},
+        "languages": {"en": "TOPIC_NAME", "fr": "TOPIC_NAME_FR", "*": "TOPIC_NAME"},
     },
     {
         "search_mode": "embeddings",
-        "placeholder_prefix": "Item_name",
-        "strtablename": "T_WC_WIKIDATA_ITEM",
+        "placeholder_prefix": "Location_name",
+        "strtablename": "T_WC_T2S_ITEM",
         "strtableid": "ID_WIKIDATA",
         "collection": "locations",
-        "default_field": "ITEM_NAME",
+        "default_field": "ITEM_LABEL",
         "order_by": None,
-        "languages": {"*": "ID_ITEM"},
+        "languages": {"en": "ITEM_LABEL", "fr": "ITEM_LABEL_FR", "*": "ITEM_LABEL"},
     },
 ]
+
+# Set your OpenAI API key from environment variable
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# Validate that the API key was loaded
+if not openai.api_key:
+    raise ValueError("OPENAI_API_KEY not found in environment variables. Please check your .env file.")
+
+class OpenAIEmbeddingFunction:
+    def __init__(self, model="text-embedding-3-large"):
+        self.model = model
+
+    def __call__(self, input):
+        """Generate embeddings for a list of texts using OpenAI's embedding model."""
+        response = openai.embeddings.create(
+            input=input, # Ensure parameter name matches ChromaDB's expectations
+            model=self.model
+        )
+        # Convert to numpy arrays for ChromaDB compatibility
+        embeddings = [item.embedding for item in response.data]
+        return [np.array(embedding) for embedding in embeddings]
+    
+    def embed_query(self, input):
+        """Generate embedding for a single query text - required by ChromaDB."""
+        # Handle both single string and list inputs
+        if isinstance(input, str):
+            query_input = [input]
+        else:
+            query_input = input
+            
+        response = openai.embeddings.create(
+            input=query_input,
+            model=self.model
+        )
+        # Return as a list of numpy arrays (same format as __call__ method)
+        embeddings = [item.embedding for item in response.data]
+        return [np.array(embedding) for embedding in embeddings]
+    
+    def name(self):
+        """Return the name of the embedding function for ChromaDB compatibility."""
+        return f"openai_{self.model.replace('-', '_')}"
+
+# Initialize ChromaDB with persistent storage
+chroma_client = chromadb.HttpClient(host=os.getenv("CHROMADB_HOST", "localhost"), port=os.getenv("CHROMADB_PORT", 8000))
+
+# Initialize ChromaDB with OpenAI's embedding function
+embedding_function = OpenAIEmbeddingFunction(model="text-embedding-3-large")
+
+print("ChromaDB initialized with a text-embedding-3-large model.")
+
+# Create or load entity collections with the custom embedding function
+CHROMADB_COLLECTIONS_BY_NAME = {
+    name: chroma_client.get_or_create_collection(name=name, embedding_function=embedding_function)
+    for name in ["persons", "movies", "series", "companies", "networks", "topics", "locations", "groups", "characters"]
+}
 
 #Anonymized queries collection
 strentitycollection = "anonymizedqueries"
@@ -313,6 +262,7 @@ class Text2SQLRequest(BaseModel):
     store_to_cache: bool = True
     llm_model_entity_extraction: Optional[str] = "default"
     llm_model_text2sql: Optional[str] = "default"
+    complex_question_already_resolved: bool = False
     
     @model_validator(mode='after')
     def validate_question_or_hashed(self):
@@ -472,6 +422,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     strtext2sqlmodel = t2s.strtext2sqlmodeldefault
     if request.llm_model_text2sql and request.llm_model_text2sql != "default":
         strtext2sqlmodel = request.llm_model_text2sql
+
+    print("/search/text2sql LLM selection:")
+    print("- Entity extraction model:", strentityextractionmodel)
+    print("- Text2SQL model:", strtext2sqlmodel)
     
     # Try to retrieve user question from cache if requested
     if request.retrieve_from_cache:
@@ -602,7 +556,7 @@ LIMIT 1 """
         # High-level info
         messages.append(TextMessage(
             position=position_counter,
-            text="Processed question with entity extraction and anonymization."
+            text=f"Processed question with entity extraction and anonymization using LLM model '{strentityextractionmodel}'."
         ))
         position_counter += 1
 
@@ -625,7 +579,7 @@ LIMIT 1 """
             print("Falling back to original question without entity extraction")
             messages.append(TextMessage(
                 position=position_counter, 
-                text="Entity extraction failed; using original question without anonymization."
+                text=f"Entity extraction failed using LLM model '{strentityextractionmodel}'; using original question without anonymization."
             ))
             position_counter += 1
             input_text_anonymized = input_text  # Use original question as fallback
@@ -633,7 +587,7 @@ LIMIT 1 """
             print("Entity extraction successful and returned a dictionary:", entity_extraction)
             messages.append(TextMessage(
                 position=position_counter, 
-                text="Entity extraction successful; question anonymized."
+                text=f"Entity extraction successful using LLM model '{strentityextractionmodel}'; question anonymized."
             ))
             position_counter += 1
             input_text_anonymized = entity_extraction['question']
@@ -830,48 +784,151 @@ LIMIT 1 """
                 # If no cache hit, call Text2SQL on anonymized question
                 if not cached_anonymized_question_embedding:
                     text2sql_start_time = time.time()
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=f"Generating SQL using LLM model '{strtext2sqlmodel}'."
+                    ))
+                    position_counter += 1
                     json_content = t2s.f_text2sql(input_text_anonymized, strtext2sqlmodel)
                     if not isinstance(json_content, dict):
                         json_content = {"error": str(json_content)}
 
-            # Only use json_content when we actually executed Text2SQL (no SQL cache hit, no embeddings cache hit)
-            if not cached_anonymized_question and not cached_anonymized_question_embedding:
-                print("JSON content:", json_content)
-                sql_query = json_content['sql_query']
-                # if rightmost character is ;, remove it
-                if sql_query.endswith(';'):
-                    sql_query = sql_query[:-1]
-                sql_query_anonymized = sql_query
-                justification = json_content['justification']
-                justification_anonymized = justification
-                error_text2sql = json_content['error']
-                text2sql_end_time = time.time()
-                text2sql_processing_time = text2sql_end_time - text2sql_start_time
-                messages.append(TextMessage(
-                    position=position_counter, 
-                    text="Generated new SQL query from anonymized question using Text2SQL LLM."
-                ))
-                position_counter += 1
-                messages.append(TextMessage(
-                    position=position_counter, 
-                    text="SQL query: " + sql_query
-                ))
-                position_counter += 1
-                messages.append(TextMessage(
-                    position=position_counter, 
-                    text="Justification: " + justification
-                ))
-                position_counter += 1
-                messages.append(TextMessage(
-                    position=position_counter, 
-                    text="Error: " + error_text2sql
-                ))
-                position_counter += 1
+                    # Only use json_content when we actually executed Text2SQL (no SQL cache hit, no embeddings cache hit)
+                    if not cached_anonymized_question and not cached_anonymized_question_embedding:
+                        print("JSON content:", json_content)
+                        if 'sql_query' not in json_content:
+                            ambiguous_question_for_text2sql = 1
+                            sql_query = ""
+                            sql_query_anonymized = ""
+                            justification = json_content.get('justification', '')
+                            justification_anonymized = justification
+                            error_text2sql = json_content.get('error', 'Text2SQL failed to return sql_query')
+                            messages.append(TextMessage(
+                                position=position_counter,
+                                text=f"Text2SQL failed using LLM model '{strtext2sqlmodel}': {error_text2sql}"
+                            ))
+                            position_counter += 1
+                        else:
+                            sql_query = json_content.get('sql_query', '')
+                            if sql_query.endswith(';'):
+                                sql_query = sql_query[:-1]
+                            sql_query_anonymized = sql_query
+                            justification = json_content.get('justification', '')
+                            justification_anonymized = justification
+                            error_text2sql = json_content.get('error', '')
+
+                        text2sql_end_time = time.time()
+                        text2sql_processing_time = text2sql_end_time - text2sql_start_time
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"Generated SQL query: {sql_query_anonymized.replace('"', '\\"')}"
+                        ))
+                        position_counter += 1
+                        messages.append(TextMessage(
+                            position=position_counter, 
+                            text="Justification: " + justification
+                        ))
+                        position_counter += 1
+                        messages.append(TextMessage(
+                            position=position_counter, 
+                            text="Error: " + error_text2sql
+                        ))
+                        position_counter += 1
     sql_query_llm = sql_query
     # if the error element is found in json content
     if error_text2sql!="" and error_text2sql!=None:
         print("Problem detected so the Text-to-SQL cannot produce a SQL query")
         print("Error: ", error_text2sql)
+
+        # One-time retry: try resolving the original (non-anonymized) question into a simpler one
+        # using a reasoning model, then rerun the whole pipeline from the beginning.
+        try:
+            can_retry = (
+                bool(request.question)
+                and not getattr(request, "complex_question_already_resolved", False)
+                and "original_question" in locals()
+                and isinstance(original_question, str)
+                and original_question.strip() != ""
+            )
+        except Exception:
+            can_retry = False
+
+        if can_retry:
+            messages.append(TextMessage(
+                position=position_counter,
+                text="Attempting to simplify the original question using the reasoning model (one-time retry)."
+            ))
+            position_counter += 1
+
+            resolved_complex = t2s.f_resolve_complex_question(original_question)
+            try:
+                resolved_complex_json = json.dumps(resolved_complex, ensure_ascii=False)
+            except Exception:
+                resolved_complex_json = str(resolved_complex)
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Complex question resolution output: {resolved_complex_json.replace('"', '\\"')}"
+            ))
+            position_counter += 1
+
+            if isinstance(resolved_complex, dict) and not resolved_complex.get("error"):
+                simplified_question = str(resolved_complex.get("question") or "").strip()
+                if simplified_question != "":
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text="Text2SQL error detected; attempting one-time retry with simplified question from reasoning model."
+                    ))
+                    position_counter += 1
+
+                    # Close the current DB connection before restarting the pipeline to avoid leaks.
+                    try:
+                        connection.close()
+                    except Exception:
+                        pass
+
+                    retry_request = request.model_copy(deep=True)
+                    retry_request.question = simplified_question
+                    retry_request.question_hashed = None
+                    retry_request.complex_question_already_resolved = True
+
+                    retry_response = await search_text2sql(retry_request, api_key)
+
+                    # Merge messages from the retry call into the current messages collection
+                    # to provide a single coherent trace.
+                    merged_messages = []
+                    pos = 1
+                    for m in (messages or []):
+                        merged_messages.append(TextMessage(position=pos, text=m.text))
+                        pos += 1
+                    for m in (getattr(retry_response, "messages", None) or []):
+                        merged_messages.append(TextMessage(position=pos, text=m.text))
+                        pos += 1
+
+                    try:
+                        retry_response.messages = merged_messages
+                    except Exception:
+                        pass
+
+                    return retry_response
+                else:
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text="Complex question resolution did not return a simplified question; skipping retry."
+                    ))
+                    position_counter += 1
+            else:
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text="Complex question resolution returned an error; skipping retry."
+                ))
+                position_counter += 1
+        else:
+            messages.append(TextMessage(
+                position=position_counter,
+                text="Complex question retry conditions not met (already resolved, missing original question, or no question provided); skipping retry."
+            ))
+            position_counter += 1
+
         ambiguous_question_for_text2sql = 1
         messages.append(TextMessage(
             position=position_counter, 
@@ -888,9 +945,9 @@ LIMIT 1 """
             position_counter += 1
     
     embeddings_start_time = time.time()
-    if not cached_exact_question and not ambiguous_question_for_text2sql:
-        # Now we compute embeddings for the SQL query 
-        print("Computing embeddings for the SQL query")
+    if not cached_exact_question and (not ambiguous_question_for_text2sql or justification):
+        # Compute embeddings for entity resolution in the SQL query and/or justification
+        print("Computing embeddings for entity resolution")
         messages.append(TextMessage(
             position=position_counter, 
             text="Processing entity values using embeddings for entity matching."
@@ -932,6 +989,16 @@ LIMIT 1 """
             cursor.execute(strsql_query, (docid,))
             sql_query_results = cursor.fetchall()
             if not sql_query_results:
+                placeholder = "{{" + str(key) + "}}"
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=(
+                        f"Entity resolution: embeddings returned docid={docid} (lang={doclang}) for {placeholder}, "
+                        f"but no row exists in table {strtablename}.{strtableid}. "
+                        "Embeddings collection may be out of sync with the underlying table."
+                    )
+                ))
+                position_counter += 1
                 return False
             first_record = sql_query_results[0]
 
@@ -952,6 +1019,22 @@ LIMIT 1 """
             sql_query = re.sub(
                 rf"\b{re.escape(target_col)}\b\s*=\s*{re.escape(placeholder)}",
                 f"{strfieldnamenew} = '{first_record_value_sql}'",
+                sql_query,
+                flags=re.IGNORECASE,
+            )
+
+            # Also replace placeholder tokens wherever they appear (e.g. IN (...) lists).
+            # - If the placeholder is already quoted, keep it quoted.
+            # - If it's unquoted, inject quotes to keep SQL valid for string placeholders.
+            sql_query = re.sub(
+                rf"'{re.escape(placeholder)}'",
+                f"'{first_record_value_sql}'",
+                sql_query,
+                flags=re.IGNORECASE,
+            )
+            sql_query = re.sub(
+                rf"{re.escape(placeholder)}",
+                f"'{first_record_value_sql}'",
                 sql_query,
                 flags=re.IGNORECASE,
             )
@@ -1028,6 +1111,9 @@ LIMIT 1 """
                     if raw_value.strip() == "":
                         continue
 
+                    placeholder = "{{" + str(key) + "}}"
+                    raw_value_sql = _sql_escape_literal(raw_value)
+
                     search_mode = str(cfg.get("search_mode") or "embeddings").strip().lower()
                     if search_mode == "rapidfuzz":
                         strtablename = cfg.get("strtablename")
@@ -1076,6 +1162,15 @@ LIMIT 1 """
                             doclang=doclang,
                             message="Entity resolution: {placeholder} -> {resolved} (rapidfuzz)",
                         )
+                        # If rapidfuzz resolution didn't replace the placeholder, fall back to raw substitution.
+                        if placeholder in sql_query or placeholder in justification:
+                            sql_query = sql_query.replace(placeholder, raw_value_sql)
+                            justification = justification.replace(placeholder, raw_value)
+                            messages.append(TextMessage(
+                                position=position_counter,
+                                text=f"Entity resolution: {placeholder} -> {raw_value} (raw fallback after rapidfuzz)"
+                            ))
+                            position_counter += 1
                         continue
 
                     if search_mode != "embeddings":
@@ -1084,6 +1179,14 @@ LIMIT 1 """
                     collection_name = cfg.get("collection")
                     current_collection = CHROMADB_COLLECTIONS_BY_NAME.get(collection_name)
                     if current_collection is None:
+                        if placeholder in sql_query or placeholder in justification:
+                            sql_query = sql_query.replace(placeholder, raw_value_sql)
+                            justification = justification.replace(placeholder, raw_value)
+                            messages.append(TextMessage(
+                                position=position_counter,
+                                text=f"Entity resolution: {placeholder} -> {raw_value} (raw fallback; embeddings collection unavailable)"
+                            ))
+                            position_counter += 1
                         continue
 
                     start_time_chromadb = time.time()
@@ -1095,6 +1198,14 @@ LIMIT 1 """
                     ids = (results.get("ids", [[]]) or [[]])[0] or []
 
                     if not documents or not ids:
+                        if placeholder in sql_query or placeholder in justification:
+                            sql_query = sql_query.replace(placeholder, raw_value_sql)
+                            justification = justification.replace(placeholder, raw_value)
+                            messages.append(TextMessage(
+                                position=position_counter,
+                                text=f"Entity resolution: {placeholder} -> {raw_value} (raw fallback; no embeddings match)"
+                            ))
+                            position_counter += 1
                         continue
 
                     matched_result_position = 0
@@ -1122,6 +1233,14 @@ LIMIT 1 """
                     doclang = parts[2] if len(parts) > 2 else "*"
 
                     if docid is None:
+                        if placeholder in sql_query or placeholder in justification:
+                            sql_query = sql_query.replace(placeholder, raw_value_sql)
+                            justification = justification.replace(placeholder, raw_value)
+                            messages.append(TextMessage(
+                                position=position_counter,
+                                text=f"Entity resolution: {placeholder} -> {raw_value} (raw fallback; invalid embeddings docid)"
+                            ))
+                            position_counter += 1
                         continue
 
                     _apply_entity_match_from_docid(
@@ -1132,6 +1251,30 @@ LIMIT 1 """
                         doclang=doclang,
                         message=f"Entity resolution: {{placeholder}} -> {{resolved}} (lang={doclang}, {search_duration_chromadb:.4f}s)",
                     )
+
+                    # If embeddings resolution didn't replace the placeholder, fall back to raw substitution.
+                    if placeholder in sql_query or placeholder in justification:
+                        sql_query = sql_query.replace(placeholder, raw_value_sql)
+                        justification = justification.replace(placeholder, raw_value)
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"Entity resolution: {placeholder} -> {raw_value} (raw fallback after embeddings)"
+                        ))
+                        position_counter += 1
+
+        # Safety: the SQL query must be fully de-anonymized (no {{...}} placeholders) before execution.
+        # If placeholders remain, skip execution to avoid running a broken query.
+        unresolved_placeholders = re.findall(r"{{[^}]+}}", sql_query or "")
+        if unresolved_placeholders:
+            ambiguous_question_for_text2sql = 1
+            unresolved_preview = ", ".join(unresolved_placeholders[:10])
+            if len(unresolved_placeholders) > 10:
+                unresolved_preview += ", ..."
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Unresolved placeholders remain in SQL after entity resolution: {unresolved_preview}"
+            ))
+            position_counter += 1
     embeddings_end_time = time.time()
     embeddings_processing_time = embeddings_end_time - embeddings_start_time
     
@@ -1393,11 +1536,6 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
                 print(f"Anonymized question added to embeddings cache with entity variables: {entity_vars_for_metadata}")
     
     connection.close()
-    messages.append(TextMessage(
-        position=position_counter, 
-        text="Database connection closed."
-    ))
-    position_counter += 1
     
     # Generate question hash if we have a question and no hash was provided
     response_question_hash = request.question_hashed

@@ -20,6 +20,27 @@ Never include a semicolon at the end of the SQL query.
 
 ---
 
+## ? Placeholders / Anonymization
+
+The input question may contain anonymized placeholders in double curly braces, for example: {{Movie_title1}}, {{Person_name1}}, {{IMDb_ID1}}.
+These placeholders represent real entity values that were intentionally replaced earlier.
+
+Rules:
+- Do NOT ask the user to provide the real values behind placeholders.
+- Generate the SQL query using placeholders AS-IS, and preserve them exactly (including braces and numbering).
+- When comparing against a placeholder in SQL, treat it as a string literal, for example: T_WC_T2S_MOVIE.MOVIE_TITLE = '{{Movie_title1}}'
+- The placeholders will be substituted with real values AFTER you generate the SQL.
+
+Example:
+Question:
+Which actor is playing in both movies:
+- {{Movie_title1}}
+- {{Movie_title2}}
+
+You MUST still generate SQL, using '{{Movie_title1}}' and '{{Movie_title2}}' in the query, and must not claim the movie titles are missing.
+
+---
+
 ## ? Schema (Read-Only)
 
 ### Movies
@@ -247,7 +268,8 @@ CREATE TABLE T_WC_T2S_MOVIE_TECHNICAL (
 CREATE TABLE T_WC_T2S_MOVIE_TOPIC (
   ID_ROW INT NOT NULL,
   ID_MOVIE INT NOT NULL,
-  ID_TOPIC INT NOT NULL
+  ID_TOPIC INT NOT NULL,
+
 );
 
 CREATE TABLE T_WC_T2S_SERIE_TOPIC (
@@ -307,35 +329,44 @@ Topics can also include thematic collections, movies about a specific topic, or 
 When a question is about a topic, always display content (movies and/or series) related to this topic in the search result. Do not display a list of topics. 
 
 #### Topic type: TOPIC_TYPE
-TOPIC_TYPE must be one of: `collection`, `list`, `keyword`
-`collection` should only be used for true movie sequels.
-As a general rule, a sequel is a film which centers around the same main characters and continues the story of an earlier film. 
-The protagonists evolve and are aware of the events that happened in the earlier films.
-`list` is a more lapse ensemble of movies and can be used to group movies with different characters but in a common theme developed by the authors.
-For instance, a trilogy of movies can either be a `collection` or a `list`.
-`keyword` allows grouping of movies on themes that or topics comes in addition of movie genres.
+TOPIC_TYPE must be one of: `collection`, `keyword`
+`collection` groups movies that belong together as a saga: typically true sequels centered around the same 
+main characters and continuing an earlier story (the protagonists evolve and are aware of earlier events), 
+but it can also be used for a tighter ensemble such as some trilogies or a creative ensemble by a same director.
+`keyword` allows grouping of movies on themes or topics that comes in addition of movie genres.
+When looking for a trilogy, explicitely search for collections with exactly three elements.
 
 CREATE TABLE T_WC_T2S_TOPIC (
   ID_TOPIC INT NOT NULL,
   TOPIC_NAME VARCHAR(250),
   TOPIC_TYPE VARCHAR(20),
+  TOPIC_SOURCE VARCHAR(20),
   LANG VARCHAR(2),
   ID_RECORD INT,
-  POSTER_PATH VARCHAR(200)
+  POSTER_PATH VARCHAR(200),
+  IMDB_RATING DOUBLE,
+  IMDB_RATING_ADJUSTED DOUBLE
 );
 
 ### Locations
 Narrative locations apply to movies and series.
-If a question is about a narrative location, ID_PROPERTY must be equal to 'P840'.
+If a question is about a narrative location, ID_PROPERTY must be equal to 'P840' and the narrative location can be found in the ITEM_LABEL column.
 Filming locations apply to movies and series.
-If a question is about a filming location, ID_PROPERTY must be equal to 'P915'.
+If a question is about a filming location, ID_PROPERTY must be equal to 'P915' and the filming location can be found in the ITEM_LABEL column.
 
 CREATE TABLE T_WC_WIKIDATA_ITEM_PROPERTY (
   ID_ROW INT NOT NULL,
   ID_WIKIDATA VARCHAR(50) NOT NULL,
   ID_PROPERTY VARCHAR(50) NOT NULL,
-  ID_ITEM VARCHAR(50) DEFAULT NULL,
-  ITEM_NAME VARCHAR(250) DEFAULT NULL
+  ID_ITEM VARCHAR(50) DEFAULT NULL
+);
+
+CREATE TABLE T_WC_T2S_ITEM (
+  ID_WIKIDATA VARCHAR(50) NOT NULL,
+  ITEM_LABEL VARCHAR(250) DEFAULT NULL,
+  DESCRIPTION MEDIUMTEXT DEFAULT NULL,
+  INSTANCE_OF VARCHAR(50) DEFAULT NULL,
+  WIKIPEDIA_IMAGE_PATH VARCHAR(200) DEFAULT NULL
 );
 
 ### Images about entities
@@ -460,7 +491,7 @@ CREATE TABLE T_WC_TMDB_SERIE_VIDEO (
 - MOVIE_TITLE is the main title of the movie. Always use this field to search for a movie by its title 
 - SERIE_TITLE is the main title of the tv serie. Always use this field to search for a serie by its title 
 - PERSON_NAME is the name of the person. Always use this field to search for a person by her/his name
-- ITEM_NAME is the name of the item, for instance a location. Always use this field to search for an item by its name
+- ITEM_LABEL is the name of the item, for instance a location. Always use this field to search for an item by its name
 - DAT_RELEASE is the release date of the movie which is also expressed in the RELEASE_YEAR, RELEASE_MONTH and RELEASE_DAY fields
 - When the user writes a pattern like: <movie_title> (<year_released>)
   This means the user is searching for a movie by its title and is providing a release year to disambiguate.
@@ -472,6 +503,7 @@ CREATE TABLE T_WC_TMDB_SERIE_VIDEO (
   Example:
   Input: The Exorcist (1973)
   SQL: ... WHERE T_WC_T2S_MOVIE.RELEASE_YEAR BETWEEN 1972 AND 1974
+- If the question contains only a template placeholder, for instance '{{Movie_title1}}' without an actual movie title or question, search for this content in the corresponding column of the table related to this placeholder
 - ORIGINAL_LANGUAGE, SPOKEN_LANGUAGE and LANG is a lower case 2-letters language code telling the spoken language in a movie or serie
 - RUNTIME is the movie duration in minutes 
 - IS_SHORT_FILM is a boolean value telling if the movie is a short film (court métrage), so with a duration below 58 minutes. In this case IS_SHORT_FILM = 1. In the contrary, it is a feature film (film de long métrage). In this case IS_SHORT_FILM = 0.
@@ -489,11 +521,11 @@ CREATE TABLE T_WC_TMDB_SERIE_VIDEO (
 - ID_MOVIE is the TMDb ID field for a movie (The Movie Database)
 - ID_SERIE is the TMDb ID field for a TV serie (The Movie Database)
 - ID_IMDB format: IMDb identifier for the record:
-  Movies / TV series: starts with tt followed by 7–9 digits (example: tt0038355)
-  People: starts with nm followed by 7–9 digits (example: nm0000007)
+  Movies / TV series: starts with tt followed by 7–9 digits (example: tt0038355 or the {{IMDb_ID1}} placeholder)
+  People: starts with nm followed by 7–9 digits (example: nm0000007 or the {{IMDb_person_ID1}} placeholder)
 - IMDB_RATING is the IMDb rating of the movie or serie
 - ID_WIKIDATA is the Wikidata ID of the movie, serie or person: starts with Q followed by digits
-- OVERVIEW is the overview of the movie or serie
+- OVERVIEW is the overview of the movie or serie but this field must never be used for search purposes. You should rather search a topic or a plot
 - POSTER_PATH is the poster path of the movie or serie
 - POPULARITY is the popularity of the movie, serie or person
 - PLOT is the Wikipedia detailed story summary 
@@ -509,6 +541,8 @@ CREATE TABLE T_WC_TMDB_SERIE_VIDEO (
 - The CAST_CHARACTER column is for the name of the character played by the person in a movie or a serie.
 - If a question asks for a movie or tv serie by providing several persons as cast or crew, all the persons must be included in the movie credits
 - If a question asks for a person by providing several movies or series as cast or crew, all the movies or series must be included in the person credits
+- When searching for a content (movie or serie) **by** a specific person, make sure to search the person as a crew member
+- When searching for a content (movie or serie) **with** a specific person, make sure to search the person as a cast member
 
 ### Technical Reference for movies ID_TECHNICAL
 Technical specifications use the T_WC_T2S_MOVIE_TECHNICAL table with ID_TECHNICAL values:
@@ -545,13 +579,16 @@ ID_MOVIE AS ID_CONTENT, 'movie' AS CONTENT_TYPE, MOVIE_TITLE AS CONTENT_TITLE, D
 ID_SERIE AS ID_CONTENT, 'serie' AS CONTENT_TYPE, SERIE_TITLE AS CONTENT_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, POSTER_PATH
 
 #### Topics – return:
-ID_TOPIC, TOPIC_NAME, TOPIC_TYPE, LANG, ID_RECORD, POSTER_PATH
+ID_TOPIC, TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG, ID_RECORD, POSTER_PATH
 
 #### Companies – return:
 ID_COMPANY, COMPANY_NAME, LOGO_PATH
 
 #### Networks – return:
 ID_NETWORK, NETWORK_NAME, LOGO_PATH
+
+#### Locations – return:
+ID_WIKIDATA, ID_PROPERTY, ITEM_LABEL, WIKIPEDIA_IMAGE_PATH
 
 #### Movie images - return:
 IMAGE_PATH, TYPE_IMAGE, VOTE_AVERAGE, ID_MOVIE
@@ -605,10 +642,11 @@ ORDER BY CASE WHEN T_WC_T2S_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END, T_WC
 - When display movies for a given topic, ORDER BY T_WC_T2S_MOVIE_TOPIC.DISPLAY_ORDER ASC
 - When display series for a given topic, ORDER BY T_WC_T2S_SERIE_TOPIC.DISPLAY_ORDER ASC
 - Persons → POPULARITY DESC
-- When display persons for a given movie, ORDER BY T_WC_T2S_PERSON_MOVIE.DISPLAY_ORDER ASC
-- When display persons for a given serie, ORDER BY T_WC_T2S_PERSON_SERIE.DISPLAY_ORDER ASC
+- When display persons for a given movie (cast or crew), ORDER BY T_WC_T2S_PERSON_MOVIE.DISPLAY_ORDER ASC
+- When display persons for a given serie (cast or crew), ORDER BY T_WC_T2S_PERSON_SERIE.DISPLAY_ORDER ASC
 - Companies → ID_COMPANY ASC
 - Networks → ID_NETWORK ASC
+- Topics → IMDB_RATING_ADJUSTED DESC
 - Movie images → ORDER BY VOTE_AVERAGE DESC
 - Serie images → ORDER BY VOTE_AVERAGE DESC
 - Company images → ORDER BY VOTE_AVERAGE DESC
@@ -659,6 +697,8 @@ ORDER BY CASE WHEN T_WC_T2S_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END, T_WC
 - T_WC_TMDB_SERIE_VIDEO.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE
 - T_WC_T2S_MOVIE.ID_WIKIDATA = T_WC_WIKIDATA_ITEM_PROPERTY.ID_WIKIDATA
 - T_WC_T2S_SERIE.ID_WIKIDATA = T_WC_WIKIDATA_ITEM_PROPERTY.ID_WIKIDATA
+- T_WC_T2S_PERSON.ID_WIKIDATA = T_WC_WIKIDATA_ITEM_PROPERTY.ID_WIKIDATA
+- T_WC_WIKIDATA_ITEM_PROPERTY.ID_ITEM = T_WC_T2S_ITEM.ID_WIKIDATA
 
 ---
 
