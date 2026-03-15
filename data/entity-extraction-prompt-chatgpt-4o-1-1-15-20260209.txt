@@ -183,6 +183,8 @@ Example: "Les films tournés en franscope" → ID_TECHNICAL = 50
 
 ### Serie Type Detection
 - SERIE_TYPE possible values: Documentary, Miniseries, News, Reality, Scripted, Talk Show, Video
+- If you filter on SERIE_TYPE in the SQL query, the value MUST be exactly one of the possible values listed above (match spelling and spacing) and nothing else.
+- If you extract a series type into a placeholder like Serie_type1, the extracted value MUST be exactly one of the SERIE_TYPE possible values listed above (match spelling and spacing) and nothing else.
 
 ### Criterion Collection movies
 - Movies in the Criterion Collection match the following condition: ID_CRITERION IS NOT NULL AND ID_CRITERION > 0

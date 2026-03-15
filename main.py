@@ -56,81 +56,30 @@ API_PORT_GREEN = int(os.getenv('API_PORT_GREEN', 8001))
 #intcleanupenabled = False
 intcleanupenabled = True
 
-ENTITY_RESOLUTION_CONFIG = [
-    {
-        "search_mode": "rapidfuzz",
-        "placeholder_prefix": "Person_name",
-        "strtablename": "T_WC_T2S_PERSON",
-        "strtableid": "ID_PERSON",
-        "collection": "persons",
-        "default_field": "PERSON_NAME",
-        "order_by": "POPULARITY",
-        "languages": {"*": "PERSON_NAME"},
-        "rapidfuzz_col_norm": "PERSON_NAME_NORM",
-        "rapidfuzz_col_key": "PERSON_NAME_KEY",
-        "rapidfuzz_col_popularity": "POPULARITY",
-    },
-    {
-        "search_mode": "embeddings",
-        "placeholder_prefix": "Movie_title",
-        "strtablename": "T_WC_T2S_MOVIE",
-        "strtableid": "ID_MOVIE",
-        "collection": "movies",
-        "default_field": "MOVIE_TITLE",
-        "order_by": "POPULARITY",
-        "languages": {"en": "MOVIE_TITLE", "fr": "MOVIE_TITLE_FR", "*": "ORIGINAL_TITLE"},
-    },
-    {
-        "search_mode": "embeddings",
-        "placeholder_prefix": "Serie_title",
-        "strtablename": "T_WC_T2S_SERIE",
-        "strtableid": "ID_SERIE",
-        "collection": "series",
-        "default_field": "SERIE_TITLE",
-        "order_by": "POPULARITY",
-        "languages": {"en": "SERIE_TITLE", "fr": "SERIE_TITLE_FR", "*": "ORIGINAL_TITLE"},
-    },
-    {
-        "search_mode": "embeddings",
-        "placeholder_prefix": "Company_name",
-        "strtablename": "T_WC_T2S_COMPANY",
-        "strtableid": "ID_COMPANY",
-        "collection": "companies",
-        "default_field": "COMPANY_NAME",
-        "order_by": None,
-        "languages": {"*": "COMPANY_NAME"},
-    },
-    {
-        "search_mode": "embeddings",
-        "placeholder_prefix": "Network_name",
-        "strtablename": "T_WC_T2S_NETWORK",
-        "strtableid": "ID_NETWORK",
-        "collection": "networks",
-        "default_field": "NETWORK_NAME",
-        "order_by": None,
-        "languages": {"*": "NETWORK_NAME"},
-    },
-    {
-        "search_mode": "embeddings",
-        "placeholder_prefix": "Topic_name",
-        "strtablename": "T_WC_T2S_TOPIC",
-        "strtableid": "ID_TOPIC",
-        "collection": "topics",
-        "default_field": "TOPIC_NAME",
-        "order_by": None,
-        "languages": {"en": "TOPIC_NAME", "fr": "TOPIC_NAME_FR", "*": "TOPIC_NAME"},
-    },
-    {
-        "search_mode": "embeddings",
-        "placeholder_prefix": "Location_name",
-        "strtablename": "T_WC_T2S_ITEM",
-        "strtableid": "ID_WIKIDATA",
-        "collection": "locations",
-        "default_field": "ITEM_LABEL",
-        "order_by": None,
-        "languages": {"en": "ITEM_LABEL", "fr": "ITEM_LABEL_FR", "*": "ITEM_LABEL"},
-    },
-]
+ENTITY_RESOLUTION_CONFIG_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "data",
+    "entity_resolution_config-1-1-15-20260315.json",
+)
+
+
+def load_entity_resolution_config() -> list[dict]:
+    with open(ENTITY_RESOLUTION_CONFIG_PATH, "r", encoding="utf-8") as config_file:
+        config = json.load(config_file)
+
+    if not isinstance(config, list):
+        raise ValueError("ENTITY_RESOLUTION_CONFIG must be a list of objects.")
+
+    for config_item in config:
+        if not isinstance(config_item, dict):
+            raise ValueError("Each entity resolution config entry must be an object.")
+        if not isinstance(config_item.get("search_list"), list):
+            raise ValueError("Each entity resolution config entry must contain a search_list array.")
+
+    return config
+
+
+ENTITY_RESOLUTION_CONFIG = load_entity_resolution_config()
 
 # Set your OpenAI API key from environment variable
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -834,6 +783,76 @@ LIMIT 1 """
                             text="Error: " + error_text2sql
                         ))
                         position_counter += 1
+    def _build_retry_question_from_reasoning(resolved: dict) -> str:
+        try:
+            if not isinstance(resolved, dict):
+                return ""
+            items = resolved.get("items")
+            base_q = str(resolved.get("question") or "").strip()
+            if not isinstance(items, list) or len(items) == 0:
+                return base_q
+
+            cleaned_items = []
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                v = str(it.get("value") or "").strip()
+                if v == "":
+                    continue
+                y = str(it.get("year") or "").strip()
+                if re.fullmatch(r"\d{4}", y or ""):
+                    v = f"{v} ({y})"
+                t = str(it.get("type") or "").strip().lower()
+                cleaned_items.append({"type": t, "value": v, "year": y})
+
+            if len(cleaned_items) == 0:
+                return base_q
+
+            if len(cleaned_items) == 1 and base_q == "":
+                it0 = cleaned_items[0]
+                t0 = it0.get("type")
+                v0 = it0.get("value")
+                y0 = it0.get("year")
+                if t0 == "movie":
+                    if re.fullmatch(r"\d{4}", y0 or ""):
+                        return f"Movie {v0} released in {y0}"
+                    return f"Movie {v0}"
+                if t0 == "person":
+                    if re.fullmatch(r"\d{4}", y0 or ""):
+                        return f"Person {v0} born in {y0}"
+                    return f"Person {v0}"
+                return v0
+
+            if len(cleaned_items) >= 2:
+                types = [c.get("type") for c in cleaned_items]
+                t0 = types[0] if types else ""
+                same_type = all(t == t0 for t in types)
+                prefix = "Items"
+                if same_type:
+                    if t0 == "movie":
+                        prefix = "Movies"
+                    elif t0 == "person":
+                        prefix = "Persons"
+                    elif t0 == "topic":
+                        prefix = "Topics"
+                    elif t0 == "company":
+                        prefix = "Companies"
+                    elif t0 == "network":
+                        prefix = "Networks"
+                    elif t0 == "location":
+                        prefix = "Locations"
+                    elif t0:
+                        prefix = f"{t0.capitalize()}s"
+                values = [c.get("value") for c in cleaned_items if c.get("value")]
+                if values:
+                    return f"{prefix} " + ", ".join(values)
+            return base_q
+        except Exception:
+            try:
+                return str(resolved.get("question") or "").strip()
+            except Exception:
+                return ""
+
     sql_query_llm = sql_query
     # if the error element is found in json content
     if error_text2sql!="" and error_text2sql!=None:
@@ -872,8 +891,8 @@ LIMIT 1 """
             position_counter += 1
 
             if isinstance(resolved_complex, dict) and not resolved_complex.get("error"):
-                simplified_question = str(resolved_complex.get("question") or "").strip()
-                if simplified_question != "":
+                retry_question = _build_retry_question_from_reasoning(resolved_complex)
+                if retry_question != "":
                     messages.append(TextMessage(
                         position=position_counter,
                         text="Text2SQL error detected; attempting one-time retry with simplified question from reasoning model."
@@ -887,11 +906,23 @@ LIMIT 1 """
                         pass
 
                     retry_request = request.model_copy(deep=True)
-                    retry_request.question = simplified_question
+                    retry_request.question = retry_question
                     retry_request.question_hashed = None
                     retry_request.complex_question_already_resolved = True
 
                     retry_response = await search_text2sql(retry_request, api_key)
+
+                    # When we retry via the reasoning model, prefer the reasoning model's justification
+                    # in the final API response.
+                    try:
+                        reasoning_justification = str(resolved_complex.get("justification") or "").strip()
+                    except Exception:
+                        reasoning_justification = ""
+                    if reasoning_justification != "":
+                        try:
+                            retry_response.justification = reasoning_justification
+                        except Exception:
+                            pass
 
                     # Merge messages from the retry call into the current messages collection
                     # to provide a single coherent trace.
@@ -958,6 +989,12 @@ LIMIT 1 """
                 if isinstance(placeholder_key, str) and placeholder_key.startswith(cfg.get("placeholder_prefix", "")):
                     return cfg
             return None
+
+        def _iter_entity_searches(cfg: dict):
+            searches = cfg.get("search_list")
+            if not isinstance(searches, list):
+                return []
+            return [search for search in searches if isinstance(search, dict)]
 
         def _sql_escape_literal(v: str) -> str:
             return str(v).replace("'", "''")
@@ -1113,152 +1150,215 @@ LIMIT 1 """
 
                     placeholder = "{{" + str(key) + "}}"
                     raw_value_sql = _sql_escape_literal(raw_value)
+                    searches = _iter_entity_searches(cfg)
+                    resolved = False
 
-                    search_mode = str(cfg.get("search_mode") or "embeddings").strip().lower()
-                    if search_mode == "rapidfuzz":
-                        strtablename = cfg.get("strtablename")
-                        strtableid = cfg.get("strtableid")
-                        if not strtablename or not strtableid:
-                            continue
+                    for search_cfg in searches:
+                        search_mode = str(search_cfg.get("search_mode") or "embeddings").strip().lower()
+                        if search_mode == "rapidfuzz":
+                            strtablename = search_cfg.get("strtablename")
+                            strtableid = search_cfg.get("strtableid")
+                            if not strtablename or not strtableid:
+                                continue
 
-                        strcolumndesc = cfg.get("default_field")
-                        strcolumndescnorm = cfg.get("rapidfuzz_col_norm") or (f"{strcolumndesc}_NORM" if strcolumndesc else None)
-                        strcolumndesckey = cfg.get("rapidfuzz_col_key") or (f"{strcolumndesc}_KEY" if strcolumndesc else None)
-                        strcolumnpopularity = cfg.get("rapidfuzz_col_popularity") or cfg.get("order_by") or "POPULARITY"
-                        if not strcolumndesc or not strcolumndescnorm or not strcolumndesckey:
-                            continue
+                            strcolumndesc = search_cfg.get("default_field")
+                            strcolumndescnorm = search_cfg.get("rapidfuzz_col_norm") or (f"{strcolumndesc}_NORM" if strcolumndesc else None)
+                            strcolumndesckey = search_cfg.get("rapidfuzz_col_key") or (f"{strcolumndesc}_KEY" if strcolumndesc else None)
+                            strcolumnpopularity = search_cfg.get("rapidfuzz_col_popularity") or search_cfg.get("order_by") or "POPULARITY"
+                            if not strcolumndesc or not strcolumndescnorm or not strcolumndesckey:
+                                continue
 
-                        try:
-                            has_fulltext = rapidfuzz_query.db_has_fulltext(cursor, strtablename, strcolumndescnorm)
-                            rapidfuzz_result = rapidfuzz_query.search_first_match(
-                                cursor,
-                                strtablename,
-                                strtableid,
-                                strcolumndesc,
-                                strcolumndescnorm,
-                                strcolumndesckey,
-                                strcolumnpopularity,
-                                raw=raw_value,
-                                has_fulltext=has_fulltext,
-                                timings_enabled=False,
+                            try:
+                                has_fulltext = rapidfuzz_query.db_has_fulltext(cursor, strtablename, strcolumndescnorm)
+                                rapidfuzz_result = rapidfuzz_query.search_first_match(
+                                    cursor,
+                                    strtablename,
+                                    strtableid,
+                                    strcolumndesc,
+                                    strcolumndescnorm,
+                                    strcolumndesckey,
+                                    strcolumnpopularity,
+                                    raw=raw_value,
+                                    has_fulltext=has_fulltext,
+                                    timings_enabled=False,
+                                )
+                            except Exception:
+                                continue
+
+                            best = (rapidfuzz_result or {}).get("best")
+                            if not isinstance(best, dict):
+                                continue
+
+                            docid = best.get(strtableid)
+                            if docid is None:
+                                continue
+
+                            # Special case: for Person_name, we may search the AKA table but
+                            # replace SQL using the canonical person name while keeping the
+                            # justification using the AKA string.
+                            resolve_to_canonical = search_cfg.get("resolve_to_canonical")
+                            if isinstance(resolve_to_canonical, dict):
+                                aka_value = best.get(strcolumndesc) if strcolumndesc else None
+                                if aka_value is None:
+                                    aka_value = raw_value
+
+                                canonical_value = None
+                                try:
+                                    from_col = resolve_to_canonical.get("from_column")
+                                    canonical_table = resolve_to_canonical.get("table")
+                                    canonical_id_col = resolve_to_canonical.get("id_column")
+                                    canonical_value_col = resolve_to_canonical.get("value_column")
+                                    canonical_id_val = best.get(from_col) if from_col else None
+                                    if canonical_id_val is not None and canonical_table and canonical_id_col and canonical_value_col:
+                                        cursor.execute(
+                                            f"SELECT `{canonical_value_col}` FROM `{canonical_table}` WHERE `{canonical_id_col}` = %s LIMIT 1",
+                                            (canonical_id_val,),
+                                        )
+                                        row = cursor.fetchone()
+                                        if isinstance(row, dict):
+                                            canonical_value = row.get(canonical_value_col)
+                                except Exception:
+                                    canonical_value = None
+
+                                if canonical_value is None or str(canonical_value).strip() == "":
+                                    messages.append(TextMessage(
+                                        position=position_counter,
+                                        text=f"Entity resolution: {placeholder} -> {aka_value} (rapidfuzz; canonical lookup failed, using AKA value)"
+                                    ))
+                                    position_counter += 1
+                                    canonical_value = aka_value
+
+                                canonical_value_sql = _sql_escape_literal(str(canonical_value))
+
+                                target_col = search_cfg.get("default_field") or strcolumndesc
+                                if target_col:
+                                    placeholder_before = (placeholder in sql_query) or (placeholder in justification)
+
+                                    sql_query = re.sub(
+                                        rf"\b{re.escape(target_col)}\b\s*=\s*'{re.escape(placeholder)}'",
+                                        f"{target_col} = '{canonical_value_sql}'",
+                                        sql_query,
+                                        flags=re.IGNORECASE,
+                                    )
+                                    sql_query = re.sub(
+                                        rf"\b{re.escape(target_col)}\b\s*=\s*{re.escape(placeholder)}",
+                                        f"{target_col} = '{canonical_value_sql}'",
+                                        sql_query,
+                                        flags=re.IGNORECASE,
+                                    )
+                                    sql_query = re.sub(
+                                        rf"'{re.escape(placeholder)}'",
+                                        f"'{canonical_value_sql}'",
+                                        sql_query,
+                                        flags=re.IGNORECASE,
+                                    )
+                                    sql_query = re.sub(
+                                        rf"{re.escape(placeholder)}",
+                                        f"'{canonical_value_sql}'",
+                                        sql_query,
+                                        flags=re.IGNORECASE,
+                                    )
+
+                                    # Justification uses the AKA string (as requested)
+                                    try:
+                                        justification = justification.replace(placeholder, str(aka_value))
+                                    except Exception:
+                                        pass
+
+                                    messages.append(TextMessage(
+                                        position=position_counter,
+                                        text=f"Entity resolution: {placeholder} -> {canonical_value} (SQL canonical), {aka_value} (justification AKA) (rapidfuzz)"
+                                    ))
+                                    position_counter += 1
+
+                                    placeholder_after = (placeholder in sql_query) or (placeholder in justification)
+                                    if placeholder_before and not placeholder_after:
+                                        resolved = True
+                                        break
+                                continue
+
+                            placeholder_before = (placeholder in sql_query) or (placeholder in justification)
+                            _apply_entity_match_from_docid(
+                                cursor=cursor,
+                                key=str(key),
+                                cfg=search_cfg,
+                                docid=docid,
+                                doclang="*",
+                                message="Entity resolution: {placeholder} -> {resolved} (rapidfuzz)",
                             )
+                            placeholder_after = (placeholder in sql_query) or (placeholder in justification)
+                            if placeholder_before and not placeholder_after:
+                                resolved = True
+                                break
+                            continue
+
+                        if search_mode != "embeddings":
+                            continue
+
+                        collection_name = search_cfg.get("collection")
+                        current_collection = CHROMADB_COLLECTIONS_BY_NAME.get(collection_name)
+                        if current_collection is None:
+                            continue
+
+                        start_time_chromadb = time.time()
+                        results = current_collection.query(query_texts=[raw_value], n_results=10)
+                        end_time_chromadb = time.time()
+                        search_duration_chromadb = end_time_chromadb - start_time_chromadb
+
+                        documents = (results.get("documents", [[]]) or [[]])[0] or []
+                        ids = (results.get("ids", [[]]) or [[]])[0] or []
+                        if not documents or not ids:
+                            continue
+
+                        matched_result_position = 0
+                        found_match = False
+                        try:
+                            target_value_norm = raw_value.strip().lower()
                         except Exception:
-                            continue
+                            target_value_norm = ""
 
-                        best = (rapidfuzz_result or {}).get("best")
-                        if not isinstance(best, dict):
-                            continue
-
-                        docid = best.get(strtableid)
-                        doclang = "*"
-                        if docid is None:
-                            continue
-
-                        _apply_entity_match_from_docid(
-                            cursor=cursor,
-                            key=str(key),
-                            cfg=cfg,
-                            docid=docid,
-                            doclang=doclang,
-                            message="Entity resolution: {placeholder} -> {resolved} (rapidfuzz)",
-                        )
-                        # If rapidfuzz resolution didn't replace the placeholder, fall back to raw substitution.
-                        if placeholder in sql_query or placeholder in justification:
-                            sql_query = sql_query.replace(placeholder, raw_value_sql)
-                            justification = justification.replace(placeholder, raw_value)
-                            messages.append(TextMessage(
-                                position=position_counter,
-                                text=f"Entity resolution: {placeholder} -> {raw_value} (raw fallback after rapidfuzz)"
-                            ))
-                            position_counter += 1
-                        continue
-
-                    if search_mode != "embeddings":
-                        continue
-
-                    collection_name = cfg.get("collection")
-                    current_collection = CHROMADB_COLLECTIONS_BY_NAME.get(collection_name)
-                    if current_collection is None:
-                        if placeholder in sql_query or placeholder in justification:
-                            sql_query = sql_query.replace(placeholder, raw_value_sql)
-                            justification = justification.replace(placeholder, raw_value)
-                            messages.append(TextMessage(
-                                position=position_counter,
-                                text=f"Entity resolution: {placeholder} -> {raw_value} (raw fallback; embeddings collection unavailable)"
-                            ))
-                            position_counter += 1
-                        continue
-
-                    start_time_chromadb = time.time()
-                    results = current_collection.query(query_texts=[raw_value], n_results=10)
-                    end_time_chromadb = time.time()
-                    search_duration_chromadb = end_time_chromadb - start_time_chromadb
-
-                    documents = (results.get("documents", [[]]) or [[]])[0] or []
-                    ids = (results.get("ids", [[]]) or [[]])[0] or []
-
-                    if not documents or not ids:
-                        if placeholder in sql_query or placeholder in justification:
-                            sql_query = sql_query.replace(placeholder, raw_value_sql)
-                            justification = justification.replace(placeholder, raw_value)
-                            messages.append(TextMessage(
-                                position=position_counter,
-                                text=f"Entity resolution: {placeholder} -> {raw_value} (raw fallback; no embeddings match)"
-                            ))
-                            position_counter += 1
-                        continue
-
-                    matched_result_position = 0
-                    found_match = False
-                    try:
-                        target_value_norm = raw_value.strip().lower()
-                    except Exception:
-                        target_value_norm = ""
-
-                    for i, document in enumerate(documents):
-                        if isinstance(document, str) and document.strip().lower() == target_value_norm:
-                            matched_result_position = i
-                            found_match = True
-                            break
-                    if not found_match:
                         for i, document in enumerate(documents):
-                            if isinstance(document, str) and document.strip().lower().startswith(target_value_norm):
+                            if isinstance(document, str) and document.strip().lower() == target_value_norm:
                                 matched_result_position = i
                                 found_match = True
                                 break
+                        if not found_match:
+                            for i, document in enumerate(documents):
+                                if isinstance(document, str) and document.strip().lower().startswith(target_value_norm):
+                                    matched_result_position = i
+                                    found_match = True
+                                    break
 
-                    first_record_id = ids[matched_result_position]
-                    parts = str(first_record_id).split('_')
-                    docid = parts[1] if len(parts) > 1 else None
-                    doclang = parts[2] if len(parts) > 2 else "*"
+                        first_record_id = ids[matched_result_position]
+                        parts = str(first_record_id).split('_')
+                        docid = parts[1] if len(parts) > 1 else None
+                        doclang = parts[2] if len(parts) > 2 else "*"
+                        if docid is None:
+                            continue
 
-                    if docid is None:
-                        if placeholder in sql_query or placeholder in justification:
-                            sql_query = sql_query.replace(placeholder, raw_value_sql)
-                            justification = justification.replace(placeholder, raw_value)
-                            messages.append(TextMessage(
-                                position=position_counter,
-                                text=f"Entity resolution: {placeholder} -> {raw_value} (raw fallback; invalid embeddings docid)"
-                            ))
-                            position_counter += 1
+                        placeholder_before = (placeholder in sql_query) or (placeholder in justification)
+                        _apply_entity_match_from_docid(
+                            cursor=cursor,
+                            key=str(key),
+                            cfg=search_cfg,
+                            docid=docid,
+                            doclang=doclang,
+                            message=f"Entity resolution: {{placeholder}} -> {{resolved}} (lang={doclang}, {search_duration_chromadb:.4f}s)",
+                        )
+                        placeholder_after = (placeholder in sql_query) or (placeholder in justification)
+                        if placeholder_before and not placeholder_after:
+                            resolved = True
+                            break
+
+                    if resolved:
                         continue
 
-                    _apply_entity_match_from_docid(
-                        cursor=cursor,
-                        key=str(key),
-                        cfg=cfg,
-                        docid=docid,
-                        doclang=doclang,
-                        message=f"Entity resolution: {{placeholder}} -> {{resolved}} (lang={doclang}, {search_duration_chromadb:.4f}s)",
-                    )
-
-                    # If embeddings resolution didn't replace the placeholder, fall back to raw substitution.
                     if placeholder in sql_query or placeholder in justification:
                         sql_query = sql_query.replace(placeholder, raw_value_sql)
                         justification = justification.replace(placeholder, raw_value)
                         messages.append(TextMessage(
                             position=position_counter,
-                            text=f"Entity resolution: {placeholder} -> {raw_value} (raw fallback after embeddings)"
+                            text=f"Entity resolution: {placeholder} -> {raw_value} (raw fallback)"
                         ))
                         position_counter += 1
 
@@ -1359,6 +1459,7 @@ LIMIT 1 """
             print(f"PAGINATION: Page={lngpage}, LIMIT={limit}, OFFSET={offset}")
             print("LIMIT:", limit, "OFFSET:", offset)
             print("SQL query execution:", sql_query)
+            sql_execution_failed = False
             try: 
                 messages.append(TextMessage(
                     position=position_counter,
@@ -1376,6 +1477,7 @@ LIMIT 1 """
                     })
             except Exception as e:
                 print(f"Database operation failed: {e}")
+                sql_execution_failed = True
                 messages.append(TextMessage(
                     position=position_counter, 
                     text=f"Database query execution failed: {str(e)}"
@@ -1390,6 +1492,105 @@ LIMIT 1 """
             text=f"Executed SQL query with pagination: page={lngpage}, limit={limit}, offset={offset}."
         ))
         position_counter += 1
+
+        # One-time retry: if the SQL ran successfully but returned 0 rows, try simplifying the
+        # original question using the reasoning model and rerun the whole pipeline.
+        try:
+            can_retry_no_results = (
+                not sql_execution_failed
+                and lngpage == 1
+                and isinstance(query_results, list)
+                and len(query_results) == 0
+                and bool(request.question)
+                and not getattr(request, "complex_question_already_resolved", False)
+                and "original_question" in locals()
+                and isinstance(original_question, str)
+                and original_question.strip() != ""
+            )
+        except Exception:
+            can_retry_no_results = False
+
+        if can_retry_no_results:
+            messages.append(TextMessage(
+                position=position_counter,
+                text="SQL query returned 0 rows; attempting to simplify the original question using the reasoning model (one-time retry)."
+            ))
+            position_counter += 1
+
+            resolved_complex = t2s.f_resolve_complex_question(original_question)
+            try:
+                resolved_complex_json = json.dumps(resolved_complex, ensure_ascii=False)
+            except Exception:
+                resolved_complex_json = str(resolved_complex)
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Complex question resolution output: {resolved_complex_json.replace('\"', '\\\"')}"
+            ))
+            position_counter += 1
+
+            if isinstance(resolved_complex, dict) and not resolved_complex.get("error"):
+                retry_question = _build_retry_question_from_reasoning(resolved_complex)
+                if retry_question != "":
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text="No-results detected; attempting one-time retry with simplified question from reasoning model."
+                    ))
+                    position_counter += 1
+
+                    # Close the current DB connection before restarting the pipeline to avoid leaks.
+                    try:
+                        connection.close()
+                    except Exception:
+                        pass
+
+                    retry_request = request.model_copy(deep=True)
+                    retry_request.question = retry_question
+                    retry_request.question_hashed = None
+                    retry_request.complex_question_already_resolved = True
+
+                    retry_response = await search_text2sql(retry_request, api_key)
+
+                    # When we retry via the reasoning model, prefer the reasoning model's justification
+                    # in the final API response.
+                    try:
+                        reasoning_justification = str(resolved_complex.get("justification") or "").strip()
+                    except Exception:
+                        reasoning_justification = ""
+                    if reasoning_justification != "":
+                        try:
+                            retry_response.justification = reasoning_justification
+                        except Exception:
+                            pass
+
+                    # Merge messages from the retry call into the current messages collection
+                    # to provide a single coherent trace.
+                    merged_messages = []
+                    pos = 1
+                    for m in (messages or []):
+                        merged_messages.append(TextMessage(position=pos, text=m.text))
+                        pos += 1
+                    for m in (getattr(retry_response, "messages", None) or []):
+                        merged_messages.append(TextMessage(position=pos, text=m.text))
+                        pos += 1
+
+                    try:
+                        retry_response.messages = merged_messages
+                    except Exception:
+                        pass
+
+                    return retry_response
+                else:
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text="Complex question resolution did not return a simplified question; skipping no-results retry."
+                    ))
+                    position_counter += 1
+            else:
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text="Complex question resolution returned an error; skipping no-results retry."
+                ))
+                position_counter += 1
     else:
         messages.append(TextMessage(
             position=position_counter, 

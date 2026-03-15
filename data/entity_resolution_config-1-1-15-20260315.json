@@ -1,0 +1,131 @@
+[
+  {
+    "placeholder_prefix": "Person_name",
+    "search_list": [
+      {
+        "search_mode": "rapidfuzz",
+        "strtablename": "T_WC_TMDB_PERSON_ALSO_KNOWN_AS",
+        "strtableid": "ID_ROW",
+        "collection": "persons",
+        "default_field": "PERSON_NAME",
+        "order_by": "ID_PERSON",
+        "languages": {
+          "*": "PERSON_NAME"
+        },
+        "rapidfuzz_col_norm": "PERSON_NAME_NORM",
+        "rapidfuzz_col_key": "PERSON_NAME_KEY",
+        "rapidfuzz_col_popularity": "ID_PERSON",
+        "resolve_to_canonical": {
+          "from_column": "ID_PERSON",
+          "table": "T_WC_T2S_PERSON",
+          "id_column": "ID_PERSON",
+          "value_column": "PERSON_NAME"
+        }
+      }
+    ]
+  },
+  {
+    "placeholder_prefix": "Movie_title",
+    "search_list": [
+      {
+        "search_mode": "embeddings",
+        "strtablename": "T_WC_T2S_MOVIE",
+        "strtableid": "ID_MOVIE",
+        "collection": "movies",
+        "default_field": "MOVIE_TITLE",
+        "order_by": "POPULARITY",
+        "languages": {
+          "en": "MOVIE_TITLE",
+          "fr": "MOVIE_TITLE_FR",
+          "*": "ORIGINAL_TITLE"
+        }
+      }
+    ]
+  },
+  {
+    "placeholder_prefix": "Serie_title",
+    "search_list": [
+      {
+        "search_mode": "embeddings",
+        "strtablename": "T_WC_T2S_SERIE",
+        "strtableid": "ID_SERIE",
+        "collection": "series",
+        "default_field": "SERIE_TITLE",
+        "order_by": "POPULARITY",
+        "languages": {
+          "en": "SERIE_TITLE",
+          "fr": "SERIE_TITLE_FR",
+          "*": "ORIGINAL_TITLE"
+        }
+      }
+    ]
+  },
+  {
+    "placeholder_prefix": "Company_name",
+    "search_list": [
+      {
+        "search_mode": "embeddings",
+        "strtablename": "T_WC_T2S_COMPANY",
+        "strtableid": "ID_COMPANY",
+        "collection": "companies",
+        "default_field": "COMPANY_NAME",
+        "order_by": null,
+        "languages": {
+          "*": "COMPANY_NAME"
+        }
+      }
+    ]
+  },
+  {
+    "placeholder_prefix": "Network_name",
+    "search_list": [
+      {
+        "search_mode": "embeddings",
+        "strtablename": "T_WC_T2S_NETWORK",
+        "strtableid": "ID_NETWORK",
+        "collection": "networks",
+        "default_field": "NETWORK_NAME",
+        "order_by": null,
+        "languages": {
+          "*": "NETWORK_NAME"
+        }
+      }
+    ]
+  },
+  {
+    "placeholder_prefix": "Topic_name",
+    "search_list": [
+      {
+        "search_mode": "embeddings",
+        "strtablename": "T_WC_T2S_TOPIC",
+        "strtableid": "ID_TOPIC",
+        "collection": "topics",
+        "default_field": "TOPIC_NAME",
+        "order_by": null,
+        "languages": {
+          "en": "TOPIC_NAME",
+          "fr": "TOPIC_NAME_FR",
+          "*": "TOPIC_NAME"
+        }
+      }
+    ]
+  },
+  {
+    "placeholder_prefix": "Location_name",
+    "search_list": [
+      {
+        "search_mode": "embeddings",
+        "strtablename": "T_WC_T2S_ITEM",
+        "strtableid": "ID_WIKIDATA",
+        "collection": "locations",
+        "default_field": "ITEM_LABEL",
+        "order_by": null,
+        "languages": {
+          "en": "ITEM_LABEL",
+          "fr": "ITEM_LABEL_FR",
+          "*": "ITEM_LABEL"
+        }
+      }
+    ]
+  }
+]

@@ -10,6 +10,8 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **API Key Authentication**: Secure access with API key validation using constant-time comparison
 - **ChromaDB Vector Search**: Advanced similarity search for entity matching and query optimization
 - **Entity Extraction & Anonymization**: Intelligent extraction of entities (persons, movies, series, companies, networks, characters, locations, topics) with placeholder replacement
+- **Config-driven Entity Resolution**: Entity resolution is configured via `data/entity_resolution_config-1-1-15-20260315.json` (embeddings and RapidFuzz strategies)
+- **RapidFuzz Person Matching (AKA aware)**: Person resolution can use `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` for matching and replace SQL with canonical person names
 - **Multi-Level Caching**: Sophisticated three-tier caching system (exact questions, anonymized questions, vector embeddings)
 - **Comprehensive Logging**: Automatic logging of all API requests and responses with detailed timing metrics
 - **Memory Monitoring**: Built-in system memory usage tracking and reporting
@@ -22,6 +24,8 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **Multi-Language Support**: Handles English, French, and original language titles for movies and series
 - **Processing Transparency**: Detailed messages array showing each processing step
 - **Configurable LLM Models**: Separate model selection for entity extraction and text-to-SQL conversion
+- **Complex Question Escalation (Reasoning Model)**: Optional one-time retry using a reasoning model to simplify complex questions
+- **No-Results Escalation**: If SQL executes successfully but returns 0 rows (page 1), the question can be escalated to the reasoning model and retried once
 - **Automatic Cache Cleanup**: On-startup cache cleanup to remove outdated entries from previous versions
 - **Blue/Green Deployment**: Version-based automatic port selection (even versions: port 8000, odd: port 8001)
 - **Ambiguous Question Detection**: Intelligent detection and handling of questions too vague for SQL generation
@@ -75,8 +79,13 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    - Returns cached SQL query if a sufficiently similar question is found
 
 5. **Entity Validation & Resolution**
-   - Validate and resolve each extracted entity using specialized SQL tables and ChromaDB collections:
-     - **Person names**: Search in `persons` collection/table
+   - Validate and resolve each extracted entity using a configuration-driven strategy list (`data/entity_resolution_config-1-1-15-20260315.json`).
+   - Supported resolution strategies:
+     - **Embeddings (ChromaDB)**: for entities like movies, series, companies, networks, topics, locations
+     - **RapidFuzz (DB lexical)**: for entities like persons (can be configured per placeholder)
+   - Example entity strategies:
+     - **Person names**: RapidFuzz search in `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` (AKA table), then SQL replacement using canonical `T_WC_T2S_PERSON.PERSON_NAME`
+       - The API can keep the justification text using the matched AKA string while using canonical names in SQL.
      - **Movie titles**: Search in `movies` collection with multi-language support (English, French, original)
      - **TV series titles**: Search in `series` collection with multi-language support
      - **Company names**: Search in `companies` collection
@@ -86,6 +95,10 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Topic names**: Search in `topics` collection
    - Vector similarity matching ensures fuzzy matching for misspellings and variations
    - Similarity threshold of 0.15 for robust entity matching
+
+   - Safety:
+     - If unresolved placeholders remain in the SQL query after entity resolution, the API skips execution to avoid running a broken query.
+     - If an embeddings result references an ID that no longer exists in the underlying table, the API emits a diagnostic message indicating the embeddings collection may be out of sync.
 
 6. **Text-to-SQL Generation (LLM)**
    - If no cache hit occurs, process the anonymized question through the LLM model
@@ -103,6 +116,9 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    - Apply pagination parameters (page size, offset)
    - Return the result set with timing metrics
 
+   - Optional escalation:
+     - If the SQL executes successfully but returns 0 rows on page 1, the API can attempt a one-time retry using the reasoning model (same mechanism as Text2SQL error retry).
+
 9. **Cache Population**
    - **Exact question cache**: Save the original question and SQL query to `T_WC_T2S_CACHE` (if applicable)
    - **Anonymized question cache**: Save the anonymized question and SQL pattern to SQL cache (if applicable)
@@ -115,6 +131,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
       - Performance metrics (entity extraction time, text2SQL time, embeddings time, query execution time)
       - Cache hit indicators
       - Pagination information
+      - If a reasoning-model retry happened, the final `justification` can be taken from the reasoning model.
 
 ### Pipeline Benefits
 
@@ -452,6 +469,8 @@ fastapi-text2sql/
 ├── main.py                  # FastAPI application, endpoints, and ChromaDB integration
 ├── text2sql.py              # Core text-to-SQL conversion and entity extraction logic
 ├── auth.py                  # API key authentication middleware
+├── rapidfuzz_query.py        # RapidFuzz + MariaDB/MySQL lexical matching utilities
+├── RAPIDFUZZ.md              # RapidFuzz module documentation
 ├── requirements.txt         # Python dependencies
 ├── Dockerfile               # Docker configuration for containerized deployment
 ├── .env.example             # Example environment variables template
@@ -461,8 +480,10 @@ fastapi-text2sql/
 ├── restart-green.sh         # Green deployment restart script
 ├── cleanup.py               # Cache cleanup functions (ChromaDB and SQL)
 ├── data/                    # Prompt templates and configuration
-│   ├── entity-extraction-prompt-chatgpt-4o-1-1-14-20260124.txt  # Entity extraction prompt
-│   └── text-to-sql-prompt-chatgpt-4o-1-1-14-20260124.txt        # Text2SQL prompt
+│   ├── entity-extraction-prompt-chatgpt-4o-1-1-15-20260209.txt                  # Entity extraction prompt
+│   ├── text-to-sql-prompt-chatgpt-4o-1-1-15-20260209.txt                        # Text2SQL prompt
+│   ├── complex-question-prompt-reasoning-model-1-1-15-20260209.txt              # Reasoning model prompt (complex question simplification)
+│   └── entity_resolution_config-1-1-15-20260315.json                             # Entity resolution configuration (embeddings + rapidfuzz)
 ├── logs/                    # API usage logs with timing metrics (auto-created)
 ├── CLAUDE.md                # AI assistant guide for understanding the codebase
 └── README.md                # This file
