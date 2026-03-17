@@ -185,6 +185,13 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
 
     raise RuntimeError(f"Unsupported LLM model: {model_norm}")
 
+
+def _complex_question_temperature(model: str) -> float:
+    model_norm = str(model).strip()
+    if model_norm.startswith("o1") or model_norm.startswith("o3"):
+        return 1
+    return 0
+
 def f_text2sql(user_question: str, strtext2sqlmodel: str):
     """Convert natural language question to JSON using LangChain and LLM.
     
@@ -251,6 +258,7 @@ def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str 
     print("User question:", user_question)
 
     model_to_use = _normalize_llm_model(strcomplexquestionmodel, strcomplexquestionmodeldefault)
+    temperature_to_use = _complex_question_temperature(model_to_use)
     print("Complex question LLM model:", model_to_use)
 
     try:
@@ -266,7 +274,7 @@ def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str 
                 model=model_to_use,
                 system_prompt="You are a powerful question resolver. Respond only with the JSON content, no explanations.",
                 user_prompt=formatted_prompt,
-                temperature=0,
+                temperature=temperature_to_use,
             ).strip()
         except Exception as api_error:
             msg = str(api_error)
@@ -286,7 +294,7 @@ def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str 
                         model="gpt-4o",
                         system_prompt="You are a powerful question resolver. Respond only with the JSON content, no explanations.",
                         user_prompt=formatted_prompt,
-                        temperature=0,
+                        temperature=_complex_question_temperature("gpt-4o"),
                     ).strip()
                 except Exception as fallback_error:
                     print(f"LLM API call failed: {str(fallback_error)}")
