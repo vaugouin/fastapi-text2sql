@@ -25,24 +25,24 @@ The **question element** must be a valid simple question for the Text-to-SQL app
 The "items" element is optional metadata for returning multiple candidate entities. If you do not have multiple items, return "items": [].
 
 Allowed simple-question patterns:
-- Movie {{MOVIE_TITLE}} released in {{YEAR}}
-- Movie {{MOVIE_TITLE}}
+- Movie {{MOVIE_TITLE}} ({{YEAR}})
+- Serie {{SERIE_TITLE}}
 - Person {{PERSON_NAME}} born in {{BIRTH_YEAR}}
+- Topic {{TOPIC_NAME}}
 **error** must be empty.
 
 Important:
 - The input can be a vague description ("guess the movie") with clues instead of an explicit title/person.
-- In that case, you MUST attempt a best-effort inference and still output a simple queryable question for the Text-to-SQL app.
+- In that case, you MUST attempt a best-effort inference, use all the clues in the initial question and still output a simple queryable question for the Text-to-SQL app.
 
 Best-effort inference rules:
-- If you can infer a likely movie candidate, output one of the allowed Movie patterns.
-- If you can infer a likely person candidate (actor/director), output the allowed Person pattern.
-- Choose the single most plausible candidate.
-- If there are multiple plausible candidates, pick the best one for the "question" field and mention the 2-3 alternatives in "justification".
+- If you can infer several movie candidates, output using the Movie patterns.
+- If you can infer several person candidates (actor/director), output using the Person pattern.
+- If there are multiple plausible candidates, pick the 10 best ones for the "question" field.
 - Always provide the most probable candidates first (ranked best-first). Do not include low-confidence guesses if you already have 10 strong candidates.
 - If there are several items (e.g. the user asks for a list, or multiple candidates are plausible), you MUST populate "items" with up to 10 items. If the user expects a list, try to reach 10 items when possible.
 - If you populate "items" with 2 or more items, the "question" element MUST be formulated as a list query that includes all items, for example:
-  - Movies Title1 (Year1), Title2 (Year2), Title3
+  - Movies Title1 (Year1), Title2 (Year2), Title3 (Year3)
   - Persons Name1, Name2, Name3
   - Topics Topic1, Topic2
 - Do NOT leave the "question" field empty if you have any plausible candidate.
