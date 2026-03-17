@@ -3,6 +3,7 @@ import os
 import re
 from typing import Any
 
+from language_family import guess_language_family
 import rapidfuzz_query
 import text2sql as t2s
 
@@ -239,9 +240,27 @@ def resolve_entities(
                 raw_value_sql = _sql_escape_literal(raw_value)
                 searches = _iter_entity_searches(cfg)
                 resolved = False
+                language_family = None
+                if isinstance(key, str) and key.startswith("Person_name"):
+                    try:
+                        language_family = guess_language_family(raw_value)
+                    except Exception:
+                        language_family = None
+                    add_message(f"Entity resolution: {placeholder} guessed language family = {language_family or 'unknown'}")
 
                 for search_cfg in searches:
-                    search_mode = str(search_cfg.get("search_mode") or "embeddings").strip().lower()
+                    apply_when_language_family_in = search_cfg.get("apply_when_language_family_in")
+                    if isinstance(apply_when_language_family_in, list):
+                        if language_family is None or language_family not in apply_when_language_family_in:
+                            continue
+
+                    apply_when_language_family_not_in = search_cfg.get("apply_when_language_family_not_in")
+                    if isinstance(apply_when_language_family_not_in, list):
+                        if language_family is not None and language_family in apply_when_language_family_not_in:
+                            continue
+
+                    search_mode = (search_cfg.get("search_mode") or "").strip().lower()
+
                     if search_mode == "rapidfuzz":
                         strtablename = search_cfg.get("strtablename")
                         strtableid = search_cfg.get("strtableid")
@@ -254,6 +273,9 @@ def resolve_entities(
                         strcolumnpopularity = search_cfg.get("rapidfuzz_col_popularity") or search_cfg.get("order_by") or "POPULARITY"
                         if not strcolumndesc or not strcolumndescnorm or not strcolumndesckey:
                             continue
+
+                        if isinstance(key, str) and key.startswith("Person_name"):
+                            add_message(f"Entity resolution: {placeholder} searching with RapidFuzz in table {strtablename} (language family: {language_family or 'unknown'})")
 
                         try:
                             has_fulltext = rapidfuzz_query.db_has_fulltext(cursor, strtablename, strcolumndescnorm)
@@ -324,9 +346,9 @@ def resolve_entities(
                                 except Exception:
                                     pass
                                 if str(canonical_value) != str(aka_value):
-                                    add_message(f"Entity resolution: {placeholder} -> {canonical_value} (SQL canonical), {aka_value} ({canonical_value}) (justification AKA + canonical) (rapidfuzz)")
+                                    add_message(f"Entity resolution: {placeholder} -> {canonical_value} (SQL canonical), {aka_value} ({canonical_value}) (justification AKA + canonical) (rapidfuzz, source table: {strtablename})")
                                 else:
-                                    add_message(f"Entity resolution: {placeholder} -> {canonical_value} (SQL canonical and justification) (rapidfuzz)")
+                                    add_message(f"Entity resolution: {placeholder} -> {canonical_value} (SQL canonical and justification) (rapidfuzz, source table: {strtablename})")
                                 placeholder_after = (placeholder in sql_query) or (placeholder in justification)
                                 if placeholder_before and not placeholder_after:
                                     resolved = True
@@ -340,7 +362,7 @@ def resolve_entities(
                             cfg=search_cfg,
                             docid=docid,
                             doclang="*",
-                            message="Entity resolution: {placeholder} -> {resolved} (rapidfuzz)",
+                            message=f"Entity resolution: {{placeholder}} -> {{resolved}} (rapidfuzz, source table: {strtablename})",
                             current_sql_query=sql_query,
                             current_justification=justification,
                         )
