@@ -761,6 +761,42 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     except Exception:
                         pass
 
+                if request.store_to_cache:
+                    try:
+                        retry_connection = get_db_connection()
+                        original_question_hash = hashlib.sha256(original_question.encode('utf-8')).hexdigest()
+                        sql_cache.write_sql_cache_entry(
+                            retry_connection,
+                            question=original_question,
+                            question_hashed=original_question_hash,
+                            sql_query=getattr(retry_response, "sql_query", "") or "",
+                            sql_processed=getattr(retry_response, "sql_query", "") or "",
+                            justification=getattr(retry_response, "justification", "") or "",
+                            api_version=strapiversionformatted,
+                            entity_extraction_processing_time=getattr(retry_response, "entity_extraction_processing_time", 0.0) or 0.0,
+                            text2sql_processing_time=getattr(retry_response, "text2sql_processing_time", 0.0) or 0.0,
+                            embeddings_time=getattr(retry_response, "embeddings_processing_time", 0.0) or 0.0,
+                            query_time=getattr(retry_response, "query_execution_time", 0.0) or 0.0,
+                            total_processing_time=getattr(retry_response, "total_processing_time", 0.0) or 0.0,
+                            is_anonymized=False,
+                        )
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text="Stored original complex question and final SQL query to cache after reasoning-model retry."
+                        ))
+                        position_counter += 1
+                        retry_connection.close()
+                    except Exception as cache_retry_error:
+                        try:
+                            retry_connection.close()
+                        except Exception:
+                            pass
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"Failed to store original complex question to cache after reasoning-model retry: {str(cache_retry_error).replace('"', '\\"')}"
+                        ))
+                        position_counter += 1
+
                 merged_messages = []
                 pos = 1
                 for m in (messages or []):
@@ -812,8 +848,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
 
         if can_retry:
             retry_response = await _retry_with_resolved_complex_question(
-                start_message="Attempting to simplify the original question using the reasoning model (one-time retry).",
-                success_message="Text2SQL error detected; attempting one-time retry with simplified question from reasoning model.",
+                start_message=f"Attempting to simplify the original question using the reasoning model '{strcomplexquestionmodel}' (one-time retry).",
+                success_message=f"Text2SQL error detected; attempting one-time retry with simplified question from reasoning model '{strcomplexquestionmodel}'.",
                 empty_question_message="Complex question resolution did not return a simplified question; skipping retry.",
                 error_message="Complex question resolution returned an error; skipping retry."
             )
@@ -1001,8 +1037,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
 
         if can_retry_sql_execution_error:
             retry_response = await _retry_with_resolved_complex_question(
-                start_message="SQL query execution failed; attempting to simplify the original question using the reasoning model (one-time retry).",
-                success_message="SQL execution error detected; attempting one-time retry with simplified question from reasoning model.",
+                start_message=f"SQL query execution failed; attempting to simplify the original question using the reasoning model '{strcomplexquestionmodel}' (one-time retry).",
+                success_message=f"SQL execution error detected; attempting one-time retry with simplified question from reasoning model '{strcomplexquestionmodel}'.",
                 empty_question_message="Complex question resolution did not return a simplified question; skipping SQL-execution-error retry.",
                 error_message="Complex question resolution returned an error; skipping SQL-execution-error retry."
             )
@@ -1028,8 +1064,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
 
         if can_retry_no_results:
             retry_response = await _retry_with_resolved_complex_question(
-                start_message="SQL query returned 0 rows; attempting to simplify the original question using the reasoning model (one-time retry).",
-                success_message="No-results detected; attempting one-time retry with simplified question from reasoning model.",
+                start_message=f"SQL query returned 0 rows; attempting to simplify the original question using the reasoning model '{strcomplexquestionmodel}' (one-time retry).",
+                success_message=f"No-results detected; attempting one-time retry with simplified question from reasoning model '{strcomplexquestionmodel}'.",
                 empty_question_message="Complex question resolution did not return a simplified question; skipping no-results retry.",
                 error_message="Complex question resolution returned an error; skipping no-results retry."
             )
