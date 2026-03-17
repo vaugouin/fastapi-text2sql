@@ -23,7 +23,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 ### Advanced Features
 - **Multi-Language Support**: Handles English, French, and original language titles for movies and series
 - **Processing Transparency**: Detailed messages array showing each processing step
-- **Configurable LLM Models**: Separate model selection for entity extraction and text-to-SQL conversion
+- **Configurable LLM Models**: Separate model selection for entity extraction, text-to-SQL conversion, and complex-question reasoning
 - **Complex Question Escalation (Reasoning Model)**: Optional one-time retry using a reasoning model to simplify complex questions
 - **No-Results Escalation**: If SQL executes successfully but returns 0 rows (page 1), the question can be escalated to the reasoning model and retried once
 - **Automatic Cache Cleanup**: On-startup cache cleanup to remove outdated entries from previous versions
@@ -235,7 +235,8 @@ Content-Type: application/json
   "retrieve_from_cache": true,
   "store_to_cache": true,
   "llm_model_entity_extraction": "default",
-  "llm_model_text2sql": "default"
+  "llm_model_text2sql": "default",
+  "llm_model_complex": "default"
 }
 ```
 
@@ -248,6 +249,56 @@ Content-Type: application/json
 - `store_to_cache` (optional, bool, default: true): Whether to store results in cache
 - `llm_model_entity_extraction` (optional, str, default: "default"): LLM model to use for entity extraction
 - `llm_model_text2sql` (optional, str, default: "default"): LLM model to use for text-to-SQL conversion
+- `llm_model_complex` (optional, str, default: "default"): LLM model to use for complex-question resolution / reasoning-model retry
+
+**Supported LLM Values for the 3 model parameters:**
+
+- `default`
+  - Uses the module default for the corresponding stage
+  - Current defaults:
+    - `llm_model_entity_extraction` → `gpt-4o`
+    - `llm_model_text2sql` → `gpt-4o`
+    - `llm_model_complex` → `gpt-4o`
+
+- OpenAI models
+  - Supported when the value is:
+    - exactly `gpt-4o`
+    - any model starting with `gpt-`
+    - any model starting with `o1`
+    - any model starting with `o3`
+  - Examples:
+    - `gpt-4o`
+    - `gpt-4.1`
+    - `gpt-4.1-mini`
+    - `o1`
+    - `o1-mini`
+    - `o3`
+    - `o3-mini`
+
+- Anthropic models
+  - Supported when the value starts with `claude-`
+  - Examples:
+    - `claude-3-5-sonnet`
+    - `claude-3-7-sonnet`
+    - `claude-sonnet-4`
+    - `claude-haiku-4-5-20251001`
+
+- Google Gemini models
+  - Supported when the value starts with `gemini-`
+  - Examples:
+    - `gemini-2.5-flash`
+    - `gemini-1.5-pro`
+    - `gemini-1.5-flash`
+    - `gemini-1.0-pro`
+  - Gemini requests may also try fallback aliases such as `-latest` and a small set of known Gemini variants when the requested model name is not found.
+
+**Notes:**
+
+- The same model families are accepted for:
+  - `llm_model_entity_extraction`
+  - `llm_model_text2sql`
+  - `llm_model_complex`
+- For `llm_model_complex`, if the selected reasoning model is unavailable and it is not already `gpt-4o`, the application may retry once with `gpt-4o`.
 
 **Note:** Either `question` or `question_hashed` must be provided.
 
@@ -291,6 +342,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "ambiguous_question_for_text2sql": false,
   "llm_model_entity_extraction": "default",
   "llm_model_text2sql": "default",
+  "llm_model_complex": "default",
   "api_version": "1.1.14",
   "messages": [
     {
@@ -355,6 +407,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `ambiguous_question_for_text2sql` (bool): Whether question was too ambiguous for SQL generation
 - `llm_model_entity_extraction` (str): LLM model used for entity extraction
 - `llm_model_text2sql` (str): LLM model used for text-to-SQL conversion
+- `llm_model_complex` (str): LLM model used for complex-question resolution when a reasoning-model retry occurs
 - `api_version` (str): Current API version (e.g., "1.1.13")
 - `messages` (list): Array of processing step messages, each with `position` (int) and `text` (str)
 ```
@@ -787,6 +840,7 @@ All successful text2sql requests return a comprehensive response with:
 **Configuration & Metadata:**
 - `llm_model_entity_extraction`: LLM model used for entity extraction
 - `llm_model_text2sql`: LLM model used for text-to-SQL conversion
+- `llm_model_complex`: LLM model used for complex-question resolution / reasoning retry
 - `api_version`: Current API version (e.g., "1.1.14")
 
 ### New Features in v1.1.14
@@ -801,6 +855,7 @@ All successful text2sql requests return a comprehensive response with:
 - **New `entity.py` module**: centralizes entity extraction, entity-resolution config loading, embeddings/RapidFuzz resolution, and placeholder substitution
 - **`sql_cache.py` module**: centralizes SQL cache lookup and write logic for exact and anonymized questions
 - **Reasoning helpers in `text2sql.py`**: complex-question resolution and retry-question construction now live alongside the LLM helper code
+- **API-selectable complex model**: clients can now provide `llm_model_complex` to choose the model used for complex-question resolution retries
 - **Person-name justification formatting**: when a person is matched through an AKA entry and resolved to a canonical name, SQL uses the canonical value while justification shows `AKA (Canonical)`
 
 ### New Features in v1.1.13

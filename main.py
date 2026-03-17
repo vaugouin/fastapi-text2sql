@@ -187,6 +187,7 @@ class Text2SQLRequest(BaseModel):
     store_to_cache: bool = True
     llm_model_entity_extraction: Optional[str] = "default"
     llm_model_text2sql: Optional[str] = "default"
+    llm_model_complex: Optional[str] = "default"
     complex_question_already_resolved: bool = False
     
     @model_validator(mode='after')
@@ -227,6 +228,7 @@ class Text2SQLResponse(BaseModel):
     ambiguous_question_for_text2sql: bool = False
     llm_model_entity_extraction: str
     llm_model_text2sql: str
+    llm_model_complex: str
     api_version: str
     messages: List[TextMessage] = []
     result: List[dict] = []  # Array of records with index and data
@@ -347,10 +349,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     strtext2sqlmodel = t2s.strtext2sqlmodeldefault
     if request.llm_model_text2sql and request.llm_model_text2sql != "default":
         strtext2sqlmodel = request.llm_model_text2sql
+    strcomplexquestionmodel = t2s.strcomplexquestionmodeldefault
+    if request.llm_model_complex and request.llm_model_complex != "default":
+        strcomplexquestionmodel = request.llm_model_complex
 
     print("/search/text2sql LLM selection:")
     print("- Entity extraction model:", strentityextractionmodel)
     print("- Text2SQL model:", strtext2sqlmodel)
+    print("- Complex question model:", strcomplexquestionmodel)
     
     # Try to retrieve user question from cache if requested
     if request.retrieve_from_cache:
@@ -715,7 +721,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         ))
         position_counter += 1
 
-        retry_payload = t2s.f_resolve_complex_question_retry_payload(original_question)
+        retry_payload = t2s.f_resolve_complex_question_retry_payload(original_question, strcomplexquestionmodel)
         resolved_complex = retry_payload.get("resolved")
         try:
             resolved_complex_json = json.dumps(resolved_complex, ensure_ascii=False)
@@ -1180,6 +1186,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         ambiguous_question_for_text2sql=ambiguous_question_for_text2sql,
         llm_model_entity_extraction=strentityextractionmodel,
         llm_model_text2sql=strtext2sqlmodel,
+        llm_model_complex=strcomplexquestionmodel,
         api_version=strapiversion,
         result=query_results,
         messages=messages
