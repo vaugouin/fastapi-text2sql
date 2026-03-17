@@ -52,10 +52,12 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 1. **Exact Question Cache Lookup (SQL Database)**
    - Search for the exact user question in the SQL cache (`T_WC_T2S_CACHE` table)
    - If found, return the cached SQL query immediately
+   - SQL cache lookup and write operations are centralized in `sql_cache.py`
    - This cache is also used for efficient pagination through result pages
 
 2. **Entity Extraction & Anonymization**
    - If not found in exact cache, extract and anonymize entities from the user question using GPT-4o
+   - Entity extraction logic is implemented in `entity.py`
    - Entities extracted include:
      - Person names (actors, directors, crew)
      - Movie titles (English, French, and original language)
@@ -79,13 +81,14 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    - Returns cached SQL query if a sufficiently similar question is found
 
 5. **Entity Validation & Resolution**
+   - Entity resolution logic is implemented in `entity.py`, while `main.py` remains focused on request orchestration.
    - Validate and resolve each extracted entity using a configuration-driven strategy list (`data/entity_resolution_config-1-1-15-20260315.json`).
    - Supported resolution strategies:
      - **Embeddings (ChromaDB)**: for entities like movies, series, companies, networks, topics, locations
      - **RapidFuzz (DB lexical)**: for entities like persons (can be configured per placeholder)
    - Example entity strategies:
      - **Person names**: RapidFuzz search in `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` (AKA table), then SQL replacement using canonical `T_WC_T2S_PERSON.PERSON_NAME`
-       - The API can keep the justification text using the matched AKA string while using canonical names in SQL.
+       - The API keeps SQL substitution canonical while formatting justification as `<aka_name> (<canonical_name>)` when available.
      - **Movie titles**: Search in `movies` collection with multi-language support (English, French, original)
      - **TV series titles**: Search in `series` collection with multi-language support
      - **Company names**: Search in `companies` collection
@@ -118,6 +121,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 
    - Optional escalation:
      - If the SQL executes successfully but returns 0 rows on page 1, the API can attempt a one-time retry using the reasoning model (same mechanism as Text2SQL error retry).
+     - If SQL generation fails or SQL execution raises a MariaDB error, the API can also attempt a one-time retry starting from the original non-anonymized question.
 
 9. **Cache Population**
    - **Exact question cache**: Save the original question and SQL query to `T_WC_T2S_CACHE` (if applicable)
@@ -466,8 +470,10 @@ docker run -p 8000:8000 fastapi-text2sql
 
 ```
 fastapi-text2sql/
-├── main.py                  # FastAPI application, endpoints, and ChromaDB integration
-├── text2sql.py              # Core text-to-SQL conversion and entity extraction logic
+├── main.py                  # FastAPI application, endpoint orchestration, DB/Chroma startup, and retry orchestration
+├── text2sql.py              # Core text-to-SQL conversion and reasoning-model helpers for complex-question retry
+├── entity.py                # Entity extraction, entity-resolution config loading, and placeholder resolution logic
+├── sql_cache.py             # SQL cache lookups and cache writes for exact/anonymized questions
 ├── auth.py                  # API key authentication middleware
 ├── rapidfuzz_query.py        # RapidFuzz + MariaDB/MySQL lexical matching utilities
 ├── RAPIDFUZZ.md              # RapidFuzz module documentation
@@ -492,7 +498,9 @@ fastapi-text2sql/
 **Key Architecture Components:**
 - **ChromaDB Integration**: Vector database for entity matching and similarity search with 10 specialized collections
 - **Multi-Level Caching**: SQL cache + embeddings cache for performance optimization with automatic cleanup
-- **Entity Extraction**: GPT-4o powered entity recognition and anonymization for 8 entity types
+- **Entity Extraction**: `entity.py` handles GPT-powered entity recognition and anonymization for supported entity types
+- **Reasoning Retry Helpers**: `text2sql.py` contains reasoning-model calls and retry-question construction helpers
+- **Endpoint Orchestration**: `main.py` coordinates request flow, recursive retry execution, and response/message merging
 - **Blue/Green Deployment**: Automatic port selection based on API version (even: port 8000, odd: port 8001)
 - **Processing Transparency**: Messages array tracks every processing step for debugging and analysis
 - **Version Management**: Utility functions for version comparison and automatic cache cleanup
@@ -503,7 +511,9 @@ fastapi-text2sql/
 The API version is controlled by the `strapiversion` variable in `main.py`. Update this when making changes to the prompt templates.
 
 ### Prompt Templates
-The system uses prompt templates stored in the `data/` folder. The current template file is specified in `text2sql.py`.
+The system uses prompt templates stored in the `data/` folder. `text2sql.py` loads the Text2SQL and complex-question templates, and `entity.py` loads the entity-extraction template.
+
+Prompt template files are read using UTF-8 encoding so the application starts reliably on Windows even when prompt files contain non-ASCII characters.
 
 The current prompt template is specifically designed for a **movie and TV series database** using MariaDB. It includes:
 
@@ -604,6 +614,8 @@ The system intelligently extracts and replaces entities in natural language ques
 3. Check cache for anonymized question pattern
 4. Generate SQL if not cached
 5. Replace placeholders with actual entity values using vector search
+
+This logic is implemented in `entity.py`, including config-driven resolution, generic fallback replacement, numeric placeholder handling, embeddings-based lookup, and RapidFuzz-based person resolution.
 
 If the user provides a disambiguation pattern like `<movie_title> (YYYY)`, entity extraction can also return a release year placeholder (e.g., `{{Release_year1}}`) in addition to the movie title.
 
@@ -719,6 +731,14 @@ All API requests are automatically logged to the `logs/` folder with:
    - Clear ChromaDB collections if embeddings become stale
    - Check `T_WC_T2S_CACHE` table for SQL cache entries
 
+9. **Prompt File Encoding Issues on Windows**
+   - Prompt templates are loaded with UTF-8 encoding
+   - If you modify prompt files, keep them saved as UTF-8 to avoid `UnicodeDecodeError` during module import or application startup
+
+10. **Missing RapidFuzz Dependency**
+   - `entity.py` imports `rapidfuzz_query.py`, which depends on the `rapidfuzz` package
+   - If startup fails with `ModuleNotFoundError: No module named 'rapidfuzz'`, install dependencies from `requirements.txt` in the active Python environment
+
 ### Logs
 Check the `logs/` folder for detailed request/response logs with comprehensive timing metrics if you encounter issues. Each log file includes:
 - Entity extraction processing time
@@ -774,6 +794,14 @@ All successful text2sql requests return a comprehensive response with:
 - **Character Name Entity Extraction**: New entity type for extracting movie/series character names (e.g., "James Bond", "Sherlock Holmes", "R2-D2") with dedicated `characters` ChromaDB collection
 - **Location Name Entity Extraction**: New entity type for extracting narrative or filming locations (e.g., "New York City", "Gotham City", "South America") with dedicated `locations` ChromaDB collection
 - **Groups Collection**: New `groups` ChromaDB collection for group/collection-based entity matching
+
+### Recent Refactor Updates
+
+- **Lighter `main.py`**: request handling now delegates entity extraction/resolution and SQL cache operations to dedicated modules
+- **New `entity.py` module**: centralizes entity extraction, entity-resolution config loading, embeddings/RapidFuzz resolution, and placeholder substitution
+- **`sql_cache.py` module**: centralizes SQL cache lookup and write logic for exact and anonymized questions
+- **Reasoning helpers in `text2sql.py`**: complex-question resolution and retry-question construction now live alongside the LLM helper code
+- **Person-name justification formatting**: when a person is matched through an AKA entry and resolved to a canonical name, SQL uses the canonical value while justification shows `AKA (Canonical)`
 
 ### New Features in v1.1.13
 

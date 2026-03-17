@@ -5,6 +5,7 @@ import psutil
 
 import os
 import json
+import re
 from dotenv import load_dotenv
 import openai
 from langchain_core.prompts import PromptTemplate
@@ -36,10 +37,6 @@ dblavailableram=memory_info.available / (1024 ** 3)
 strtext2sqlprompttemplate = "text-to-sql-prompt-chatgpt-4o-1-1-15-20260209.txt"
 strtext2sqlmodeldefault = "gpt-4o"
 
-# Entity extraction feature
-strentityextractionprompttemplate = "entity-extraction-prompt-chatgpt-4o-1-1-15-20260209.txt"
-strentityextractionmodeldefault = "gpt-4o"
-
 # Complex question feature (reasoning model)
 strcomplexquestionprompttemplate = "complex-question-prompt-reasoning-model-1-1-15-20260209.txt"
 strcomplexquestionmodeldefault = "gpt-4o"
@@ -48,15 +45,11 @@ strcomplexquestionmodeldefault = "gpt-4o"
 #print("Entity extraction prompt template", strentityextractionprompttemplate)
 
 # Read the text2sql_prompt_template from the data/prompt.txt file
-with open('./data/' + strtext2sqlprompttemplate, 'r') as file:
+with open('./data/' + strtext2sqlprompttemplate, 'r', encoding='utf-8') as file:
     text2sql_prompt_template = file.read()
 
-# Read the entity_extraction_prompt_template from the data/prompt.txt file
-with open('./data/' + strentityextractionprompttemplate, 'r') as file:
-    entity_extraction_prompt_template = file.read()
-
 # Read the complex_question_prompt_template from the data file
-with open('./data/' + strcomplexquestionprompttemplate, 'r') as file:
+with open('./data/' + strcomplexquestionprompttemplate, 'r', encoding='utf-8') as file:
     complex_question_prompt_template = file.read()
 
 # Load environment variables (OPENAI_API_KEY)
@@ -191,91 +184,6 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
 
     raise RuntimeError(f"Unsupported LLM model: {model_norm}")
 
-def f_entity_extraction(user_question: str, strentityextractionmodel: str = "default"):
-    """Extract entities from natural language question using LangChain and LLM.
-    
-    Args:
-        user_question (str): The user's natural language question
-        strentityextractionmodel (str): The model to use for entity extraction
-    
-    Returns:
-        dict: A dictionary containing the extracted entities
-    """
-    print("Entity extraction")
-    print("User question:", user_question)
-    model_to_use = _normalize_llm_model(strentityextractionmodel, strentityextractionmodeldefault)
-    print("Entity extraction LLM model:", model_to_use)
-
-    try:
-        # Use the entity_extraction_prompt_template from the data/prompt.txt file
-        #print("Entity extraction prompt template")
-        try:
-            # Replace the placeholder with the actual user question
-            formatted_prompt = entity_extraction_prompt_template.replace("{user_question}", user_question)
-        except Exception as format_error:
-            print(f"Error formatting prompt template: {str(format_error)}")
-            #print(f"Template content preview: {entity_extraction_prompt_template[:200]}...")
-            print(f"User question: '{user_question}'")
-            return {"error": f"Prompt formatting failed: {str(format_error)}"}
-        
-        # Make a direct call to OpenAI API
-        #print("Making a direct call to OpenAI API")
-        #print(f"Formatted prompt length: {len(formatted_prompt)}")
-        #print(f"Formatted prompt preview: {formatted_prompt[:200]}...")
-        
-        try:
-            json_content = _call_chat_llm(
-                model=model_to_use,
-                system_prompt="You are a powerful entity extraction tool. Respond only with the JSON content, no explanations.",
-                user_prompt=formatted_prompt,
-                temperature=0,
-            ).strip()
-        except Exception as api_error:
-            print(f"LLM API call failed: {str(api_error)}")
-            print(f"API error type: {type(api_error)}")
-            return {"error": f"LLM API call failed: {str(api_error)}"}
-
-        # Check if json_content starts with ```json and remove it
-        if json_content.startswith("```json"):
-            json_content = json_content[7:].strip()
-        
-        # Check if json_content ends with ``` and remove it
-        if json_content.endswith("```"):
-            json_content = json_content[:-3].strip()
-        
-        print(f"Raw API response: '{json_content}'")
-        print(f"Response length: {len(json_content)}")
-        print(f"Response type: {type(json_content)}")
-        
-        # Try to clean up the response and handle common issues
-        cleaned_content = json_content.strip().strip('\n').strip('\r').strip('\n')
-        
-        # Check if the response looks like it might be truncated or incomplete
-        if not cleaned_content.startswith('{') or not cleaned_content.endswith('}'):
-            print("WARNING: Response doesn't look like complete JSON")
-            # Try to fix common issues
-            if cleaned_content.startswith('"question"'):
-                # If it starts with "question", try to wrap it in braces
-                cleaned_content = '{' + cleaned_content + '}'
-                print(f"Attempting to fix malformed JSON: {cleaned_content}")
-            else:
-                return {"error": "Incomplete JSON response from API", "raw_content": json_content}
-        
-        # Parse the JSON string into a Python dictionary
-        try:
-            entity_extraction = json.loads(cleaned_content)
-            print(f"Successfully parsed JSON: {entity_extraction}")
-            return entity_extraction
-        except json.JSONDecodeError as json_error:
-            print(f"JSON parsing error in entity extraction: {str(json_error)}")
-            print(f"Raw response content: '{json_content}'")
-            print(f"Cleaned content: '{cleaned_content}'")
-            return {"error": f"JSON parsing failed: {str(json_error)}", "raw_content": json_content}
-    
-    except Exception as e:
-        print(f"Error in entity extraction: {str(e)}")
-        return {"error": str(e)}
-
 def f_text2sql(user_question: str, strtext2sqlmodel: str):
     """Convert natural language question to JSON using LangChain and LLM.
     
@@ -406,3 +314,95 @@ def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str 
     except Exception as e:
         print(f"Error in complex question resolution: {str(e)}")
         return {"error": str(e)}
+
+
+def f_build_retry_question_from_reasoning(resolved: dict) -> str:
+    try:
+        if not isinstance(resolved, dict):
+            return ""
+        items = resolved.get("items")
+        base_q = str(resolved.get("question") or "").strip()
+        if not isinstance(items, list) or len(items) == 0:
+            return base_q
+
+        cleaned_items = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            v = str(it.get("value") or "").strip()
+            if v == "":
+                continue
+            y = str(it.get("year") or "").strip()
+            if re.fullmatch(r"\d{4}", y or ""):
+                v = f"{v} ({y})"
+            t = str(it.get("type") or "").strip().lower()
+            cleaned_items.append({"type": t, "value": v, "year": y})
+
+        if len(cleaned_items) == 0:
+            return base_q
+
+        if len(cleaned_items) == 1 and base_q == "":
+            it0 = cleaned_items[0]
+            t0 = it0.get("type")
+            v0 = it0.get("value")
+            y0 = it0.get("year")
+            if t0 == "movie":
+                if re.fullmatch(r"\d{4}", y0 or ""):
+                    return f"Movie {v0} released in {y0}"
+                return f"Movie {v0}"
+            if t0 == "person":
+                if re.fullmatch(r"\d{4}", y0 or ""):
+                    return f"Person {v0} born in {y0}"
+                return f"Person {v0}"
+            if t0 == "serie":
+                return f"Serie {v0}"
+            if t0 == "topic":
+                return f"Topic {v0}"
+            return v0
+
+        if len(cleaned_items) >= 2:
+            types = [c.get("type") for c in cleaned_items]
+            t0 = types[0] if types else ""
+            same_type = all(t == t0 for t in types)
+            prefix = "Items"
+            if same_type:
+                if t0 == "movie":
+                    prefix = "Movies"
+                elif t0 == "person":
+                    prefix = "Persons"
+                elif t0 == "topic":
+                    prefix = "Topics"
+                elif t0 == "company":
+                    prefix = "Companies"
+                elif t0 == "network":
+                    prefix = "Networks"
+                elif t0 == "location":
+                    prefix = "Locations"
+                elif t0 == "serie":
+                    prefix = "Series"
+                elif t0:
+                    prefix = f"{t0.capitalize()}s"
+            values = [c.get("value") for c in cleaned_items if c.get("value")]
+            if values:
+                return f"{prefix} " + ", ".join(values)
+        return base_q
+    except Exception:
+        try:
+            return str(resolved.get("question") or "").strip()
+        except Exception:
+            return ""
+
+
+def f_resolve_complex_question_retry_payload(user_question: str, strcomplexquestionmodel: str = "default"):
+    resolved_complex = f_resolve_complex_question(user_question, strcomplexquestionmodel)
+    retry_question = f_build_retry_question_from_reasoning(resolved_complex)
+    try:
+        reasoning_justification = str(resolved_complex.get("justification") or "").strip()
+    except Exception:
+        reasoning_justification = ""
+    return {
+        "resolved": resolved_complex,
+        "retry_question": retry_question,
+        "justification": reasoning_justification,
+        "has_error": not (isinstance(resolved_complex, dict) and not resolved_complex.get("error")),
+    }

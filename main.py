@@ -18,8 +18,9 @@ import openai
 import chromadb
 #from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 import cleanup
+import entity
 import logs
-import rapidfuzz_query
+import sql_cache
 
 # Load environment variables from .env file
 load_dotenv()
@@ -55,31 +56,6 @@ API_PORT_GREEN = int(os.getenv('API_PORT_GREEN', 8001))
 
 #intcleanupenabled = False
 intcleanupenabled = True
-
-ENTITY_RESOLUTION_CONFIG_PATH = os.path.join(
-    os.path.dirname(__file__),
-    "data",
-    "entity_resolution_config-1-1-15-20260315.json",
-)
-
-
-def load_entity_resolution_config() -> list[dict]:
-    with open(ENTITY_RESOLUTION_CONFIG_PATH, "r", encoding="utf-8") as config_file:
-        config = json.load(config_file)
-
-    if not isinstance(config, list):
-        raise ValueError("ENTITY_RESOLUTION_CONFIG must be a list of objects.")
-
-    for config_item in config:
-        if not isinstance(config_item, dict):
-            raise ValueError("Each entity resolution config entry must be an object.")
-        if not isinstance(config_item.get("search_list"), list):
-            raise ValueError("Each entity resolution config entry must contain a search_list array.")
-
-    return config
-
-
-ENTITY_RESOLUTION_CONFIG = load_entity_resolution_config()
 
 # Set your OpenAI API key from environment variable
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -365,7 +341,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     query_execution_time = 0.0
     total_processing_time = 0.0
     ambiguous_question_for_text2sql = 0
-    strentityextractionmodel = t2s.strentityextractionmodeldefault
+    strentityextractionmodel = entity.strentityextractionmodeldefault
     if request.llm_model_entity_extraction and request.llm_model_entity_extraction != "default":
         strentityextractionmodel = request.llm_model_entity_extraction
     strtext2sqlmodel = t2s.strtext2sqlmodeldefault
@@ -383,84 +359,59 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             text="Attempting to retrieve exact question from cache."
         ))
         position_counter += 1
-        with connection.cursor() as cursor:
-            cache_result_exact = None
-            
-            # First, try to find by question_hashed if provided
-            if request.question_hashed:
+        cache_result_exact = None
+
+        if request.question_hashed:
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="Searching cache by question hash."
+            ))
+            position_counter += 1
+            cache_result_exact = sql_cache.search_sql_cache_by_question_hash(
+                connection,
+                request.question_hashed,
+                strapiversionformatted,
+            )
+            if not cache_result_exact.get("found"):
+                print("Exact question hash not found in the SQL cache")
                 messages.append(TextMessage(
                     position=position_counter, 
-                    text="Searching cache by question hash."
+                    text="Exact question hash not found in cache."
                 ))
                 position_counter += 1
-                cache_query = """
-SELECT QUESTION, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME
-FROM T_WC_T2S_CACHE
-WHERE QUESTION_HASHED = %s
-AND API_VERSION = %s
-AND (DELETED IS NULL OR DELETED = 0)
-ORDER BY TIM_UPDATED DESC
-LIMIT 1 """
-                print("Looking for the exact question hash in the SQL cache:", cache_query)
-                cursor.execute(cache_query, (request.question_hashed, strapiversionformatted))
-                #print("Cache query executed")
-                cache_result_exact = cursor.fetchone()
-                if not cache_result_exact:
-                    print("Exact question hash not found in the SQL cache")
-                    messages.append(TextMessage(
-                        position=position_counter, 
-                        text="Exact question hash not found in cache."
-                    ))
-                    position_counter += 1
-            
-            # If not found by hash and we have a question, try to find by question text
-            if not cache_result_exact and request.question:
+
+        if (not cache_result_exact or not cache_result_exact.get("found")) and request.question:
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="Searching cache by question text."
+            ))
+            position_counter += 1
+            cache_result_exact = sql_cache.search_sql_cache_by_question_text(
+                connection,
+                request.question,
+                strapiversionformatted,
+            )
+            if not cache_result_exact.get("found"):
+                print("Exact question not found in the SQL cache")
                 messages.append(TextMessage(
                     position=position_counter, 
-                    text="Searching cache by question text."
+                    text="Exact question not found in cache."
                 ))
                 position_counter += 1
-                cache_query = """
-SELECT QUESTION, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME
-FROM T_WC_T2S_CACHE
-WHERE QUESTION = %s
-AND API_VERSION = %s
-AND (DELETED IS NULL OR DELETED = 0)
-ORDER BY TIM_UPDATED DESC
-LIMIT 1 """
-                print("Looking for the exact question in the SQL cache:", cache_query)
-                cursor.execute(cache_query, (request.question, strapiversionformatted))
-                #print("Cache query executed")
-                cache_result_exact = cursor.fetchone()
-                if not cache_result_exact:
-                    print("Exact question not found in the SQL cache")
-                    messages.append(TextMessage(
-                        position=position_counter, 
-                        text="Exact question not found in cache."
-                    ))
-                    position_counter += 1
-            
-            if cache_result_exact:
-                # Found exact result in the SQL cache
-                print("Found exact question in the SQL cache")
-                cached_exact_question = True
-                messages.append(TextMessage(
-                    position=position_counter, 
-                    text="Exact question cache hit used for SQL query."
-                ))
-                position_counter += 1
-                input_text = cache_result_exact['QUESTION']
-                input_text = cache_result_exact['QUESTION']
-                sql_query = cache_result_exact['SQL_PROCESSED'] or cache_result_exact['SQL_QUERY']
-                sql_query_anonymized = cache_result_exact['SQL_QUERY']
-                justification = cache_result_exact.get('JUSTIFICATION', '')
-                # Because the SQL query can be updated in the t2scache.php back-office script,
-                # we need to replace &#039; by ' because the back-office script stores &#039; instead of ' in the database
-                #sql_query = sql_query.replace("&#039;", "'")
-                #entity_extraction_processing_time = cache_result_exact['ENTITY_EXTRACTION_PROCESSING_TIME']
-                #text2sql_processing_time = cache_result_exact['TEXT2SQL_PROCESSING_TIME']
-                #embeddings_processing_time = cache_result_exact['EMBEDDINGS_TIME']
-                #query_execution_time = cache_result_exact['QUERY_TIME']
+
+        if cache_result_exact and cache_result_exact.get("found"):
+            print("Found exact question in the SQL cache")
+            cached_exact_question = True
+            messages.append(TextMessage(
+                position=position_counter, 
+                text="Exact question cache hit used for SQL query."
+            ))
+            position_counter += 1
+            input_text = cache_result_exact["question"]
+            input_text = cache_result_exact["question"]
+            sql_query = cache_result_exact["sql_query"]
+            sql_query_anonymized = cache_result_exact["sql_query_raw"]
+            justification = cache_result_exact.get("justification", "")
     else:
         messages.append(TextMessage(
             position=position_counter, 
@@ -497,7 +448,7 @@ LIMIT 1 """
         """
         # Anonymize question by entity extraction
         entity_extraction_start_time = time.time()
-        entity_extraction = t2s.f_entity_extraction(input_text, strentityextractionmodel)
+        entity_extraction = entity.f_entity_extraction(input_text, strentityextractionmodel)
         print("Entity extraction:", entity_extraction)
         entity_extraction_end_time = time.time()
         entity_extraction_processing_time = entity_extraction_end_time - entity_extraction_start_time
@@ -548,23 +499,13 @@ LIMIT 1 """
                 text="Searching cache for anonymized question."
             ))
             position_counter += 1
-            # Is this anonymized query in the SQL cache?
-            with connection.cursor() as cursor:
-                cache_query = """
-SELECT QUESTION, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME
-FROM T_WC_T2S_CACHE
-WHERE QUESTION = %s
-AND API_VERSION = %s
-AND (DELETED IS NULL OR DELETED = 0)
-ORDER BY TIM_UPDATED DESC
-LIMIT 1 """
-                print("Looking for the anonymized question in the SQL cache:", cache_query)
-                cursor.execute(cache_query, (input_text_anonymized, strapiversionformatted))
-                #print("Cache query executed")
-                cache_result_anonymized = cursor.fetchone()
+            cache_result_anonymized = sql_cache.search_sql_cache_by_question_text(
+                connection,
+                input_text_anonymized,
+                strapiversionformatted,
+            )
             
-            if cache_result_anonymized:
-                # Found anonymized question in the SQL cache so we retrieved the question in cache and the SQL query
+            if cache_result_anonymized.get("found"):
                 print("Found anonymized question in the SQL cache")
                 cached_anonymized_question = True
                 messages.append(TextMessage(
@@ -572,35 +513,18 @@ LIMIT 1 """
                     text="Anonymized question cache hit used for SQL query."
                 ))
                 position_counter += 1
-                input_text_anonymized = cache_result_anonymized['QUESTION']
-                sql_query_cached_processed = cache_result_anonymized['SQL_PROCESSED'] or ""
-                sql_query_cached_raw = cache_result_anonymized['SQL_QUERY'] or ""
+                input_text_anonymized = cache_result_anonymized["question"]
+                sql_query = cache_result_anonymized["sql_query"]
+                if cache_result_anonymized.get("used_raw_query_to_preserve_limit"):
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text="Cache hit: using SQL_QUERY instead of SQL_PROCESSED to preserve smaller LIMIT."
+                    ))
+                    position_counter += 1
 
-                sql_query = sql_query_cached_processed or sql_query_cached_raw
-                if sql_query_cached_processed and sql_query_cached_raw and '{{' not in sql_query_cached_raw:
-                    match_raw_limit = re.search(r"\blimit\b\s+(\d+)", sql_query_cached_raw, re.IGNORECASE)
-                    match_processed_limit = re.search(r"\blimit\b\s+(\d+)", sql_query_cached_processed, re.IGNORECASE)
-                    if match_raw_limit and match_processed_limit:
-                        raw_limit = int(match_raw_limit.group(1))
-                        processed_limit = int(match_processed_limit.group(1))
-                        if raw_limit < processed_limit:
-                            sql_query = sql_query_cached_raw
-                            messages.append(TextMessage(
-                                position=position_counter,
-                                text="Cache hit: using SQL_QUERY instead of SQL_PROCESSED to preserve smaller LIMIT."
-                            ))
-                            position_counter += 1
-
-                justification = cache_result_anonymized.get('JUSTIFICATION', '')
-                # Because the SQL query can be updated in the t2scache.php back-office script,
-                # we need to replace &#039; by ' because the back-office script stores &#039; instead of ' in the database
-                #sql_query = sql_query.replace("&#039;", "'")
+                justification = cache_result_anonymized.get("justification", "")
                 sql_query_anonymized = sql_query
                 justification_anonymized = justification
-                #entity_extraction_processing_time = cache_result_anonymized['ENTITY_EXTRACTION_PROCESSING_TIME']
-                #text2sql_processing_time = cache_result_anonymized['TEXT2SQL_PROCESSING_TIME']
-                #embeddings_processing_time = cache_result_anonymized['EMBEDDINGS_TIME']
-                #query_execution_time = cache_result_anonymized['QUERY_TIME']
             else:
                 print("Anonymized question not found in the SQL cache")
                 print("So we will look for the anonymized question in the questions embeddings cache")
@@ -783,75 +707,83 @@ LIMIT 1 """
                             text="Error: " + error_text2sql
                         ))
                         position_counter += 1
-    def _build_retry_question_from_reasoning(resolved: dict) -> str:
+    async def _retry_with_resolved_complex_question(*, start_message: str, success_message: str, empty_question_message: str, error_message: str):
+        nonlocal position_counter
+        messages.append(TextMessage(
+            position=position_counter,
+            text=start_message
+        ))
+        position_counter += 1
+
+        retry_payload = t2s.f_resolve_complex_question_retry_payload(original_question)
+        resolved_complex = retry_payload.get("resolved")
         try:
-            if not isinstance(resolved, dict):
-                return ""
-            items = resolved.get("items")
-            base_q = str(resolved.get("question") or "").strip()
-            if not isinstance(items, list) or len(items) == 0:
-                return base_q
-
-            cleaned_items = []
-            for it in items:
-                if not isinstance(it, dict):
-                    continue
-                v = str(it.get("value") or "").strip()
-                if v == "":
-                    continue
-                y = str(it.get("year") or "").strip()
-                if re.fullmatch(r"\d{4}", y or ""):
-                    v = f"{v} ({y})"
-                t = str(it.get("type") or "").strip().lower()
-                cleaned_items.append({"type": t, "value": v, "year": y})
-
-            if len(cleaned_items) == 0:
-                return base_q
-
-            if len(cleaned_items) == 1 and base_q == "":
-                it0 = cleaned_items[0]
-                t0 = it0.get("type")
-                v0 = it0.get("value")
-                y0 = it0.get("year")
-                if t0 == "movie":
-                    if re.fullmatch(r"\d{4}", y0 or ""):
-                        return f"Movie {v0} released in {y0}"
-                    return f"Movie {v0}"
-                if t0 == "person":
-                    if re.fullmatch(r"\d{4}", y0 or ""):
-                        return f"Person {v0} born in {y0}"
-                    return f"Person {v0}"
-                return v0
-
-            if len(cleaned_items) >= 2:
-                types = [c.get("type") for c in cleaned_items]
-                t0 = types[0] if types else ""
-                same_type = all(t == t0 for t in types)
-                prefix = "Items"
-                if same_type:
-                    if t0 == "movie":
-                        prefix = "Movies"
-                    elif t0 == "person":
-                        prefix = "Persons"
-                    elif t0 == "topic":
-                        prefix = "Topics"
-                    elif t0 == "company":
-                        prefix = "Companies"
-                    elif t0 == "network":
-                        prefix = "Networks"
-                    elif t0 == "location":
-                        prefix = "Locations"
-                    elif t0:
-                        prefix = f"{t0.capitalize()}s"
-                values = [c.get("value") for c in cleaned_items if c.get("value")]
-                if values:
-                    return f"{prefix} " + ", ".join(values)
-            return base_q
+            resolved_complex_json = json.dumps(resolved_complex, ensure_ascii=False)
         except Exception:
-            try:
-                return str(resolved.get("question") or "").strip()
-            except Exception:
-                return ""
+            resolved_complex_json = str(resolved_complex)
+        messages.append(TextMessage(
+            position=position_counter,
+            text=f"Complex question resolution output: {resolved_complex_json.replace('"', '\\"')}"
+        ))
+        position_counter += 1
+
+        if not retry_payload.get("has_error"):
+            retry_question = retry_payload.get("retry_question") or ""
+            if retry_question != "":
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=success_message
+                ))
+                position_counter += 1
+
+                try:
+                    connection.close()
+                except Exception:
+                    pass
+
+                retry_request = request.model_copy(deep=True)
+                retry_request.question = retry_question
+                retry_request.question_hashed = None
+                retry_request.complex_question_already_resolved = True
+
+                retry_response = await search_text2sql(retry_request, api_key)
+
+                reasoning_justification = str(retry_payload.get("justification") or "").strip()
+                if reasoning_justification != "":
+                    try:
+                        retry_response.justification = reasoning_justification
+                    except Exception:
+                        pass
+
+                merged_messages = []
+                pos = 1
+                for m in (messages or []):
+                    merged_messages.append(TextMessage(position=pos, text=m.text))
+                    pos += 1
+                for m in (getattr(retry_response, "messages", None) or []):
+                    merged_messages.append(TextMessage(position=pos, text=m.text))
+                    pos += 1
+
+                try:
+                    retry_response.messages = merged_messages
+                except Exception:
+                    pass
+
+                return retry_response
+
+            messages.append(TextMessage(
+                position=position_counter,
+                text=empty_question_message
+            ))
+            position_counter += 1
+            return None
+
+        messages.append(TextMessage(
+            position=position_counter,
+            text=error_message
+        ))
+        position_counter += 1
+        return None
 
     sql_query_llm = sql_query
     # if the error element is found in json content
@@ -873,86 +805,14 @@ LIMIT 1 """
             can_retry = False
 
         if can_retry:
-            messages.append(TextMessage(
-                position=position_counter,
-                text="Attempting to simplify the original question using the reasoning model (one-time retry)."
-            ))
-            position_counter += 1
-
-            resolved_complex = t2s.f_resolve_complex_question(original_question)
-            try:
-                resolved_complex_json = json.dumps(resolved_complex, ensure_ascii=False)
-            except Exception:
-                resolved_complex_json = str(resolved_complex)
-            messages.append(TextMessage(
-                position=position_counter,
-                text=f"Complex question resolution output: {resolved_complex_json.replace('"', '\\"')}"
-            ))
-            position_counter += 1
-
-            if isinstance(resolved_complex, dict) and not resolved_complex.get("error"):
-                retry_question = _build_retry_question_from_reasoning(resolved_complex)
-                if retry_question != "":
-                    messages.append(TextMessage(
-                        position=position_counter,
-                        text="Text2SQL error detected; attempting one-time retry with simplified question from reasoning model."
-                    ))
-                    position_counter += 1
-
-                    # Close the current DB connection before restarting the pipeline to avoid leaks.
-                    try:
-                        connection.close()
-                    except Exception:
-                        pass
-
-                    retry_request = request.model_copy(deep=True)
-                    retry_request.question = retry_question
-                    retry_request.question_hashed = None
-                    retry_request.complex_question_already_resolved = True
-
-                    retry_response = await search_text2sql(retry_request, api_key)
-
-                    # When we retry via the reasoning model, prefer the reasoning model's justification
-                    # in the final API response.
-                    try:
-                        reasoning_justification = str(resolved_complex.get("justification") or "").strip()
-                    except Exception:
-                        reasoning_justification = ""
-                    if reasoning_justification != "":
-                        try:
-                            retry_response.justification = reasoning_justification
-                        except Exception:
-                            pass
-
-                    # Merge messages from the retry call into the current messages collection
-                    # to provide a single coherent trace.
-                    merged_messages = []
-                    pos = 1
-                    for m in (messages or []):
-                        merged_messages.append(TextMessage(position=pos, text=m.text))
-                        pos += 1
-                    for m in (getattr(retry_response, "messages", None) or []):
-                        merged_messages.append(TextMessage(position=pos, text=m.text))
-                        pos += 1
-
-                    try:
-                        retry_response.messages = merged_messages
-                    except Exception:
-                        pass
-
-                    return retry_response
-                else:
-                    messages.append(TextMessage(
-                        position=position_counter,
-                        text="Complex question resolution did not return a simplified question; skipping retry."
-                    ))
-                    position_counter += 1
-            else:
-                messages.append(TextMessage(
-                    position=position_counter,
-                    text="Complex question resolution returned an error; skipping retry."
-                ))
-                position_counter += 1
+            retry_response = await _retry_with_resolved_complex_question(
+                start_message="Attempting to simplify the original question using the reasoning model (one-time retry).",
+                success_message="Text2SQL error detected; attempting one-time retry with simplified question from reasoning model.",
+                empty_question_message="Complex question resolution did not return a simplified question; skipping retry.",
+                error_message="Complex question resolution returned an error; skipping retry."
+            )
+            if retry_response is not None:
+                return retry_response
         else:
             messages.append(TextMessage(
                 position=position_counter,
@@ -977,404 +837,29 @@ LIMIT 1 """
     
     embeddings_start_time = time.time()
     if not cached_exact_question and (not ambiguous_question_for_text2sql or justification):
-        # Compute embeddings for entity resolution in the SQL query and/or justification
         print("Computing embeddings for entity resolution")
         messages.append(TextMessage(
             position=position_counter, 
             text="Processing entity values using embeddings for entity matching."
         ))
         position_counter += 1
-        def _find_entity_config(placeholder_key: str):
-            for cfg in ENTITY_RESOLUTION_CONFIG:
-                if isinstance(placeholder_key, str) and placeholder_key.startswith(cfg.get("placeholder_prefix", "")):
-                    return cfg
-            return None
-
-        def _iter_entity_searches(cfg: dict):
-            searches = cfg.get("search_list")
-            if not isinstance(searches, list):
-                return []
-            return [search for search in searches if isinstance(search, dict)]
-
-        def _sql_escape_literal(v: str) -> str:
-            return str(v).replace("'", "''")
-
-        def _apply_entity_match_from_docid(
-            *,
-            cursor,
-            key: str,
-            cfg: dict,
-            docid,
-            doclang: str,
-            message: str,
-        ) -> bool:
-            nonlocal sql_query, justification, position_counter
-
-            if docid is None:
-                return False
-
-            languages_map = cfg.get("languages", {}) or {}
-            strfieldnamenew = languages_map.get(doclang) or languages_map.get("*") or cfg.get("default_field")
-            strtableidlookup = strfieldnamenew
-
-            strtablename = cfg.get("strtablename")
-            strtableid = cfg.get("strtableid")
-            if not strtablename or not strtableid:
-                return False
-
-            strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strtableid + " = %s"
-            cursor.execute(strsql_query, (docid,))
-            sql_query_results = cursor.fetchall()
-            if not sql_query_results:
-                placeholder = "{{" + str(key) + "}}"
-                messages.append(TextMessage(
-                    position=position_counter,
-                    text=(
-                        f"Entity resolution: embeddings returned docid={docid} (lang={doclang}) for {placeholder}, "
-                        f"but no row exists in table {strtablename}.{strtableid}. "
-                        "Embeddings collection may be out of sync with the underlying table."
-                    )
-                ))
-                position_counter += 1
-                return False
-            first_record = sql_query_results[0]
-
-            first_record_value = first_record.get(strtableidlookup, '')
-            first_record_value_sql = _sql_escape_literal(first_record_value)
-
-            placeholder = "{{" + str(key) + "}}"
-            target_col = cfg.get("default_field")
-            if not target_col:
-                return False
-
-            sql_query = re.sub(
-                rf"\b{re.escape(target_col)}\b\s*=\s*'{re.escape(placeholder)}'",
-                f"{strfieldnamenew} = '{first_record_value_sql}'",
-                sql_query,
-                flags=re.IGNORECASE,
-            )
-            sql_query = re.sub(
-                rf"\b{re.escape(target_col)}\b\s*=\s*{re.escape(placeholder)}",
-                f"{strfieldnamenew} = '{first_record_value_sql}'",
-                sql_query,
-                flags=re.IGNORECASE,
-            )
-
-            # Also replace placeholder tokens wherever they appear (e.g. IN (...) lists).
-            # - If the placeholder is already quoted, keep it quoted.
-            # - If it's unquoted, inject quotes to keep SQL valid for string placeholders.
-            sql_query = re.sub(
-                rf"'{re.escape(placeholder)}'",
-                f"'{first_record_value_sql}'",
-                sql_query,
-                flags=re.IGNORECASE,
-            )
-            sql_query = re.sub(
-                rf"{re.escape(placeholder)}",
-                f"'{first_record_value_sql}'",
-                sql_query,
-                flags=re.IGNORECASE,
-            )
-
-            justification = justification.replace(placeholder, str(first_record_value))
-
-            messages.append(TextMessage(
-                position=position_counter,
-                text=message.format(placeholder=placeholder, resolved=first_record_value)
-            ))
-            position_counter += 1
-            return True
-
-        if isinstance(entity_extraction, dict):
-            with connection.cursor() as cursor:
-                for key, value in entity_extraction.items():
-                    if key == "question":
-                        continue
-
-                    # Numeric placeholders (e.g. {{Release_year1}}) should be substituted directly
-                    # so expressions like BETWEEN {{Release_year1}} - 1 AND {{Release_year1}} + 1 keep working.
-                    if isinstance(key, str) and key.startswith("Release_year"):
-                        raw_value = "" if value is None else str(value).strip()
-                        if raw_value == "":
-                            continue
-                        if not re.fullmatch(r"\d{4}", raw_value):
-                            continue
-
-                        placeholder = "{{" + key + "}}"
-                        # Replace both quoted and unquoted forms with a numeric literal
-                        sql_query = re.sub(
-                            rf"'{re.escape(placeholder)}'",
-                            raw_value,
-                            sql_query,
-                            flags=re.IGNORECASE,
-                        )
-                        sql_query = re.sub(
-                            rf"{re.escape(placeholder)}",
-                            raw_value,
-                            sql_query,
-                            flags=re.IGNORECASE,
-                        )
-                        justification = justification.replace(placeholder, raw_value)
-
-                        messages.append(TextMessage(
-                            position=position_counter,
-                            text=f"Entity resolution: {placeholder} -> {raw_value} (numeric)"
-                        ))
-                        position_counter += 1
-                        continue
-
-                    cfg = _find_entity_config(key)
-                    if cfg is None:
-                        raw_value = "" if value is None else str(value)
-                        if raw_value.strip() == "":
-                            continue
-
-                        placeholder = "{{" + str(key) + "}}"
-                        raw_value_sql = _sql_escape_literal(raw_value)
-
-                        # Generic fallback: unknown entity types still need placeholder substitution.
-                        # Keep surrounding quotes intact by replacing only the placeholder token.
-                        if placeholder in sql_query or placeholder in justification:
-                            sql_query = sql_query.replace(placeholder, raw_value_sql)
-                            justification = justification.replace(placeholder, raw_value)
-                            messages.append(TextMessage(
-                                position=position_counter,
-                                text=f"Entity resolution: {placeholder} -> {raw_value} (generic)"
-                            ))
-                            position_counter += 1
-                        continue
-
-                    raw_value = "" if value is None else str(value)
-                    if raw_value.strip() == "":
-                        continue
-
-                    placeholder = "{{" + str(key) + "}}"
-                    raw_value_sql = _sql_escape_literal(raw_value)
-                    searches = _iter_entity_searches(cfg)
-                    resolved = False
-
-                    for search_cfg in searches:
-                        search_mode = str(search_cfg.get("search_mode") or "embeddings").strip().lower()
-                        if search_mode == "rapidfuzz":
-                            strtablename = search_cfg.get("strtablename")
-                            strtableid = search_cfg.get("strtableid")
-                            if not strtablename or not strtableid:
-                                continue
-
-                            strcolumndesc = search_cfg.get("default_field")
-                            strcolumndescnorm = search_cfg.get("rapidfuzz_col_norm") or (f"{strcolumndesc}_NORM" if strcolumndesc else None)
-                            strcolumndesckey = search_cfg.get("rapidfuzz_col_key") or (f"{strcolumndesc}_KEY" if strcolumndesc else None)
-                            strcolumnpopularity = search_cfg.get("rapidfuzz_col_popularity") or search_cfg.get("order_by") or "POPULARITY"
-                            if not strcolumndesc or not strcolumndescnorm or not strcolumndesckey:
-                                continue
-
-                            try:
-                                has_fulltext = rapidfuzz_query.db_has_fulltext(cursor, strtablename, strcolumndescnorm)
-                                rapidfuzz_result = rapidfuzz_query.search_first_match(
-                                    cursor,
-                                    strtablename,
-                                    strtableid,
-                                    strcolumndesc,
-                                    strcolumndescnorm,
-                                    strcolumndesckey,
-                                    strcolumnpopularity,
-                                    raw=raw_value,
-                                    has_fulltext=has_fulltext,
-                                    timings_enabled=False,
-                                )
-                            except Exception:
-                                continue
-
-                            best = (rapidfuzz_result or {}).get("best")
-                            if not isinstance(best, dict):
-                                continue
-
-                            docid = best.get(strtableid)
-                            if docid is None:
-                                continue
-
-                            # Special case: for Person_name, we may search the AKA table but
-                            # replace SQL using the canonical person name while keeping the
-                            # justification using the AKA string.
-                            resolve_to_canonical = search_cfg.get("resolve_to_canonical")
-                            if isinstance(resolve_to_canonical, dict):
-                                aka_value = best.get(strcolumndesc) if strcolumndesc else None
-                                if aka_value is None:
-                                    aka_value = raw_value
-
-                                canonical_value = None
-                                try:
-                                    from_col = resolve_to_canonical.get("from_column")
-                                    canonical_table = resolve_to_canonical.get("table")
-                                    canonical_id_col = resolve_to_canonical.get("id_column")
-                                    canonical_value_col = resolve_to_canonical.get("value_column")
-                                    canonical_id_val = best.get(from_col) if from_col else None
-                                    if canonical_id_val is not None and canonical_table and canonical_id_col and canonical_value_col:
-                                        cursor.execute(
-                                            f"SELECT `{canonical_value_col}` FROM `{canonical_table}` WHERE `{canonical_id_col}` = %s LIMIT 1",
-                                            (canonical_id_val,),
-                                        )
-                                        row = cursor.fetchone()
-                                        if isinstance(row, dict):
-                                            canonical_value = row.get(canonical_value_col)
-                                except Exception:
-                                    canonical_value = None
-
-                                if canonical_value is None or str(canonical_value).strip() == "":
-                                    messages.append(TextMessage(
-                                        position=position_counter,
-                                        text=f"Entity resolution: {placeholder} -> {aka_value} (rapidfuzz; canonical lookup failed, using AKA value)"
-                                    ))
-                                    position_counter += 1
-                                    canonical_value = aka_value
-
-                                canonical_value_sql = _sql_escape_literal(str(canonical_value))
-
-                                target_col = search_cfg.get("default_field") or strcolumndesc
-                                if target_col:
-                                    placeholder_before = (placeholder in sql_query) or (placeholder in justification)
-
-                                    sql_query = re.sub(
-                                        rf"\b{re.escape(target_col)}\b\s*=\s*'{re.escape(placeholder)}'",
-                                        f"{target_col} = '{canonical_value_sql}'",
-                                        sql_query,
-                                        flags=re.IGNORECASE,
-                                    )
-                                    sql_query = re.sub(
-                                        rf"\b{re.escape(target_col)}\b\s*=\s*{re.escape(placeholder)}",
-                                        f"{target_col} = '{canonical_value_sql}'",
-                                        sql_query,
-                                        flags=re.IGNORECASE,
-                                    )
-                                    sql_query = re.sub(
-                                        rf"'{re.escape(placeholder)}'",
-                                        f"'{canonical_value_sql}'",
-                                        sql_query,
-                                        flags=re.IGNORECASE,
-                                    )
-                                    sql_query = re.sub(
-                                        rf"{re.escape(placeholder)}",
-                                        f"'{canonical_value_sql}'",
-                                        sql_query,
-                                        flags=re.IGNORECASE,
-                                    )
-
-                                    # Justification uses the AKA string (as requested)
-                                    try:
-                                        justification = justification.replace(placeholder, str(aka_value))
-                                    except Exception:
-                                        pass
-
-                                    messages.append(TextMessage(
-                                        position=position_counter,
-                                        text=f"Entity resolution: {placeholder} -> {canonical_value} (SQL canonical), {aka_value} (justification AKA) (rapidfuzz)"
-                                    ))
-                                    position_counter += 1
-
-                                    placeholder_after = (placeholder in sql_query) or (placeholder in justification)
-                                    if placeholder_before and not placeholder_after:
-                                        resolved = True
-                                        break
-                                continue
-
-                            placeholder_before = (placeholder in sql_query) or (placeholder in justification)
-                            _apply_entity_match_from_docid(
-                                cursor=cursor,
-                                key=str(key),
-                                cfg=search_cfg,
-                                docid=docid,
-                                doclang="*",
-                                message="Entity resolution: {placeholder} -> {resolved} (rapidfuzz)",
-                            )
-                            placeholder_after = (placeholder in sql_query) or (placeholder in justification)
-                            if placeholder_before and not placeholder_after:
-                                resolved = True
-                                break
-                            continue
-
-                        if search_mode != "embeddings":
-                            continue
-
-                        collection_name = search_cfg.get("collection")
-                        current_collection = CHROMADB_COLLECTIONS_BY_NAME.get(collection_name)
-                        if current_collection is None:
-                            continue
-
-                        start_time_chromadb = time.time()
-                        results = current_collection.query(query_texts=[raw_value], n_results=10)
-                        end_time_chromadb = time.time()
-                        search_duration_chromadb = end_time_chromadb - start_time_chromadb
-
-                        documents = (results.get("documents", [[]]) or [[]])[0] or []
-                        ids = (results.get("ids", [[]]) or [[]])[0] or []
-                        if not documents or not ids:
-                            continue
-
-                        matched_result_position = 0
-                        found_match = False
-                        try:
-                            target_value_norm = raw_value.strip().lower()
-                        except Exception:
-                            target_value_norm = ""
-
-                        for i, document in enumerate(documents):
-                            if isinstance(document, str) and document.strip().lower() == target_value_norm:
-                                matched_result_position = i
-                                found_match = True
-                                break
-                        if not found_match:
-                            for i, document in enumerate(documents):
-                                if isinstance(document, str) and document.strip().lower().startswith(target_value_norm):
-                                    matched_result_position = i
-                                    found_match = True
-                                    break
-
-                        first_record_id = ids[matched_result_position]
-                        parts = str(first_record_id).split('_')
-                        docid = parts[1] if len(parts) > 1 else None
-                        doclang = parts[2] if len(parts) > 2 else "*"
-                        if docid is None:
-                            continue
-
-                        placeholder_before = (placeholder in sql_query) or (placeholder in justification)
-                        _apply_entity_match_from_docid(
-                            cursor=cursor,
-                            key=str(key),
-                            cfg=search_cfg,
-                            docid=docid,
-                            doclang=doclang,
-                            message=f"Entity resolution: {{placeholder}} -> {{resolved}} (lang={doclang}, {search_duration_chromadb:.4f}s)",
-                        )
-                        placeholder_after = (placeholder in sql_query) or (placeholder in justification)
-                        if placeholder_before and not placeholder_after:
-                            resolved = True
-                            break
-
-                    if resolved:
-                        continue
-
-                    if placeholder in sql_query or placeholder in justification:
-                        sql_query = sql_query.replace(placeholder, raw_value_sql)
-                        justification = justification.replace(placeholder, raw_value)
-                        messages.append(TextMessage(
-                            position=position_counter,
-                            text=f"Entity resolution: {placeholder} -> {raw_value} (raw fallback)"
-                        ))
-                        position_counter += 1
-
-        # Safety: the SQL query must be fully de-anonymized (no {{...}} placeholders) before execution.
-        # If placeholders remain, skip execution to avoid running a broken query.
-        unresolved_placeholders = re.findall(r"{{[^}]+}}", sql_query or "")
-        if unresolved_placeholders:
-            ambiguous_question_for_text2sql = 1
-            unresolved_preview = ", ".join(unresolved_placeholders[:10])
-            if len(unresolved_placeholders) > 10:
-                unresolved_preview += ", ..."
-            messages.append(TextMessage(
-                position=position_counter,
-                text=f"Unresolved placeholders remain in SQL after entity resolution: {unresolved_preview}"
-            ))
-            position_counter += 1
+        entity_resolution_result = entity.resolve_entities(
+            connection=connection,
+            entity_extraction=entity_extraction,
+            sql_query=sql_query,
+            justification=justification,
+            position_counter=position_counter,
+            text_message_cls=TextMessage,
+            messages=messages,
+            chromadb_collections_by_name=CHROMADB_COLLECTIONS_BY_NAME,
+        )
+        sql_query = entity_resolution_result["sql_query"]
+        justification = entity_resolution_result["justification"]
+        position_counter = entity_resolution_result["position_counter"]
+        ambiguous_question_for_text2sql = max(
+            ambiguous_question_for_text2sql,
+            entity_resolution_result.get("ambiguous_question_for_text2sql", 0),
+        )
     embeddings_end_time = time.time()
     embeddings_processing_time = embeddings_end_time - embeddings_start_time
     
@@ -1493,6 +978,31 @@ LIMIT 1 """
         ))
         position_counter += 1
 
+        # One-time retry: if SQL execution failed (e.g., MariaDB error), try simplifying the
+        # initial/original question using the reasoning model and rerun the whole pipeline.
+        try:
+            can_retry_sql_execution_error = (
+                sql_execution_failed
+                and lngpage == 1
+                and bool(request.question)
+                and not getattr(request, "complex_question_already_resolved", False)
+                and "original_question" in locals()
+                and isinstance(original_question, str)
+                and original_question.strip() != ""
+            )
+        except Exception:
+            can_retry_sql_execution_error = False
+
+        if can_retry_sql_execution_error:
+            retry_response = await _retry_with_resolved_complex_question(
+                start_message="SQL query execution failed; attempting to simplify the original question using the reasoning model (one-time retry).",
+                success_message="SQL execution error detected; attempting one-time retry with simplified question from reasoning model.",
+                empty_question_message="Complex question resolution did not return a simplified question; skipping SQL-execution-error retry.",
+                error_message="Complex question resolution returned an error; skipping SQL-execution-error retry."
+            )
+            if retry_response is not None:
+                return retry_response
+
         # One-time retry: if the SQL ran successfully but returned 0 rows, try simplifying the
         # original question using the reasoning model and rerun the whole pipeline.
         try:
@@ -1511,86 +1021,14 @@ LIMIT 1 """
             can_retry_no_results = False
 
         if can_retry_no_results:
-            messages.append(TextMessage(
-                position=position_counter,
-                text="SQL query returned 0 rows; attempting to simplify the original question using the reasoning model (one-time retry)."
-            ))
-            position_counter += 1
-
-            resolved_complex = t2s.f_resolve_complex_question(original_question)
-            try:
-                resolved_complex_json = json.dumps(resolved_complex, ensure_ascii=False)
-            except Exception:
-                resolved_complex_json = str(resolved_complex)
-            messages.append(TextMessage(
-                position=position_counter,
-                text=f"Complex question resolution output: {resolved_complex_json.replace('\"', '\\\"')}"
-            ))
-            position_counter += 1
-
-            if isinstance(resolved_complex, dict) and not resolved_complex.get("error"):
-                retry_question = _build_retry_question_from_reasoning(resolved_complex)
-                if retry_question != "":
-                    messages.append(TextMessage(
-                        position=position_counter,
-                        text="No-results detected; attempting one-time retry with simplified question from reasoning model."
-                    ))
-                    position_counter += 1
-
-                    # Close the current DB connection before restarting the pipeline to avoid leaks.
-                    try:
-                        connection.close()
-                    except Exception:
-                        pass
-
-                    retry_request = request.model_copy(deep=True)
-                    retry_request.question = retry_question
-                    retry_request.question_hashed = None
-                    retry_request.complex_question_already_resolved = True
-
-                    retry_response = await search_text2sql(retry_request, api_key)
-
-                    # When we retry via the reasoning model, prefer the reasoning model's justification
-                    # in the final API response.
-                    try:
-                        reasoning_justification = str(resolved_complex.get("justification") or "").strip()
-                    except Exception:
-                        reasoning_justification = ""
-                    if reasoning_justification != "":
-                        try:
-                            retry_response.justification = reasoning_justification
-                        except Exception:
-                            pass
-
-                    # Merge messages from the retry call into the current messages collection
-                    # to provide a single coherent trace.
-                    merged_messages = []
-                    pos = 1
-                    for m in (messages or []):
-                        merged_messages.append(TextMessage(position=pos, text=m.text))
-                        pos += 1
-                    for m in (getattr(retry_response, "messages", None) or []):
-                        merged_messages.append(TextMessage(position=pos, text=m.text))
-                        pos += 1
-
-                    try:
-                        retry_response.messages = merged_messages
-                    except Exception:
-                        pass
-
-                    return retry_response
-                else:
-                    messages.append(TextMessage(
-                        position=position_counter,
-                        text="Complex question resolution did not return a simplified question; skipping no-results retry."
-                    ))
-                    position_counter += 1
-            else:
-                messages.append(TextMessage(
-                    position=position_counter,
-                    text="Complex question resolution returned an error; skipping no-results retry."
-                ))
-                position_counter += 1
+            retry_response = await _retry_with_resolved_complex_question(
+                start_message="SQL query returned 0 rows; attempting to simplify the original question using the reasoning model (one-time retry).",
+                success_message="No-results detected; attempting one-time retry with simplified question from reasoning model.",
+                empty_question_message="Complex question resolution did not return a simplified question; skipping no-results retry.",
+                error_message="Complex question resolution returned an error; skipping no-results retry."
+            )
+            if retry_response is not None:
+                return retry_response
     else:
         messages.append(TextMessage(
             position=position_counter, 
@@ -1616,40 +1054,21 @@ LIMIT 1 """
         if request.store_to_cache and not cached_exact_question and request.question:
             messages.append(TextMessage(position=position_counter, text="Storing exact question and SQL query to cache."))
             position_counter += 1
-            with connection.cursor() as cursor2:
-                # Insert exact question into cache table
-                insert_query = """
-INSERT INTO T_WC_T2S_CACHE
-(QUESTION, QUESTION_HASHED, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, API_VERSION,
-ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME, TOTAL_PROCESSING_TIME,
-DELETED, DAT_CREAT, TIM_UPDATED, IS_ANONYMIZED)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 0)
-"""
-                print("Insert query:", insert_query)
-                # Use the actual measured query execution time
-                query_time = query_execution_time
-                """
-                messages.append(TextMessage(
-                    position=position_counter,
-                    text=f"Executing SQL insert into cache: {insert_query} | params: [question={request.question}, hash={question_hash}]"
-                ))
-                position_counter += 1
-                """
-                cursor2.execute(insert_query, (
-                    request.question,
-                    question_hash,
-                    sql_query_llm,
-                    sql_query_processed_base,
-                    justification or "",
-                    strapiversionformatted,
-                    entity_extraction_processing_time,
-                    text2sql_processing_time,
-                    embeddings_processing_time,
-                    query_time,
-                    total_processing_time,
-                    0  # DELETED = 0 (not deleted)
-                ))
-                connection.commit()
+            sql_cache.write_sql_cache_entry(
+                connection,
+                question=request.question,
+                question_hashed=question_hash,
+                sql_query=sql_query_llm,
+                sql_processed=sql_query_processed_base,
+                justification=justification or "",
+                api_version=strapiversionformatted,
+                entity_extraction_processing_time=entity_extraction_processing_time,
+                text2sql_processing_time=text2sql_processing_time,
+                embeddings_time=embeddings_processing_time,
+                query_time=query_execution_time,
+                total_processing_time=total_processing_time,
+                is_anonymized=False,
+            )
 
         # Store to SQL cache if requested and not already stored as exact question or anonymized question
         if request.store_to_cache and not cached_exact_question and not cached_anonymized_question and request.question:
@@ -1658,41 +1077,21 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 0)
                 text="Storing anonymized question and SQL query to cache."
             ))
             position_counter += 1
-            with connection.cursor() as cursor2:
-                # Insert anonymized question into cache table
-                insert_query = """
-INSERT INTO T_WC_T2S_CACHE
-(QUESTION, QUESTION_HASHED, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, API_VERSION,
-ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME, TOTAL_PROCESSING_TIME,
-DELETED, DAT_CREAT, TIM_UPDATED, IS_ANONYMIZED)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), 1)
-"""
-                print("Insert query:", insert_query)
-                # Use the actual measured query execution time
-                query_time = query_execution_time
-                """
-                messages.append(TextMessage(
-                    position=position_counter,
-                    text=f"Executing SQL insert into cache (anonymized): {insert_query} | params: [question={input_text_anonymized}, hash={question_hash}]"
-                ))
-                position_counter += 1
-                """
-                cursor2.execute(insert_query, (
-                    input_text_anonymized,
-                    question_hash,
-                    sql_query_llm,
-                    sql_query_anonymized_base,
-                    justification_anonymized or "",
-                    strapiversionformatted,
-                    entity_extraction_processing_time,
-                    text2sql_processing_time,
-                    embeddings_processing_time,
-                    query_time,
-                    total_processing_time,
-                    0  # DELETED = 0 (not deleted)
-                ))
-                connection.commit()
-                cursor2.close()
+            sql_cache.write_sql_cache_entry(
+                connection,
+                question=input_text_anonymized,
+                question_hashed=question_hash,
+                sql_query=sql_query_llm,
+                sql_processed=sql_query_anonymized_base,
+                justification=justification_anonymized or "",
+                api_version=strapiversionformatted,
+                entity_extraction_processing_time=entity_extraction_processing_time,
+                text2sql_processing_time=text2sql_processing_time,
+                embeddings_time=embeddings_processing_time,
+                query_time=query_execution_time,
+                total_processing_time=total_processing_time,
+                is_anonymized=True,
+            )
         
         if USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE and request.store_to_cache and not cached_anonymized_question_embedding and input_text_anonymized:
             messages.append(TextMessage(
