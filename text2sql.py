@@ -144,6 +144,7 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
 
         # Common fallbacks (keep list short and deterministic)
         for m in [
+            "gemini-2.5-flash",
             "gemini-1.5-pro",
             "gemini-1.5-pro-latest",
             "gemini-1.5-flash",

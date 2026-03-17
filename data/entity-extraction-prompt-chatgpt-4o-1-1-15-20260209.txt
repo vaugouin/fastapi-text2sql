@@ -104,7 +104,7 @@ CREATE TABLE T_WC_T2S_TOPIC (
    - Technical specifications when asking about the technical aspect itself
    - Silent or non silent films
    - Black and white or color films
-   - Criterion Collection movies
+   - Criterion Collection
 
 ### Genre Reference for movies T_WC_TMDB_MOVIE_GENRE
 28: Action, 12: Adventure, 16: Animation, 35: Comedy, 80: Crime,
