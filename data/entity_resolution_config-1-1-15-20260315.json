@@ -4,6 +4,26 @@
     "search_list": [
       {
         "search_mode": "rapidfuzz",
+        "apply_when_language_family_in": [
+          "Latin"
+        ],
+        "strtablename": "T_WC_T2S_PERSON",
+        "strtableid": "ID_PERSON",
+        "collection": "persons",
+        "default_field": "PERSON_NAME",
+        "order_by": "POPULARITY",
+        "languages": {
+          "*": "PERSON_NAME"
+        },
+        "rapidfuzz_col_norm": "PERSON_NAME_NORM",
+        "rapidfuzz_col_key": "PERSON_NAME_KEY",
+        "rapidfuzz_col_popularity": "POPULARITY"
+      },
+      {
+        "search_mode": "rapidfuzz",
+        "apply_when_language_family_not_in": [
+          "Latin"
+        ],
         "strtablename": "T_WC_TMDB_PERSON_ALSO_KNOWN_AS",
         "strtableid": "ID_ROW",
         "collection": "persons",

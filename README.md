@@ -11,7 +11,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **ChromaDB Vector Search**: Advanced similarity search for entity matching and query optimization
 - **Entity Extraction & Anonymization**: Intelligent extraction of entities (persons, movies, series, companies, networks, characters, locations, topics) with placeholder replacement
 - **Config-driven Entity Resolution**: Entity resolution is configured via `data/entity_resolution_config-1-1-15-20260315.json` (embeddings and RapidFuzz strategies)
-- **RapidFuzz Person Matching (AKA aware)**: Person resolution can use `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` for matching and replace SQL with canonical person names
+- **RapidFuzz Person Matching (language-family aware)**: Person resolution uses `guess_language_family()` to route Latin names to `T_WC_T2S_PERSON` and non-Latin names to `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`, while keeping SQL replacement canonical when needed
 - **Multi-Level Caching**: Sophisticated three-tier caching system (exact questions, anonymized questions, vector embeddings)
 - **Comprehensive Logging**: Automatic logging of all API requests and responses with detailed timing metrics
 - **Memory Monitoring**: Built-in system memory usage tracking and reporting
@@ -25,6 +25,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **Processing Transparency**: Detailed messages array showing each processing step
 - **Configurable LLM Models**: Separate model selection for entity extraction, text-to-SQL conversion, and complex-question reasoning
 - **Complex Question Escalation (Reasoning Model)**: Optional one-time retry using a reasoning model to simplify complex questions
+- **Retry Model Visibility**: Retry messages explicitly display the selected complex-question model used during reasoning escalation
 - **No-Results Escalation**: If SQL executes successfully but returns 0 rows (page 1), the question can be escalated to the reasoning model and retried once
 - **Automatic Cache Cleanup**: On-startup cache cleanup to remove outdated entries from previous versions
 - **Blue/Green Deployment**: Version-based automatic port selection (even versions: port 8000, odd: port 8001)
@@ -87,8 +88,10 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Embeddings (ChromaDB)**: for entities like movies, series, companies, networks, topics, locations
      - **RapidFuzz (DB lexical)**: for entities like persons (can be configured per placeholder)
    - Example entity strategies:
-     - **Person names**: RapidFuzz search in `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` (AKA table), then SQL replacement using canonical `T_WC_T2S_PERSON.PERSON_NAME`
-       - The API keeps SQL substitution canonical while formatting justification as `<aka_name> (<canonical_name>)` when available.
+     - **Person names**: The API first calls `guess_language_family()` on the extracted value.
+       - If the language family is `Latin`, RapidFuzz searches directly in `T_WC_T2S_PERSON` using canonical person names.
+       - If the language family is not `Latin`, RapidFuzz searches `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` (AKA table), then resolves to canonical `T_WC_T2S_PERSON.PERSON_NAME` for SQL substitution.
+       - The API keeps SQL substitution canonical while formatting justification as `<aka_name> (<canonical_name>)` only when the AKA value differs from the canonical name.
      - **Movie titles**: Search in `movies` collection with multi-language support (English, French, original)
      - **TV series titles**: Search in `series` collection with multi-language support
      - **Company names**: Search in `companies` collection
@@ -114,19 +117,18 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    - Apply parameters from the entity extraction step (person names, movie titles, etc.)
    - Produce the complete, executable SQL query with proper SQL escaping
 
-8. **SQL Query Execution**
-   - Execute the final SQL query on the MariaDB/MySQL database
-   - Apply pagination parameters (page size, offset)
-   - Return the result set with timing metrics
-
-   - Optional escalation:
-     - If the SQL executes successfully but returns 0 rows on page 1, the API can attempt a one-time retry using the reasoning model (same mechanism as Text2SQL error retry).
-     - If SQL generation fails or SQL execution raises a MariaDB error, the API can also attempt a one-time retry starting from the original non-anonymized question.
+8. **SQL Execution & Retry Strategy**
+   - Execute the SQL query against MariaDB with pagination support
+   - If the SQL executes successfully but returns 0 rows on page 1, the API can attempt a one-time retry using the reasoning model (same mechanism as Text2SQL error retry).
+   - If SQL generation fails or SQL execution raises a MariaDB error, the API can also attempt a one-time retry starting from the original non-anonymized question.
+   - Retry messages in the `messages` array include the selected `llm_model_complex` value so clients can see which reasoning model handled the escalation.
+   - For complex-question resolution, `o1*` and `o3*` models use a compatible temperature of `1`, while the other supported model families continue using `0`.
 
 9. **Cache Population**
    - **Exact question cache**: Save the original question and SQL query to `T_WC_T2S_CACHE` (if applicable)
    - **Anonymized question cache**: Save the anonymized question and SQL pattern to SQL cache (if applicable)
    - **Embeddings cache**: Save the anonymized question embedding and SQL query to ChromaDB for future semantic searches
+   - **Escalated complex-question cache**: After a successful reasoning-model retry, the original complex question is also saved to SQL cache with the final SQL returned by the retried pipeline
 
 10. **Result Return**
     - Return the result set to the client with comprehensive metadata:
@@ -299,6 +301,7 @@ Content-Type: application/json
   - `llm_model_text2sql`
   - `llm_model_complex`
 - For `llm_model_complex`, if the selected reasoning model is unavailable and it is not already `gpt-4o`, the application may retry once with `gpt-4o`.
+- For `llm_model_complex`, `o1*` and `o3*` models are called with `temperature=1` for compatibility, while the other supported model families use `temperature=0` in the complex-question flow.
 
 **Note:** Either `question` or `question_hashed` must be provided.
 
@@ -856,7 +859,11 @@ All successful text2sql requests return a comprehensive response with:
 - **`sql_cache.py` module**: centralizes SQL cache lookup and write logic for exact and anonymized questions
 - **Reasoning helpers in `text2sql.py`**: complex-question resolution and retry-question construction now live alongside the LLM helper code
 - **API-selectable complex model**: clients can now provide `llm_model_complex` to choose the model used for complex-question resolution retries
-- **Person-name justification formatting**: when a person is matched through an AKA entry and resolved to a canonical name, SQL uses the canonical value while justification shows `AKA (Canonical)`
+- **Reasoning-model compatibility handling**: complex-question resolution now uses model-compatible temperature settings, including `temperature=1` for `o1*`/`o3*` models
+- **Retry message transparency**: retry messages now include the selected complex-question model name
+- **Original complex-question cache persistence**: after a successful reasoning-model retry, the original complex question is also stored in SQL cache with the final SQL returned by the retried flow
+- **Language-family-based person resolution**: `entity.py` now uses `guess_language_family()` so Latin person names search `T_WC_T2S_PERSON`, while non-Latin names keep the AKA-table resolution flow through `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`
+- **Person-name justification formatting**: when a person is matched through an AKA entry and resolved to a canonical name, SQL uses the canonical value while justification shows `AKA (Canonical)` only when the AKA differs from the canonical name
 
 ### New Features in v1.1.13
 
