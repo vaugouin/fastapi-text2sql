@@ -316,11 +316,17 @@ def resolve_entities(
                                 sql_query = re.sub(rf"\b{re.escape(target_col)}\b\s*=\s*{re.escape(placeholder)}", f"{target_col} = '{canonical_value_sql}'", sql_query, flags=re.IGNORECASE)
                                 sql_query = re.sub(rf"'{re.escape(placeholder)}'", f"'{canonical_value_sql}'", sql_query, flags=re.IGNORECASE)
                                 sql_query = re.sub(rf"{re.escape(placeholder)}", f"'{canonical_value_sql}'", sql_query, flags=re.IGNORECASE)
+                                justification_value = str(aka_value)
+                                if str(canonical_value) != str(aka_value):
+                                    justification_value = f"{aka_value} ({canonical_value})"
                                 try:
-                                    justification = justification.replace(placeholder, f"{aka_value} ({canonical_value})")
+                                    justification = justification.replace(placeholder, justification_value)
                                 except Exception:
                                     pass
-                                add_message(f"Entity resolution: {placeholder} -> {canonical_value} (SQL canonical), {aka_value} ({canonical_value}) (justification AKA + canonical) (rapidfuzz)")
+                                if str(canonical_value) != str(aka_value):
+                                    add_message(f"Entity resolution: {placeholder} -> {canonical_value} (SQL canonical), {aka_value} ({canonical_value}) (justification AKA + canonical) (rapidfuzz)")
+                                else:
+                                    add_message(f"Entity resolution: {placeholder} -> {canonical_value} (SQL canonical and justification) (rapidfuzz)")
                                 placeholder_after = (placeholder in sql_query) or (placeholder in justification)
                                 if placeholder_before and not placeholder_after:
                                     resolved = True
