@@ -52,11 +52,19 @@ Examples: "nm0000007", "nm0424060"
 Extract Wikidata identifiers for movies, series, persons, companies, networks, locations, and topics.
 Examples: "Q28385", "Q1445474", "Q188825", "Q188825", "Q188825", "Q188825", "Q188825"
 
-### 11. TMDb IDs (TMDb_ID)
+### 11. Wikidata Property IDs (Wikidata_property_ID)
+Extract Wikidata property identifiers for movies, series, persons, companies, networks, locations, and topics.
+Examples: "P17", "P136", "P161", "P162", "P163", "P164", "P165"
+
+### 12. TMDb IDs (TMDb_ID)
 Extract TMDb identifiers for movies, series, and persons.
 Examples: "550", "1399", "1289813"
 
-### 12. Topic Names (Topic_name)
+### 13. Criterion Collection Spine IDs (Criterion_spine_ID)
+Extract Criterion Collection spine identifiers.
+Examples: "1", "2", "3"
+
+### 14. Topic Names (Topic_name)
 Topics in this database are comprehensive and include:
 
 #### Film Movements and Styles
@@ -148,7 +156,7 @@ CREATE TABLE T_WC_T2S_TOPIC (
 - ID_IMDB is the IMDb ID of the movie, serie or person
 - IMDB_RATING is the IMDb rating of the movie or serie
 - ID_WIKIDATA is the Wikidata ID of the movie, serie or person
-- OVERVIEW is the overview of the movie or serie but this field must never be used for search purposes. You should rather search a topic or a plot
+- OVERVIEW is the overview of the movie or serie but this field must never be used for search purposes. 
 - POSTER_PATH is the poster path of the movie or serie
 - POPULARITY is the popularity of the movie, serie or person
 - PLOT is the Wikipedia detailed story summary 
