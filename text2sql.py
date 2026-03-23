@@ -34,11 +34,11 @@ print(f"Memory Usage: {memory_info.percent}%")
 dblavailableram=memory_info.available / (1024 ** 3)
 
 # Text-to-SQL feature
-strtext2sqlprompttemplate = "text-to-sql-prompt-chatgpt-4o-1-1-15-20260209.txt"
+strtext2sqlprompttemplate = "text-to-sql-prompt-1-1-15-20260209.txt"
 strtext2sqlmodeldefault = "gpt-4o"
 
-# Complex question feature (reasoning model)
-strcomplexquestionprompttemplate = "complex-question-prompt-reasoning-model-1-1-15-20260209.txt"
+# Complex question feature (stronger model)
+strcomplexquestionprompttemplate = "complex-question-prompt-stronger-model-1-1-15-20260209.txt"
 strcomplexquestionmodeldefault = "gpt-4o"
 
 #print("Text to SQL prompt template", strtext2sqlprompttemplate)
@@ -278,7 +278,7 @@ def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str 
             ).strip()
         except Exception as api_error:
             msg = str(api_error)
-            # If the chosen reasoning model isn't available (common with o1/o3 gated access),
+            # If the chosen stronger model isn't available (common with o1/o3 gated access),
             # retry once with the default chat model so the pipeline can still proceed.
             if (
                 model_to_use != "gpt-4o"

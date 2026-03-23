@@ -16,7 +16,6 @@ from dotenv import load_dotenv
 import re
 import openai
 import chromadb
-#from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 import cleanup
 import entity
 import logs
@@ -782,7 +781,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         )
                         messages.append(TextMessage(
                             position=position_counter,
-                            text="Stored original complex question and final SQL query to cache after reasoning-model retry."
+                            text="Stored original complex question and final SQL query to cache after stronger-model retry."
                         ))
                         position_counter += 1
                         retry_connection.close()
@@ -793,7 +792,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             pass
                         messages.append(TextMessage(
                             position=position_counter,
-                            text=f"Failed to store original complex question to cache after reasoning-model retry: {str(cache_retry_error).replace('"', '\\"')}"
+                            text=f"Failed to store original complex question to cache after stronger-model retry: {str(cache_retry_error).replace('"', '\\"')}"
                         ))
                         position_counter += 1
 
@@ -834,7 +833,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         print("Error: ", error_text2sql)
 
         # One-time retry: try resolving the original (non-anonymized) question into a simpler one
-        # using a reasoning model, then rerun the whole pipeline from the beginning.
+        # using a stronger model, then rerun the whole pipeline from the beginning.
         try:
             can_retry = (
                 bool(request.question)
@@ -848,8 +847,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
 
         if can_retry:
             retry_response = await _retry_with_resolved_complex_question(
-                start_message=f"Attempting to simplify the original question using the reasoning model '{strcomplexquestionmodel}' (one-time retry).",
-                success_message=f"Text2SQL error detected; attempting one-time retry with simplified question from reasoning model '{strcomplexquestionmodel}'.",
+                start_message=f"Attempting to simplify the original question using the stronger model '{strcomplexquestionmodel}' (one-time retry).",
+                success_message=f"Text2SQL error detected; attempting one-time retry with simplified question from stronger model '{strcomplexquestionmodel}'.",
                 empty_question_message="Complex question resolution did not return a simplified question; skipping retry.",
                 error_message="Complex question resolution returned an error; skipping retry."
             )
@@ -1021,7 +1020,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         position_counter += 1
 
         # One-time retry: if SQL execution failed (e.g., MariaDB error), try simplifying the
-        # initial/original question using the reasoning model and rerun the whole pipeline.
+        # initial/original question using the stronger model and rerun the whole pipeline.
         try:
             can_retry_sql_execution_error = (
                 sql_execution_failed
@@ -1037,8 +1036,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
 
         if can_retry_sql_execution_error:
             retry_response = await _retry_with_resolved_complex_question(
-                start_message=f"SQL query execution failed; attempting to simplify the original question using the reasoning model '{strcomplexquestionmodel}' (one-time retry).",
-                success_message=f"SQL execution error detected; attempting one-time retry with simplified question from reasoning model '{strcomplexquestionmodel}'.",
+                start_message=f"SQL query execution failed; attempting to simplify the original question using the stronger model '{strcomplexquestionmodel}' (one-time retry).",
+                success_message=f"SQL execution error detected; attempting one-time retry with simplified question from stronger model '{strcomplexquestionmodel}'.",
                 empty_question_message="Complex question resolution did not return a simplified question; skipping SQL-execution-error retry.",
                 error_message="Complex question resolution returned an error; skipping SQL-execution-error retry."
             )
@@ -1046,7 +1045,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 return retry_response
 
         # One-time retry: if the SQL ran successfully but returned 0 rows, try simplifying the
-        # original question using the reasoning model and rerun the whole pipeline.
+        # original question using the stronger model and rerun the whole pipeline.
         try:
             can_retry_no_results = (
                 not sql_execution_failed
@@ -1064,8 +1063,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
 
         if can_retry_no_results:
             retry_response = await _retry_with_resolved_complex_question(
-                start_message=f"SQL query returned 0 rows; attempting to simplify the original question using the reasoning model '{strcomplexquestionmodel}' (one-time retry).",
-                success_message=f"No-results detected; attempting one-time retry with simplified question from reasoning model '{strcomplexquestionmodel}'.",
+                start_message=f"SQL query returned 0 rows; attempting to simplify the original question using the stronger model '{strcomplexquestionmodel}' (one-time retry).",
+                success_message=f"No-results detected; attempting one-time retry with simplified question from stronger model '{strcomplexquestionmodel}'.",
                 empty_question_message="Complex question resolution did not return a simplified question; skipping no-results retry.",
                 error_message="Complex question resolution returned an error; skipping no-results retry."
             )
