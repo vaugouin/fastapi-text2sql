@@ -15,7 +15,7 @@ ENTITY_RESOLUTION_CONFIG_PATH = os.path.join(
 )
 
 
-strentityextractionprompttemplate = "entity-extraction-prompt-chatgpt-4o-1-1-15-20260209.txt"
+strentityextractionprompttemplate = "entity-extraction-prompt-1-1-15-20260209.txt"
 strentityextractionmodeldefault = "gpt-4o"
 
 with open("./data/" + strentityextractionprompttemplate, "r", encoding="utf-8") as file:

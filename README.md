@@ -23,10 +23,10 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 ### Advanced Features
 - **Multi-Language Support**: Handles English, French, and original language titles for movies and series
 - **Processing Transparency**: Detailed messages array showing each processing step
-- **Configurable LLM Models**: Separate model selection for entity extraction, text-to-SQL conversion, and complex-question reasoning
-- **Complex Question Escalation (Reasoning Model)**: Optional one-time retry using a reasoning model to simplify complex questions
+- **Configurable LLM Models**: Separate model selection for entity extraction, text-to-SQL conversion, and complex-question escalation
+- **Complex Question Escalation (Stronger Model)**: Optional one-time retry using a stronger model to simplify complex questions
 - **Retry Model Visibility**: Retry messages explicitly display the selected complex-question model used during reasoning escalation
-- **No-Results Escalation**: If SQL executes successfully but returns 0 rows (page 1), the question can be escalated to the reasoning model and retried once
+- **No-Results Escalation**: If SQL executes successfully but returns 0 rows (page 1), the question can be escalated to the stronger model and retried once
 - **Automatic Cache Cleanup**: On-startup cache cleanup to remove outdated entries from previous versions
 - **Blue/Green Deployment**: Version-based automatic port selection (even versions: port 8000, odd: port 8001)
 - **Ambiguous Question Detection**: Intelligent detection and handling of questions too vague for SQL generation
@@ -119,16 +119,16 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 
 8. **SQL Execution & Retry Strategy**
    - Execute the SQL query against MariaDB with pagination support
-   - If the SQL executes successfully but returns 0 rows on page 1, the API can attempt a one-time retry using the reasoning model (same mechanism as Text2SQL error retry).
+   - If the SQL executes successfully but returns 0 rows on page 1, the API can attempt a one-time retry using the stronger model (same mechanism as Text2SQL error retry).
    - If SQL generation fails or SQL execution raises a MariaDB error, the API can also attempt a one-time retry starting from the original non-anonymized question.
-   - Retry messages in the `messages` array include the selected `llm_model_complex` value so clients can see which reasoning model handled the escalation.
+   - Retry messages in the `messages` array include the selected `llm_model_complex` value so clients can see which stronger model handled the escalation.
    - For complex-question resolution, `o1*` and `o3*` models use a compatible temperature of `1`, while the other supported model families continue using `0`.
 
 9. **Cache Population**
    - **Exact question cache**: Save the original question and SQL query to `T_WC_T2S_CACHE` (if applicable)
    - **Anonymized question cache**: Save the anonymized question and SQL pattern to SQL cache (if applicable)
    - **Embeddings cache**: Save the anonymized question embedding and SQL query to ChromaDB for future semantic searches
-   - **Escalated complex-question cache**: After a successful reasoning-model retry, the original complex question is also saved to SQL cache with the final SQL returned by the retried pipeline
+   - **Escalated complex-question cache**: After a successful stronger-model retry, the original complex question is also saved to SQL cache with the final SQL returned by the retried pipeline
 
 10. **Result Return**
     - Return the result set to the client with comprehensive metadata:
@@ -137,7 +137,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
       - Performance metrics (entity extraction time, text2SQL time, embeddings time, query execution time)
       - Cache hit indicators
       - Pagination information
-      - If a reasoning-model retry happened, the final `justification` can be taken from the reasoning model.
+      - If a stronger-model retry happened, the final `justification` can be taken from the stronger model.
 
 ### Pipeline Benefits
 
@@ -251,7 +251,7 @@ Content-Type: application/json
 - `store_to_cache` (optional, bool, default: true): Whether to store results in cache
 - `llm_model_entity_extraction` (optional, str, default: "default"): LLM model to use for entity extraction
 - `llm_model_text2sql` (optional, str, default: "default"): LLM model to use for text-to-SQL conversion
-- `llm_model_complex` (optional, str, default: "default"): LLM model to use for complex-question resolution / reasoning-model retry
+- `llm_model_complex` (optional, str, default: "default"): LLM model to use for complex-question resolution / stronger-model retry
 
 **Supported LLM Values for the 3 model parameters:**
 
@@ -300,7 +300,7 @@ Content-Type: application/json
   - `llm_model_entity_extraction`
   - `llm_model_text2sql`
   - `llm_model_complex`
-- For `llm_model_complex`, if the selected reasoning model is unavailable and it is not already `gpt-4o`, the application may retry once with `gpt-4o`.
+- For `llm_model_complex`, if the selected stronger model is unavailable and it is not already `gpt-4o`, the application may retry once with `gpt-4o`.
 - For `llm_model_complex`, `o1*` and `o3*` models are called with `temperature=1` for compatibility, while the other supported model families use `temperature=0` in the complex-question flow.
 
 **Note:** Either `question` or `question_hashed` must be provided.
@@ -410,7 +410,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `ambiguous_question_for_text2sql` (bool): Whether question was too ambiguous for SQL generation
 - `llm_model_entity_extraction` (str): LLM model used for entity extraction
 - `llm_model_text2sql` (str): LLM model used for text-to-SQL conversion
-- `llm_model_complex` (str): LLM model used for complex-question resolution when a reasoning-model retry occurs
+- `llm_model_complex` (str): LLM model used for complex-question resolution when a stronger-model retry occurs
 - `api_version` (str): Current API version (e.g., "1.1.13")
 - `messages` (list): Array of processing step messages, each with `position` (int) and `text` (str)
 ```
@@ -527,7 +527,7 @@ docker run -p 8000:8000 fastapi-text2sql
 ```
 fastapi-text2sql/
 ├── main.py                  # FastAPI application, endpoint orchestration, DB/Chroma startup, and retry orchestration
-├── text2sql.py              # Core text-to-SQL conversion and reasoning-model helpers for complex-question retry
+├── text2sql.py              # Core text-to-SQL conversion and stronger-model helpers for complex-question retry
 ├── entity.py                # Entity extraction, entity-resolution config loading, and placeholder resolution logic
 ├── sql_cache.py             # SQL cache lookups and cache writes for exact/anonymized questions
 ├── auth.py                  # API key authentication middleware
@@ -542,9 +542,9 @@ fastapi-text2sql/
 ├── restart-green.sh         # Green deployment restart script
 ├── cleanup.py               # Cache cleanup functions (ChromaDB and SQL)
 ├── data/                    # Prompt templates and configuration
-│   ├── entity-extraction-prompt-chatgpt-4o-1-1-15-20260209.txt                  # Entity extraction prompt
-│   ├── text-to-sql-prompt-chatgpt-4o-1-1-15-20260209.txt                        # Text2SQL prompt
-│   ├── complex-question-prompt-reasoning-model-1-1-15-20260209.txt              # Reasoning model prompt (complex question simplification)
+│   ├── entity-extraction-prompt-1-1-15-20260209.txt                  # Entity extraction prompt
+│   ├── text-to-sql-prompt-1-1-15-20260209.txt                        # Text2SQL prompt
+│   ├── complex-question-prompt-stronger-model-1-1-15-20260209.txt              # stronger model prompt (complex question simplification)
 │   └── entity_resolution_config-1-1-15-20260315.json                             # Entity resolution configuration (embeddings + rapidfuzz)
 ├── logs/                    # API usage logs with timing metrics (auto-created)
 ├── CLAUDE.md                # AI assistant guide for understanding the codebase
@@ -555,7 +555,7 @@ fastapi-text2sql/
 - **ChromaDB Integration**: Vector database for entity matching and similarity search with 10 specialized collections
 - **Multi-Level Caching**: SQL cache + embeddings cache for performance optimization with automatic cleanup
 - **Entity Extraction**: `entity.py` handles GPT-powered entity recognition and anonymization for supported entity types
-- **Reasoning Retry Helpers**: `text2sql.py` contains reasoning-model calls and retry-question construction helpers
+- **Reasoning Retry Helpers**: `text2sql.py` contains stronger-model calls and retry-question construction helpers
 - **Endpoint Orchestration**: `main.py` coordinates request flow, recursive retry execution, and response/message merging
 - **Blue/Green Deployment**: Automatic port selection based on API version (even: port 8000, odd: port 8001)
 - **Processing Transparency**: Messages array tracks every processing step for debugging and analysis
@@ -843,7 +843,7 @@ All successful text2sql requests return a comprehensive response with:
 **Configuration & Metadata:**
 - `llm_model_entity_extraction`: LLM model used for entity extraction
 - `llm_model_text2sql`: LLM model used for text-to-SQL conversion
-- `llm_model_complex`: LLM model used for complex-question resolution / reasoning retry
+- `llm_model_complex`: LLM model used for complex-question resolution / stronger model retry
 - `api_version`: Current API version (e.g., "1.1.14")
 
 ### New Features in v1.1.14
@@ -859,9 +859,9 @@ All successful text2sql requests return a comprehensive response with:
 - **`sql_cache.py` module**: centralizes SQL cache lookup and write logic for exact and anonymized questions
 - **Reasoning helpers in `text2sql.py`**: complex-question resolution and retry-question construction now live alongside the LLM helper code
 - **API-selectable complex model**: clients can now provide `llm_model_complex` to choose the model used for complex-question resolution retries
-- **Reasoning-model compatibility handling**: complex-question resolution now uses model-compatible temperature settings, including `temperature=1` for `o1*`/`o3*` models
+- **stronger-model compatibility handling**: complex-question resolution now uses model-compatible temperature settings, including `temperature=1` for `o1*`/`o3*` models
 - **Retry message transparency**: retry messages now include the selected complex-question model name
-- **Original complex-question cache persistence**: after a successful reasoning-model retry, the original complex question is also stored in SQL cache with the final SQL returned by the retried flow
+- **Original complex-question cache persistence**: after a successful stronger-model retry, the original complex question is also stored in SQL cache with the final SQL returned by the retried flow
 - **Language-family-based person resolution**: `entity.py` now uses `guess_language_family()` so Latin person names search `T_WC_T2S_PERSON`, while non-Latin names keep the AKA-table resolution flow through `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`
 - **Person-name justification formatting**: when a person is matched through an AKA entry and resolved to a canonical name, SQL uses the canonical value while justification shows `AKA (Canonical)` only when the AKA differs from the canonical name
 
