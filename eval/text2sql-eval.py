@@ -44,7 +44,7 @@ try:
             strtotalruntimedesc = "Total runtime of the TMDb crawler"
             strtotalruntimeprevious = cp.f_getservervariable("strtext2sqlevaltotalruntime",0)
             cp.f_setservervariable("strtext2sqlevaltotalruntimeprevious",strtotalruntimeprevious,strtotalruntimedesc + " (previous execution)",0)
-            strtotalruntime = ""
+            strtotalruntime = "RUNNING"
             cp.f_setservervariable("strtext2sqlevaltotalruntime",strtotalruntime,strtotalruntimedesc,0)
             
             #arrprocessscope = {11: 'run evals'}
@@ -380,6 +380,7 @@ try:
                                 arrevalexeccouples["ASSERTIONS_TOTAL_SCORE"] = assertions_total_score
                             arrevalexeccouples["ASSERTIONS_RESULT_DETAILED"] = detailed_results_string  # NEW: Store detailed results
                             def _safe_float(v):
+                                """Convert optional timing values to floats while preserving ``None``."""
                                 try:
                                     if v is None:
                                         return None

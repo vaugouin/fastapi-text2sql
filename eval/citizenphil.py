@@ -35,6 +35,8 @@ headers = {
 }
 
 lnguseridsession = 1
+strlanguagecountry = "en-US"
+strlanguage = "en"
 
 connectioncp = pymysql.connect(host=strdbhost, port=lngdbport, user=strdbuser, password=strdbpassword, database=strdbname, cursorclass=pymysql.cursors.DictCursor)
 
@@ -167,7 +169,7 @@ def f_getservervariable(strvarname,lnglang=0):
     """
     global strsqlns
     global connectioncp
-
+    
     cursor2 = connectioncp.cursor()
     strresult = ""
     strsqlselect = "SELECT VAR_VALUE FROM " + strsqlns + "SERVER_VARIABLE WHERE DELETED = 0 AND VAR_NAME = " + f_stringtosql(strvarname)
@@ -201,7 +203,7 @@ def f_setservervariable(strvarname,strvarvalue,strvardesc="",lnglang=0):
     None
     """
     global strsqlns
-
+    
     arrcouples = {}
     arrcouples["VAR_NAME"] = strvarname
     arrcouples["VAR_VALUE"] = strvarvalue
@@ -230,12 +232,12 @@ def convert_seconds_to_duration(seconds):
     """
     if seconds < 0:
         return "Invalid duration (negative seconds)"
-
+    
     days = seconds // 86400  # 86400 seconds in a day
     hours = (seconds % 86400) // 3600  # 3600 seconds in an hour
     minutes = (seconds % 3600) // 60
     remaining_seconds = seconds % 60
-
+    
     parts = []
     if days > 0:
         parts.append(f"{days} day{'s' if days != 1 else ''}")
@@ -245,7 +247,7 @@ def convert_seconds_to_duration(seconds):
         parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
     if remaining_seconds > 0:
         parts.append(f"{remaining_seconds} second{'s' if remaining_seconds != 1 else ''}")
-
+    
     return ", ".join(parts)
 
 def f_stringtosql(strtext):
@@ -264,4 +266,114 @@ def f_stringtosql(strtext):
         Example: "John's" becomes "'John\\'s'"
     """
     return "'" + strtext.replace("'","\\'") + "'"
+
+def f_string(value):
+    """Convert ``None`` to an empty string and stringify all other values."""
+    if value is None:
+        return ""
+    return str(value)
+
+def f_fieldstringtoarray(strfields):
+    """Split a comma- or pipe-delimited field list into cleaned field names."""
+    if strfields is None:
+        return []
+    strfields = str(strfields).strip()
+    if strfields == "":
+        return []
+    if "," in strfields:
+        parts = strfields.split(",")
+    else:
+        parts = strfields.split("|")
+    return [p.strip() for p in parts if p.strip() != ""]
+
+def f_descfromcode(strtable, strfieldcode, strfielddesc, intcode, strwhere="", strassoctable=""):
+    """Fetch one row by code and concatenate the requested description fields."""
+    strresult = ""
+    if (
+        strtable
+        and strfieldcode
+        and strfielddesc
+        and intcode is not None
+        and str(intcode) != ""
+    ):
+        arrfields = f_fieldstringtoarray(strfielddesc)
+        strsql = "SELECT *"
+        strsql += f" FROM {strtable}"
+        if strassoctable != "":
+            strsql += f", {strassoctable}"
+        strsql += " WHERE "
+        if strassoctable != "":
+            strsql += f"{strtable}.{strfieldcode}"
+        else:
+            strsql += f"{strfieldcode}"
+        strsql += " = %s"
+        if strwhere != "":
+            strsql += f" AND {strwhere}"
+
+        cursor2 = connectioncp.cursor()
+        cursor2.execute(strsql, (intcode,))
+        rstemp = cursor2.fetchone()
+        if rstemp and arrfields:
+            strtemp = ""
+            for field in arrfields:
+                if field in rstemp:
+                    strtemp += f_string(rstemp[field]) + " "
+            strresult = strtemp.strip()
+    return strresult
+
+def f_fieldfromquery(strsql, strfield="", params=None, execute=True):
+    """Execute a query and return a single field value from the first row."""
+    if not strsql:
+        return None
+    if not execute:
+        return None
+
+    cursor2 = connectioncp.cursor()
+    if params is None:
+        cursor2.execute(strsql)
+    else:
+        cursor2.execute(strsql, params)
+    rstemp = cursor2.fetchone()
+    if not rstemp:
+        return None
+
+    if strfield == "":
+        for _, value in rstemp.items():
+            return f_string(value)
+        return ""
+
+    return f_string(rstemp.get(strfield))
+
+def f_fieldsfromquery(strsql, strvars, strfields, params=None, execute=True, target_dict=None):
+    """Execute a query and map multiple returned fields into variable names."""
+    if not strsql or not strvars or not strfields:
+        return {}
+    if not execute:
+        return {}
+
+    cursor2 = connectioncp.cursor()
+    if params is None:
+        cursor2.execute(strsql)
+    else:
+        cursor2.execute(strsql, params)
+    rstemp = cursor2.fetchone()
+    if not rstemp:
+        return {}
+
+    arrvars = [v.strip() for v in str(strvars).split("|")]
+    arrfields = f_fieldstringtoarray(strfields)
+
+    result = {}
+    for var_name, field_name in zip(arrvars, arrfields):
+        if var_name and field_name:
+            value = f_string(rstemp.get(field_name))
+            result[var_name] = value
+
+    if target_dict is None:
+        target_dict = globals()
+    if target_dict is not None:
+        for k, v in result.items():
+            target_dict[k] = v
+
+    return result
 

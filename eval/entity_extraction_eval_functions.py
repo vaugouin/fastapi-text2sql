@@ -65,24 +65,30 @@ def ee_eval_two_layer(
 _PLACEHOLDER_RE = re.compile(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}")
 
 def _placeholders(question: str) -> List[str]:
+    """Extract placeholder names from an anonymized question string."""
     return _PLACEHOLDER_RE.findall(question or "")
 
 def _entity_keys(ee: Dict[str, Any]) -> List[str]:
+    """Return all extracted entity keys except the anonymized-question field."""
     return [k for k in ee.keys() if k != "question"]
 
 def _keys_root(ee: Dict[str, Any]) -> List[str]:
+    """Return all top-level keys present in an entity extraction payload."""
     return list(ee.keys())
 
 def _nonempty(x: Any) -> bool:
+    """Return whether ``x`` is a non-empty, non-whitespace string."""
     return isinstance(x, str) and bool(x.strip())
 
 def _seteq(a: Any, b: Any) -> bool:
+    """Compare two iterables as unordered sets, treating ``None`` as empty."""
     # Treat None as empty for convenience
     a_list = list(a or [])
     b_list = list(b or [])
     return sorted(a_list) == sorted(b_list)
 
 def _eq(a: Any, b: Any) -> bool:
+    """Return plain equality for DSL ``eq()`` checks."""
     return a == b
 
 def _matches(x: Any, pattern: Any) -> bool:
@@ -100,11 +106,13 @@ def _matches(x: Any, pattern: Any) -> bool:
     return False
 
 def _V(ee: Dict[str, Any], key: str) -> Any:
+    """Return a top-level value from the entity extraction payload by key."""
     return ee.get(key, None)
 
 _REGEX_LITERAL_RE = re.compile(r"/((?:\\.|[^/])*)/([ims]*)")
 
 def _compile_regex_literal(m: re.Match) -> re.Pattern:
+    """Compile a DSL regex literal token into a Python ``re.Pattern`` object."""
     body = m.group(1)
     flags_s = m.group(2) or ""
     flags = 0
@@ -152,6 +160,7 @@ def _eval_layer2(expr: str, ee: Dict[str, Any]) -> Any:
     regex_objects: List[re.Pattern] = []
 
     def repl_regex(m: re.Match) -> str:
+        """Replace a regex literal with a temporary token bound in the eval locals."""
         pat = _compile_regex_literal(m)
         idx = len(regex_objects)
         regex_objects.append(pat)

@@ -15,7 +15,7 @@ ENTITY_RESOLUTION_CONFIG_PATH = os.path.join(
 )
 
 
-strentityextractionprompttemplate = "entity-extraction-prompt-1-1-15-20260209.txt"
+strentityextractionprompttemplate = "entity-extraction-prompt-1-1-15-20260329.txt"
 strentityextractionmodeldefault = "gpt-4o"
 
 with open("./data/" + strentityextractionprompttemplate, "r", encoding="utf-8") as file:
@@ -23,6 +23,7 @@ with open("./data/" + strentityextractionprompttemplate, "r", encoding="utf-8") 
 
 
 def load_entity_resolution_config() -> list[dict]:
+    """Load and validate the entity-resolution configuration from disk."""
     with open(ENTITY_RESOLUTION_CONFIG_PATH, "r", encoding="utf-8") as config_file:
         config = json.load(config_file)
 
@@ -42,6 +43,7 @@ ENTITY_RESOLUTION_CONFIG = load_entity_resolution_config()
 
 
 def f_entity_extraction(user_question: str, strentityextractionmodel: str = "default"):
+    """Extract placeholders and an anonymized question from the raw user question."""
     print("Entity extraction")
     print("User question:", user_question)
     model_to_use = t2s._normalize_llm_model(strentityextractionmodel, strentityextractionmodeldefault)
@@ -101,6 +103,7 @@ def f_entity_extraction(user_question: str, strentityextractionmodel: str = "def
 
 
 def _find_entity_config(placeholder_key: str):
+    """Return the first resolution config whose placeholder prefix matches the key."""
     for cfg in ENTITY_RESOLUTION_CONFIG:
         if isinstance(placeholder_key, str) and placeholder_key.startswith(cfg.get("placeholder_prefix", "")):
             return cfg
@@ -109,6 +112,7 @@ def _find_entity_config(placeholder_key: str):
 
 
 def _iter_entity_searches(cfg: dict):
+    """Return the validated list of search configurations for a placeholder config."""
     searches = cfg.get("search_list")
     if not isinstance(searches, list):
         return []
@@ -117,6 +121,7 @@ def _iter_entity_searches(cfg: dict):
 
 
 def _sql_escape_literal(v: str) -> str:
+    """Escape a string literal for safe inlined SQL replacement."""
     return str(v).replace("'", "''")
 
 
@@ -132,12 +137,15 @@ def resolve_entities(
     messages: list,
     chromadb_collections_by_name: dict,
 ) -> dict[str, Any]:
+    """Resolve extracted entities into concrete SQL and justification substitutions."""
     def add_message(text: str):
+        """Append a positional diagnostic message to the response message list."""
         nonlocal position_counter
         messages.append(text_message_cls(position=position_counter, text=text))
         position_counter += 1
 
     def apply_entity_match_from_docid(*, cursor, key: str, cfg: dict, docid, doclang: str, message: str, current_sql_query: str, current_justification: str):
+        """Apply a resolved document ID by loading the row and replacing placeholders."""
         if docid is None:
             return False, current_sql_query, current_justification
 

@@ -24,6 +24,7 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), %s)
 
 
 def _normalize_cache_row(row: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """Normalize a raw SQL cache row into the API-facing cache payload shape."""
     if not row:
         return {
             "found": False,
@@ -78,6 +79,7 @@ def _normalize_cache_row(row: Optional[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _fetch_latest_cache_entry(connection, *, where_clause: str, where_params: tuple[Any, ...], api_version: str) -> dict[str, Any]:
+    """Fetch the most recent non-deleted cache entry matching the supplied condition."""
     query = SELECT_CACHE_QUERY.format(where_clause=where_clause)
     with connection.cursor() as cursor:
         cursor.execute(query, (*where_params, api_version))
@@ -86,6 +88,7 @@ def _fetch_latest_cache_entry(connection, *, where_clause: str, where_params: tu
 
 
 def search_sql_cache_by_question_hash(connection, question_hash: str, api_version: str) -> dict[str, Any]:
+    """Look up the latest cache entry by hashed original question text."""
     return _fetch_latest_cache_entry(
         connection,
         where_clause="QUESTION_HASHED = %s",
@@ -95,6 +98,7 @@ def search_sql_cache_by_question_hash(connection, question_hash: str, api_versio
 
 
 def search_sql_cache_by_question_text(connection, question_text: str, api_version: str) -> dict[str, Any]:
+    """Look up the latest cache entry by exact stored question text."""
     return _fetch_latest_cache_entry(
         connection,
         where_clause="QUESTION = %s",
@@ -120,6 +124,7 @@ def write_sql_cache_entry(
     is_anonymized: bool,
     deleted: int = 0,
 ) -> dict[str, Any]:
+    """Insert a cache entry into ``T_WC_T2S_CACHE`` and return a summary payload."""
     with connection.cursor() as cursor:
         cursor.execute(
             INSERT_CACHE_QUERY,
