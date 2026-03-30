@@ -14,6 +14,7 @@ def format_api_version(version: str) -> str:
 
 
 def safe_json_loads(value: Any):
+    """Safely parse JSON-like values, including strings with surrounding noise."""
     if value is None:
         return None
     if not isinstance(value, str):
@@ -30,6 +31,7 @@ def safe_json_loads(value: Any):
 
 
 def format_single_line_record(record: Any) -> str:
+    """Render a JSON-like record into a compact single-line display string."""
     if isinstance(record, str):
         s = record.strip()
         while s.endswith('}}'):
@@ -146,6 +148,7 @@ def evaluate_dataframe_assertions(df_results: pd.DataFrame, strassertions: str) 
 
 
 def _evaluate_single_assertion(df: pd.DataFrame, assertion: str) -> dict:
+    """Dispatch a single assertion string to the appropriate evaluator."""
     assertion = assertion.strip()
 
     # Handle COUNT(column) assertions (unique non-null values)
@@ -169,6 +172,7 @@ def _evaluate_single_assertion(df: pd.DataFrame, assertion: str) -> dict:
 
 
 def _evaluate_count_assertion(df: pd.DataFrame, assertion: str) -> dict:
+    """Evaluate a ``COUNT(*)`` assertion against the DataFrame row count."""
     actual_count = len(df)
 
     pattern = r"COUNT\(\*\)\s*(==|!=|<=|>=|<|>)\s*(\d+)"
@@ -218,6 +222,7 @@ def _evaluate_count_assertion(df: pd.DataFrame, assertion: str) -> dict:
 
 
 def _evaluate_count_unique_assertion(df: pd.DataFrame, assertion: str) -> dict:
+    """Evaluate a ``COUNT(column)`` assertion against unique non-null values."""
     pattern = r"COUNT\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*(==|!=|<=|>=|<|>)\s*(\d+)"
     match = re.search(pattern, assertion, re.IGNORECASE)
 
@@ -384,6 +389,7 @@ def _evaluate_cell_assertion(df: pd.DataFrame, assertion: str) -> dict:
 
 
 def _evaluate_in_assertion(df: pd.DataFrame, assertion: str) -> dict:
+    """Evaluate ``IN`` and ``NOT IN`` assertions against a DataFrame column."""
     is_not_in = "NOT IN" in assertion.upper()
 
     if is_not_in:
@@ -478,6 +484,7 @@ def _evaluate_in_assertion(df: pd.DataFrame, assertion: str) -> dict:
 
 
 def _evaluate_comparison_assertion(df: pd.DataFrame, assertion: str) -> dict:
+    """Evaluate a column-wise comparison assertion against every row value."""
     pattern = r"(\w+)\s*(==|!=|<=|>=|<|>)\s*(.+)"
     match = re.match(pattern, assertion)
 
@@ -568,6 +575,7 @@ def _evaluate_comparison_assertion(df: pd.DataFrame, assertion: str) -> dict:
 
 
 def format_detailed_results_for_db(detailed_results: list[dict], overall_pass: bool) -> str:
+    """Format assertion results into a readable summary string for database storage."""
     lines = []
     lines.append(f"OVERALL: {'PASS' if overall_pass else 'FAIL'}")
     #lines.append("="*80)

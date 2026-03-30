@@ -67,6 +67,7 @@ print("- GOOGLE_API_KEY:", "found" if google_api_key else "missing")
 
 
 def _normalize_llm_model(model_name: str, default_value: str) -> str:
+    """Normalize an optional model selector by resolving blank and default values."""
     if model_name is None:
         return default_value
     m = str(model_name).strip()
@@ -187,6 +188,7 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
 
 
 def _complex_question_temperature(model: str) -> float:
+    """Return a model-compatible temperature for complex-question resolution."""
     model_norm = str(model).strip()
     if model_norm.startswith("o1") or model_norm.startswith("o3"):
         return 1
@@ -326,6 +328,7 @@ def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str 
 
 
 def f_build_retry_question_from_reasoning(resolved: dict) -> str:
+    """Convert structured complex-question reasoning output into a retry question string."""
     try:
         if not isinstance(resolved, dict):
             return ""
@@ -403,6 +406,7 @@ def f_build_retry_question_from_reasoning(resolved: dict) -> str:
 
 
 def f_resolve_complex_question_retry_payload(user_question: str, strcomplexquestionmodel: str = "default"):
+    """Resolve a complex question and package the retry payload used by the API flow."""
     resolved_complex = f_resolve_complex_question(user_question, strcomplexquestionmodel)
     retry_question = f_build_retry_question_from_reasoning(resolved_complex)
     try:

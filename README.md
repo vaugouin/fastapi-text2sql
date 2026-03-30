@@ -542,7 +542,7 @@ fastapi-text2sql/
 ├── restart-green.sh         # Green deployment restart script
 ├── cleanup.py               # Cache cleanup functions (ChromaDB and SQL)
 ├── data/                    # Prompt templates and configuration
-│   ├── entity-extraction-prompt-1-1-15-20260209.txt                  # Entity extraction prompt
+│   ├── entity-extraction-prompt-1-1-15-20260329.txt                  # Entity extraction prompt
 │   ├── text-to-sql-prompt-1-1-15-20260209.txt                        # Text2SQL prompt
 │   ├── complex-question-prompt-stronger-model-1-1-15-20260209.txt              # stronger model prompt (complex question simplification)
 │   └── entity_resolution_config-1-1-15-20260315.json                             # Entity resolution configuration (embeddings + rapidfuzz)

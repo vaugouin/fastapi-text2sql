@@ -639,6 +639,7 @@ def search_first_match_configured(
     )
 
     def _wrap_row(row: Optional[Dict[str, Any]], score: Optional[float] = None) -> Optional[Dict[str, Any]]:
+        """Wrap a raw database row in the normalized match-object structure."""
         if row is None:
             return None
         m = build_match_object(
@@ -651,35 +652,6 @@ def search_first_match_configured(
             score=score,
         )
         return m
-
-    hit_match = _wrap_row(base.get("hit"))
-    ranked_matches: List[Dict[str, Any]] = []
-    for r in base.get("ranked") or []:
-        ranked_matches.append(_wrap_row(r, score=r.get("SCORE")))
-
-    best_match = _wrap_row(base.get("best"), score=(base.get("best") or {}).get("SCORE") if base.get("best") else None)
-
-    if enrich_mode == "best_only":
-        if hit_match is not None:
-            hit_match = enrich_match_object(cur, hit_match, enrich_cfg)
-        if best_match is not None:
-            best_match = enrich_match_object(cur, best_match, enrich_cfg)
-    elif enrich_mode == "all_ranked":
-        if hit_match is not None:
-            hit_match = enrich_match_object(cur, hit_match, enrich_cfg)
-        if best_match is not None:
-            best_match = enrich_match_object(cur, best_match, enrich_cfg)
-        ranked_matches = [enrich_match_object(cur, m, enrich_cfg) for m in ranked_matches]
-
-    return {
-        "hit": hit_match,
-        "ranked": ranked_matches,
-        "auto": base.get("auto"),
-        "best": best_match,
-        "reason": base.get("reason"),
-        "timings": base.get("timings"),
-        "candidates_count": base.get("candidates_count"),
-    }
 
 # ----------------------------
 # Main interactive loop
@@ -729,6 +701,7 @@ def main():
     table_state: Dict[str, Dict[str, Any]] = {}
 
     def ensure_table_ready(cmd: str) -> Dict[str, Any]:
+        """Cache per-table search capabilities before running an interactive lookup."""
         if cmd in table_state:
             return table_state[cmd]
 

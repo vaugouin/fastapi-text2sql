@@ -53,8 +53,8 @@ strapiversionformatted = format_api_version(strapiversion)
 API_PORT_BLUE = int(os.getenv('API_PORT_BLUE', 8000))
 API_PORT_GREEN = int(os.getenv('API_PORT_GREEN', 8001))
 
-#intcleanupenabled = False
-intcleanupenabled = True
+intcleanupenabled = False
+#intcleanupenabled = True
 
 # Set your OpenAI API key from environment variable
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -65,6 +65,7 @@ if not openai.api_key:
 
 class OpenAIEmbeddingFunction:
     def __init__(self, model="text-embedding-3-large"):
+        """Initialize the ChromaDB-compatible embedding wrapper with an OpenAI model name."""
         self.model = model
 
     def __call__(self, input):
@@ -108,7 +109,23 @@ print("ChromaDB initialized with a text-embedding-3-large model.")
 # Create or load entity collections with the custom embedding function
 CHROMADB_COLLECTIONS_BY_NAME = {
     name: chroma_client.get_or_create_collection(name=name, embedding_function=embedding_function)
-    for name in ["persons", "movies", "series", "companies", "networks", "topics", "locations", "groups", "characters"]
+    for name in [
+        "persons",
+        "movies",
+        "series",
+        "companies",
+        "networks",
+        "topics",
+        "locations",
+        "groups",
+        "characters",
+        "lists",
+        "collections",
+        "deaths",
+        "awards",
+        "nominations",
+        "movements",
+    ]
 }
 
 #Anonymized queries collection
@@ -191,6 +208,7 @@ class Text2SQLRequest(BaseModel):
     
     @model_validator(mode='after')
     def validate_question_or_hashed(self):
+        """Ensure that each request provides either the original question or its hash."""
         if not self.question and not self.question_hashed:
             raise ValueError('Either question or question_hashed must be provided')
         return self
@@ -707,12 +725,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             text="Justification: " + justification
                         ))
                         position_counter += 1
-                        messages.append(TextMessage(
-                            position=position_counter, 
-                            text="Error: " + error_text2sql
-                        ))
-                        position_counter += 1
+                        if error_text2sql != "":
+                            messages.append(TextMessage(
+                                position=position_counter, 
+                                text="Error: " + error_text2sql
+                            ))
+                            position_counter += 1
     async def _retry_with_resolved_complex_question(*, start_message: str, success_message: str, empty_question_message: str, error_message: str):
+        """Retry the full pipeline using a stronger-model simplification of the original question."""
         nonlocal position_counter
         messages.append(TextMessage(
             position=position_counter,

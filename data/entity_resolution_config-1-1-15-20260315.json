@@ -147,5 +147,23 @@
         }
       }
     ]
+  },
+  {
+    "placeholder_prefix": "Group_name",
+    "search_list": [
+      {
+        "search_mode": "embeddings",
+        "strtablename": "T_WC_T2S_GROUP",
+        "strtableid": "ID_WIKIDATA",
+        "collection": "groups",
+        "default_field": "GROUP_NAME",
+        "order_by": null,
+        "languages": {
+          "en": "GROUP_NAME",
+          "fr": "GROUP_NAME_FR",
+          "*": "GROUP_NAME"
+        }
+      }
+    ]
   }
 ]
