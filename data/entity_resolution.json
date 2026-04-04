@@ -131,6 +131,96 @@
     ]
   },
   {
+    "placeholder_prefix": "List_name",
+    "search_list": [
+      {
+        "search_mode": "embeddings",
+        "strtablename": "T_WC_T2S_LIST",
+        "strtableid": "ID_T2S_LIST",
+        "collection": "lists",
+        "default_field": "LIST_NAME",
+        "order_by": null,
+        "languages": {
+          "en": "LIST_NAME",
+          "fr": "LIST_NAME_FR",
+          "*": "LIST_NAME"
+        }
+      }
+    ]
+  },
+  {
+    "placeholder_prefix": "Award_name",
+    "search_list": [
+      {
+        "search_mode": "embeddings",
+        "strtablename": "T_WC_T2S_AWARD",
+        "strtableid": "ID_AWARD",
+        "collection": "awards",
+        "default_field": "AWARD_NAME",
+        "order_by": null,
+        "languages": {
+          "en": "AWARD_NAME",
+          "fr": "AWARD_NAME_FR",
+          "*": "AWARD_NAME"
+        }
+      }
+    ]
+  },
+  {
+    "placeholder_prefix": "Nomination_name",
+    "search_list": [
+      {
+        "search_mode": "embeddings",
+        "strtablename": "T_WC_T2S_NOMINATION",
+        "strtableid": "ID_NOMINATION",
+        "collection": "nominations",
+        "default_field": "NOMINATION_NAME",
+        "order_by": null,
+        "languages": {
+          "en": "NOMINATION_NAME",
+          "fr": "NOMINATION_NAME_FR",
+          "*": "NOMINATION_NAME"
+        }
+      }
+    ]
+  },
+  {
+    "placeholder_prefix": "Collection_name",
+    "search_list": [
+      {
+        "search_mode": "embeddings",
+        "strtablename": "T_WC_T2S_COLLECTION",
+        "strtableid": "ID_T2S_COLLECTION",
+        "collection": "collections",
+        "default_field": "COLLECTION_NAME",
+        "order_by": null,
+        "languages": {
+          "en": "COLLECTION_NAME",
+          "fr": "COLLECTION_NAME_FR",
+          "*": "COLLECTION_NAME"
+        }
+      }
+    ]
+  },
+  {
+    "placeholder_prefix": "Movement_name",
+    "search_list": [
+      {
+        "search_mode": "embeddings",
+        "strtablename": "T_WC_T2S_MOVEMENT",
+        "strtableid": "ID_MOVEMENT",
+        "collection": "collections",
+        "default_field": "MOVEMENT_NAME",
+        "order_by": null,
+        "languages": {
+          "en": "MOVEMENT_NAME",
+          "fr": "MOVEMENT_NAME_FR",
+          "*": "MOVEMENT_NAME"
+        }
+      }
+    ]
+  },
+  {
     "placeholder_prefix": "Location_name",
     "search_list": [
       {
@@ -154,7 +244,7 @@
       {
         "search_mode": "embeddings",
         "strtablename": "T_WC_T2S_GROUP",
-        "strtableid": "ID_WIKIDATA",
+        "strtableid": "ID_GROUP",
         "collection": "groups",
         "default_field": "GROUP_NAME",
         "order_by": null,
@@ -162,6 +252,24 @@
           "en": "GROUP_NAME",
           "fr": "GROUP_NAME_FR",
           "*": "GROUP_NAME"
+        }
+      }
+    ]
+  },
+  {
+    "placeholder_prefix": "Death_name",
+    "search_list": [
+      {
+        "search_mode": "embeddings",
+        "strtablename": "T_WC_T2S_DEATH",
+        "strtableid": "ID_DEATH",
+        "collection": "deaths",
+        "default_field": "DEATH_NAME",
+        "order_by": null,
+        "languages": {
+          "en": "DEATH_NAME",
+          "fr": "DEATH_NAME_FR",
+          "*": "DEATH_NAME"
         }
       }
     ]

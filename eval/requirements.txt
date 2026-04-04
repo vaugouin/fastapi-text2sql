@@ -6,6 +6,7 @@ numpy>=1.21.0
 pytest>=7.0.0
 pytz
 python-dotenv>=1.0.0
+openai>=1.0.0
 
 # Optional: For enhanced data analysis capabilities
 # scipy>=1.9.0

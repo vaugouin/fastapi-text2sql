@@ -11,11 +11,11 @@ import text2sql as t2s
 ENTITY_RESOLUTION_CONFIG_PATH = os.path.join(
     os.path.dirname(__file__),
     "data",
-    "entity_resolution_config-1-1-15-20260315.json",
+    "entity_resolution.json",
 )
 
 
-strentityextractionprompttemplate = "entity-extraction-prompt-1-1-15-20260329.txt"
+strentityextractionprompttemplate = "entity_extraction.md"
 strentityextractionmodeldefault = "gpt-4o"
 
 with open("./data/" + strentityextractionprompttemplate, "r", encoding="utf-8") as file:
