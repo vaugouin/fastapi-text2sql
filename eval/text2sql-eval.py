@@ -2,6 +2,7 @@ import time
 import requests
 import pymysql.cursors
 import json
+import openai
 import citizenphil as cp
 from datetime import datetime, timedelta
 import shutil
@@ -19,6 +20,22 @@ import text2sql_eval_functions as t2s_eval
 # Load environment variables from .env file
 load_dotenv()
 
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+
+def translate_question_to_french(question: str) -> str:
+    """Translate an evaluation question from English to French using OpenAI gpt-4o."""
+    client = openai.OpenAI(api_key=openai.api_key)
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You translate evaluation questions from English to French. Return only the French translation, with no explanation or surrounding quotes."},
+            {"role": "user", "content": question},
+        ],
+        temperature=0,
+    )
+    return response.choices[0].message.content.strip()
+
 datnow = datetime.now(cp.paris_tz)
 # Compute the date and time for J-1 (yesterday)
 # So we are sure to find the TMDb Id export files for this day
@@ -29,9 +46,10 @@ strdattodayminus1 = datjminus1.strftime("%Y-%m-%d")
 strdattodayminus1us = datjminus1.strftime("%m_%d_%Y")
 
 try:
-    with cp.connectioncp:
-        with cp.connectioncp.cursor() as cursor:
-            cursor3 = cp.connectioncp.cursor()
+    conn = cp.f_getconnection()
+    with conn:
+        with conn.cursor() as cursor:
+            cursor3 = conn.cursor()
             # Start timing the script execution
             start_time = time.time()
             strnow = datetime.now(cp.paris_tz).strftime("%Y-%m-%d %H:%M:%S")
@@ -49,7 +67,7 @@ try:
             
             #arrprocessscope = {11: 'run evals'}
             #arrprocessscope = {12: 'process evals'}
-            arrprocessscope = {10: 'cleanup deleted eval executions', 11: 'run evals', 12: 'process evals'}
+            arrprocessscope = {4: 'translate categories to French', 5: 'translate to French', 10: 'cleanup deleted eval executions', 11: 'run evals', 12: 'process evals'}
             strrunevalidold = cp.f_getservervariable("strtext2sqlevalrunevalid",0)
             for intindex, strdesc in arrprocessscope.items():
                 # Get the current date and time
@@ -69,13 +87,36 @@ try:
                 strsql = ""
                 strentityextractionmodeleval = "gpt-4o"
                 strtext2sqlmodeleval = "gpt-4o"
+                strcomplexmodeleval = "gpt-4o"
                 #strentityextractionmodeleval = "newmodel"
                 #strtext2sqlmodeleval = "newmodel"
+                #strcomplexmodeleval = "newmodel"
                 strapiversioneval = "1.1.14"
                 #strapiversioneval = "1.1.15"
                 strapiversionevalformatted = t2s_eval.format_api_version(strapiversioneval)
                 lngrowsperpageeval = 100
-                if intindex == 10:
+                if intindex == 4:
+                    strcurrentprocess = f"{intindex}: translating evaluation categories to French "
+                    strsql = ""
+                    strsql += "SELECT ID_T2S_EVALUATION_CATEGORY AS id, DESCRIPTION "
+                    strsql += "FROM T_WC_T2S_EVALUATION_CATEGORY "
+                    strsql += "WHERE DELETED = 0 "
+                    strsql += "AND DESCRIPTION IS NOT NULL "
+                    strsql += "AND DESCRIPTION <> '' "
+                    strsql += "AND (DESCRIPTION_FR IS NULL OR DESCRIPTION_FR = '') "
+                    strsql += "ORDER BY ID_T2S_EVALUATION_CATEGORY ASC "
+                elif intindex == 5:
+                    strcurrentprocess = f"{intindex}: translating evaluation questions to French "
+                    strsql = ""
+                    strsql += "SELECT ID_T2S_EVALUATION AS id, QUESTION "
+                    strsql += "FROM T_WC_T2S_EVALUATION "
+                    strsql += "WHERE DELETED = 0 "
+                    strsql += "AND QUESTION IS NOT NULL "
+                    strsql += "AND QUESTION <> '' "
+                    strsql += "AND (QUESTION_FR IS NULL OR QUESTION_FR = '') "
+                    strsql += "ORDER BY ID_T2S_EVALUATION ASC "
+                    #strsql += "LIMIT 10 "
+                elif intindex == 10:
                     strcurrentprocess = f"{intindex}: deleting deleted records from T_WC_T2S_EVALUATION_EXECUTION "
                     print(strcurrentprocess)
                     cp.f_setservervariable("strtext2sqlevalcurrentprocess",strcurrentprocess,"Current process in the Text2SQL evaluation",0)
@@ -101,7 +142,7 @@ try:
                     strsql += "SELECT T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION "
                     strsql += "FROM T_WC_T2S_EVALUATION_EXECUTION "
                     strsql += "WHERE T_WC_T2S_EVALUATION_EXECUTION.DELETED = 0 "
-                    strsql += "AND API_VERSION = '" + strapiversionevalformatted + "' AND ENTITY_EXTRACTION_MODEL = '" + strentityextractionmodeleval + "' AND TEXT2SQL_MODEL = '" + strtext2sqlmodeleval + "' "
+                    strsql += "AND API_VERSION = '" + strapiversionevalformatted + "' AND ENTITY_EXTRACTION_MODEL = '" + strentityextractionmodeleval + "' AND TEXT2SQL_MODEL = '" + strtext2sqlmodeleval + "' AND COMPLEX_MODEL = '" + strcomplexmodeleval + "' "
                     strsql += ") "
                     #strrunevalidold = "486"
                     if strrunevalidold != "":
@@ -118,7 +159,7 @@ try:
                     strsql += "INNER JOIN T_WC_T2S_EVALUATION ON T_WC_T2S_EVALUATION.ID_T2S_EVALUATION = T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION "
                     strsql += "WHERE T_WC_T2S_EVALUATION.DELETED = 0 "
                     strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.DELETED = 0 "
-                    strsql += "AND API_VERSION = '" + strapiversionevalformatted + "' AND ENTITY_EXTRACTION_MODEL = '" + strentityextractionmodeleval + "' AND TEXT2SQL_MODEL = '" + strtext2sqlmodeleval + "' "
+                    strsql += "AND API_VERSION = '" + strapiversionevalformatted + "' AND ENTITY_EXTRACTION_MODEL = '" + strentityextractionmodeleval + "' AND TEXT2SQL_MODEL = '" + strtext2sqlmodeleval + "' AND COMPLEX_MODEL = '" + strcomplexmodeleval + "' "
                     #strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION IN (1) "
                     #strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 2139) "
                     strsql += "ORDER BY T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION ASC "
@@ -152,7 +193,27 @@ try:
                         # print("------------------------------------------")
                         lngid = row['id']
                         print(f"{strdesc} id: {lngid}")
-                        if intindex == 11:
+                        if intindex == 4:
+                            strdescription = row['DESCRIPTION']
+                            print(strdescription)
+                            strdescriptionfr = translate_question_to_french(strdescription)
+                            print(strdescriptionfr)
+                            arrtranslationcouples = {}
+                            arrtranslationcouples["DESCRIPTION_FR"] = strdescriptionfr
+                            strsqltablename = "T_WC_T2S_EVALUATION_CATEGORY"
+                            strsqlupdatecondition = f"ID_T2S_EVALUATION_CATEGORY = {lngid}"
+                            cp.f_sqlupdatearray(strsqltablename,arrtranslationcouples,strsqlupdatecondition,1)
+                        elif intindex == 5:
+                            strquestion = row['QUESTION']
+                            print(strquestion)
+                            strquestionfr = translate_question_to_french(strquestion)
+                            print(strquestionfr)
+                            arrtranslationcouples = {}
+                            arrtranslationcouples["QUESTION_FR"] = strquestionfr
+                            strsqltablename = "T_WC_T2S_EVALUATION"
+                            strsqlupdatecondition = f"ID_T2S_EVALUATION = {lngid}"
+                            cp.f_sqlupdatearray(strsqltablename,arrtranslationcouples,strsqlupdatecondition,1)
+                        elif intindex == 11:
                             # Running evaluations on the FastAPI text2SQL API 
                             strquestion = row['QUESTION']
                             print(strquestion)
@@ -182,6 +243,7 @@ try:
                                 "store_to_cache": True,
                                 "llm_model_entity_extraction": strentityextractionmodeleval,
                                 "llm_model_text2sql": strtext2sqlmodeleval,
+                                "llm_model_complex": strcomplexmodeleval,
                             }
                             print(url)
                             print(payload)
@@ -202,6 +264,10 @@ try:
                             if response_json['llm_model_text2sql'] != strtext2sqlmodeleval:
                                 print("API llm_model_text2sql mismatch; queried: ", response_json['llm_model_text2sql'], " expected: ", strtext2sqlmodeleval)
                                 intconfigerror = True
+                            response_llm_model_complex = response_json.get('llm_model_complex')
+                            if response_llm_model_complex is not None and response_llm_model_complex != strcomplexmodeleval:
+                                print("API llm_model_complex mismatch; queried: ", response_llm_model_complex, " expected: ", strcomplexmodeleval)
+                                intconfigerror = True
                             if intconfigerror:
                                 # We stop now so we do not consume tokens and money because there is a configuration error
                                 exit()
@@ -211,13 +277,14 @@ try:
                             arrevalexeccouples["API_VERSION"] = strapiversionevalformatted
                             arrevalexeccouples["ENTITY_EXTRACTION_MODEL"] = strentityextractionmodeleval
                             arrevalexeccouples["TEXT2SQL_MODEL"] = strtext2sqlmodeleval
+                            arrevalexeccouples["COMPLEX_MODEL"] = strcomplexmodeleval
                             arrevalexeccouples["JSON_RESULT"] = response_text
                             arrevalexeccouples["TIM_EXECUTION"] = strdatnow
                             #print("\nArrmoviecouples:")
                             #print(arrevalexeccouples)
                             #time.sleep(5)
                             strsqltablename = "T_WC_T2S_EVALUATION_EXECUTION"
-                            strsqlupdatecondition = f"ID_T2S_EVALUATION = {lngid} AND API_VERSION = '{strapiversionevalformatted}' AND ENTITY_EXTRACTION_MODEL = '{strentityextractionmodeleval}' AND TEXT2SQL_MODEL = '{strtext2sqlmodeleval}'"
+                            strsqlupdatecondition = f"ID_T2S_EVALUATION = {lngid} AND API_VERSION = '{strapiversionevalformatted}' AND ENTITY_EXTRACTION_MODEL = '{strentityextractionmodeleval}' AND TEXT2SQL_MODEL = '{strtext2sqlmodeleval}' AND COMPLEX_MODEL = '{strcomplexmodeleval}'"
                             cp.f_sqlupdatearray(strsqltablename,arrevalexeccouples,strsqlupdatecondition,1)
                         elif intindex == 12:
                             # Processing evaluations results to compute the scoring
@@ -438,6 +505,7 @@ try:
                 print(f"FastAPI Text2SQL API version: {strapiversioneval}")
                 print(f"Entity extraction model: {strentityextractionmodeleval}")
                 print(f"Text2SQL model: {strtext2sqlmodeleval}")
+                print(f"Complex model: {strcomplexmodeleval}")
                 print(f"Global score: {dblcumulatedscore}/{dblevalcount} = {dblglobalscore:.2%}")
                 if lng_entity_extraction_processing_time_count > 0:
                     str_entity_extraction_processing_time_sum_duration = cp.convert_seconds_to_duration(
@@ -534,4 +602,6 @@ try:
     print("Process completed")
 except pymysql.MySQLError as e:
     print(f"❌ MySQL Error: {e}")
-    cp.connectioncp.rollback()
+    conn = getattr(cp, "connectioncp", None)
+    if conn is not None and getattr(conn, "open", False):
+        conn.rollback()

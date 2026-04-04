@@ -34,11 +34,11 @@ print(f"Memory Usage: {memory_info.percent}%")
 dblavailableram=memory_info.available / (1024 ** 3)
 
 # Text-to-SQL feature
-strtext2sqlprompttemplate = "text-to-sql-prompt-1-1-15-20260209.txt"
+strtext2sqlprompttemplate = "text_to_sql.md"
 strtext2sqlmodeldefault = "gpt-4o"
 
 # Complex question feature (stronger model)
-strcomplexquestionprompttemplate = "complex-question-prompt-stronger-model-1-1-15-20260209.txt"
+strcomplexquestionprompttemplate = "complex_question.md"
 strcomplexquestionmodeldefault = "gpt-4o"
 
 #print("Text to SQL prompt template", strtext2sqlprompttemplate)

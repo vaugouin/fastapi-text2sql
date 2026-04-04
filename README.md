@@ -10,7 +10,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **API Key Authentication**: Secure access with API key validation using constant-time comparison
 - **ChromaDB Vector Search**: Advanced similarity search for entity matching and query optimization
 - **Entity Extraction & Anonymization**: Intelligent extraction of entities (persons, movies, series, companies, networks, characters, locations, topics) with placeholder replacement
-- **Config-driven Entity Resolution**: Entity resolution is configured via `data/entity_resolution_config-1-1-15-20260315.json` (embeddings and RapidFuzz strategies)
+- **Config-driven Entity Resolution**: Entity resolution is configured via `data/entity_resolution.json` (embeddings and RapidFuzz strategies)
 - **RapidFuzz Person Matching (language-family aware)**: Person resolution uses `guess_language_family()` to route Latin names to `T_WC_T2S_PERSON` and non-Latin names to `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`, while keeping SQL replacement canonical when needed
 - **Multi-Level Caching**: Sophisticated three-tier caching system (exact questions, anonymized questions, vector embeddings)
 - **Comprehensive Logging**: Automatic logging of all API requests and responses with detailed timing metrics
@@ -83,7 +83,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 
 5. **Entity Validation & Resolution**
    - Entity resolution logic is implemented in `entity.py`, while `main.py` remains focused on request orchestration.
-   - Validate and resolve each extracted entity using a configuration-driven strategy list (`data/entity_resolution_config-1-1-15-20260315.json`).
+   - Validate and resolve each extracted entity using a configuration-driven strategy list (`data/entity_resolution.json`).
    - Supported resolution strategies:
      - **Embeddings (ChromaDB)**: for entities like movies, series, companies, networks, topics, locations
      - **RapidFuzz (DB lexical)**: for entities like persons (can be configured per placeholder)
@@ -542,10 +542,10 @@ fastapi-text2sql/
 ├── restart-green.sh         # Green deployment restart script
 ├── cleanup.py               # Cache cleanup functions (ChromaDB and SQL)
 ├── data/                    # Prompt templates and configuration
-│   ├── entity-extraction-prompt-1-1-15-20260329.txt                  # Entity extraction prompt
-│   ├── text-to-sql-prompt-1-1-15-20260209.txt                        # Text2SQL prompt
-│   ├── complex-question-prompt-stronger-model-1-1-15-20260209.txt              # stronger model prompt (complex question simplification)
-│   └── entity_resolution_config-1-1-15-20260315.json                             # Entity resolution configuration (embeddings + rapidfuzz)
+│   ├── entity_extraction.md                                          # Entity extraction prompt
+│   ├── text_to_sql.md                                                # Text2SQL prompt
+│   ├── complex_question.md                                           # stronger model prompt (complex question simplification)
+│   └── entity_resolution.json                                        # Entity resolution configuration (embeddings + rapidfuzz)
 ├── logs/                    # API usage logs with timing metrics (auto-created)
 ├── CLAUDE.md                # AI assistant guide for understanding the codebase
 └── README.md                # This file
