@@ -6,6 +6,8 @@ import psutil
 import os
 import json
 import re
+
+import data_watcher
 from dotenv import load_dotenv
 import openai
 from langchain_core.prompts import PromptTemplate
@@ -44,13 +46,25 @@ strcomplexquestionmodeldefault = "gpt-4o"
 #print("Text to SQL prompt template", strtext2sqlprompttemplate)
 #print("Entity extraction prompt template", strentityextractionprompttemplate)
 
-# Read the text2sql_prompt_template from the data/prompt.txt file
-with open('./data/' + strtext2sqlprompttemplate, 'r', encoding='utf-8') as file:
-    text2sql_prompt_template = file.read()
+# Prompt templates are loaded and kept up-to-date via the data_watcher module.
+# They are initialized to empty strings here and populated synchronously by
+# the register() calls below.
+text2sql_prompt_template = ""
+complex_question_prompt_template = ""
 
-# Read the complex_question_prompt_template from the data file
-with open('./data/' + strcomplexquestionprompttemplate, 'r', encoding='utf-8') as file:
-    complex_question_prompt_template = file.read()
+
+def _on_text2sql_prompt_change(content: str) -> None:
+    global text2sql_prompt_template
+    text2sql_prompt_template = content
+
+
+def _on_complex_question_prompt_change(content: str) -> None:
+    global complex_question_prompt_template
+    complex_question_prompt_template = content
+
+
+data_watcher.register(strtext2sqlprompttemplate, _on_text2sql_prompt_change)
+data_watcher.register(strcomplexquestionprompttemplate, _on_complex_question_prompt_change)
 
 # Load environment variables (OPENAI_API_KEY)
 load_dotenv()
