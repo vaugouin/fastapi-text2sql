@@ -58,3 +58,13 @@ def log_usage(endpoint, content, strapiversion):
     if not os.path.exists(log_filename):
         with open(log_filename, 'w', encoding='utf-8') as file:
             file.write(contenttext)
+
+
+def log_hot_reload(filename):
+    content = {
+        "message": f"Hot-loaded data file: {filename}",
+        "filename": filename,
+        "event": "data_hot_reload",
+        "timestamp": datetime.now().isoformat(),
+    }
+    log_usage("data_hot_reload", content, "hot_reload")

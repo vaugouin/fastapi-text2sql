@@ -54,7 +54,6 @@ CREATE TABLE T_WC_T2S_MOVIE (
   RELEASE_DAY INT,
   ID_IMDB VARCHAR(20),
   ID_WIKIDATA VARCHAR(50),
-  OVERVIEW MEDIUMTEXT,
   POSTER_PATH VARCHAR(200),
   POPULARITY DOUBLE,
   ORIGINAL_LANGUAGE VARCHAR(2),
@@ -106,7 +105,6 @@ CREATE TABLE T_WC_T2S_SERIE (
   LAST_AIR_DAY INT,
   ID_IMDB VARCHAR(20),
   ID_WIKIDATA VARCHAR(50),
-  OVERVIEW MEDIUMTEXT,
   POSTER_PATH VARCHAR(200),
   POPULARITY DOUBLE,
   ORIGINAL_LANGUAGE VARCHAR(2),
@@ -735,14 +733,13 @@ CREATE TABLE T_WC_T2S_SERIE_VIDEO (
   People: starts with nm followed by 7–9 digits (example: nm0000007 or the {{IMDb_person_ID1}} placeholder)
 - IMDB_RATING is the IMDb rating of the movie or serie
 - ID_WIKIDATA is the Wikidata ID of the movie, serie or person: starts with Q followed by digits
-- OVERVIEW is the overview of the movie or serie but this field must never be used for search purposes. 
 - POSTER_PATH is the poster path of the movie or serie
 - POPULARITY is the popularity of the movie, serie or person
-- PLOT is the Wikipedia detailed story summary but it must not be used for search purposes. 
-- CAST is the Wikipedia section about main actors and their roles but it must not be used for search purposes. You should rather search in dedicated tables 
-- PRODUCTION: Development, filming, and behind-the-scenes information
-- RECEPTION: Critical reviews and audience response
-- BIOGRAPHY: Personal and professional background of a person but it must not be used for search purposes
+- PLOT is the Wikipedia detailed story summary but it must not be used in a WHERE clause
+- CAST is the Wikipedia section about main actors and their roles but it must not be used in a WHERE clause. You should rather search in dedicated tables 
+- PRODUCTION: Development, filming, and behind-the-scenes information but it must not be used in a WHERE clause
+- RECEPTION: Critical reviews and audience response but it must not be used in a WHERE clause
+- BIOGRAPHY: Personal and professional background of a person but it must not be used in a WHERE clause
 - ASPECT_RATIO is the aspect ratio of the movie. For instance: 1,37 2,35 1,85 1,33 1,66 2,39
 - ID_TECHNICAL is the technical information of the movie, possible values are listed below and do not use a value outside of the list provided.
 - When searching for a documentary, search in T_WC_T2S_MOVIE table if no more information provided about the content type
@@ -754,6 +751,8 @@ CREATE TABLE T_WC_T2S_SERIE_VIDEO (
 - If a question asks for a person by providing several movies or series as cast or crew, all the movies or series must be included in the person credits
 - When searching for a content (movie or serie) **by** a specific person, make sure to search the person as a crew member
 - When searching for a content (movie or serie) **with** a specific person, make sure to search the person as a cast member
+- Before returning the final SQL, perform a self-check to ensure every predicate, join condition, comparison, sort expression, grouping expression, and function argument is compatible with the schema and the declared field types.
+- If a requested filter requires a label-to-code or text-to-ID conversion, only use a mapping explicitly defined in this prompt/schema. Otherwise, do not invent one.
 
 ### Technical Reference for movies ID_TECHNICAL
 Technical specifications use the T_WC_T2S_MOVIE_TECHNICAL table with ID_TECHNICAL values:

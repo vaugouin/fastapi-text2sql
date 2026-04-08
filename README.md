@@ -11,6 +11,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **ChromaDB Vector Search**: Advanced similarity search for entity matching and query optimization
 - **Entity Extraction & Anonymization**: Intelligent extraction of entities (persons, movies, series, companies, networks, characters, locations, topics) with placeholder replacement
 - **Config-driven Entity Resolution**: Entity resolution is configured via `data/entity_resolution.json` (embeddings and RapidFuzz strategies)
+- **Hot-Reloaded `data/` Files**: Prompt templates and entity-resolution configuration under `data/` are reloaded automatically when they change
 - **RapidFuzz Person Matching (language-family aware)**: Person resolution uses `guess_language_family()` to route Latin names to `T_WC_T2S_PERSON` and non-Latin names to `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`, while keeping SQL replacement canonical when needed
 - **Multi-Level Caching**: Sophisticated three-tier caching system (exact questions, anonymized questions, vector embeddings)
 - **Comprehensive Logging**: Automatic logging of all API requests and responses with detailed timing metrics
@@ -109,6 +110,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 6. **Text-to-SQL Generation (LLM)**
    - If no cache hit occurs, process the anonymized question through the LLM model
    - Uses the prompt template from `data/` folder with comprehensive database schema
+   - Files in `data/` are hot-reloaded, so prompt/config edits are picked up automatically without restarting the API
    - GPT-4o generates a SQL query based on the anonymized question pattern
    - This is the core text-to-SQL task
 
@@ -541,11 +543,11 @@ fastapi-text2sql/
 ├── restart-blue.sh          # Blue deployment restart script
 ├── restart-green.sh         # Green deployment restart script
 ├── cleanup.py               # Cache cleanup functions (ChromaDB and SQL)
-├── data/                    # Prompt templates and configuration
-│   ├── entity_extraction.md                                          # Entity extraction prompt
-│   ├── text_to_sql.md                                                # Text2SQL prompt
-│   ├── complex_question.md                                           # stronger model prompt (complex question simplification)
-│   └── entity_resolution.json                                        # Entity resolution configuration (embeddings + rapidfuzz)
+├── data/                    # Hot-reloaded prompt templates and configuration
+│   ├── entity_extraction.md                                          # Entity extraction prompt (hot-reloaded)
+│   ├── text_to_sql.md                                                # Text2SQL prompt (hot-reloaded)
+│   ├── complex_question.md                                           # stronger model prompt (complex question simplification, hot-reloaded)
+│   └── entity_resolution.json                                        # Entity resolution configuration (embeddings + rapidfuzz, hot-reloaded)
 ├── logs/                    # API usage logs with timing metrics (auto-created)
 ├── CLAUDE.md                # AI assistant guide for understanding the codebase
 └── README.md                # This file
@@ -568,6 +570,8 @@ The API version is controlled by the `strapiversion` variable in `main.py`. Upda
 
 ### Prompt Templates
 The system uses prompt templates stored in the `data/` folder. `text2sql.py` loads the Text2SQL and complex-question templates, and `entity.py` loads the entity-extraction template.
+
+Files in the `data/` folder are hot-reloaded. If you modify `entity_extraction.md`, `text_to_sql.md`, `complex_question.md`, or `entity_resolution.json`, the running API automatically picks up the changes without requiring a restart.
 
 Prompt template files are read using UTF-8 encoding so the application starts reliably on Windows even when prompt files contain non-ASCII characters.
 
@@ -733,7 +737,13 @@ The API supports Blue/Green deployment strategy for zero-downtime updates:
 - Parallel version testing
 
 ### Logging
-All API requests are automatically logged to the `logs/` folder with:
+Log files are created in the `logs/` folder for the following events:
+- API startup (`start` event)
+- Health check requests to `GET /` (`hello` event)
+- Each processed `POST /search/text2sql` request (`text2sql_post` event)
+- Each successful hot-reload of a file in the `data/` folder (`data_hot_reload` event)
+
+API request/response log files include:
 - Timestamp
 - Endpoint used
 - API version

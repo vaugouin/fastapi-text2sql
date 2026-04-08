@@ -6,40 +6,47 @@ from typing import Any
 from language_family import guess_language_family
 import rapidfuzz_query
 import text2sql as t2s
-
-
-ENTITY_RESOLUTION_CONFIG_PATH = os.path.join(
-    os.path.dirname(__file__),
-    "data",
-    "entity_resolution.json",
-)
+import data_watcher
 
 
 strentityextractionprompttemplate = "entity_extraction.md"
+strentityresolutionconfigfile = "entity_resolution.json"
 strentityextractionmodeldefault = "gpt-4o"
 
-with open("./data/" + strentityextractionprompttemplate, "r", encoding="utf-8") as file:
-    entity_extraction_prompt_template = file.read()
+# Populated synchronously by data_watcher.register() below and refreshed
+# automatically whenever the underlying files change on disk.
+entity_extraction_prompt_template: str = ""
+ENTITY_RESOLUTION_CONFIG: list[dict] = []
 
 
-def load_entity_resolution_config() -> list[dict]:
-    """Load and validate the entity-resolution configuration from disk."""
-    with open(ENTITY_RESOLUTION_CONFIG_PATH, "r", encoding="utf-8") as config_file:
-        config = json.load(config_file)
-
+def _validate_entity_resolution_config(config: Any) -> list[dict]:
     if not isinstance(config, list):
         raise ValueError("ENTITY_RESOLUTION_CONFIG must be a list of objects.")
-
     for config_item in config:
         if not isinstance(config_item, dict):
             raise ValueError("Each entity resolution config entry must be an object.")
         if not isinstance(config_item.get("search_list"), list):
             raise ValueError("Each entity resolution config entry must contain a search_list array.")
-
     return config
 
 
-ENTITY_RESOLUTION_CONFIG = load_entity_resolution_config()
+def _on_entity_extraction_prompt_change(content: str) -> None:
+    global entity_extraction_prompt_template
+    entity_extraction_prompt_template = content
+
+
+def _on_entity_resolution_config_change(content: str) -> None:
+    global ENTITY_RESOLUTION_CONFIG
+    try:
+        parsed = json.loads(content)
+        ENTITY_RESOLUTION_CONFIG = _validate_entity_resolution_config(parsed)
+    except Exception as e:
+        # Keep the previous valid config rather than crashing the running app.
+        print(f"[entity] Failed to reload entity_resolution.json, keeping previous config: {e}")
+
+
+data_watcher.register(strentityextractionprompttemplate, _on_entity_extraction_prompt_change)
+data_watcher.register(strentityresolutionconfigfile, _on_entity_resolution_config_change)
 
 
 def f_entity_extraction(user_question: str, strentityextractionmodel: str = "default"):
