@@ -1,5 +1,9 @@
 from typing import List, Optional
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+import httpx
+from fastmcp import FastMCP
 from auth import get_api_key
 from pydantic import BaseModel, field_validator, model_validator
 import pandas as pd 
@@ -52,6 +56,15 @@ strapiversionformatted = format_api_version(strapiversion)
 
 API_PORT_BLUE = int(os.getenv('API_PORT_BLUE', 8000))
 API_PORT_GREEN = int(os.getenv('API_PORT_GREEN', 8001))
+_mcp_patch = int(strapiversion.split('.')[2])
+MCP_API_KEY = os.getenv("MCP_API_KEY", "")
+_api_keys_raw = os.getenv("API_KEYS") or os.getenv("API_KEY", "")
+_api_keys_first = next((k.strip() for k in _api_keys_raw.split(",") if k.strip()), "")
+MCP_INTERNAL_API_KEY = os.getenv("MCP_INTERNAL_API_KEY", _api_keys_first)
+MCP_INTERNAL_BASE_URL = os.getenv(
+    "MCP_INTERNAL_BASE_URL",
+    f"http://127.0.0.1:{API_PORT_BLUE if _mcp_patch % 2 == 0 else API_PORT_GREEN}"
+)
 
 intcleanupenabled = False
 #intcleanupenabled = True
@@ -154,7 +167,10 @@ Which is wrong
 #similarity_threshold = 0.2  
 similarity_threshold = 0.15
 
-app = FastAPI(title="Text2SQL API", version=strapiversion, description="Text2SQL API for text to SQL query conversion")
+mcp = FastMCP("text2sql")
+mcp_app = mcp.http_app(stateless_http=True)
+# FastMCP lifespan: Pass mcp_app.lifespan to the FastAPI constructor
+app = FastAPI(title="Text2SQL API", version=strapiversion, description="Text2SQL API for text to SQL query conversion", lifespan=mcp_app.lifespan)
 
 def get_db_connection():
     """Establish and return a database connection to MySQL.
@@ -204,6 +220,7 @@ class Text2SQLRequest(BaseModel):
     llm_model_entity_extraction: Optional[str] = "default"
     llm_model_text2sql: Optional[str] = "default"
     llm_model_complex: Optional[str] = "default"
+    complex_question_processing: bool = False
     complex_question_already_resolved: bool = False
     
     @model_validator(mode='after')
@@ -277,33 +294,75 @@ async def f_hello_world(api_key: str = Depends(get_api_key)):
 
 @app.post("/search/text2sql", response_model=Text2SQLResponse)
 async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_api_key)):
-    """Convert natural language questions to SQL queries with caching and entity extraction.
-    
-    This endpoint processes natural language questions and converts them to SQL queries using:
-    - Entity extraction to anonymize questions
-    - Multi-level caching (exact, anonymized, embeddings)
-    - Vector similarity search for entity matching
-    - Pagination support for results
-    
+    """Convert a natural language question about cinema or TV into SQL, execute it, and return the result set.
+
+    Covers the full entertainment database: movies, TV series, persons (actors, directors,
+    writers, crew), production companies, TV networks, topics (universes, franchises, themes),
+    curated lists, collections (trilogies, sagas), film movements, person groups, causes of
+    death, awards, nominations, and locations (narrative or filming, via Wikidata).
+
+    Processing pipeline:
+    1. Normalize and sanitize the input question.
+    2. Extract and anonymize named entities using an LLM, replacing them with typed
+       placeholders such as {{Person_name1}}, {{Movie_title1}}, {{Topic_name1}} etc.
+    3. Look up the SQL cache for the exact question, then for the anonymized pattern.
+    4. Optionally search the ChromaDB vector embeddings cache for a semantically
+       similar anonymized question (disabled by default).
+    5. If no cache hit, generate SQL via an LLM using the anonymized question and the
+       full MariaDB schema prompt.
+    6. Resolve entity placeholders to actual database IDs or names via ChromaDB
+       embeddings or RapidFuzz lexical matching (strategy driven by entity_resolution.json).
+    7. Execute the resolved SQL query against MariaDB with LIMIT/OFFSET pagination.
+    8. If SQL generation fails or execution returns 0 rows on page 1, optionally retry
+       once by simplifying the original question through a stronger LLM model.
+    9. Cache the question-SQL pair (SQL cache + embeddings cache) for future requests.
+
     Args:
-        request (Text2SQLRequest): Request containing question and processing options
-        api_key (str): Valid API key for authentication (injected by dependency)
-        
+        request (Text2SQLRequest): Request body:
+            - question (str, optional): Natural language question. Either question or
+              question_hashed must be provided.
+            - question_hashed (str, optional): SHA-256 hash of a cached question; used
+              for paginating a previously executed result without re-running the LLM.
+            - page (int, default 1): Page number for paginated results.
+            - rows_per_page (int, default 50): Number of rows per page.
+            - retrieve_from_cache (bool, default True): Whether to consult the SQL cache.
+            - store_to_cache (bool, default True): Whether to write results to the SQL cache.
+            - llm_model_entity_extraction (str, default "default"): LLM for entity
+              extraction. "default" resolves to gpt-4o.
+            - llm_model_text2sql (str, default "default"): LLM for SQL generation.
+              "default" resolves to gpt-4o.
+            - llm_model_complex (str, default "default"): Stronger LLM used for
+              complex-question escalation and one-time retry. "default" resolves to gpt-4o.
+        api_key (str): Valid API key injected via X-API-Key header.
+
     Returns:
-        Text2SQLResponse: Complete response with SQL query, results, and performance metrics
-        
+        Text2SQLResponse:
+            - question: Normalised input question.
+            - question_hashed: SHA-256 hash of the question.
+            - sql_query: Final executable SQL (entity placeholders resolved to real values).
+            - sql_query_anonymized: SQL with entity placeholders before resolution.
+            - justification: LLM explanation of the generated query.
+            - error: Non-empty if the question could not produce a valid SQL query.
+            - entity_extraction (dict): Extracted entity names keyed by placeholder.
+            - question_anonymized: Question with entity values replaced by placeholders.
+            - result (list): Paginated rows, each as {"index": int, "data": dict}.
+              Result columns depend on entity type — see data/text_to_sql.md Result Columns.
+            - page, limit, offset, rows_per_page: Pagination metadata.
+            - llm_defined_limit, llm_defined_offset: LIMIT/OFFSET originally in LLM output.
+            - cached_exact_question, cached_anonymized_question,
+              cached_anonymized_question_embedding: Cache hit indicators.
+            - entity_extraction_processing_time, text2sql_processing_time,
+              embeddings_processing_time, query_execution_time,
+              total_processing_time: Latency breakdown in seconds.
+            - ambiguous_question_for_text2sql: True when the question was too vague to
+              produce a SQL query.
+            - messages (list): Ordered processing-step messages for debugging.
+            - llm_model_entity_extraction, llm_model_text2sql, llm_model_complex.
+            - api_version: Running API version string.
+
     Raises:
-        ValueError: If neither question nor question_hashed is provided
-        HTTPException: If API key is invalid or database errors occur
-        
-    Example:
-        POST /search/text2sql
-        {
-            "question": "Show me movies with Tom Hanks",
-            "page": 1,
-            "retrieve_from_cache": true,
-            "store_to_cache": true
-        }
+        ValueError: If neither question nor question_hashed is provided.
+        HTTPException 401: If the API key is invalid.
     """
     total_start_time = time.time()
     
@@ -856,7 +915,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # using a stronger model, then rerun the whole pipeline from the beginning.
         try:
             can_retry = (
-                bool(request.question)
+                request.complex_question_processing
+                and bool(request.question)
                 and not getattr(request, "complex_question_already_resolved", False)
                 and "original_question" in locals()
                 and isinstance(original_question, str)
@@ -1043,7 +1103,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # initial/original question using the stronger model and rerun the whole pipeline.
         try:
             can_retry_sql_execution_error = (
-                sql_execution_failed
+                request.complex_question_processing
+                and sql_execution_failed
                 and lngpage == 1
                 and bool(request.question)
                 and not getattr(request, "complex_question_already_resolved", False)
@@ -1068,7 +1129,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # original question using the stronger model and rerun the whole pipeline.
         try:
             can_retry_no_results = (
-                not sql_execution_failed
+                request.complex_question_processing
+                and not sql_execution_failed
                 and lngpage == 1
                 and isinstance(query_results, list)
                 and len(query_results) == 0
@@ -1256,6 +1318,1014 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     logs.log_usage("text2sql_post", log_data, strapiversion)
     
     return response
+
+# ---------------------------------------------------------------------------
+# Entity detail endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/movies/{id}", summary="Movie full detail")
+async def get_movie(id: int, api_key: str = Depends(get_api_key)):
+    """Return all fields for a movie plus embedded relations: cast, crew, genres,
+    production companies, production countries, spoken languages, topics, collections,
+    movements, awards, and nominations. The id is the TMDb movie ID (ID_MOVIE)."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM T_WC_T2S_MOVIE WHERE ID_MOVIE = %s", (id,))
+            movie = cursor.fetchone()
+        if not movie:
+            raise HTTPException(status_code=404, detail=f"Movie {id} not found")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, pm.CREDIT_TYPE, pm.CAST_CHARACTER,
+                       pm.CREW_DEPARTMENT, pm.DISPLAY_ORDER
+                FROM T_WC_T2S_PERSON_MOVIE pm
+                JOIN T_WC_T2S_PERSON p ON pm.ID_PERSON = p.ID_PERSON
+                WHERE pm.ID_MOVIE = %s ORDER BY pm.DISPLAY_ORDER ASC
+            """, (id,))
+            credits = cursor.fetchall()
+            cursor.execute("SELECT ID_GENRE FROM T_WC_T2S_MOVIE_GENRE WHERE ID_MOVIE = %s", (id,))
+            genres = [r["ID_GENRE"] for r in cursor.fetchall()]
+            cursor.execute("""
+                SELECT c.ID_COMPANY, c.COMPANY_NAME FROM T_WC_T2S_MOVIE_COMPANY mc
+                JOIN T_WC_T2S_COMPANY c ON mc.ID_COMPANY = c.ID_COMPANY
+                WHERE mc.ID_MOVIE = %s
+            """, (id,))
+            companies = cursor.fetchall()
+            cursor.execute("SELECT COUNTRY_CODE FROM T_WC_T2S_MOVIE_PRODUCTION_COUNTRY WHERE ID_MOVIE = %s", (id,))
+            production_countries = [r["COUNTRY_CODE"] for r in cursor.fetchall()]
+            cursor.execute("SELECT SPOKEN_LANGUAGE FROM T_WC_T2S_MOVIE_SPOKEN_LANGUAGE WHERE ID_MOVIE = %s", (id,))
+            spoken_languages = [r["SPOKEN_LANGUAGE"] for r in cursor.fetchall()]
+            cursor.execute("""
+                SELECT t.ID_TOPIC, t.TOPIC_NAME, t.TOPIC_TYPE FROM T_WC_T2S_MOVIE_TOPIC mt
+                JOIN T_WC_T2S_TOPIC t ON mt.ID_TOPIC = t.ID_TOPIC
+                WHERE mt.ID_MOVIE = %s ORDER BY mt.DISPLAY_ORDER ASC
+            """, (id,))
+            topics = cursor.fetchall()
+            cursor.execute("""
+                SELECT c.ID_T2S_COLLECTION, c.COLLECTION_NAME FROM T_WC_T2S_MOVIE_COLLECTION mc
+                JOIN T_WC_T2S_COLLECTION c ON mc.ID_T2S_COLLECTION = c.ID_T2S_COLLECTION
+                WHERE mc.ID_MOVIE = %s ORDER BY mc.DISPLAY_ORDER ASC
+            """, (id,))
+            collections = cursor.fetchall()
+            cursor.execute("""
+                SELECT m.ID_MOVEMENT, m.MOVEMENT_NAME FROM T_WC_T2S_MOVIE_MOVEMENT mm
+                JOIN T_WC_T2S_MOVEMENT m ON mm.ID_MOVEMENT = m.ID_MOVEMENT
+                WHERE mm.ID_MOVIE = %s ORDER BY mm.DISPLAY_ORDER ASC
+            """, (id,))
+            movements = cursor.fetchall()
+            cursor.execute("""
+                SELECT a.ID_AWARD, a.AWARD_NAME FROM T_WC_T2S_MOVIE_AWARD ma
+                JOIN T_WC_T2S_AWARD a ON ma.ID_AWARD = a.ID_AWARD
+                WHERE ma.ID_MOVIE = %s ORDER BY ma.DISPLAY_ORDER ASC
+            """, (id,))
+            awards = cursor.fetchall()
+            cursor.execute("""
+                SELECT n.ID_NOMINATION, n.NOMINATION_NAME FROM T_WC_T2S_MOVIE_NOMINATION mn
+                JOIN T_WC_T2S_NOMINATION n ON mn.ID_NOMINATION = n.ID_NOMINATION
+                WHERE mn.ID_MOVIE = %s ORDER BY mn.DISPLAY_ORDER ASC
+            """, (id,))
+            nominations = cursor.fetchall()
+        result = {
+            **movie,
+            "cast": [c for c in credits if c["CREDIT_TYPE"] == "cast"],
+            "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
+            "genres": genres,
+            "companies": list(companies),
+            "production_countries": production_countries,
+            "spoken_languages": spoken_languages,
+            "topics": list(topics),
+            "collections": list(collections),
+            "movements": list(movements),
+            "awards": list(awards),
+            "nominations": list(nominations),
+        }
+        logs.log_usage("movies", {"id": id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/series/{id}", summary="TV series full detail")
+async def get_series(id: int, api_key: str = Depends(get_api_key)):
+    """Return all fields for a TV series plus embedded relations: cast, crew, genres,
+    production companies, networks, production countries, spoken languages, topics,
+    collections, movements, awards, and nominations. The id is the TMDb series ID (ID_SERIE)."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM T_WC_T2S_SERIE WHERE ID_SERIE = %s", (id,))
+            serie = cursor.fetchone()
+        if not serie:
+            raise HTTPException(status_code=404, detail=f"Series {id} not found")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, ps.CREDIT_TYPE, ps.CAST_CHARACTER,
+                       ps.CREW_DEPARTMENT, ps.DISPLAY_ORDER
+                FROM T_WC_T2S_PERSON_SERIE ps
+                JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON
+                WHERE ps.ID_SERIE = %s ORDER BY ps.DISPLAY_ORDER ASC
+            """, (id,))
+            credits = cursor.fetchall()
+            cursor.execute("SELECT ID_GENRE FROM T_WC_T2S_SERIE_GENRE WHERE ID_SERIE = %s", (id,))
+            genres = [r["ID_GENRE"] for r in cursor.fetchall()]
+            cursor.execute("""
+                SELECT c.ID_COMPANY, c.COMPANY_NAME FROM T_WC_T2S_SERIE_COMPANY sc
+                JOIN T_WC_T2S_COMPANY c ON sc.ID_COMPANY = c.ID_COMPANY
+                WHERE sc.ID_SERIE = %s
+            """, (id,))
+            companies = cursor.fetchall()
+            cursor.execute("""
+                SELECT n.ID_NETWORK, n.NETWORK_NAME FROM T_WC_T2S_SERIE_NETWORK sn
+                JOIN T_WC_T2S_NETWORK n ON sn.ID_NETWORK = n.ID_NETWORK
+                WHERE sn.ID_SERIE = %s
+            """, (id,))
+            networks = cursor.fetchall()
+            cursor.execute("SELECT COUNTRY_CODE FROM T_WC_T2S_SERIE_PRODUCTION_COUNTRY WHERE ID_SERIE = %s", (id,))
+            production_countries = [r["COUNTRY_CODE"] for r in cursor.fetchall()]
+            cursor.execute("SELECT SPOKEN_LANGUAGE FROM T_WC_T2S_SERIE_SPOKEN_LANGUAGE WHERE ID_SERIE = %s", (id,))
+            spoken_languages = [r["SPOKEN_LANGUAGE"] for r in cursor.fetchall()]
+            cursor.execute("""
+                SELECT t.ID_TOPIC, t.TOPIC_NAME, t.TOPIC_TYPE FROM T_WC_T2S_SERIE_TOPIC st
+                JOIN T_WC_T2S_TOPIC t ON st.ID_TOPIC = t.ID_TOPIC
+                WHERE st.ID_SERIE = %s ORDER BY st.DISPLAY_ORDER ASC
+            """, (id,))
+            topics = cursor.fetchall()
+            cursor.execute("""
+                SELECT c.ID_T2S_COLLECTION, c.COLLECTION_NAME FROM T_WC_T2S_SERIE_COLLECTION sc
+                JOIN T_WC_T2S_COLLECTION c ON sc.ID_T2S_COLLECTION = c.ID_T2S_COLLECTION
+                WHERE sc.ID_SERIE = %s ORDER BY sc.DISPLAY_ORDER ASC
+            """, (id,))
+            collections = cursor.fetchall()
+            cursor.execute("""
+                SELECT m.ID_MOVEMENT, m.MOVEMENT_NAME FROM T_WC_T2S_SERIE_MOVEMENT sm
+                JOIN T_WC_T2S_MOVEMENT m ON sm.ID_MOVEMENT = m.ID_MOVEMENT
+                WHERE sm.ID_SERIE = %s ORDER BY sm.DISPLAY_ORDER ASC
+            """, (id,))
+            movements = cursor.fetchall()
+            cursor.execute("""
+                SELECT a.ID_AWARD, a.AWARD_NAME FROM T_WC_T2S_SERIE_AWARD sa
+                JOIN T_WC_T2S_AWARD a ON sa.ID_AWARD = a.ID_AWARD
+                WHERE sa.ID_SERIE = %s ORDER BY sa.DISPLAY_ORDER ASC
+            """, (id,))
+            awards = cursor.fetchall()
+            cursor.execute("""
+                SELECT n.ID_NOMINATION, n.NOMINATION_NAME FROM T_WC_T2S_SERIE_NOMINATION sn
+                JOIN T_WC_T2S_NOMINATION n ON sn.ID_NOMINATION = n.ID_NOMINATION
+                WHERE sn.ID_SERIE = %s ORDER BY sn.DISPLAY_ORDER ASC
+            """, (id,))
+            nominations = cursor.fetchall()
+        result = {
+            **serie,
+            "cast": [c for c in credits if c["CREDIT_TYPE"] == "cast"],
+            "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
+            "genres": genres,
+            "companies": list(companies),
+            "networks": list(networks),
+            "production_countries": production_countries,
+            "spoken_languages": spoken_languages,
+            "topics": list(topics),
+            "collections": list(collections),
+            "movements": list(movements),
+            "awards": list(awards),
+            "nominations": list(nominations),
+        }
+        logs.log_usage("series", {"id": id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/persons/{id}", summary="Person full detail")
+async def get_person(id: int, api_key: str = Depends(get_api_key)):
+    """Return all fields for a person plus embedded relations: movie cast and crew,
+    series cast and crew, groups, causes of death, awards, and nominations.
+    The id is the TMDb person ID (ID_PERSON).
+    Fields: ID_PERSON, PERSON_NAME, ID_IMDB, ID_WIKIDATA, BIOGRAPHY, BIRTH_YEAR,
+    BIRTH_MONTH, BIRTH_DAY, DEATH_YEAR, DEATH_MONTH, DEATH_DAY, GENDER (1=female 2=male),
+    PROFILE_PATH, COUNTRY_OF_BIRTH, POPULARITY, KNOWN_FOR_DEPARTMENT, WIKIDATA_NAME,
+    ALIASES, INSTANCE_OF."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM T_WC_T2S_PERSON WHERE ID_PERSON = %s", (id,))
+            person = cursor.fetchone()
+        if not person:
+            raise HTTPException(status_code=404, detail=f"Person {id} not found")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED,
+                       pm.CREDIT_TYPE, pm.CAST_CHARACTER, pm.CREW_DEPARTMENT, pm.DISPLAY_ORDER
+                FROM T_WC_T2S_PERSON_MOVIE pm
+                JOIN T_WC_T2S_MOVIE m ON pm.ID_MOVIE = m.ID_MOVIE
+                WHERE pm.ID_PERSON = %s ORDER BY m.DAT_RELEASE DESC
+            """, (id,))
+            movie_credits = cursor.fetchall()
+            cursor.execute("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED,
+                       ps.CREDIT_TYPE, ps.CAST_CHARACTER, ps.CREW_DEPARTMENT, ps.DISPLAY_ORDER
+                FROM T_WC_T2S_PERSON_SERIE ps
+                JOIN T_WC_T2S_SERIE s ON ps.ID_SERIE = s.ID_SERIE
+                WHERE ps.ID_PERSON = %s ORDER BY s.DAT_FIRST_AIR DESC
+            """, (id,))
+            serie_credits = cursor.fetchall()
+            cursor.execute("""
+                SELECT g.ID_GROUP, g.GROUP_NAME, g.GROUP_TYPE FROM T_WC_T2S_PERSON_GROUP pg
+                JOIN T_WC_T2S_GROUP g ON pg.ID_GROUP = g.ID_GROUP
+                WHERE pg.ID_PERSON = %s ORDER BY pg.DISPLAY_ORDER ASC
+            """, (id,))
+            groups = cursor.fetchall()
+            cursor.execute("""
+                SELECT d.ID_DEATH, d.DEATH_NAME, d.DEATH_TYPE FROM T_WC_T2S_PERSON_DEATH pd
+                JOIN T_WC_T2S_DEATH d ON pd.ID_DEATH = d.ID_DEATH
+                WHERE pd.ID_PERSON = %s ORDER BY pd.DISPLAY_ORDER ASC
+            """, (id,))
+            deaths = cursor.fetchall()
+            cursor.execute("""
+                SELECT a.ID_AWARD, a.AWARD_NAME FROM T_WC_T2S_PERSON_AWARD pa
+                JOIN T_WC_T2S_AWARD a ON pa.ID_AWARD = a.ID_AWARD
+                WHERE pa.ID_PERSON = %s ORDER BY pa.DISPLAY_ORDER ASC
+            """, (id,))
+            awards = cursor.fetchall()
+            cursor.execute("""
+                SELECT n.ID_NOMINATION, n.NOMINATION_NAME FROM T_WC_T2S_PERSON_NOMINATION pn
+                JOIN T_WC_T2S_NOMINATION n ON pn.ID_NOMINATION = n.ID_NOMINATION
+                WHERE pn.ID_PERSON = %s ORDER BY pn.DISPLAY_ORDER ASC
+            """, (id,))
+            nominations = cursor.fetchall()
+        result = {
+            **person,
+            "movie_cast": [c for c in movie_credits if c["CREDIT_TYPE"] == "cast"],
+            "movie_crew": [c for c in movie_credits if c["CREDIT_TYPE"] == "crew"],
+            "series_cast": [c for c in serie_credits if c["CREDIT_TYPE"] == "cast"],
+            "series_crew": [c for c in serie_credits if c["CREDIT_TYPE"] == "crew"],
+            "groups": list(groups),
+            "deaths": list(deaths),
+            "awards": list(awards),
+            "nominations": list(nominations),
+        }
+        logs.log_usage("persons", {"id": id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/companies/{id}", summary="Production company full detail")
+async def get_company(id: int, api_key: str = Depends(get_api_key)):
+    """Return all fields for a production company plus associated movies and TV series,
+    ordered by adjusted IMDb rating. The id is ID_COMPANY."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM T_WC_T2S_COMPANY WHERE ID_COMPANY = %s", (id,))
+            company = cursor.fetchone()
+        if not company:
+            raise HTTPException(status_code=404, detail=f"Company {id} not found")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED
+                FROM T_WC_T2S_MOVIE_COMPANY mc
+                JOIN T_WC_T2S_MOVIE m ON mc.ID_MOVIE = m.ID_MOVIE
+                WHERE mc.ID_COMPANY = %s ORDER BY m.IMDB_RATING_ADJUSTED DESC
+            """, (id,))
+            movies = cursor.fetchall()
+            cursor.execute("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED
+                FROM T_WC_T2S_SERIE_COMPANY sc
+                JOIN T_WC_T2S_SERIE s ON sc.ID_SERIE = s.ID_SERIE
+                WHERE sc.ID_COMPANY = %s ORDER BY s.IMDB_RATING_ADJUSTED DESC
+            """, (id,))
+            series = cursor.fetchall()
+        result = {**company, "movies": list(movies), "series": list(series)}
+        logs.log_usage("companies", {"id": id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/networks/{id}", summary="TV network full detail")
+async def get_network(id: int, api_key: str = Depends(get_api_key)):
+    """Return all fields for a TV network plus associated TV series, ordered by
+    adjusted IMDb rating. The id is ID_NETWORK."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM T_WC_T2S_NETWORK WHERE ID_NETWORK = %s", (id,))
+            network = cursor.fetchone()
+        if not network:
+            raise HTTPException(status_code=404, detail=f"Network {id} not found")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED
+                FROM T_WC_T2S_SERIE_NETWORK sn
+                JOIN T_WC_T2S_SERIE s ON sn.ID_SERIE = s.ID_SERIE
+                WHERE sn.ID_NETWORK = %s ORDER BY s.IMDB_RATING_ADJUSTED DESC
+            """, (id,))
+            series = cursor.fetchall()
+        result = {**network, "series": list(series)}
+        logs.log_usage("networks", {"id": id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/collections/{id}", summary="Film/series collection full detail")
+async def get_collection(id: int, api_key: str = Depends(get_api_key)):
+    """Return all fields for a named collection (trilogy, saga, franchise) plus member
+    movies and TV series ordered by DISPLAY_ORDER. The id is ID_T2S_COLLECTION."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM T_WC_T2S_COLLECTION WHERE ID_T2S_COLLECTION = %s", (id,))
+            collection = cursor.fetchone()
+        if not collection:
+            raise HTTPException(status_code=404, detail=f"Collection {id} not found")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED, mc.DISPLAY_ORDER
+                FROM T_WC_T2S_MOVIE_COLLECTION mc
+                JOIN T_WC_T2S_MOVIE m ON mc.ID_MOVIE = m.ID_MOVIE
+                WHERE mc.ID_T2S_COLLECTION = %s ORDER BY mc.DISPLAY_ORDER ASC
+            """, (id,))
+            movies = cursor.fetchall()
+            cursor.execute("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED, sc.DISPLAY_ORDER
+                FROM T_WC_T2S_SERIE_COLLECTION sc
+                JOIN T_WC_T2S_SERIE s ON sc.ID_SERIE = s.ID_SERIE
+                WHERE sc.ID_T2S_COLLECTION = %s ORDER BY sc.DISPLAY_ORDER ASC
+            """, (id,))
+            series = cursor.fetchall()
+        result = {**collection, "movies": list(movies), "series": list(series)}
+        logs.log_usage("collections", {"id": id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/topics/{id}", summary="Topic full detail")
+async def get_topic(id: int, api_key: str = Depends(get_api_key)):
+    """Return all fields for a topic (universe, franchise, theme, keyword) plus linked
+    movies and TV series ordered by DISPLAY_ORDER. The id is ID_TOPIC."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM T_WC_T2S_TOPIC WHERE ID_TOPIC = %s", (id,))
+            topic = cursor.fetchone()
+        if not topic:
+            raise HTTPException(status_code=404, detail=f"Topic {id} not found")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED, mt.DISPLAY_ORDER
+                FROM T_WC_T2S_MOVIE_TOPIC mt
+                JOIN T_WC_T2S_MOVIE m ON mt.ID_MOVIE = m.ID_MOVIE
+                WHERE mt.ID_TOPIC = %s ORDER BY mt.DISPLAY_ORDER ASC
+            """, (id,))
+            movies = cursor.fetchall()
+            cursor.execute("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED, st.DISPLAY_ORDER
+                FROM T_WC_T2S_SERIE_TOPIC st
+                JOIN T_WC_T2S_SERIE s ON st.ID_SERIE = s.ID_SERIE
+                WHERE st.ID_TOPIC = %s ORDER BY st.DISPLAY_ORDER ASC
+            """, (id,))
+            series = cursor.fetchall()
+        result = {**topic, "movies": list(movies), "series": list(series)}
+        logs.log_usage("topics", {"id": id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/lists/{id}", summary="Curated list full detail")
+async def get_list(id: int, api_key: str = Depends(get_api_key)):
+    """Return all fields for a named curated list plus member movies and TV series
+    ordered by DISPLAY_ORDER. The id is ID_T2S_LIST."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM T_WC_T2S_LIST WHERE ID_T2S_LIST = %s", (id,))
+            lst = cursor.fetchone()
+        if not lst:
+            raise HTTPException(status_code=404, detail=f"List {id} not found")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED, ml.DISPLAY_ORDER
+                FROM T_WC_T2S_MOVIE_LIST ml
+                JOIN T_WC_T2S_MOVIE m ON ml.ID_MOVIE = m.ID_MOVIE
+                WHERE ml.ID_T2S_LIST = %s ORDER BY ml.DISPLAY_ORDER ASC
+            """, (id,))
+            movies = cursor.fetchall()
+            cursor.execute("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED, sl.DISPLAY_ORDER
+                FROM T_WC_T2S_SERIE_LIST sl
+                JOIN T_WC_T2S_SERIE s ON sl.ID_SERIE = s.ID_SERIE
+                WHERE sl.ID_T2S_LIST = %s ORDER BY sl.DISPLAY_ORDER ASC
+            """, (id,))
+            series = cursor.fetchall()
+        result = {**lst, "movies": list(movies), "series": list(series)}
+        logs.log_usage("lists", {"id": id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/movements/{id}", summary="Film movement or style full detail")
+async def get_movement(id: int, api_key: str = Depends(get_api_key)):
+    """Return all fields for a film movement or style plus associated movies and TV series
+    ordered by DISPLAY_ORDER. The id is ID_MOVEMENT."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM T_WC_T2S_MOVEMENT WHERE ID_MOVEMENT = %s", (id,))
+            movement = cursor.fetchone()
+        if not movement:
+            raise HTTPException(status_code=404, detail=f"Movement {id} not found")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED, mm.DISPLAY_ORDER
+                FROM T_WC_T2S_MOVIE_MOVEMENT mm
+                JOIN T_WC_T2S_MOVIE m ON mm.ID_MOVIE = m.ID_MOVIE
+                WHERE mm.ID_MOVEMENT = %s ORDER BY mm.DISPLAY_ORDER ASC
+            """, (id,))
+            movies = cursor.fetchall()
+            cursor.execute("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED, sm.DISPLAY_ORDER
+                FROM T_WC_T2S_SERIE_MOVEMENT sm
+                JOIN T_WC_T2S_SERIE s ON sm.ID_SERIE = s.ID_SERIE
+                WHERE sm.ID_MOVEMENT = %s ORDER BY sm.DISPLAY_ORDER ASC
+            """, (id,))
+            series = cursor.fetchall()
+        result = {**movement, "movies": list(movies), "series": list(series)}
+        logs.log_usage("movements", {"id": id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/groups/{id}", summary="Person group full detail")
+async def get_group(id: int, api_key: str = Depends(get_api_key)):
+    """Return all fields for a group (organization, club, musical group) plus associated
+    persons ordered by DISPLAY_ORDER. The id is ID_GROUP."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM T_WC_T2S_GROUP WHERE ID_GROUP = %s", (id,))
+            group = cursor.fetchone()
+        if not group:
+            raise HTTPException(status_code=404, detail=f"Group {id} not found")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, pg.DISPLAY_ORDER
+                FROM T_WC_T2S_PERSON_GROUP pg
+                JOIN T_WC_T2S_PERSON p ON pg.ID_PERSON = p.ID_PERSON
+                WHERE pg.ID_GROUP = %s ORDER BY pg.DISPLAY_ORDER ASC
+            """, (id,))
+            persons = cursor.fetchall()
+        result = {**group, "persons": list(persons)}
+        logs.log_usage("groups", {"id": id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/deaths/{id}", summary="Cause of death full detail")
+async def get_death(id: int, api_key: str = Depends(get_api_key)):
+    """Return all fields for a cause or circumstance of death plus associated persons
+    ordered by DISPLAY_ORDER. The id is ID_DEATH."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM T_WC_T2S_DEATH WHERE ID_DEATH = %s", (id,))
+            death = cursor.fetchone()
+        if not death:
+            raise HTTPException(status_code=404, detail=f"Death {id} not found")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, pd.DISPLAY_ORDER
+                FROM T_WC_T2S_PERSON_DEATH pd
+                JOIN T_WC_T2S_PERSON p ON pd.ID_PERSON = p.ID_PERSON
+                WHERE pd.ID_DEATH = %s ORDER BY pd.DISPLAY_ORDER ASC
+            """, (id,))
+            persons = cursor.fetchall()
+        result = {**death, "persons": list(persons)}
+        logs.log_usage("deaths", {"id": id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/awards/{id}", summary="Award full detail")
+async def get_award(id: int, api_key: str = Depends(get_api_key)):
+    """Return all fields for an award plus associated movies, TV series, and persons,
+    all ordered by DISPLAY_ORDER. The id is ID_AWARD."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM T_WC_T2S_AWARD WHERE ID_AWARD = %s", (id,))
+            award = cursor.fetchone()
+        if not award:
+            raise HTTPException(status_code=404, detail=f"Award {id} not found")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED, ma.DISPLAY_ORDER
+                FROM T_WC_T2S_MOVIE_AWARD ma
+                JOIN T_WC_T2S_MOVIE m ON ma.ID_MOVIE = m.ID_MOVIE
+                WHERE ma.ID_AWARD = %s ORDER BY ma.DISPLAY_ORDER ASC
+            """, (id,))
+            movies = cursor.fetchall()
+            cursor.execute("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED, sa.DISPLAY_ORDER
+                FROM T_WC_T2S_SERIE_AWARD sa
+                JOIN T_WC_T2S_SERIE s ON sa.ID_SERIE = s.ID_SERIE
+                WHERE sa.ID_AWARD = %s ORDER BY sa.DISPLAY_ORDER ASC
+            """, (id,))
+            series = cursor.fetchall()
+            cursor.execute("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, pa.DISPLAY_ORDER
+                FROM T_WC_T2S_PERSON_AWARD pa
+                JOIN T_WC_T2S_PERSON p ON pa.ID_PERSON = p.ID_PERSON
+                WHERE pa.ID_AWARD = %s ORDER BY pa.DISPLAY_ORDER ASC
+            """, (id,))
+            persons = cursor.fetchall()
+        result = {**award, "movies": list(movies), "series": list(series), "persons": list(persons)}
+        logs.log_usage("awards", {"id": id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/nominations/{id}", summary="Award nomination full detail")
+async def get_nomination(id: int, api_key: str = Depends(get_api_key)):
+    """Return all fields for an award nomination plus associated movies, TV series, and
+    persons, all ordered by DISPLAY_ORDER. The id is ID_NOMINATION."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM T_WC_T2S_NOMINATION WHERE ID_NOMINATION = %s", (id,))
+            nomination = cursor.fetchone()
+        if not nomination:
+            raise HTTPException(status_code=404, detail=f"Nomination {id} not found")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED, mn.DISPLAY_ORDER
+                FROM T_WC_T2S_MOVIE_NOMINATION mn
+                JOIN T_WC_T2S_MOVIE m ON mn.ID_MOVIE = m.ID_MOVIE
+                WHERE mn.ID_NOMINATION = %s ORDER BY mn.DISPLAY_ORDER ASC
+            """, (id,))
+            movies = cursor.fetchall()
+            cursor.execute("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED, sn.DISPLAY_ORDER
+                FROM T_WC_T2S_SERIE_NOMINATION sn
+                JOIN T_WC_T2S_SERIE s ON sn.ID_SERIE = s.ID_SERIE
+                WHERE sn.ID_NOMINATION = %s ORDER BY sn.DISPLAY_ORDER ASC
+            """, (id,))
+            series = cursor.fetchall()
+            cursor.execute("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, pn.DISPLAY_ORDER
+                FROM T_WC_T2S_PERSON_NOMINATION pn
+                JOIN T_WC_T2S_PERSON p ON pn.ID_PERSON = p.ID_PERSON
+                WHERE pn.ID_NOMINATION = %s ORDER BY pn.DISPLAY_ORDER ASC
+            """, (id,))
+            persons = cursor.fetchall()
+        result = {**nomination, "movies": list(movies), "series": list(series), "persons": list(persons)}
+        logs.log_usage("nominations", {"id": id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/locations/{wikidata_id}", summary="Location full detail")
+async def get_location(wikidata_id: str, api_key: str = Depends(get_api_key)):
+    """Return all fields for a location identified by its Wikidata ID (e.g. Q90 for Paris)
+    plus movies and series linked as narrative location (ID_PROPERTY=P840) or filming
+    location (ID_PROPERTY=P915), ordered by adjusted IMDb rating."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM T_WC_T2S_ITEM WHERE ID_WIKIDATA = %s", (wikidata_id,))
+            location = cursor.fetchone()
+        if not location:
+            raise HTTPException(status_code=404, detail=f"Location {wikidata_id} not found")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED,
+                       wp.ID_PROPERTY
+                FROM T_WC_WIKIDATA_ITEM_PROPERTY wp
+                JOIN T_WC_T2S_MOVIE m ON wp.ID_WIKIDATA = m.ID_WIKIDATA
+                WHERE wp.ID_ITEM = %s AND wp.ID_PROPERTY IN ('P840', 'P915')
+                ORDER BY m.IMDB_RATING_ADJUSTED DESC
+            """, (wikidata_id,))
+            movies = cursor.fetchall()
+            cursor.execute("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED,
+                       wp.ID_PROPERTY
+                FROM T_WC_WIKIDATA_ITEM_PROPERTY wp
+                JOIN T_WC_T2S_SERIE s ON wp.ID_WIKIDATA = s.ID_WIKIDATA
+                WHERE wp.ID_ITEM = %s AND wp.ID_PROPERTY IN ('P840', 'P915')
+                ORDER BY s.IMDB_RATING_ADJUSTED DESC
+            """, (wikidata_id,))
+            series = cursor.fetchall()
+        result = {**location, "movies": list(movies), "series": list(series)}
+        logs.log_usage("locations", {"wikidata_id": wikidata_id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# MCP (Model Context Protocol) server — tools, resource, middleware, mount
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(name="sql_search")
+async def _mcp_sql_search(question: str) -> str:
+    """
+    Query the cinema and TV database in natural language.
+
+    Covers movies, TV series, persons (actors, directors, writers, crew),
+    production companies, TV networks, topics (universes, franchises, themes),
+    curated lists, collections (trilogies, sagas), film movements, person groups,
+    causes of death, awards, nominations, and locations (narrative or filming).
+
+    The result returns rows with entity IDs and key fields (title, release date,
+    IMDb rating, poster path). Use the entity tools below to fetch full details.
+
+    For precise field knowledge (column names, value ranges, genre codes) read
+    the resource context://database-scope before formulating complex questions.
+
+    Data coverage: ~620k movies, ~88k TV series, ~890k persons. Up to early 2024.
+    Movie IDs      → https://myapp.com/movies/{ID_MOVIE}
+    Series IDs     → https://myapp.com/series/{ID_SERIE}
+    Person IDs     → https://myapp.com/persons/{ID_PERSON}
+    Collection IDs → https://myapp.com/collections/{ID_T2S_COLLECTION}
+    Topic IDs      → https://myapp.com/topics/{ID_TOPIC}
+    List IDs       → https://myapp.com/lists/{ID_T2S_LIST}
+    Movement IDs   → https://myapp.com/movements/{ID_MOVEMENT}
+    Group IDs      → https://myapp.com/groups/{ID_GROUP}
+    Death IDs      → https://myapp.com/deaths/{ID_DEATH}
+    Award IDs      → https://myapp.com/awards/{ID_AWARD}
+    Nomination IDs → https://myapp.com/nominations/{ID_NOMINATION}
+    Company IDs    → https://myapp.com/companies/{ID_COMPANY}
+    Network IDs    → https://myapp.com/networks/{ID_NETWORK}
+    Location IDs   → https://myapp.com/locations/{ID_WIKIDATA} (Wikidata ID, e.g. Q90)
+    """
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(
+                f"{MCP_INTERNAL_BASE_URL}/search/text2sql",
+                json={"question": question},
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool(name="get_movie")
+async def _mcp_get_movie(id: int) -> str:
+    """Get all fields for a movie (title, release date, runtime, budget, revenue, ratings,
+    plot, IMDb/Wikidata IDs, aspect ratio, color/B&W/silent flags) plus embedded relations:
+    cast, crew, genre codes, production companies, production countries, spoken languages,
+    topics, collections, movements, awards, and nominations. id = TMDb ID_MOVIE."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/movies/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool(name="get_series")
+async def _mcp_get_series(id: int) -> str:
+    """Get all fields for a TV series (title, first/last air date, number of seasons and
+    episodes, ratings, status, Wikidata/IMDb IDs) plus embedded relations: cast, crew,
+    genre codes, companies, networks, production countries, spoken languages, topics,
+    collections, movements, awards, and nominations. id = TMDb ID_SERIE."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/series/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool(name="get_person")
+async def _mcp_get_person(id: int) -> str:
+    """Get all fields for a person (name, biography, birth/death dates, gender, country of
+    birth, known-for department, IMDb/Wikidata IDs, popularity) plus embedded filmography
+    split by role: movie_cast, movie_crew, series_cast, series_crew, groups, deaths,
+    awards, and nominations. id = TMDb ID_PERSON."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/persons/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool(name="get_collection")
+async def _mcp_get_collection(id: int) -> str:
+    """Get all fields for a named collection (trilogy, saga, franchise) plus member movies
+    and TV series ordered by their position in the collection. id = ID_T2S_COLLECTION."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/collections/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool(name="get_topic")
+async def _mcp_get_topic(id: int) -> str:
+    """Get all fields for a topic (universe, franchise, theme, keyword) plus linked movies
+    and TV series ordered by their position in the topic. id = ID_TOPIC."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/topics/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool(name="get_list")
+async def _mcp_get_list(id: int) -> str:
+    """Get all fields for a named curated list (e.g. AFI Top 100, Criterion Collection)
+    plus member movies and TV series ordered by their position. id = ID_T2S_LIST."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/lists/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool(name="get_movement")
+async def _mcp_get_movement(id: int) -> str:
+    """Get all fields for a film movement or style (e.g. French New Wave, Neo-Noir) plus
+    associated movies and TV series ordered by their position. id = ID_MOVEMENT."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/movements/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool(name="get_group")
+async def _mcp_get_group(id: int) -> str:
+    """Get all fields for a person group (organization, club, musical group) plus
+    associated persons ordered by their position. id = ID_GROUP."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/groups/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool(name="get_death")
+async def _mcp_get_death(id: int) -> str:
+    """Get all fields for a cause or circumstance of death plus associated persons
+    ordered by their position. id = ID_DEATH."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/deaths/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool(name="get_award")
+async def _mcp_get_award(id: int) -> str:
+    """Get all fields for an award plus associated movies, TV series, and persons.
+    id = ID_AWARD."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/awards/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool(name="get_nomination")
+async def _mcp_get_nomination(id: int) -> str:
+    """Get all fields for an award nomination plus associated movies, TV series, and persons.
+    id = ID_NOMINATION."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/nominations/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool(name="get_company")
+async def _mcp_get_company(id: int) -> str:
+    """Get all fields for a production company plus associated movies and TV series.
+    id = ID_COMPANY."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/companies/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool(name="get_network")
+async def _mcp_get_network(id: int) -> str:
+    """Get all fields for a TV network plus associated TV series. id = ID_NETWORK."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/networks/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool(name="get_location")
+async def _mcp_get_location(wikidata_id: str) -> str:
+    """Get all fields for a location by Wikidata ID (e.g. 'Q90' for Paris) plus movies
+    and series where it is a narrative location (P840) or filming location (P915)."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/locations/{wikidata_id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.resource("context://database-scope")
+async def _mcp_database_scope() -> str:
+    return """
+    # Cinema & TV Database \u2014 Entity Reference
+
+    ## Movie (T_WC_T2S_MOVIE)
+    ID_MOVIE (TMDb ID), MOVIE_TITLE, DAT_RELEASE, RELEASE_YEAR, RELEASE_MONTH, RELEASE_DAY,
+    RUNTIME (minutes), VOTE_AVERAGE (0-10), VOTE_COUNT, IMDB_RATING, IMDB_RATING_ADJUSTED,
+    REVENUE (USD, 0 when unknown), BUDGET (USD, 0 when unknown), ORIGINAL_LANGUAGE (2-letter),
+    STATUS (Released / Post Production / In Production / Planned / Rumored / Canceled),
+    TAGLINE, POSTER_PATH, BACKDROP_PATH, VIDEO (1 if video release),
+    IS_MOVIE (1/0), IS_DOCUMENTARY (1/0), IS_SHORT_FILM (1/0),
+    IS_COLOR (1/0), IS_BLACK_AND_WHITE (1/0), IS_SILENT (1/0), ASPECT_RATIO,
+    ID_IMDB (tt...), ID_WIKIDATA (Q...), ID_CRITERION, ID_CRITERION_SPINE,
+    ALIASES, PLOT, CAST (text, use dedicated tables for structured queries),
+    PRODUCTION, RECEPTION, SOUNDTRACK
+
+    ## TV Series (T_WC_T2S_SERIE)
+    ID_SERIE (TMDb ID), SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR,
+    FIRST_AIR_YEAR, LAST_AIR_YEAR, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES,
+    VOTE_AVERAGE, VOTE_COUNT, IMDB_RATING, IMDB_RATING_ADJUSTED,
+    ORIGINAL_LANGUAGE, STATUS, TAGLINE,
+    SERIE_TYPE (Scripted / Miniseries / Documentary / Reality / News / Talk Show / Video),
+    ID_IMDB, ID_WIKIDATA, ALIASES, PLEX_MEDIA_KEY
+
+    ## Person (T_WC_T2S_PERSON)
+    ID_PERSON (TMDb ID), PERSON_NAME, BIOGRAPHY,
+    BIRTH_YEAR, BIRTH_MONTH, BIRTH_DAY, DEATH_YEAR, DEATH_MONTH, DEATH_DAY,
+    GENDER (1=female, 2=male), COUNTRY_OF_BIRTH (2-letter lowercase),
+    KNOWN_FOR_DEPARTMENT (Acting / Directing / Writing / Production / ...),
+    POPULARITY, PROFILE_PATH, ID_IMDB (nm...), ID_WIKIDATA, ALIASES
+
+    ## Relationships \u2014 Movie
+    - Cast/Crew: PERSON \u2194 MOVIE via T_WC_T2S_PERSON_MOVIE
+        CREDIT_TYPE = 'cast' \u2192 CAST_CHARACTER, DISPLAY_ORDER
+        CREDIT_TYPE = 'crew' \u2192 CREW_DEPARTMENT, DISPLAY_ORDER
+        CREW_DEPARTMENT values: Art, Camera, Costume & Make-Up, Crew, Directing,
+          Editing, Lighting, Production, Sound, Visual Effects, Writing
+    - Genres: T_WC_T2S_MOVIE_GENRE.ID_GENRE (INT)
+        28 Action, 12 Adventure, 16 Animation, 35 Comedy, 80 Crime,
+        18 Drama, 10751 Family, 14 Fantasy, 36 History, 27 Horror,
+        10402 Music, 9648 Mystery, 10749 Romance, 878 Sci-Fi,
+        53 Thriller, 10752 War, 37 Western, 10770 TV Movie, 99 Documentary
+    - Companies: T_WC_T2S_MOVIE_COMPANY \u2192 T_WC_T2S_COMPANY
+    - Production countries: T_WC_T2S_MOVIE_PRODUCTION_COUNTRY (COUNTRY_CODE 2-letter upper)
+    - Spoken languages: T_WC_T2S_MOVIE_SPOKEN_LANGUAGE (SPOKEN_LANGUAGE 2-letter lower)
+    - Technical specs: T_WC_T2S_MOVIE_TECHNICAL (ID_TECHNICAL 1-56, see prompt for codes)
+    - Topics: T_WC_T2S_MOVIE_TOPIC \u2192 T_WC_T2S_TOPIC (DISPLAY_ORDER)
+    - Collections: T_WC_T2S_MOVIE_COLLECTION \u2192 T_WC_T2S_COLLECTION (DISPLAY_ORDER)
+    - Movements: T_WC_T2S_MOVIE_MOVEMENT \u2192 T_WC_T2S_MOVEMENT (DISPLAY_ORDER)
+    - Lists: T_WC_T2S_MOVIE_LIST \u2192 T_WC_T2S_LIST (DISPLAY_ORDER)
+    - Awards: T_WC_T2S_MOVIE_AWARD \u2192 T_WC_T2S_AWARD (DISPLAY_ORDER)
+    - Nominations: T_WC_T2S_MOVIE_NOMINATION \u2192 T_WC_T2S_NOMINATION (DISPLAY_ORDER)
+    - Locations: MOVIE.ID_WIKIDATA \u2192 T_WC_WIKIDATA_ITEM_PROPERTY
+        ID_PROPERTY = 'P840' (narrative location) or 'P915' (filming location)
+        \u2192 T_WC_T2S_ITEM (ID_WIKIDATA, ITEM_LABEL, DESCRIPTION)
+
+    ## Relationships \u2014 TV Series
+    Same structure as movies with T_WC_T2S_SERIE_* equivalents for all join tables.
+    Additional: T_WC_T2S_SERIE_NETWORK \u2192 T_WC_T2S_NETWORK
+    Additional CREW_DEPARTMENT for series: Creator
+
+    ## Relationships \u2014 Person
+    - Movie credits: T_WC_T2S_PERSON_MOVIE (CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT)
+    - Series credits: T_WC_T2S_PERSON_SERIE (CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, CREW_JOB)
+    - Groups: T_WC_T2S_PERSON_GROUP \u2192 T_WC_T2S_GROUP
+    - Causes of death: T_WC_T2S_PERSON_DEATH \u2192 T_WC_T2S_DEATH
+    - Awards: T_WC_T2S_PERSON_AWARD \u2192 T_WC_T2S_AWARD
+    - Nominations: T_WC_T2S_PERSON_NOMINATION \u2192 T_WC_T2S_NOMINATION
+
+    ## Other Entities
+    - T_WC_T2S_COLLECTION: COLLECTION_NAME, OVERVIEW, MOVIE_COUNT, SERIE_COUNT,
+        IMDB_RATING, IMDB_RATING_ADJUSTED, POSTER_PATH
+    - T_WC_T2S_TOPIC: TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG,
+        IMDB_RATING, IMDB_RATING_ADJUSTED, POSTER_PATH
+    - T_WC_T2S_LIST: LIST_NAME, OVERVIEW, LIST_TYPE, MOVIE_COUNT, SERIE_COUNT,
+        IMDB_RATING, IMDB_RATING_ADJUSTED, POSTER_PATH
+    - T_WC_T2S_MOVEMENT: MOVEMENT_NAME, OVERVIEW, MOVIE_COUNT, SERIE_COUNT,
+        IMDB_RATING, IMDB_RATING_ADJUSTED, POSTER_PATH
+    - T_WC_T2S_GROUP: GROUP_NAME, GROUP_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
+    - T_WC_T2S_DEATH: DEATH_NAME, DEATH_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
+    - T_WC_T2S_AWARD: AWARD_NAME, AWARD_TYPE, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT,
+        IMDB_RATING, IMDB_RATING_ADJUSTED, POPULARITY
+    - T_WC_T2S_NOMINATION: NOMINATION_NAME, NOMINATION_TYPE, MOVIE_COUNT, SERIE_COUNT,
+        PERSON_COUNT, IMDB_RATING, IMDB_RATING_ADJUSTED, POPULARITY
+    - T_WC_T2S_COMPANY: COMPANY_NAME, HEADQUARTERS, ORIGIN_COUNTRY, LOGO_PATH
+    - T_WC_T2S_NETWORK: NETWORK_NAME, ORIGIN_COUNTRY, LOGO_PATH
+    - T_WC_T2S_ITEM: ID_WIKIDATA, ITEM_LABEL, DESCRIPTION, INSTANCE_OF
+
+    ## Useful value ranges
+    - VOTE_AVERAGE: 0 to 10, meaningful above VOTE_COUNT > 200
+    - IMDB_RATING: 0 to 10 raw; IMDB_RATING_ADJUSTED is the weighted adjusted score
+    - DAT_RELEASE / DAT_FIRST_AIR: from 1870 to early 2024
+    - REVENUE / BUDGET: in USD, 0 when unknown
+    - RUNTIME: in minutes
+    - GENDER: 1 = female, 2 = male
+    - COUNTRY_OF_BIRTH: 2-letter lowercase ISO code
+    - ORIGIN_COUNTRY / COUNTRY_CODE: 2-letter uppercase ISO code
+
+    ## Coverage
+    ~620k movies, ~88k TV series, ~890k persons
+    """
+
+
+async def _verify_mcp_bearer(request: Request, call_next):
+    if request.url.path.startswith("/mcp"):
+        if MCP_API_KEY:
+            auth = request.headers.get("Authorization", "")
+            if auth != f"Bearer {MCP_API_KEY}":
+                return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+    return await call_next(request)
+
+
+app.add_middleware(BaseHTTPMiddleware, dispatch=_verify_mcp_bearer)
+# FastAPI mount: app.mount("/mcp", ...) → app.mount("", ...) (avoid double /mcp/mcp path)
+app.mount("", mcp_app)
 
 if __name__ == "__main__":
     import uvicorn

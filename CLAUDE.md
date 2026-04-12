@@ -12,7 +12,7 @@ This is a FastAPI-based REST API that converts natural language questions into S
 - **Orchestration**: LangChain
 - **Deployment**: Docker with Blue/Green deployment strategy
 
-**Current Version**: 1.1.14 (see `strapiversion` in main.py:47)
+**Current Version**: 1.1.15 (see `strapiversion` in main.py:47)
 
 ## Architecture & Design Patterns
 
