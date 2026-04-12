@@ -121,8 +121,11 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 
 8. **SQL Execution & Retry Strategy**
    - Execute the SQL query against MariaDB with pagination support
-   - If the SQL executes successfully but returns 0 rows on page 1, the API can attempt a one-time retry using the stronger model (same mechanism as Text2SQL error retry).
-   - If SQL generation fails or SQL execution raises a MariaDB error, the API can also attempt a one-time retry starting from the original non-anonymized question.
+   - Three conditions can trigger a one-time retry using the stronger model (`llm_model_complex`), **but only when `complex_question_processing: true`**:
+     - The text-to-SQL model returns an error instead of a SQL query
+     - The generated SQL raises a MariaDB execution error
+     - The generated SQL runs successfully but returns 0 rows on page 1
+   - When `complex_question_processing: false` (default), none of the above triggers fire; the raw failure or empty result is returned immediately.
    - Retry messages in the `messages` array include the selected `llm_model_complex` value so clients can see which stronger model handled the escalation.
    - For complex-question resolution, `o1*` and `o3*` models use a compatible temperature of `1`, while the other supported model families continue using `0`.
 
@@ -240,7 +243,8 @@ Content-Type: application/json
   "store_to_cache": true,
   "llm_model_entity_extraction": "default",
   "llm_model_text2sql": "default",
-  "llm_model_complex": "default"
+  "llm_model_complex": "default",
+  "complex_question_processing": false
 }
 ```
 
@@ -254,6 +258,12 @@ Content-Type: application/json
 - `llm_model_entity_extraction` (optional, str, default: "default"): LLM model to use for entity extraction
 - `llm_model_text2sql` (optional, str, default: "default"): LLM model to use for text-to-SQL conversion
 - `llm_model_complex` (optional, str, default: "default"): LLM model to use for complex-question resolution / stronger-model retry
+- `complex_question_processing` (optional, bool, default: `false`): Controls whether the API is allowed to escalate to the stronger model when the primary pipeline fails. When `false` (the default), the API returns the raw error or empty result set directly to the caller without retrying. When `true`, the three automatic retry triggers are active:
+  - The text-to-SQL model cannot produce a SQL query and returns an error
+  - The generated SQL raises an execution error on the database
+  - The generated SQL executes successfully but returns an empty result set
+
+  Set to `false` when calling from an agent or MCP tool so that the agent itself handles error conditions and decides whether to rephrase or escalate the question.
 
 **Supported LLM Values for the 3 model parameters:**
 

@@ -10,13 +10,10 @@ import re
 import data_watcher
 from dotenv import load_dotenv
 import openai
-from langchain_core.prompts import PromptTemplate
-from langchain_openai import OpenAI
-
 try:
-    from langchain_anthropic import ChatAnthropic
+    import anthropic as anthropic_sdk
 except Exception:
-    ChatAnthropic = None
+    anthropic_sdk = None
 
 try:
     import google.generativeai as genai
@@ -130,16 +127,19 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
         return response.choices[0].message.content
 
     if model_norm.startswith("claude-"):
-        if ChatAnthropic is None:
-            raise RuntimeError("langchain-anthropic is not installed")
+        if anthropic_sdk is None:
+            raise RuntimeError("anthropic package is not installed")
         if not anthropic_api_key:
             raise RuntimeError("ANTHROPIC_API_KEY not found in environment variables")
-        llm = ChatAnthropic(model=model_norm, temperature=temperature, anthropic_api_key=anthropic_api_key)
-        res = llm.invoke([
-            ("system", system_prompt),
-            ("user", user_prompt),
-        ])
-        return getattr(res, "content", str(res))
+        client = anthropic_sdk.Anthropic(api_key=anthropic_api_key)
+        message = client.messages.create(
+            model=model_norm,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+            temperature=temperature,
+        )
+        return message.content[0].text
 
     if model_norm.startswith("gemini-"):
         if genai is None:
@@ -209,7 +209,7 @@ def _complex_question_temperature(model: str) -> float:
     return 0
 
 def f_text2sql(user_question: str, strtext2sqlmodel: str):
-    """Convert natural language question to JSON using LangChain and LLM.
+    """Convert natural language question to JSON using the LLM provider SDK.
     
     Args:
         user_question (str): The user's natural language question
