@@ -1,11 +1,11 @@
 # FastAPI Text2SQL API
 
-A powerful FastAPI-based REST API that converts natural language questions into SQL queries using OpenAI's language models and LangChain.
+A powerful FastAPI-based REST API that converts natural language questions into SQL queries using LLM provider SDKs (OpenAI, Anthropic, Google Gemini). The API also exposes an MCP (Model Context Protocol) server so Claude clients can use it as a remote tool.
 
 ## 🚀 Features
 
 ### Core Capabilities
-- **Natural Language to SQL**: Convert plain English questions into SQL queries using OpenAI's GPT-4o
+- **Natural Language to SQL**: Convert plain English questions into SQL queries using OpenAI GPT-4o (default), Anthropic Claude, or Google Gemini
 - **FastAPI Framework**: High-performance, modern Python web framework with automatic API documentation
 - **API Key Authentication**: Secure access with API key validation using constant-time comparison
 - **ChromaDB Vector Search**: Advanced similarity search for entity matching and query optimization
@@ -20,6 +20,9 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **Robust Error Handling**: Enhanced error handling for malformed responses and SQL escaping issues
 - **Docker Support**: Containerized deployment with Blue/Green deployment strategy
 - **UTF-8 Support**: Proper handling of Unicode characters in queries and logs
+- **MCP Server**: Remote MCP endpoint for Claude clients (web, desktop, mobile) via FastMCP 2.x
+- **Entity Detail Endpoints**: 14 REST endpoints returning full entity data with embedded relations and usage logging
+- **Multi-API Key Support**: Comma-separated `API_KEYS` env var with legacy `API_KEY` fallback
 
 ### Advanced Features
 - **Multi-Language Support**: Handles English, French, and original language titles for movies and series
@@ -40,10 +43,10 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 
 ## 📊 Database Scale
 
-The API operates on a comprehensive entertainment database containing:
-- **Movies**: More than 620,000 entries
-- **Series**: More than 88,000 entries
-- **Persons**: More than 890,000 entries (actors, directors, crew members)
+The API operates on a comprehensive entertainment database containing (2026-04-12):
+- **Movies**: More than 662,000 entries
+- **Series**: More than 95,000 entries
+- **Persons**: More than 324,000 entries (actors, directors, crew members)
 
 ## 🔄 Query Processing Pipeline
 
@@ -177,10 +180,14 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    
    Create a `.env` file in the project root (you can copy from `.env.example`):
    ```env
-   # API Key for authentication
-   API_KEY=your_api_key_here
+   # API keys for authentication (comma-separated list)
+   API_KEYS=key_for_app,key_for_mcp,key_for_scripts
    # OpenAI API Key for Text2SQL conversion
    OPENAI_API_KEY=your_openai_api_key_here
+   
+   # Optional LLM provider keys (only needed if using non-OpenAI models)
+   ANTHROPIC_API_KEY=your_anthropic_api_key_here
+   GOOGLE_API_KEY=your_google_api_key_here
    
    # Database Configuration
    DB_HOST=localhost
@@ -196,6 +203,10 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    # API Port Configuration (Blue/Green deployment)
    API_PORT_BLUE=8000
    API_PORT_GREEN=8001
+   
+   # MCP (Model Context Protocol) — Claude connector at /mcp
+   MCP_API_KEY=your_mcp_bearer_token_here
+   MCP_INTERNAL_API_KEY=key_for_mcp
    ```
 
 ## 🚀 Usage
@@ -358,7 +369,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "llm_model_entity_extraction": "default",
   "llm_model_text2sql": "default",
   "llm_model_complex": "default",
-  "api_version": "1.1.14",
+  "api_version": "1.1.15",
   "messages": [
     {
       "position": 1,
@@ -423,7 +434,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `llm_model_entity_extraction` (str): LLM model used for entity extraction
 - `llm_model_text2sql` (str): LLM model used for text-to-SQL conversion
 - `llm_model_complex` (str): LLM model used for complex-question resolution when a stronger-model retry occurs
-- `api_version` (str): Current API version (e.g., "1.1.13")
+- `api_version` (str): Current API version (e.g., "1.1.15")
 - `messages` (list): Array of processing step messages, each with `position` (int) and `text` (str)
 ```
 
@@ -538,13 +549,18 @@ docker run -p 8000:8000 fastapi-text2sql
 
 ```
 fastapi-text2sql/
-├── main.py                  # FastAPI application, endpoint orchestration, DB/Chroma startup, and retry orchestration
-├── text2sql.py              # Core text-to-SQL conversion and stronger-model helpers for complex-question retry
+├── main.py                  # FastAPI app, endpoint orchestration, entity detail endpoints, MCP server, DB/Chroma startup
+├── text2sql.py              # Core text-to-SQL conversion, unified LLM dispatch (OpenAI/Anthropic/Gemini), retry helpers
 ├── entity.py                # Entity extraction, entity-resolution config loading, and placeholder resolution logic
 ├── sql_cache.py             # SQL cache lookups and cache writes for exact/anonymized questions
-├── auth.py                  # API key authentication middleware
-├── rapidfuzz_query.py        # RapidFuzz + MariaDB/MySQL lexical matching utilities
-├── RAPIDFUZZ.md              # RapidFuzz module documentation
+├── auth.py                  # API key authentication middleware (multi-key support via API_KEYS)
+├── logs.py                  # API usage logging (JSON log files in logs/ folder)
+├── data_watcher.py          # File-system watcher for hot-reloading data/ files
+├── language_family.py       # Latin vs non-Latin script detection for person name routing
+├── rapidfuzz_query.py       # RapidFuzz + MariaDB/MySQL lexical matching utilities
+├── cleanup.py               # Cache cleanup functions (ChromaDB and SQL)
+├── RAPIDFUZZ.md             # RapidFuzz module documentation
+├── MCP.md                   # MCP integration guide (tools, resources, deployment, Claude connector)
 ├── requirements.txt         # Python dependencies
 ├── Dockerfile               # Docker configuration for containerized deployment
 ├── .env.example             # Example environment variables template
@@ -552,11 +568,10 @@ fastapi-text2sql/
 ├── LICENSE                  # Project license file
 ├── restart-blue.sh          # Blue deployment restart script
 ├── restart-green.sh         # Green deployment restart script
-├── cleanup.py               # Cache cleanup functions (ChromaDB and SQL)
 ├── data/                    # Hot-reloaded prompt templates and configuration
 │   ├── entity_extraction.md                                          # Entity extraction prompt (hot-reloaded)
 │   ├── text_to_sql.md                                                # Text2SQL prompt (hot-reloaded)
-│   ├── complex_question.md                                           # stronger model prompt (complex question simplification, hot-reloaded)
+│   ├── complex_question.md                                           # Stronger model prompt (complex question simplification, hot-reloaded)
 │   └── entity_resolution.json                                        # Entity resolution configuration (embeddings + rapidfuzz, hot-reloaded)
 ├── logs/                    # API usage logs with timing metrics (auto-created)
 ├── CLAUDE.md                # AI assistant guide for understanding the codebase
@@ -567,8 +582,11 @@ fastapi-text2sql/
 - **ChromaDB Integration**: Vector database for entity matching and similarity search with 10 specialized collections
 - **Multi-Level Caching**: SQL cache + embeddings cache for performance optimization with automatic cleanup
 - **Entity Extraction**: `entity.py` handles GPT-powered entity recognition and anonymization for supported entity types
+- **Unified LLM Dispatch**: `text2sql.py` routes to OpenAI (native SDK), Anthropic (native `anthropic` SDK), or Google Gemini (`google-generativeai`) based on model name
 - **Reasoning Retry Helpers**: `text2sql.py` contains stronger-model calls and retry-question construction helpers
 - **Endpoint Orchestration**: `main.py` coordinates request flow, recursive retry execution, and response/message merging
+- **Entity Detail Endpoints**: 14 endpoints returning full entity data with embedded relations, each with usage logging
+- **MCP Server**: FastMCP 2.x tools and resource exposed at `/mcp` for Claude clients (see `MCP.md`)
 - **Blue/Green Deployment**: Automatic port selection based on API version (even: port 8000, odd: port 8001)
 - **Processing Transparency**: Messages array tracks every processing step for debugging and analysis
 - **Version Management**: Utility functions for version comparison and automatic cache cleanup
@@ -747,10 +765,11 @@ The API supports Blue/Green deployment strategy for zero-downtime updates:
 - Parallel version testing
 
 ### Logging
-Log files are created in the `logs/` folder for the following events:
+Log files are created in the `logs/` folder (via `logs.py`) for the following events:
 - API startup (`start` event)
 - Health check requests to `GET /` (`hello` event)
 - Each processed `POST /search/text2sql` request (`text2sql_post` event)
+- Each entity detail endpoint request (`movies`, `series`, `persons`, `companies`, `networks`, `collections`, `topics`, `lists`, `movements`, `groups`, `deaths`, `awards`, `nominations`, `locations`)
 - Each successful hot-reload of a file in the `data/` folder (`data_hot_reload` event)
 
 API request/response log files include:
@@ -763,8 +782,9 @@ API request/response log files include:
 
 ## 🔒 Security
 
-- **API Key Authentication**: All endpoints (except health check) require a valid API key
-- **Environment Variables**: Sensitive data like OpenAI API keys are stored in environment variables
+- **API Key Authentication**: All endpoints require a valid API key via `X-API-Key` header; multiple keys supported via `API_KEYS` env var
+- **MCP Bearer Token**: `/mcp` route is protected by a bearer token middleware (`MCP_API_KEY`); skipped when empty
+- **Environment Variables**: Sensitive data like LLM API keys are stored in environment variables
 - **Request Logging**: All API usage is logged for monitoring and debugging
 
 ## 🐛 Troubleshooting
@@ -864,7 +884,7 @@ All successful text2sql requests return a comprehensive response with:
 - `llm_model_entity_extraction`: LLM model used for entity extraction
 - `llm_model_text2sql`: LLM model used for text-to-SQL conversion
 - `llm_model_complex`: LLM model used for complex-question resolution / stronger model retry
-- `api_version`: Current API version (e.g., "1.1.14")
+- `api_version`: Current API version (e.g., "1.1.15")
 
 ### New Features in v1.1.14
 
@@ -909,11 +929,15 @@ This project is open source. Please check the repository for license details.
 - **Repository**: https://github.com/vaugouin/FastAPI-Text2SQL
 - **FastAPI Documentation**: https://fastapi.tiangolo.com/
 - **OpenAI API**: https://platform.openai.com/docs/
+- **Anthropic API**: https://docs.anthropic.com/
+- **Google Gemini API**: https://ai.google.dev/docs
+- **FastMCP**: https://github.com/jlowin/fastmcp
+- **MCP Integration Guide**: See `MCP.md` in this repository
 
 ---
 
-**Current Version**: 1.1.14
-**Last Updated**: 2026-01-24
+**Current Version**: 1.1.15
+**Last Updated**: 2026-04-13
 
 **Note**: This API requires an active OpenAI API key to function. Make sure you have sufficient credits in your OpenAI account for the text-to-SQL conversions.
 

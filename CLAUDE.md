@@ -2,17 +2,17 @@
 
 ## Project Overview
 
-This is a FastAPI-based REST API that converts natural language questions into SQL queries using OpenAI's GPT-4o model and LangChain. The system specializes in querying a large-scale entertainment database (620k+ movies, 88k+ TV series, 890k+ persons).
+This is a FastAPI-based REST API that converts natural language questions into SQL queries using LLM provider SDKs (OpenAI, Anthropic, Google). The system specializes in querying a large-scale entertainment database (620k+ movies, 88k+ TV series, 890k+ persons). It also exposes an MCP (Model Context Protocol) server so Claude clients can use the API as a remote tool.
 
 **Primary Technology Stack:**
 - **Framework**: FastAPI (Python 3.8+)
-- **LLM**: OpenAI GPT-4o
+- **LLM**: OpenAI GPT-4o (default), Anthropic Claude, Google Gemini — via native provider SDKs
 - **Vector DB**: ChromaDB (for embeddings and similarity search)
 - **SQL DB**: MariaDB/MySQL
-- **Orchestration**: LangChain
+- **MCP**: FastMCP 2.x (remote tool server for Claude clients)
 - **Deployment**: Docker with Blue/Green deployment strategy
 
-**Current Version**: 1.1.15 (see `strapiversion` in main.py:47)
+**Current Version**: 1.1.15 (see `strapiversion` in main.py)
 
 ## Architecture & Design Patterns
 
@@ -73,28 +73,28 @@ The API follows a sophisticated 10-step pipeline:
 
 ### Core Application Files
 
-**main.py** (1299 lines)
+**main.py**
 - FastAPI application setup and endpoint definitions
 - ChromaDB initialization and collection management
 - Database connection pooling (`get_db_connection()`)
-- Version management utilities: `format_api_version()` and `compare_versions()` (main.py:25-43)
-- Automatic cache cleanup functions (main.py:140-275)
+- Version management utilities: `format_api_version()` and `compare_versions()`
+- Automatic cache cleanup functions
 - Main `/search/text2sql` endpoint implementation
+- 14 entity detail endpoints (`/movies/{id}`, `/series/{id}`, `/persons/{id}`, etc.)
 - Caching logic for all 3 tiers
 - Entity replacement in SQL queries
 - Pagination logic
-- Logging infrastructure (`log_usage()`)
 - Blue/Green deployment port selection
+- MCP server: tools, resource, bearer-token middleware, and mount
 
-**text2sql.py** (220 lines)
+**text2sql.py**
 - Core text-to-SQL conversion logic (`f_text2sql()`)
-- Entity extraction logic (`f_entity_extraction()`)
-- Prompt template loading from `data/` folder
-- OpenAI API client management with configurable model selection
+- `_call_chat_llm()` — unified LLM dispatch: OpenAI (native SDK), Anthropic (native `anthropic` SDK), Google Gemini (`google-generativeai`)
+- Prompt template loading via `data_watcher.py` hot-reload
 - Memory monitoring (using psutil)
-- Current prompt templates:
-  - `text-to-sql-prompt-chatgpt-4o-1-1-14-20260124.txt`
-  - `entity-extraction-prompt-chatgpt-4o-1-1-14-20260124.txt`
+- Current prompt templates (hot-reloaded `.md` files in `data/`):
+  - `text_to_sql.md`
+  - `complex_question.md`
 
 **cleanup.py** (103 lines) - New in v1.1.13
 - `format_api_version()`: Converts version string to XXX.YYY.ZZZ format
@@ -103,21 +103,38 @@ The API follows a sophisticated 10-step pipeline:
 - Processes documents in batches of 1000 for efficient cleanup
 - Includes fix to delete specific problematic query IDs
 
-**auth.py** (40 lines)
+**auth.py**
 - API key authentication middleware
+- Supports multiple API keys via `API_KEYS` env var (comma-separated) with legacy `API_KEY` fallback
 - FastAPI Security dependency injection
 - Constant-time comparison for security (`secrets.compare_digest()`)
 - X-API-Key header validation
 
 ### Configuration Files
 
+**logs.py**
+- `log_usage(endpoint, content, strapiversion)` — writes JSON log files to `logs/` folder
+- Filename format: `YYYYMMDD-HHMMSS_{endpoint}_{version}_{md5hash}.json`
+- Used by all endpoints (hello, text2sql, entity detail endpoints, start)
+
+**data_watcher.py**
+- File-system watcher for hot-reloading `data/` files (prompt templates, entity resolution config)
+- `register(filename, callback)` — registers a file for watching
+- Changes are picked up automatically without restarting the API
+
+**language_family.py**
+- `guess_language_family()` — detects Latin vs non-Latin script for person name resolution routing
+
 **.env.example**
 - Template for environment variables
-- Required variables: `API_KEY`, `OPENAI_API_KEY`, `DB_*`, `CHROMADB_*`, `API_PORT_*`
+- Required variables: `API_KEYS` (or legacy `API_KEY`), `OPENAI_API_KEY`, `DB_*`, `CHROMADB_*`, `API_PORT_*`
+- Optional LLM keys: `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`
+- MCP variables: `MCP_API_KEY`, `MCP_INTERNAL_API_KEY`, `MCP_INTERNAL_BASE_URL`
 
 **requirements.txt**
-- Core dependencies: FastAPI, uvicorn, OpenAI, ChromaDB, pymysql, pandas, numpy
-- LangChain components: langchain-core, langchain-openai
+- Core dependencies: FastAPI, uvicorn, OpenAI, ChromaDB, pymysql, pandas, numpy, rapidfuzz
+- LLM provider SDKs: anthropic, google-generativeai
+- MCP integration: fastmcp, httpx
 
 **Dockerfile**
 - Python 3.12-slim-bookworm base image
@@ -176,16 +193,35 @@ The system expects these SQL tables:
 - Health check endpoint
 - Returns "hello world" message
 - Requires API key authentication
-- Logs to `logs/` folder
+- Logs via `logs.log_usage("hello", ...)`
 
 **POST /search/text2sql**
 - Main text-to-SQL conversion endpoint
-- Request body: `Text2SQLRequest` (Pydantic model, main.py:168-180)
-- Response: `Text2SQLResponse` (Pydantic model, main.py:186-209)
+- Request body: `Text2SQLRequest` (Pydantic model)
+- Response: `Text2SQLResponse` (Pydantic model)
 - Supports pagination via `page` parameter
 - Supports page size control via `rows_per_page` parameter (default: 50)
 - Can use `question_hashed` for subsequent pages (avoids re-processing)
 - Cache control via `retrieve_from_cache` and `store_to_cache` flags
+- `complex_question_processing` (bool, default `false`): when `true`, enables stronger-model retry
+- Logs via `logs.log_usage("text2sql_post", ...)`
+
+**Entity Detail Endpoints** (14 endpoints)
+- `GET /movies/{id}`, `GET /series/{id}`, `GET /persons/{id}`
+- `GET /companies/{id}`, `GET /networks/{id}`, `GET /collections/{id}`
+- `GET /topics/{id}`, `GET /lists/{id}`, `GET /movements/{id}`
+- `GET /groups/{id}`, `GET /deaths/{id}`, `GET /awards/{id}`
+- `GET /nominations/{id}`, `GET /locations/{wikidata_id}`
+- Each returns all fields for the entity plus embedded relations (cast, crew, filmography, etc.)
+- Each logs the request via `logs.log_usage()` before returning
+- Require API key authentication
+
+**MCP Endpoint** (`/mcp`)
+- Model Context Protocol server mounted at root (`""`) via FastMCP
+- Nginx routes `/mcp` → FastAPI; FastMCP handles the MCP protocol
+- Protected by bearer-token middleware (`MCP_API_KEY`)
+- Exposes 15 MCP tools (1 search + 14 entity tools) and 1 resource (`context://database-scope`)
+- See `MCP.md` for full integration guide
 
 ### Response Fields
 
@@ -305,16 +341,16 @@ results = collection.query(
 
 ### Logging
 
-**Log Structure**:
+**Log Structure** (implemented in `logs.py`):
 - Log folder: `logs/` (auto-created)
 - Filename format: `YYYYMMDD-HHMMSS_{endpoint}_{version}_{md5hash}.json`
-- Content: JSON with `request` and `response` objects
+- Content: JSON with request/response data
 - Encoding: UTF-8 with `ensure_ascii=False` for international characters
 - Only create file if it doesn't exist (prevents overwrites)
 
-**Log Usage** (main.py:214-266):
-- Call `log_usage(endpoint, content)` after each request
-- Endpoints: `"hello"`, `"text2sql_post"`, `"start"`
+**Log Usage**:
+- Call `logs.log_usage(endpoint, content, strapiversion)` after each request
+- Logged endpoints: `"hello"`, `"text2sql_post"`, `"start"`, `"movies"`, `"series"`, `"persons"`, `"companies"`, `"networks"`, `"collections"`, `"topics"`, `"lists"`, `"movements"`, `"groups"`, `"deaths"`, `"awards"`, `"nominations"`, `"locations"`
 
 ### Messages Array (New Feature)
 
@@ -452,8 +488,8 @@ docker run -p 8000:8000 --env-file .env fastapi-text2sql
 7. Verify API version in response logs
 
 **Version Format Conversion** (main.py:26-49, cleanup.py:5-8):
-- Input: `"1.1.14"`
-- Output: `"001.001.014"` (for SQL storage)
+- Input: `"1.1.15"`
+- Output: `"001.001.015"` (for SQL storage)
 - Uses `format_api_version()` helper function for consistent formatting
 - Function available in both main.py and cleanup.py
 
@@ -580,8 +616,8 @@ class OpenAIEmbeddingFunction:
 ### Required Variables
 
 ```bash
-# Authentication
-API_KEY=your_secret_api_key
+# Authentication (comma-separated list; legacy API_KEY also accepted)
+API_KEYS=key_for_app,key_for_mcp,key_for_scripts
 
 # OpenAI Configuration
 OPENAI_API_KEY=sk-...
@@ -604,15 +640,25 @@ API_PORT_GREEN=8001
 
 ### Optional Variables
 
-None currently defined. All variables in `.env.example` are required.
+```bash
+# LLM provider keys (only needed if using non-OpenAI models)
+ANTHROPIC_API_KEY=...
+GOOGLE_API_KEY=...
+
+# MCP (Model Context Protocol)
+MCP_API_KEY=your_mcp_bearer_token    # empty = /mcp route is open
+MCP_INTERNAL_API_KEY=key_for_mcp     # defaults to first entry of API_KEYS
+MCP_INTERNAL_BASE_URL=http://127.0.0.1:8010  # auto-detected from version parity
+```
 
 ## Security Considerations
 
-1. **API Key Authentication**: All endpoints (except `/`) require `X-API-Key` header
-2. **Constant-Time Comparison**: Uses `secrets.compare_digest()` to prevent timing attacks
-3. **Environment Variables**: All secrets stored in `.env` (not committed to git)
-4. **SQL Injection**: Uses parameterized queries with `cursor.execute(query, params)`
-5. **Input Sanitization**: Entity values are SQL-escaped before insertion
+1. **API Key Authentication**: All endpoints require `X-API-Key` header; multiple keys supported via `API_KEYS`
+2. **MCP Bearer Token**: `/mcp` route protected by `MCP_API_KEY` bearer token middleware (skipped when empty)
+3. **Constant-Time Comparison**: Uses `secrets.compare_digest()` to prevent timing attacks
+4. **Environment Variables**: All secrets stored in `.env` (not committed to git)
+5. **SQL Injection**: Uses parameterized queries with `cursor.execute(query, params)`
+6. **Input Sanitization**: Entity values are SQL-escaped before insertion
 
 ## Performance Optimization Tips
 
@@ -671,11 +717,14 @@ None currently defined. All variables in `.env.example` are required.
 
 - **FastAPI Documentation**: https://fastapi.tiangolo.com/
 - **OpenAI API**: https://platform.openai.com/docs/
+- **Anthropic API**: https://docs.anthropic.com/
+- **Google Gemini API**: https://ai.google.dev/docs
 - **ChromaDB Documentation**: https://docs.trychroma.com/
-- **LangChain Documentation**: https://python.langchain.com/docs/
+- **FastMCP Documentation**: https://github.com/jlowin/fastmcp
+- **MCP Integration Guide**: See `MCP.md` in this repository
 
 ---
 
-**Last Updated**: 2026-01-24
-**Current Version**: 1.1.14
+**Last Updated**: 2026-04-13
+**Current Version**: 1.1.15
 **Maintainer**: See repository owner
