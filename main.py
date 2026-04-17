@@ -1514,7 +1514,7 @@ async def get_person(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Person {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED,
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED,
                        pm.CREDIT_TYPE, pm.CAST_CHARACTER, pm.CREW_DEPARTMENT, pm.DISPLAY_ORDER
                 FROM T_WC_T2S_PERSON_MOVIE pm
                 JOIN T_WC_T2S_MOVIE m ON pm.ID_MOVIE = m.ID_MOVIE
@@ -1522,7 +1522,7 @@ async def get_person(id: int, api_key: str = Depends(get_api_key)):
             """, (id,))
             movie_credits = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED,
                        ps.CREDIT_TYPE, ps.CAST_CHARACTER, ps.CREW_DEPARTMENT, ps.DISPLAY_ORDER
                 FROM T_WC_T2S_PERSON_SERIE ps
                 JOIN T_WC_T2S_SERIE s ON ps.ID_SERIE = s.ID_SERIE
@@ -1583,17 +1583,17 @@ async def get_company(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Company {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED
                 FROM T_WC_T2S_MOVIE_COMPANY mc
                 JOIN T_WC_T2S_MOVIE m ON mc.ID_MOVIE = m.ID_MOVIE
-                WHERE mc.ID_COMPANY = %s ORDER BY m.IMDB_RATING_ADJUSTED DESC
+                WHERE mc.ID_COMPANY = %s ORDER BY m.IMDB_RATING_WEIGHTED DESC
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED
                 FROM T_WC_T2S_SERIE_COMPANY sc
                 JOIN T_WC_T2S_SERIE s ON sc.ID_SERIE = s.ID_SERIE
-                WHERE sc.ID_COMPANY = %s ORDER BY s.IMDB_RATING_ADJUSTED DESC
+                WHERE sc.ID_COMPANY = %s ORDER BY s.IMDB_RATING_WEIGHTED DESC
             """, (id,))
             series = cursor.fetchall()
         result = {**company, "movies": list(movies), "series": list(series)}
@@ -1616,10 +1616,10 @@ async def get_network(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Network {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED
                 FROM T_WC_T2S_SERIE_NETWORK sn
                 JOIN T_WC_T2S_SERIE s ON sn.ID_SERIE = s.ID_SERIE
-                WHERE sn.ID_NETWORK = %s ORDER BY s.IMDB_RATING_ADJUSTED DESC
+                WHERE sn.ID_NETWORK = %s ORDER BY s.IMDB_RATING_WEIGHTED DESC
             """, (id,))
             series = cursor.fetchall()
         result = {**network, "series": list(series)}
@@ -1642,14 +1642,14 @@ async def get_collection(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Collection {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED, mc.DISPLAY_ORDER
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, mc.DISPLAY_ORDER
                 FROM T_WC_T2S_MOVIE_COLLECTION mc
                 JOIN T_WC_T2S_MOVIE m ON mc.ID_MOVIE = m.ID_MOVIE
                 WHERE mc.ID_T2S_COLLECTION = %s ORDER BY mc.DISPLAY_ORDER ASC
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED, sc.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, sc.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_COLLECTION sc
                 JOIN T_WC_T2S_SERIE s ON sc.ID_SERIE = s.ID_SERIE
                 WHERE sc.ID_T2S_COLLECTION = %s ORDER BY sc.DISPLAY_ORDER ASC
@@ -1675,14 +1675,14 @@ async def get_topic(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Topic {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED, mt.DISPLAY_ORDER
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, mt.DISPLAY_ORDER
                 FROM T_WC_T2S_MOVIE_TOPIC mt
                 JOIN T_WC_T2S_MOVIE m ON mt.ID_MOVIE = m.ID_MOVIE
                 WHERE mt.ID_TOPIC = %s ORDER BY mt.DISPLAY_ORDER ASC
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED, st.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, st.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_TOPIC st
                 JOIN T_WC_T2S_SERIE s ON st.ID_SERIE = s.ID_SERIE
                 WHERE st.ID_TOPIC = %s ORDER BY st.DISPLAY_ORDER ASC
@@ -1708,14 +1708,14 @@ async def get_list(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"List {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED, ml.DISPLAY_ORDER
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, ml.DISPLAY_ORDER
                 FROM T_WC_T2S_MOVIE_LIST ml
                 JOIN T_WC_T2S_MOVIE m ON ml.ID_MOVIE = m.ID_MOVIE
                 WHERE ml.ID_T2S_LIST = %s ORDER BY ml.DISPLAY_ORDER ASC
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED, sl.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, sl.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_LIST sl
                 JOIN T_WC_T2S_SERIE s ON sl.ID_SERIE = s.ID_SERIE
                 WHERE sl.ID_T2S_LIST = %s ORDER BY sl.DISPLAY_ORDER ASC
@@ -1741,14 +1741,14 @@ async def get_movement(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Movement {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED, mm.DISPLAY_ORDER
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, mm.DISPLAY_ORDER
                 FROM T_WC_T2S_MOVIE_MOVEMENT mm
                 JOIN T_WC_T2S_MOVIE m ON mm.ID_MOVIE = m.ID_MOVIE
                 WHERE mm.ID_MOVEMENT = %s ORDER BY mm.DISPLAY_ORDER ASC
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED, sm.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, sm.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_MOVEMENT sm
                 JOIN T_WC_T2S_SERIE s ON sm.ID_SERIE = s.ID_SERIE
                 WHERE sm.ID_MOVEMENT = %s ORDER BY sm.DISPLAY_ORDER ASC
@@ -1826,14 +1826,14 @@ async def get_award(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Award {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED, ma.DISPLAY_ORDER
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, ma.DISPLAY_ORDER
                 FROM T_WC_T2S_MOVIE_AWARD ma
                 JOIN T_WC_T2S_MOVIE m ON ma.ID_MOVIE = m.ID_MOVIE
                 WHERE ma.ID_AWARD = %s ORDER BY ma.DISPLAY_ORDER ASC
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED, sa.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, sa.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_AWARD sa
                 JOIN T_WC_T2S_SERIE s ON sa.ID_SERIE = s.ID_SERIE
                 WHERE sa.ID_AWARD = %s ORDER BY sa.DISPLAY_ORDER ASC
@@ -1866,14 +1866,14 @@ async def get_nomination(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Nomination {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED, mn.DISPLAY_ORDER
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, mn.DISPLAY_ORDER
                 FROM T_WC_T2S_MOVIE_NOMINATION mn
                 JOIN T_WC_T2S_MOVIE m ON mn.ID_MOVIE = m.ID_MOVIE
                 WHERE mn.ID_NOMINATION = %s ORDER BY mn.DISPLAY_ORDER ASC
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED, sn.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, sn.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_NOMINATION sn
                 JOIN T_WC_T2S_SERIE s ON sn.ID_SERIE = s.ID_SERIE
                 WHERE sn.ID_NOMINATION = %s ORDER BY sn.DISPLAY_ORDER ASC
@@ -1907,21 +1907,21 @@ async def get_location(wikidata_id: str, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Location {wikidata_id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_ADJUSTED,
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED,
                        wp.ID_PROPERTY
                 FROM T_WC_WIKIDATA_ITEM_PROPERTY wp
                 JOIN T_WC_T2S_MOVIE m ON wp.ID_WIKIDATA = m.ID_WIKIDATA
                 WHERE wp.ID_ITEM = %s AND wp.ID_PROPERTY IN ('P840', 'P915')
-                ORDER BY m.IMDB_RATING_ADJUSTED DESC
+                ORDER BY m.IMDB_RATING_WEIGHTED DESC
             """, (wikidata_id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_ADJUSTED,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED,
                        wp.ID_PROPERTY
                 FROM T_WC_WIKIDATA_ITEM_PROPERTY wp
                 JOIN T_WC_T2S_SERIE s ON wp.ID_WIKIDATA = s.ID_WIKIDATA
                 WHERE wp.ID_ITEM = %s AND wp.ID_PROPERTY IN ('P840', 'P915')
-                ORDER BY s.IMDB_RATING_ADJUSTED DESC
+                ORDER BY s.IMDB_RATING_WEIGHTED DESC
             """, (wikidata_id,))
             series = cursor.fetchall()
         result = {**location, "movies": list(movies), "series": list(series)}
@@ -2217,7 +2217,7 @@ async def _mcp_database_scope() -> str:
 
     ## Movie (T_WC_T2S_MOVIE)
     ID_MOVIE (TMDb ID), MOVIE_TITLE, DAT_RELEASE, RELEASE_YEAR, RELEASE_MONTH, RELEASE_DAY,
-    RUNTIME (minutes), VOTE_AVERAGE (0-10), VOTE_COUNT, IMDB_RATING, IMDB_RATING_ADJUSTED,
+    RUNTIME (minutes), VOTE_AVERAGE (0-10), VOTE_COUNT, IMDB_RATING, IMDB_RATING_WEIGHTED,
     REVENUE (USD, 0 when unknown), BUDGET (USD, 0 when unknown), ORIGINAL_LANGUAGE (2-letter),
     STATUS (Released / Post Production / In Production / Planned / Rumored / Canceled),
     TAGLINE, POSTER_PATH, BACKDROP_PATH, VIDEO (1 if video release),
@@ -2230,7 +2230,7 @@ async def _mcp_database_scope() -> str:
     ## TV Series (T_WC_T2S_SERIE)
     ID_SERIE (TMDb ID), SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR,
     FIRST_AIR_YEAR, LAST_AIR_YEAR, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES,
-    VOTE_AVERAGE, VOTE_COUNT, IMDB_RATING, IMDB_RATING_ADJUSTED,
+    VOTE_AVERAGE, VOTE_COUNT, IMDB_RATING, IMDB_RATING_WEIGHTED,
     ORIGINAL_LANGUAGE, STATUS, TAGLINE,
     SERIE_TYPE (Scripted / Miniseries / Documentary / Reality / News / Talk Show / Video),
     ID_IMDB, ID_WIKIDATA, ALIASES, PLEX_MEDIA_KEY
@@ -2282,26 +2282,26 @@ async def _mcp_database_scope() -> str:
 
     ## Other Entities
     - T_WC_T2S_COLLECTION: COLLECTION_NAME, OVERVIEW, MOVIE_COUNT, SERIE_COUNT,
-        IMDB_RATING, IMDB_RATING_ADJUSTED, POSTER_PATH
+        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
     - T_WC_T2S_TOPIC: TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG,
-        IMDB_RATING, IMDB_RATING_ADJUSTED, POSTER_PATH
+        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
     - T_WC_T2S_LIST: LIST_NAME, OVERVIEW, LIST_TYPE, MOVIE_COUNT, SERIE_COUNT,
-        IMDB_RATING, IMDB_RATING_ADJUSTED, POSTER_PATH
+        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
     - T_WC_T2S_MOVEMENT: MOVEMENT_NAME, OVERVIEW, MOVIE_COUNT, SERIE_COUNT,
-        IMDB_RATING, IMDB_RATING_ADJUSTED, POSTER_PATH
+        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
     - T_WC_T2S_GROUP: GROUP_NAME, GROUP_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
     - T_WC_T2S_DEATH: DEATH_NAME, DEATH_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
     - T_WC_T2S_AWARD: AWARD_NAME, AWARD_TYPE, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT,
-        IMDB_RATING, IMDB_RATING_ADJUSTED, POPULARITY
+        IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
     - T_WC_T2S_NOMINATION: NOMINATION_NAME, NOMINATION_TYPE, MOVIE_COUNT, SERIE_COUNT,
-        PERSON_COUNT, IMDB_RATING, IMDB_RATING_ADJUSTED, POPULARITY
+        PERSON_COUNT, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
     - T_WC_T2S_COMPANY: COMPANY_NAME, HEADQUARTERS, ORIGIN_COUNTRY, LOGO_PATH
     - T_WC_T2S_NETWORK: NETWORK_NAME, ORIGIN_COUNTRY, LOGO_PATH
     - T_WC_T2S_ITEM: ID_WIKIDATA, ITEM_LABEL, DESCRIPTION, INSTANCE_OF
 
     ## Useful value ranges
     - VOTE_AVERAGE: 0 to 10, meaningful above VOTE_COUNT > 200
-    - IMDB_RATING: 0 to 10 raw; IMDB_RATING_ADJUSTED is the weighted adjusted score
+    - IMDB_RATING: 0 to 10 raw; IMDB_RATING_WEIGHTED is the weighted adjusted score
     - DAT_RELEASE / DAT_FIRST_AIR: from 1870 to early 2024
     - REVENUE / BUDGET: in USD, 0 when unknown
     - RUNTIME: in minutes

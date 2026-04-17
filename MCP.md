@@ -38,17 +38,26 @@ mcp = FastMCP("text2sql")
 mcp_app = mcp.http_app(stateless_http=True)
 
 # 2. Pass mcp_app.lifespan to FastAPI so FastMCP lifecycle hooks run correctly
-app = FastAPI(lifespan=mcp_app.lifespan)
+app = FastAPI(title="Text2SQL API", version=strapiversion,
+              description="Text2SQL API for text to SQL query conversion",
+              lifespan=mcp_app.lifespan)
 
-MCP_API_KEY           = os.getenv("MCP_API_KEY", "")            # empty → /mcp is open
-MCP_INTERNAL_API_KEY  = os.getenv("MCP_INTERNAL_API_KEY",
-                            os.getenv("API_KEYS", "").split(",")[0].strip())
-MCP_INTERNAL_BASE_URL = os.getenv("MCP_INTERNAL_BASE_URL", "http://127.0.0.1:8000")
+API_PORT_BLUE = int(os.getenv('API_PORT_BLUE', 8000))
+API_PORT_GREEN = int(os.getenv('API_PORT_GREEN', 8001))
+_mcp_patch = int(strapiversion.split('.')[2])
+MCP_API_KEY = os.getenv("MCP_API_KEY", "")
+_api_keys_raw = os.getenv("API_KEYS") or os.getenv("API_KEY", "")
+_api_keys_first = next((k.strip() for k in _api_keys_raw.split(",") if k.strip()), "")
+MCP_INTERNAL_API_KEY = os.getenv("MCP_INTERNAL_API_KEY", _api_keys_first)
+MCP_INTERNAL_BASE_URL = os.getenv(
+    "MCP_INTERNAL_BASE_URL",
+    f"http://127.0.0.1:{API_PORT_BLUE if _mcp_patch % 2 == 0 else API_PORT_GREEN}"
+)
 
 # --- MCP Tools ---
 
-@mcp.tool()
-async def sql_search(question: str) -> str:
+@mcp.tool(name="sql_search")
+async def _mcp_sql_search(question: str) -> str:
     """
     Query the cinema and TV database in natural language.
 
@@ -91,8 +100,8 @@ async def sql_search(question: str) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-@mcp.tool()
-async def get_movie(id: int) -> str:
+@mcp.tool(name="get_movie")
+async def _mcp_get_movie(id: int) -> str:
     """Get all fields for a movie (title, release date, runtime, budget, revenue, ratings,
     plot, IMDb/Wikidata IDs, aspect ratio, color/B&W/silent flags) plus embedded relations:
     cast, crew, genre codes, production companies, production countries, spoken languages,
@@ -108,8 +117,8 @@ async def get_movie(id: int) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-@mcp.tool()
-async def get_series(id: int) -> str:
+@mcp.tool(name="get_series")
+async def _mcp_get_series(id: int) -> str:
     """Get all fields for a TV series (title, first/last air date, number of seasons and
     episodes, ratings, status, Wikidata/IMDb IDs) plus embedded relations: cast, crew,
     genre codes, companies, networks, production countries, spoken languages, topics,
@@ -125,8 +134,8 @@ async def get_series(id: int) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-@mcp.tool()
-async def get_person(id: int) -> str:
+@mcp.tool(name="get_person")
+async def _mcp_get_person(id: int) -> str:
     """Get all fields for a person (name, biography, birth/death dates, gender, country of
     birth, known-for department, IMDb/Wikidata IDs, popularity) plus embedded filmography
     split by role: movie_cast, movie_crew, series_cast, series_crew, groups, deaths,
@@ -142,8 +151,8 @@ async def get_person(id: int) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-@mcp.tool()
-async def get_collection(id: int) -> str:
+@mcp.tool(name="get_collection")
+async def _mcp_get_collection(id: int) -> str:
     """Get all fields for a named collection (trilogy, saga, franchise) plus member movies
     and TV series ordered by their position in the collection. id = ID_T2S_COLLECTION."""
     try:
@@ -157,8 +166,8 @@ async def get_collection(id: int) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-@mcp.tool()
-async def get_topic(id: int) -> str:
+@mcp.tool(name="get_topic")
+async def _mcp_get_topic(id: int) -> str:
     """Get all fields for a topic (universe, franchise, theme, keyword) plus linked movies
     and TV series ordered by their position in the topic. id = ID_TOPIC."""
     try:
@@ -172,8 +181,8 @@ async def get_topic(id: int) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-@mcp.tool()
-async def get_list(id: int) -> str:
+@mcp.tool(name="get_list")
+async def _mcp_get_list(id: int) -> str:
     """Get all fields for a named curated list (e.g. AFI Top 100, Criterion Collection)
     plus member movies and TV series ordered by their position. id = ID_T2S_LIST."""
     try:
@@ -187,8 +196,8 @@ async def get_list(id: int) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-@mcp.tool()
-async def get_movement(id: int) -> str:
+@mcp.tool(name="get_movement")
+async def _mcp_get_movement(id: int) -> str:
     """Get all fields for a film movement or style (e.g. French New Wave, Neo-Noir) plus
     associated movies and TV series ordered by their position. id = ID_MOVEMENT."""
     try:
@@ -202,8 +211,8 @@ async def get_movement(id: int) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-@mcp.tool()
-async def get_group(id: int) -> str:
+@mcp.tool(name="get_group")
+async def _mcp_get_group(id: int) -> str:
     """Get all fields for a person group (organization, club, musical group) plus
     associated persons ordered by their position. id = ID_GROUP."""
     try:
@@ -217,8 +226,8 @@ async def get_group(id: int) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-@mcp.tool()
-async def get_death(id: int) -> str:
+@mcp.tool(name="get_death")
+async def _mcp_get_death(id: int) -> str:
     """Get all fields for a cause or circumstance of death plus associated persons
     ordered by their position. id = ID_DEATH."""
     try:
@@ -232,8 +241,8 @@ async def get_death(id: int) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-@mcp.tool()
-async def get_award(id: int) -> str:
+@mcp.tool(name="get_award")
+async def _mcp_get_award(id: int) -> str:
     """Get all fields for an award plus associated movies, TV series, and persons.
     id = ID_AWARD."""
     try:
@@ -247,8 +256,8 @@ async def get_award(id: int) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-@mcp.tool()
-async def get_nomination(id: int) -> str:
+@mcp.tool(name="get_nomination")
+async def _mcp_get_nomination(id: int) -> str:
     """Get all fields for an award nomination plus associated movies, TV series, and persons.
     id = ID_NOMINATION."""
     try:
@@ -262,8 +271,8 @@ async def get_nomination(id: int) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-@mcp.tool()
-async def get_company(id: int) -> str:
+@mcp.tool(name="get_company")
+async def _mcp_get_company(id: int) -> str:
     """Get all fields for a production company plus associated movies and TV series.
     id = ID_COMPANY."""
     try:
@@ -277,8 +286,8 @@ async def get_company(id: int) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-@mcp.tool()
-async def get_network(id: int) -> str:
+@mcp.tool(name="get_network")
+async def _mcp_get_network(id: int) -> str:
     """Get all fields for a TV network plus associated TV series. id = ID_NETWORK."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -291,8 +300,8 @@ async def get_network(id: int) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-@mcp.tool()
-async def get_location(wikidata_id: str) -> str:
+@mcp.tool(name="get_location")
+async def _mcp_get_location(wikidata_id: str) -> str:
     """Get all fields for a location by Wikidata ID (e.g. 'Q90' for Paris) plus movies
     and series where it is a narrative location (P840) or filming location (P915)."""
     try:
@@ -368,8 +377,8 @@ The response from `POST /search/text2sql` contains the full pipeline trace along
 {
   "question": "best Scorsese films",
   "question_hashed": "a9f3b2d4e5c6...",
-  "sql_query": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE, T_WC_T2S_MOVIE.MOVIE_TITLE, T_WC_T2S_MOVIE.DAT_RELEASE, T_WC_T2S_MOVIE.ID_IMDB, T_WC_T2S_MOVIE.IMDB_RATING, T_WC_T2S_MOVIE.IMDB_RATING_ADJUSTED, T_WC_T2S_MOVIE.POSTER_PATH FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_PERSON_MOVIE ON T_WC_T2S_PERSON_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE JOIN T_WC_T2S_PERSON ON T_WC_T2S_PERSON_MOVIE.ID_PERSON = T_WC_T2S_PERSON.ID_PERSON WHERE T_WC_T2S_PERSON.PERSON_NAME = 'Martin Scorsese' AND T_WC_T2S_PERSON_MOVIE.CREDIT_TYPE = 'crew' ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_ADJUSTED DESC",
-  "sql_query_anonymized": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE, ... WHERE T_WC_T2S_PERSON.PERSON_NAME = '{{Person_name1}}' AND T_WC_T2S_PERSON_MOVIE.CREDIT_TYPE = 'crew' ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_ADJUSTED DESC",
+  "sql_query": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE, T_WC_T2S_MOVIE.MOVIE_TITLE, T_WC_T2S_MOVIE.DAT_RELEASE, T_WC_T2S_MOVIE.ID_IMDB, T_WC_T2S_MOVIE.IMDB_RATING, T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED, T_WC_T2S_MOVIE.POSTER_PATH FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_PERSON_MOVIE ON T_WC_T2S_PERSON_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE JOIN T_WC_T2S_PERSON ON T_WC_T2S_PERSON_MOVIE.ID_PERSON = T_WC_T2S_PERSON.ID_PERSON WHERE T_WC_T2S_PERSON.PERSON_NAME = 'Martin Scorsese' AND T_WC_T2S_PERSON_MOVIE.CREDIT_TYPE = 'crew' ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC",
+  "sql_query_anonymized": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE, ... WHERE T_WC_T2S_PERSON.PERSON_NAME = '{{Person_name1}}' AND T_WC_T2S_PERSON_MOVIE.CREDIT_TYPE = 'crew' ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC",
   "justification": "Searching for movies with {{Person_name1}} as a crew member, ordered by adjusted IMDb rating.",
   "justification_anonymized": "Searching for movies with {{Person_name1}} as a crew member, ordered by adjusted IMDb rating.",
   "error": "",
@@ -401,8 +410,8 @@ The response from `POST /search/text2sql` contains the full pipeline trace along
     { "position": 3, "text": "Calling entity extraction." }
   ],
   "result": [
-    { "index": 0, "data": { "ID_MOVIE": 769, "MOVIE_TITLE": "GoodFellas", "DAT_RELEASE": "1990-09-12", "ID_IMDB": "tt0099685", "IMDB_RATING": 8.7, "IMDB_RATING_ADJUSTED": 8.5, "POSTER_PATH": "/aKuFiU82s5ISJpGZp7YkIr3kCUd.jpg" } },
-    { "index": 1, "data": { "ID_MOVIE": 423, "MOVIE_TITLE": "The Departed", "DAT_RELEASE": "2006-10-05", "ID_IMDB": "tt0407887", "IMDB_RATING": 8.5, "IMDB_RATING_ADJUSTED": 8.2, "POSTER_PATH": "/nT97ifVT2J1yMQmeq20Qblg61T.jpg" } }
+    { "index": 0, "data": { "ID_MOVIE": 769, "MOVIE_TITLE": "GoodFellas", "DAT_RELEASE": "1990-09-12", "ID_IMDB": "tt0099685", "IMDB_RATING": 8.7, "IMDB_RATING_WEIGHTED": 8.5, "POSTER_PATH": "/aKuFiU82s5ISJpGZp7YkIr3kCUd.jpg" } },
+    { "index": 1, "data": { "ID_MOVIE": 423, "MOVIE_TITLE": "The Departed", "DAT_RELEASE": "2006-10-05", "ID_IMDB": "tt0407887", "IMDB_RATING": 8.5, "IMDB_RATING_WEIGHTED": 8.2, "POSTER_PATH": "/nT97ifVT2J1yMQmeq20Qblg61T.jpg" } }
   ]
 }
 ```
@@ -439,7 +448,7 @@ The response from `POST /search/text2sql` contains the full pipeline trace along
   "IS_DOCUMENTARY": 0,
   "IS_SHORT_FILM": 0,
   "IMDB_RATING": 8.8,
-  "IMDB_RATING_ADJUSTED": 8.7,
+  "IMDB_RATING_WEIGHTED": 8.7,
   "WIKIDATA_TITLE": "Inception",
   "ALIASES": null,
   "PLEX_MEDIA_KEY": null,
@@ -499,8 +508,8 @@ The response from `POST /search/text2sql` contains the full pipeline trace along
   "INSTANCE_OF": "human",
   "movie_cast": [],
   "movie_crew": [
-    { "ID_MOVIE": 27205, "MOVIE_TITLE": "Inception", "DAT_RELEASE": "2010-07-16", "IMDB_RATING_ADJUSTED": 8.7, "CREDIT_TYPE": "crew", "CAST_CHARACTER": null, "CREW_DEPARTMENT": "Directing", "DISPLAY_ORDER": 1 },
-    { "ID_MOVIE": 157336, "MOVIE_TITLE": "Interstellar", "DAT_RELEASE": "2014-11-05", "IMDB_RATING_ADJUSTED": 8.4, "CREDIT_TYPE": "crew", "CAST_CHARACTER": null, "CREW_DEPARTMENT": "Directing", "DISPLAY_ORDER": 1 }
+    { "ID_MOVIE": 27205, "MOVIE_TITLE": "Inception", "DAT_RELEASE": "2010-07-16", "IMDB_RATING_WEIGHTED": 8.7, "CREDIT_TYPE": "crew", "CAST_CHARACTER": null, "CREW_DEPARTMENT": "Directing", "DISPLAY_ORDER": 1 },
+    { "ID_MOVIE": 157336, "MOVIE_TITLE": "Interstellar", "DAT_RELEASE": "2014-11-05", "IMDB_RATING_WEIGHTED": 8.4, "CREDIT_TYPE": "crew", "CAST_CHARACTER": null, "CREW_DEPARTMENT": "Directing", "DISPLAY_ORDER": 1 }
   ],
   "series_cast": [],
   "series_crew": [],
@@ -535,13 +544,13 @@ The resource is not loaded automatically. Claude reads it when the docstring poi
 
 ```python
 @mcp.resource("context://database-scope")
-async def database_scope() -> str:
+async def _mcp_database_scope() -> str:
     return """
     # Cinema & TV Database — Entity Reference
 
     ## Movie (T_WC_T2S_MOVIE)
     ID_MOVIE (TMDb ID), MOVIE_TITLE, DAT_RELEASE, RELEASE_YEAR, RELEASE_MONTH, RELEASE_DAY,
-    RUNTIME (minutes), VOTE_AVERAGE (0-10), VOTE_COUNT, IMDB_RATING, IMDB_RATING_ADJUSTED,
+    RUNTIME (minutes), VOTE_AVERAGE (0-10), VOTE_COUNT, IMDB_RATING, IMDB_RATING_WEIGHTED,
     REVENUE (USD, 0 when unknown), BUDGET (USD, 0 when unknown), ORIGINAL_LANGUAGE (2-letter),
     STATUS (Released / Post Production / In Production / Planned / Rumored / Canceled),
     TAGLINE, POSTER_PATH, BACKDROP_PATH, VIDEO (1 if video release),
@@ -554,7 +563,7 @@ async def database_scope() -> str:
     ## TV Series (T_WC_T2S_SERIE)
     ID_SERIE (TMDb ID), SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR,
     FIRST_AIR_YEAR, LAST_AIR_YEAR, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES,
-    VOTE_AVERAGE, VOTE_COUNT, IMDB_RATING, IMDB_RATING_ADJUSTED,
+    VOTE_AVERAGE, VOTE_COUNT, IMDB_RATING, IMDB_RATING_WEIGHTED,
     ORIGINAL_LANGUAGE, STATUS, TAGLINE,
     SERIE_TYPE (Scripted / Miniseries / Documentary / Reality / News / Talk Show / Video),
     ID_IMDB, ID_WIKIDATA, ALIASES, PLEX_MEDIA_KEY
@@ -606,26 +615,26 @@ async def database_scope() -> str:
 
     ## Other Entities
     - T_WC_T2S_COLLECTION: COLLECTION_NAME, OVERVIEW, MOVIE_COUNT, SERIE_COUNT,
-        IMDB_RATING, IMDB_RATING_ADJUSTED, POSTER_PATH
+        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
     - T_WC_T2S_TOPIC: TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG,
-        IMDB_RATING, IMDB_RATING_ADJUSTED, POSTER_PATH
+        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
     - T_WC_T2S_LIST: LIST_NAME, OVERVIEW, LIST_TYPE, MOVIE_COUNT, SERIE_COUNT,
-        IMDB_RATING, IMDB_RATING_ADJUSTED, POSTER_PATH
+        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
     - T_WC_T2S_MOVEMENT: MOVEMENT_NAME, OVERVIEW, MOVIE_COUNT, SERIE_COUNT,
-        IMDB_RATING, IMDB_RATING_ADJUSTED, POSTER_PATH
+        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
     - T_WC_T2S_GROUP: GROUP_NAME, GROUP_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
     - T_WC_T2S_DEATH: DEATH_NAME, DEATH_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
     - T_WC_T2S_AWARD: AWARD_NAME, AWARD_TYPE, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT,
-        IMDB_RATING, IMDB_RATING_ADJUSTED, POPULARITY
+        IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
     - T_WC_T2S_NOMINATION: NOMINATION_NAME, NOMINATION_TYPE, MOVIE_COUNT, SERIE_COUNT,
-        PERSON_COUNT, IMDB_RATING, IMDB_RATING_ADJUSTED, POPULARITY
+        PERSON_COUNT, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
     - T_WC_T2S_COMPANY: COMPANY_NAME, HEADQUARTERS, ORIGIN_COUNTRY, LOGO_PATH
     - T_WC_T2S_NETWORK: NETWORK_NAME, ORIGIN_COUNTRY, LOGO_PATH
     - T_WC_T2S_ITEM: ID_WIKIDATA, ITEM_LABEL, DESCRIPTION, INSTANCE_OF
 
     ## Useful value ranges
     - VOTE_AVERAGE: 0 to 10, meaningful above VOTE_COUNT > 200
-    - IMDB_RATING: 0 to 10 raw; IMDB_RATING_ADJUSTED is the weighted adjusted score
+    - IMDB_RATING: 0 to 10 raw; IMDB_RATING_WEIGHTED is the weighted adjusted score
     - DAT_RELEASE / DAT_FIRST_AIR: from 1870 to early 2024
     - REVENUE / BUDGET: in USD, 0 when unknown
     - RUNTIME: in minutes
@@ -752,7 +761,7 @@ FastAPI MCP middleware
   ▼
 Your internal text-to-SQL API (POST /search/text2sql)
   │
-  │  LangChain + LLM generates SQL
+  │  LLM generates SQL
   │  Executes against MariaDB
   │  Returns JSON result set
   ▼

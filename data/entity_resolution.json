@@ -209,7 +209,7 @@
         "search_mode": "embeddings",
         "strtablename": "T_WC_T2S_MOVEMENT",
         "strtableid": "ID_MOVEMENT",
-        "collection": "collections",
+        "collection": "movements",
         "default_field": "MOVEMENT_NAME",
         "order_by": null,
         "languages": {
