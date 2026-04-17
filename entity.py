@@ -132,6 +132,68 @@ def _sql_escape_literal(v: str) -> str:
     return str(v).replace("'", "''")
 
 
+# Closed-vocabulary genre lookups. These must stay in sync with the genre
+# reference sections of data/text_to_sql.md (T_WC_T2S_MOVIE_GENRE and
+# T_WC_T2S_SERIE_GENRE). Keys are normalized to lowercase.
+MOVIE_GENRE_NAME_TO_ID: dict[str, int] = {
+    "action": 28,
+    "adventure": 12,
+    "animation": 16,
+    "comedy": 35,
+    "crime": 80,
+    "drama": 18,
+    "family": 10751,
+    "fantasy": 14,
+    "history": 36,
+    "horror": 27,
+    "music": 10402,
+    "mystery": 9648,
+    "romance": 10749,
+    "science fiction": 878,
+    "sci-fi": 878,
+    "thriller": 53,
+    "tv movie": 10770,
+    "war": 10752,
+    "western": 37,
+}
+
+SERIE_GENRE_NAME_TO_ID: dict[str, int] = {
+    "animation": 16,
+    "drama": 18,
+    "comedy": 35,
+    "history": 36,
+    "western": 37,
+    "crime": 80,
+    "documentary": 99,
+    "mystery": 9648,
+    "romance": 10749,
+    "family": 10751,
+    "action & adventure": 10759,
+    "kids": 10762,
+    "news": 10763,
+    "reality": 10764,
+    "sci-fi & fantasy": 10765,
+    "soap": 10766,
+    "talk": 10767,
+    "war & politics": 10768,
+}
+
+
+def _resolve_genre_id(raw_value: str, sql_query: str) -> int | None:
+    """Map a genre name to its integer ID using movie/serie context from the SQL."""
+    norm = (raw_value or "").strip().lower()
+    if not norm:
+        return None
+    sql_upper = (sql_query or "").upper()
+    mentions_serie_genre = "SERIE_GENRE" in sql_upper
+    mentions_movie_genre = "MOVIE_GENRE" in sql_upper
+    if mentions_serie_genre and not mentions_movie_genre:
+        return SERIE_GENRE_NAME_TO_ID.get(norm) or MOVIE_GENRE_NAME_TO_ID.get(norm)
+    if mentions_movie_genre and not mentions_serie_genre:
+        return MOVIE_GENRE_NAME_TO_ID.get(norm) or SERIE_GENRE_NAME_TO_ID.get(norm)
+    return MOVIE_GENRE_NAME_TO_ID.get(norm) or SERIE_GENRE_NAME_TO_ID.get(norm)
+
+
 
 def resolve_entities(
     *,
@@ -232,6 +294,24 @@ def resolve_entities(
                     sql_query = re.sub(rf"{re.escape(placeholder)}", raw_value, sql_query, flags=re.IGNORECASE)
                     justification = justification.replace(placeholder, raw_value)
                     add_message(f"Entity resolution: {placeholder} -> {raw_value} (numeric)")
+                    continue
+
+                if isinstance(key, str) and key.startswith("Genre_name"):
+                    raw_value = "" if value is None else str(value).strip()
+                    placeholder = "{{" + key + "}}"
+                    if raw_value == "":
+                        continue
+
+                    genre_id = _resolve_genre_id(raw_value, sql_query)
+                    if genre_id is None:
+                        add_message(f"Entity resolution: {placeholder} -> unknown genre name '{raw_value}'; leaving placeholder unresolved")
+                        continue
+
+                    genre_id_str = str(genre_id)
+                    sql_query = re.sub(rf"'{re.escape(placeholder)}'", genre_id_str, sql_query, flags=re.IGNORECASE)
+                    sql_query = re.sub(rf"{re.escape(placeholder)}", genre_id_str, sql_query, flags=re.IGNORECASE)
+                    justification = justification.replace(placeholder, raw_value)
+                    add_message(f"Entity resolution: {placeholder} -> {genre_id_str} ({raw_value}) (genre)")
                     continue
 
                 cfg = _find_entity_config(key)
