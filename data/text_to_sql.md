@@ -22,7 +22,7 @@ Never include a semicolon at the end of the SQL query.
 
 ## ? Placeholders / Anonymization
 
-The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}.
+The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}, {{Genre_name1}}.
 These placeholders represent real entity values that were intentionally replaced earlier.
 
 Rules:
@@ -30,6 +30,13 @@ Rules:
 - Generate the SQL query using placeholders AS-IS, and preserve them exactly (including braces and numbering).
 - When comparing against a placeholder in SQL, treat it as a string literal, for example: T_WC_T2S_MOVIE.MOVIE_TITLE = '{{Movie_title1}}'
 - The placeholders will be substituted with real values AFTER you generate the SQL.
+
+Genre placeholder special case:
+- `{{Genre_nameN}}` represents a movie or TV series genre name. Do NOT convert it yourself into the numeric ID.
+- Emit it exactly as a quoted string literal against the `ID_GENRE` column, for example:
+  - Movies: `T_WC_T2S_MOVIE_GENRE.ID_GENRE = '{{Genre_name1}}'`
+  - Series: `T_WC_T2S_SERIE_GENRE.ID_GENRE = '{{Genre_name1}}'`
+- The resolver will substitute the placeholder with the correct integer ID using the Genre Reference tables in this prompt and the surrounding table context (`MOVIE_GENRE` vs `SERIE_GENRE`).
 
 Example:
 Question:

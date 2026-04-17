@@ -126,6 +126,28 @@ Examples:
 - `Star Wars`
 - `Philip Marlowe`
 
+### Genre_name
+Extract `Genre_name` when the user question mentions a movie or TV series genre by its standard name.
+The value MUST be one of the following supported genre names (case-insensitive, keep the original surface form when possible):
+
+Movie genres:
+- `Action`, `Adventure`, `Animation`, `Comedy`, `Crime`, `Drama`, `Family`, `Fantasy`, `History`, `Horror`, `Music`, `Mystery`, `Romance`, `Science Fiction`, `Sci-Fi`, `Thriller`, `TV Movie`, `War`, `Western`
+
+TV series genres:
+- `Action & Adventure`, `Animation`, `Comedy`, `Crime`, `Documentary`, `Drama`, `Family`, `History`, `Kids`, `Mystery`, `News`, `Reality`, `Romance`, `Sci-Fi & Fantasy`, `Soap`, `Talk`, `War & Politics`, `Western`
+
+Examples:
+- `war` (movie genre)
+- `comedy`
+- `Science Fiction`
+- `Sci-Fi & Fantasy` (series genre)
+- `War & Politics` (series genre)
+
+Disambiguation:
+- If the user writes a simple word that matches a supported genre (e.g., `war movies`, `comedy series`), extract it as `Genre_name`, NOT as `Topic_name`.
+- If the user writes a compound topic that includes a genre word but refers to a specific theme (e.g., `Vietnam war`, `World War II`, `cold war`), extract it as `Topic_name`, NOT as `Genre_name`.
+- If the surface form is not in the supported lists above, do NOT extract it as `Genre_name`. Leave it in the anonymized question unchanged, or treat it as a topic if appropriate.
+
 ## Important Extraction Rules
 
 ### General
@@ -151,7 +173,7 @@ If a series type is explicitly mentioned and should be extracted, it must be one
 
 ### Topic_name boundaries
 Do not extract as `Topic_name`:
-- simple genre names by themselves
+- simple genre names by themselves (extract as `Genre_name` instead when they match the supported list, e.g. `war`, `comedy`, `Sci-Fi & Fantasy`)
 - vague descriptive phrases that are not recognizable topics or collections
 - technical specifications when the question is about the technical aspect itself
 - `silent films`, `sound films`, `black and white films`, `color films`
@@ -161,6 +183,13 @@ Do not extract as `Topic_name`:
 - notable curated film lists or TV series lists such as `Sight and Sound greatest films of all time`, `IMDb top 250 tv shows`, `Roger Ebert's Great Movies List`
 - awards or recognitions such as `Academy Award for Best Picture`, `Palme d'Or`, `Primetime Emmy Award`
 - award nominations such as `Academy Award for Best Picture`, `Palme d'Or`, `Primetime Emmy Award`
+
+### Genre_name boundaries
+Extract as `Genre_name` when the phrase is a single-word or short genre label from the supported movie or series genre lists above.
+Do not extract as `Genre_name`:
+- thematic topics that merely contain a genre word (e.g. `Vietnam war`, `World War II`, `space opera about the war`) — use `Topic_name`
+- film movements or styles (e.g. `Film Noir`, `French New Wave`) — use `Movement_name`
+- generic adjectives or descriptors that are not in the supported lists (e.g. `sad`, `feel-good`, `dark`)
 
 ### List_name boundaries
 Extract as `List_name` when the phrase refers to a named, notable, curated ranking, selection, registry, canon, or editorial list of movies or TV series.
@@ -211,6 +240,28 @@ Output:
 {
   "question": "{{Topic_name1}} movies",
   "Topic_name1": "Vietnam war"
+}
+
+Input: `List war movies`
+Output:
+{
+  "question": "List {{Genre_name1}} movies",
+  "Genre_name1": "war"
+}
+
+Input: `Show me Sci-Fi & Fantasy series`
+Output:
+{
+  "question": "Show me {{Genre_name1}} series",
+  "Genre_name1": "Sci-Fi & Fantasy"
+}
+
+Input: `Comedy movies directed by Woody Allen`
+Output:
+{
+  "question": "{{Genre_name1}} movies directed by {{Person_name1}}",
+  "Genre_name1": "Comedy",
+  "Person_name1": "Woody Allen"
 }
 
 Input: `Star Wars movies`

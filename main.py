@@ -50,7 +50,7 @@ def compare_versions(version1: str, version2: str) -> int:
         return 0
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.15"
+strapiversion = "1.1.16"
 # Convert API version to XXX.YYY.ZZZ format
 strapiversionformatted = format_api_version(strapiversion)
 
