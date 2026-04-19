@@ -14,8 +14,7 @@ Convert the provided natural language question into the following json structure
 - ✅ If the question is valid, return **valid SQL query** to the "sql_query" element and **brief explanation** to the "justification" element.
 **brief explanation** must retain all entity extraction elements, for instance "{{PERSON_NAME}}".
 **error** must be empty.
-- ❓ If the question is ambiguous or cannot be answered with the schema, return **brief explanation** to the "justification" element and request clarification to the "error" element.
-**error** must not be empty.
+- ❓ If the question is ambiguous, do NOT return an error. Instead, make your best interpretation of the user's intent and return a valid SQL query. Use common sense to decide the most likely meaning (e.g., a single word referring to a profession or role implies a person search). Only return an error if the question is completely unrelated to the database schema and truly cannot produce any meaningful SQL query.
 Never include a semicolon at the end of the SQL query.
 
 ---

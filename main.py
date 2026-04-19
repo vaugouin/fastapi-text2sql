@@ -1152,6 +1152,126 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             )
             if retry_response is not None:
                 return retry_response
+
+        # Single-cell zero result: if the SQL returned a single row with a single column
+        # whose value is 0, the SQL approach likely failed (e.g. COUNT returning 0).
+        # Ask the stronger model to directly answer with the correct scalar value.
+        try:
+            single_zero_result = False
+            if (
+                not sql_execution_failed
+                and lngpage == 1
+                and isinstance(query_results, list)
+                and len(query_results) == 1
+            ):
+                row_data = query_results[0].get("data")
+                if isinstance(row_data, dict) and len(row_data) == 1:
+                    single_value = next(iter(row_data.values()))
+                    if single_value == 0:
+                        single_zero_result = True
+
+            can_answer_zero_count = (
+                request.complex_question_processing
+                and single_zero_result
+                and bool(request.question)
+                and not getattr(request, "complex_question_already_resolved", False)
+                and "original_question" in locals()
+                and isinstance(original_question, str)
+                and original_question.strip() != ""
+            )
+        except Exception:
+            can_answer_zero_count = False
+
+        if can_answer_zero_count:
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"SQL query returned a single-cell result with value 0; asking the stronger model '{strcomplexquestionmodel}' for a direct answer."
+            ))
+            position_counter += 1
+
+            answer_result = t2s.f_answer_single_value(original_question, strcomplexquestionmodel)
+
+            if answer_result.get("error"):
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Stronger model '{strcomplexquestionmodel}' could not provide a direct answer: {answer_result['error']}"
+                ))
+                position_counter += 1
+            else:
+                answer_value = answer_result["value"]
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Stronger model '{strcomplexquestionmodel}' provided direct answer: {answer_value}"
+                ))
+                position_counter += 1
+
+                # Build a synthetic SQL embedding the answer, execute it, then cache it.
+                # Executing before caching ensures consistency (result comes from SQL like
+                # every other query) and validation (confirms the SQL is well-formed).
+                escaped_question = original_question.replace("'", "''")
+                if isinstance(answer_value, (int, float)):
+                    synthetic_sql = f"SELECT {answer_value} AS '{escaped_question}' FROM DUAL"
+                else:
+                    escaped_value = str(answer_value).replace("'", "''")
+                    synthetic_sql = f"SELECT '{escaped_value}' AS '{escaped_question}' FROM DUAL"
+
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Executing synthetic SQL for direct answer: {synthetic_sql}"
+                ))
+                position_counter += 1
+
+                try:
+                    with connection.cursor() as synth_cursor:
+                        synth_cursor.execute(synthetic_sql)
+                        synth_results = synth_cursor.fetchall()
+                        query_results = [
+                            {"index": idx, "data": row}
+                            for idx, row in enumerate(synth_results)
+                        ]
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=f"Synthetic SQL executed successfully; result returned from SQL execution."
+                    ))
+                    position_counter += 1
+                except Exception as synth_err:
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=f"Synthetic SQL execution failed: {str(synth_err)}; falling back to original zero result."
+                    ))
+                    position_counter += 1
+                    synthetic_sql = None
+
+                # Cache the validated synthetic SQL so subsequent calls skip the stronger model
+                if synthetic_sql and request.store_to_cache and request.question:
+                    synthetic_hash = hashlib.sha256(original_question.encode('utf-8')).hexdigest()
+                    try:
+                        sql_cache.write_sql_cache_entry(
+                            connection,
+                            question=original_question,
+                            question_hashed=synthetic_hash,
+                            sql_query=synthetic_sql,
+                            sql_processed=synthetic_sql,
+                            justification=justification or "",
+                            api_version=strapiversionformatted,
+                            entity_extraction_processing_time=entity_extraction_processing_time,
+                            text2sql_processing_time=text2sql_processing_time,
+                            embeddings_time=embeddings_processing_time,
+                            query_time=query_execution_time,
+                            total_processing_time=0.0,
+                            is_anonymized=False,
+                        )
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"Cached synthetic SQL for direct answer: {synthetic_sql}"
+                        ))
+                        position_counter += 1
+                    except Exception as cache_err:
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"Failed to cache synthetic SQL for direct answer: {str(cache_err)}"
+                        ))
+                        position_counter += 1
     else:
         messages.append(TextMessage(
             position=position_counter, 

@@ -134,7 +134,7 @@ Movie genres:
 - `Action`, `Adventure`, `Animation`, `Comedy`, `Crime`, `Drama`, `Family`, `Fantasy`, `History`, `Horror`, `Music`, `Mystery`, `Romance`, `Science Fiction`, `Sci-Fi`, `Thriller`, `TV Movie`, `War`, `Western`
 
 TV series genres:
-- `Action & Adventure`, `Animation`, `Comedy`, `Crime`, `Documentary`, `Drama`, `Family`, `History`, `Kids`, `Mystery`, `News`, `Reality`, `Romance`, `Sci-Fi & Fantasy`, `Soap`, `Talk`, `War & Politics`, `Western`
+- `Action & Adventure`, `Animation`, `Comedy`, `Crime`, `Drama`, `Family`, `History`, `Kids`, `Mystery`, `News`, `Reality`, `Romance`, `Sci-Fi & Fantasy`, `Soap`, `Talk`, `War & Politics`, `Western`
 
 Examples:
 - `war` (movie genre)
@@ -170,6 +170,10 @@ If a series type is explicitly mentioned and should be extracted, it must be one
 - `Scripted`
 - `Talk Show`
 - `Video`
+
+**Important disambiguation for "Documentary":**
+- Only extract `Serie_type = Documentary` when the question **explicitly** mentions a TV series, show, or series context (e.g., "documentary series", "documentary TV shows", "documentary shows").
+- If the user writes "documentary" or "documentaries" **without** explicit series/TV context (e.g., "List documentaries", "best documentaries of 2020"), do **NOT** extract it as `Serie_type` or `Genre_name`. Leave the word in the question unchanged so the text-to-SQL step can handle it directly.
 
 ### Topic_name boundaries
 Do not extract as `Topic_name`:

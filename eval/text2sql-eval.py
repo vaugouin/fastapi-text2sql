@@ -36,6 +36,20 @@ def translate_question_to_french(question: str) -> str:
     )
     return response.choices[0].message.content.strip()
 
+
+def translate_question_to_english(question: str) -> str:
+    """Translate an evaluation question from French to English using OpenAI gpt-4o."""
+    client = openai.OpenAI(api_key=openai.api_key)
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You translate evaluation questions from French to English. Return only the English translation, with no explanation or surrounding quotes."},
+            {"role": "user", "content": question},
+        ],
+        temperature=0,
+    )
+    return response.choices[0].message.content.strip()
+
 datnow = datetime.now(cp.paris_tz)
 # Compute the date and time for J-1 (yesterday)
 # So we are sure to find the TMDb Id export files for this day
@@ -65,9 +79,22 @@ try:
             strtotalruntime = "RUNNING"
             cp.f_setservervariable("strtext2sqlevaltotalruntime",strtotalruntime,strtotalruntimedesc,0)
             
+            strentityextractionmodeleval = "gpt-4o"
+            strtext2sqlmodeleval = "gpt-4o"
+            strcomplexmodeleval = "gpt-4o"
+            #strentityextractionmodeleval = "newmodel"
+            #strtext2sqlmodeleval = "newmodel"
+            #strcomplexmodeleval = "newmodel"
+            strapiversioneval = "1.1.14"
+            #strapiversioneval = "1.1.15"
+            #strlanguage = "en"
+            strlanguage = "fr"
+            #strlanguage = "*"
+
             #arrprocessscope = {11: 'run evals'}
-            #arrprocessscope = {12: 'process evals'}
-            arrprocessscope = {4: 'translate categories to French', 5: 'translate to French', 10: 'cleanup deleted eval executions', 11: 'run evals', 12: 'process evals'}
+            #arrprocessscope = {20: 'process evals'}
+            arrprocessscope = {4: 'translate categories to French', 5: 'translate EN to FR', 6: 'translate FR to EN', 10: 'cleanup deleted eval executions', 11: 'run evals', 20: 'process evals'}
+            #arrprocessscope = {4: 'translate categories to French', 5: 'translate EN to FR', 6: 'translate FR to EN', 10: 'cleanup deleted eval executions'}
             strrunevalidold = cp.f_getservervariable("strtext2sqlevalrunevalid",0)
             for intindex, strdesc in arrprocessscope.items():
                 # Get the current date and time
@@ -85,14 +112,6 @@ try:
                 # print(intindex, value)
                 strcurrentprocess = ""
                 strsql = ""
-                strentityextractionmodeleval = "gpt-4o"
-                strtext2sqlmodeleval = "gpt-4o"
-                strcomplexmodeleval = "gpt-4o"
-                #strentityextractionmodeleval = "newmodel"
-                #strtext2sqlmodeleval = "newmodel"
-                #strcomplexmodeleval = "newmodel"
-                strapiversioneval = "1.1.14"
-                #strapiversioneval = "1.1.15"
                 strapiversionevalformatted = t2s_eval.format_api_version(strapiversioneval)
                 lngrowsperpageeval = 100
                 if intindex == 4:
@@ -106,7 +125,7 @@ try:
                     strsql += "AND (DESCRIPTION_FR IS NULL OR DESCRIPTION_FR = '') "
                     strsql += "ORDER BY ID_T2S_EVALUATION_CATEGORY ASC "
                 elif intindex == 5:
-                    strcurrentprocess = f"{intindex}: translating evaluation questions to French "
+                    strcurrentprocess = f"{intindex}: translating evaluation questions from English to French "
                     strsql = ""
                     strsql += "SELECT ID_T2S_EVALUATION AS id, QUESTION "
                     strsql += "FROM T_WC_T2S_EVALUATION "
@@ -114,6 +133,17 @@ try:
                     strsql += "AND QUESTION IS NOT NULL "
                     strsql += "AND QUESTION <> '' "
                     strsql += "AND (QUESTION_FR IS NULL OR QUESTION_FR = '') "
+                    strsql += "ORDER BY ID_T2S_EVALUATION ASC "
+                    #strsql += "LIMIT 10 "
+                elif intindex == 6:
+                    strcurrentprocess = f"{intindex}: translating evaluation questions from French to English "
+                    strsql = ""
+                    strsql += "SELECT ID_T2S_EVALUATION AS id, QUESTION_FR "
+                    strsql += "FROM T_WC_T2S_EVALUATION "
+                    strsql += "WHERE DELETED = 0 "
+                    strsql += "AND QUESTION_FR IS NOT NULL "
+                    strsql += "AND QUESTION_FR <> '' "
+                    strsql += "AND (QUESTION IS NULL OR QUESTION = '') "
                     strsql += "ORDER BY ID_T2S_EVALUATION ASC "
                     #strsql += "LIMIT 10 "
                 elif intindex == 10:
@@ -126,10 +156,11 @@ try:
                     cp.connectioncp.commit()
                     continue
                 elif intindex == 11:
-                    # Running evaluations on the FastAPI text2SQL API 
-                    strcurrentprocess = f"{intindex}: running evaluations on the FastAPI text2SQL API "
+                    # Running evaluations on the FastAPI text2SQL API
+                    strlangdesc = {"en": "English", "fr": "French", "*": "all-language"}
+                    strcurrentprocess = f"{intindex}: running {strlangdesc.get(strlanguage, strlanguage)} evaluations on the FastAPI text2SQL API "
                     strsql = ""
-                    strsql += "SELECT ID_T2S_EVALUATION AS id, QUESTION "
+                    strsql += "SELECT ID_T2S_EVALUATION AS id, QUESTION, QUESTION_FR "
                     strsql += "FROM T_WC_T2S_EVALUATION "
                     strsql += "WHERE IS_EVAL = 1 "
                     strsql += "AND DELETED = 0 "
@@ -138,19 +169,42 @@ try:
                     strsql += "OR (ASSERTIONS_ENTITY_EXTRACTION <> '' AND ASSERTIONS_ENTITY_EXTRACTION IS NOT NULL) "
                     strsql += "OR (ASSERTIONS_SQL_QUERY <> '' AND ASSERTIONS_SQL_QUERY IS NOT NULL) "
                     strsql += ") "
-                    strsql += "AND ID_T2S_EVALUATION NOT IN ( "
-                    strsql += "SELECT T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION "
-                    strsql += "FROM T_WC_T2S_EVALUATION_EXECUTION "
-                    strsql += "WHERE T_WC_T2S_EVALUATION_EXECUTION.DELETED = 0 "
-                    strsql += "AND API_VERSION = '" + strapiversionevalformatted + "' AND ENTITY_EXTRACTION_MODEL = '" + strentityextractionmodeleval + "' AND TEXT2SQL_MODEL = '" + strtext2sqlmodeleval + "' AND COMPLEX_MODEL = '" + strcomplexmodeleval + "' "
-                    strsql += ") "
+                    strnotinbase = (
+                        "SELECT T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION "
+                        "FROM T_WC_T2S_EVALUATION_EXECUTION "
+                        "WHERE T_WC_T2S_EVALUATION_EXECUTION.DELETED = 0 "
+                        f"AND API_VERSION = '{strapiversionevalformatted}' "
+                        f"AND ENTITY_EXTRACTION_MODEL = '{strentityextractionmodeleval}' "
+                        f"AND TEXT2SQL_MODEL = '{strtext2sqlmodeleval}' "
+                        f"AND COMPLEX_MODEL = '{strcomplexmodeleval}' "
+                    )
+                    if strlanguage == "en":
+                        strsql += "AND QUESTION IS NOT NULL AND QUESTION <> '' "
+                        strsql += "AND ID_T2S_EVALUATION NOT IN ( "
+                        strsql += strnotinbase + "AND LANG = 'en' "
+                        strsql += ") "
+                    elif strlanguage == "fr":
+                        strsql += "AND QUESTION_FR IS NOT NULL AND QUESTION_FR <> '' "
+                        strsql += "AND ID_T2S_EVALUATION NOT IN ( "
+                        strsql += strnotinbase + "AND LANG = 'fr' "
+                        strsql += ") "
+                    else:  # "*"
+                        strsql += "AND ((QUESTION IS NOT NULL AND QUESTION <> '') OR (QUESTION_FR IS NOT NULL AND QUESTION_FR <> '')) "
+                        strsql += "AND ( "
+                        strsql += "(QUESTION IS NOT NULL AND QUESTION <> '' AND ID_T2S_EVALUATION NOT IN ( "
+                        strsql += strnotinbase + "AND LANG = 'en' "
+                        strsql += ")) "
+                        strsql += "OR "
+                        strsql += "(QUESTION_FR IS NOT NULL AND QUESTION_FR <> '' AND ID_T2S_EVALUATION NOT IN ( "
+                        strsql += strnotinbase + "AND LANG = 'fr' "
+                        strsql += ")) "
+                        strsql += ") "
                     #strrunevalidold = "486"
                     if strrunevalidold != "":
                         strsql += "AND ID_T2S_EVALUATION >= " + strrunevalidold + " "
                     strsql += "ORDER BY ID_T2S_EVALUATION ASC "
-                    #strsql += "LIMIT 80 "
-                    #strsql += "LIMIT 20000 "
-                elif intindex == 12:
+                    #strsql += "LIMIT 10 "
+                elif intindex == 20:
                     # Processing evaluations results to compute the scoring
                     strcurrentprocess = f"{intindex}: processing evaluations to compute the results "
                     strsql = ""
@@ -160,8 +214,10 @@ try:
                     strsql += "WHERE T_WC_T2S_EVALUATION.DELETED = 0 "
                     strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.DELETED = 0 "
                     strsql += "AND API_VERSION = '" + strapiversionevalformatted + "' AND ENTITY_EXTRACTION_MODEL = '" + strentityextractionmodeleval + "' AND TEXT2SQL_MODEL = '" + strtext2sqlmodeleval + "' AND COMPLEX_MODEL = '" + strcomplexmodeleval + "' "
+                    if strlanguage != "*":
+                        strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.LANG = '" + strlanguage + "' "
                     #strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION IN (1) "
-                    #strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 2139) "
+                    #strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 20, 13, 14, 2139) "
                     strsql += "ORDER BY T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION ASC "
                     #strsql += "LIMIT 5 "
                     dblcumulatedscore = 0
@@ -213,10 +269,51 @@ try:
                             strsqltablename = "T_WC_T2S_EVALUATION"
                             strsqlupdatecondition = f"ID_T2S_EVALUATION = {lngid}"
                             cp.f_sqlupdatearray(strsqltablename,arrtranslationcouples,strsqlupdatecondition,1)
-                        elif intindex == 11:
-                            # Running evaluations on the FastAPI text2SQL API 
-                            strquestion = row['QUESTION']
+                        elif intindex == 6:
+                            strquestionfr = row['QUESTION_FR']
+                            print(strquestionfr)
+                            strquestion = translate_question_to_english(strquestionfr)
                             print(strquestion)
+                            arrtranslationcouples = {}
+                            arrtranslationcouples["QUESTION"] = strquestion
+                            strsqltablename = "T_WC_T2S_EVALUATION"
+                            strsqlupdatecondition = f"ID_T2S_EVALUATION = {lngid}"
+                            cp.f_sqlupdatearray(strsqltablename,arrtranslationcouples,strsqlupdatecondition,1)
+                        elif intindex == 11:
+                            # Running evaluations on the FastAPI text2SQL API
+                            strquestion_en = (row.get('QUESTION') or "").strip()
+                            strquestion_fr = (row.get('QUESTION_FR') or "").strip()
+
+                            # Build list of (question_text, lang_code) pairs to evaluate
+                            arrlangpairs = []
+                            if strlanguage in ("en", "*") and strquestion_en:
+                                arrlangpairs.append((strquestion_en, "en"))
+                            if strlanguage in ("fr", "*") and strquestion_fr:
+                                arrlangpairs.append((strquestion_fr, "fr"))
+
+                            if not arrlangpairs:
+                                continue
+
+                            # For "*" mode, skip languages already evaluated for this row
+                            if strlanguage == "*":
+                                cursor3.execute(
+                                    "SELECT LANG FROM T_WC_T2S_EVALUATION_EXECUTION "
+                                    "WHERE DELETED = 0 AND ID_T2S_EVALUATION = %s "
+                                    "AND API_VERSION = %s AND ENTITY_EXTRACTION_MODEL = %s "
+                                    "AND TEXT2SQL_MODEL = %s AND COMPLEX_MODEL = %s",
+                                    (lngid, strapiversionevalformatted, strentityextractionmodeleval, strtext2sqlmodeleval, strcomplexmodeleval)
+                                )
+                                arralreadydone = {r['LANG'] for r in cursor3.fetchall()}
+                                arrlangpairs = [(q, l) for q, l in arrlangpairs if l not in arralreadydone]
+                                if not arrlangpairs:
+                                    continue
+
+                            # Group by unique question text: if QUESTION == QUESTION_FR, call API only once
+                            dictquestionlangs = {}
+                            for strq, strlang in arrlangpairs:
+                                dictquestionlangs.setdefault(strq, []).append(strlang)
+
+                            # Connection setup
                             base_url_env = os.getenv("TEXT2SQL_API_URL", "http://localhost")
                             parsed_base_url = urlparse(base_url_env)
                             base_scheme = parsed_base_url.scheme or "http"
@@ -234,59 +331,67 @@ try:
                             if api_key:
                                 headers["X-API-Key"] = api_key
 
-                            payload = {
-                                "question": strquestion,
-                                "question_hashed": None,
-                                "page": 1,
-                                "rows_per_page": lngrowsperpageeval,
-                                "retrieve_from_cache": False,
-                                "store_to_cache": True,
-                                "llm_model_entity_extraction": strentityextractionmodeleval,
-                                "llm_model_text2sql": strtext2sqlmodeleval,
-                                "llm_model_complex": strcomplexmodeleval,
-                            }
-                            print(url)
-                            print(payload)
-                            strdatnow = datetime.now(cp.paris_tz).strftime("%Y-%m-%d %H:%M:%S")
-                            response = requests.post(url, headers=headers, json=payload, timeout=120)
-                            response.raise_for_status()
-                            response_json = response.json()
-                            response_text = json.dumps(response_json, ensure_ascii=False)
-                            print("FastAPI text2sql response received")
-                            print(response_json)
-                            # check if the api_version field is equal to strapiversioneval
-                            if response_json['api_version'] != strapiversioneval:
-                                print("API version mismatch; queried: ", response_json['api_version'], " expected: ", strapiversioneval)
-                                intconfigerror = True
-                            if response_json['llm_model_entity_extraction'] != strentityextractionmodeleval:
-                                print("API llm_model_entity_extraction mismatch; queried: ", response_json['llm_model_entity_extraction'], " expected: ", strentityextractionmodeleval)
-                                intconfigerror = True
-                            if response_json['llm_model_text2sql'] != strtext2sqlmodeleval:
-                                print("API llm_model_text2sql mismatch; queried: ", response_json['llm_model_text2sql'], " expected: ", strtext2sqlmodeleval)
-                                intconfigerror = True
-                            response_llm_model_complex = response_json.get('llm_model_complex')
-                            if response_llm_model_complex is not None and response_llm_model_complex != strcomplexmodeleval:
-                                print("API llm_model_complex mismatch; queried: ", response_llm_model_complex, " expected: ", strcomplexmodeleval)
-                                intconfigerror = True
-                            if intconfigerror:
-                                # We stop now so we do not consume tokens and money because there is a configuration error
-                                exit()
-                            #Store to the database
-                            arrevalexeccouples = {}
-                            arrevalexeccouples["ID_T2S_EVALUATION"] = lngid
-                            arrevalexeccouples["API_VERSION"] = strapiversionevalformatted
-                            arrevalexeccouples["ENTITY_EXTRACTION_MODEL"] = strentityextractionmodeleval
-                            arrevalexeccouples["TEXT2SQL_MODEL"] = strtext2sqlmodeleval
-                            arrevalexeccouples["COMPLEX_MODEL"] = strcomplexmodeleval
-                            arrevalexeccouples["JSON_RESULT"] = response_text
-                            arrevalexeccouples["TIM_EXECUTION"] = strdatnow
-                            #print("\nArrmoviecouples:")
-                            #print(arrevalexeccouples)
-                            #time.sleep(5)
-                            strsqltablename = "T_WC_T2S_EVALUATION_EXECUTION"
-                            strsqlupdatecondition = f"ID_T2S_EVALUATION = {lngid} AND API_VERSION = '{strapiversionevalformatted}' AND ENTITY_EXTRACTION_MODEL = '{strentityextractionmodeleval}' AND TEXT2SQL_MODEL = '{strtext2sqlmodeleval}' AND COMPLEX_MODEL = '{strcomplexmodeleval}'"
-                            cp.f_sqlupdatearray(strsqltablename,arrevalexeccouples,strsqlupdatecondition,1)
-                        elif intindex == 12:
+                            for strquestion, arrlangs in dictquestionlangs.items():
+                                print(f"  [{', '.join(arrlangs)}] {strquestion}")
+                                payload = {
+                                    "question": strquestion,
+                                    "question_hashed": None,
+                                    "page": 1,
+                                    "rows_per_page": lngrowsperpageeval,
+                                    "retrieve_from_cache": False,
+                                    "store_to_cache": True,
+                                    "llm_model_entity_extraction": strentityextractionmodeleval,
+                                    "llm_model_text2sql": strtext2sqlmodeleval,
+                                    "llm_model_complex": strcomplexmodeleval,
+                                }
+                                print(url)
+                                print(payload)
+                                strdatnow = datetime.now(cp.paris_tz).strftime("%Y-%m-%d %H:%M:%S")
+                                try:
+                                    response = requests.post(url, headers=headers, json=payload, timeout=120)
+                                    response.raise_for_status()
+                                except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError, requests.exceptions.HTTPError) as e:
+                                    print(f"⚠ Request failed for eval id {lngid} [{', '.join(arrlangs)}]: {type(e).__name__}: {e}")
+                                    continue
+                                response_json = response.json()
+                                response_text = json.dumps(response_json, ensure_ascii=False)
+                                print("FastAPI text2sql response received")
+                                print(response_json)
+                                # check if the api_version field is equal to strapiversioneval
+                                if response_json['api_version'] != strapiversioneval:
+                                    print("API version mismatch; queried: ", response_json['api_version'], " expected: ", strapiversioneval)
+                                    intconfigerror = True
+                                if response_json['llm_model_entity_extraction'] != strentityextractionmodeleval:
+                                    print("API llm_model_entity_extraction mismatch; queried: ", response_json['llm_model_entity_extraction'], " expected: ", strentityextractionmodeleval)
+                                    intconfigerror = True
+                                if response_json['llm_model_text2sql'] != strtext2sqlmodeleval:
+                                    print("API llm_model_text2sql mismatch; queried: ", response_json['llm_model_text2sql'], " expected: ", strtext2sqlmodeleval)
+                                    intconfigerror = True
+                                response_llm_model_complex = response_json.get('llm_model_complex')
+                                if response_llm_model_complex is not None and response_llm_model_complex != strcomplexmodeleval:
+                                    print("API llm_model_complex mismatch; queried: ", response_llm_model_complex, " expected: ", strcomplexmodeleval)
+                                    intconfigerror = True
+                                if intconfigerror:
+                                    # We stop now so we do not consume tokens and money because there is a configuration error
+                                    exit()
+                                # Store one row per language
+                                for strevallang in arrlangs:
+                                    arrevalexeccouples = {}
+                                    arrevalexeccouples["ID_T2S_EVALUATION"] = lngid
+                                    arrevalexeccouples["API_VERSION"] = strapiversionevalformatted
+                                    arrevalexeccouples["ENTITY_EXTRACTION_MODEL"] = strentityextractionmodeleval
+                                    arrevalexeccouples["TEXT2SQL_MODEL"] = strtext2sqlmodeleval
+                                    arrevalexeccouples["COMPLEX_MODEL"] = strcomplexmodeleval
+                                    arrevalexeccouples["JSON_RESULT"] = response_text
+                                    arrevalexeccouples["TIM_EXECUTION"] = strdatnow
+                                    arrevalexeccouples["LANG"] = strevallang
+                                    #print("\nArrmoviecouples:")
+                                    #print(arrevalexeccouples)
+                                    #time.sleep(5)
+                                    strsqltablename = "T_WC_T2S_EVALUATION_EXECUTION"
+                                    strsqlupdatecondition = f"ID_T2S_EVALUATION = {lngid} AND API_VERSION = '{strapiversionevalformatted}' AND ENTITY_EXTRACTION_MODEL = '{strentityextractionmodeleval}' AND TEXT2SQL_MODEL = '{strtext2sqlmodeleval}' AND COMPLEX_MODEL = '{strcomplexmodeleval}' AND LANG = '{strevallang}'"
+                                    cp.f_sqlupdatearray(strsqltablename,arrevalexeccouples,strsqlupdatecondition,1)
+                        elif intindex == 20:
                             # Processing evaluations results to compute the scoring
                             strassertions_entity_extraction = row.get('ASSERTIONS_ENTITY_EXTRACTION')
                             strassertions_sql_query = row.get('ASSERTIONS_SQL_QUERY')
@@ -500,12 +605,13 @@ try:
                         cp.f_setservervariable("strtext2sqlevaldatetime",strnow,"Date and time of the last crawled record using the TMDb API",0)
                 print("------------------------------------------")
             strsql = ""
-            if intindex == 12:
+            if intindex == 20:
                 dblglobalscore = dblcumulatedscore / dblevalcount
                 print(f"FastAPI Text2SQL API version: {strapiversioneval}")
                 print(f"Entity extraction model: {strentityextractionmodeleval}")
                 print(f"Text2SQL model: {strtext2sqlmodeleval}")
                 print(f"Complex model: {strcomplexmodeleval}")
+                print(f"Language: {strlanguage}")
                 print(f"Global score: {dblcumulatedscore}/{dblevalcount} = {dblglobalscore:.2%}")
                 if lng_entity_extraction_processing_time_count > 0:
                     str_entity_extraction_processing_time_sum_duration = cp.convert_seconds_to_duration(
