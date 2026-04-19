@@ -419,6 +419,60 @@ def f_build_retry_question_from_reasoning(resolved: dict) -> str:
             return ""
 
 
+def f_answer_single_value(user_question: str, strcomplexquestionmodel: str = "default"):
+    """Ask the stronger model to directly answer a question with a single scalar value.
+
+    Used when a SQL query returned a single-cell result with value 0, suggesting
+    the SQL approach failed. The stronger model provides the factual answer directly.
+
+    Args:
+        user_question: The original user question.
+        strcomplexquestionmodel: The model to use for answering.
+
+    Returns:
+        dict with keys:
+            - "value": the scalar answer (int, float, or str), or None on failure
+            - "error": error message if the call failed, else ""
+    """
+    model_to_use = _normalize_llm_model(strcomplexquestionmodel, strcomplexquestionmodeldefault)
+    temperature_to_use = _complex_question_temperature(model_to_use)
+
+    system_prompt = (
+        "You are a factual knowledge assistant. "
+        "Answer the following question with ONLY a single numeric or short scalar value. "
+        "Do not explain, do not add units unless essential, do not add any surrounding text. "
+        "If the answer is a number, return only the number. "
+        "If you cannot determine the answer, return exactly: UNKNOWN"
+    )
+
+    try:
+        raw_answer = _call_chat_llm(
+            model=model_to_use,
+            system_prompt=system_prompt,
+            user_prompt=user_question,
+            temperature=temperature_to_use,
+        ).strip()
+    except Exception as e:
+        return {"value": None, "error": f"LLM call failed: {str(e)}"}
+
+    if raw_answer.upper() == "UNKNOWN":
+        return {"value": None, "error": "Model could not determine the answer."}
+
+    # Try to parse as int, then float, otherwise keep as string
+    try:
+        parsed = int(raw_answer)
+        return {"value": parsed, "error": ""}
+    except ValueError:
+        pass
+    try:
+        parsed = float(raw_answer)
+        return {"value": parsed, "error": ""}
+    except ValueError:
+        pass
+
+    return {"value": raw_answer, "error": ""}
+
+
 def f_resolve_complex_question_retry_payload(user_question: str, strcomplexquestionmodel: str = "default"):
     """Resolve a complex question and package the retry payload used by the API flow."""
     resolved_complex = f_resolve_complex_question(user_question, strcomplexquestionmodel)

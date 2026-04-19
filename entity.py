@@ -164,7 +164,6 @@ SERIE_GENRE_NAME_TO_ID: dict[str, int] = {
     "history": 36,
     "western": 37,
     "crime": 80,
-    "documentary": 99,
     "mystery": 9648,
     "romance": 10749,
     "family": 10751,

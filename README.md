@@ -33,7 +33,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **No-Results Escalation**: If SQL executes successfully but returns 0 rows (page 1), the question can be escalated to the stronger model and retried once
 - **Automatic Cache Cleanup**: On-startup cache cleanup to remove outdated entries from previous versions
 - **Blue/Green Deployment**: Version-based automatic port selection (even versions: port 8000, odd: port 8001)
-- **Ambiguous Question Detection**: Intelligent detection and handling of questions too vague for SQL generation
+- **Ambiguous Question Handling**: Best-effort SQL generation even for vague or ambiguous questions — the model always makes a choice rather than requesting clarification
 - **Question Hashing**: SHA256 hashing for efficient pagination and cache lookup
 - **Fuzzy Entity Matching**: Vector similarity search handles misspellings and variations in entity names
 - **SQL Query Optimization**: Automatic removal and replacement of LLM-generated LIMIT/OFFSET clauses
@@ -71,8 +71,11 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - Network names (TV networks, streaming platforms)
      - Character names (movie/series characters like "James Bond", "Sherlock Holmes") - new in v1.1.14
      - Location names (narrative or filming locations like "New York City", "Gotham City") - new in v1.1.14
-     - Topic names (genres, themes, categories)
-   - Replace entities with placeholders (e.g., `{{PERSON_NAME}}`, `{{MOVIE_TITLE}}`, `{{CHARACTER_NAME}}`, `{{LOCATION_NAME}}`)
+     - Topic names (themes, categories)
+     - Genre names (movie and TV series genres from a closed vocabulary)
+     - Serie type (Documentary, Miniseries, etc. — only with explicit series context)
+   - Replace entities with placeholders (e.g., `{{PERSON_NAME}}`, `{{MOVIE_TITLE}}`, `{{CHARACTER_NAME}}`, `{{LOCATION_NAME}}`, `{{GENRE_NAME}}`)
+   - **Documentary disambiguation**: "documentary" is deliberately *not* extracted as a genre or serie type unless the question explicitly mentions series/TV context; the text-to-SQL step handles it directly via `IS_DOCUMENTARY = 1`
 
 3. **Anonymized Question Cache Lookup (SQL Database)**
    - Search for the anonymized question pattern in the SQL cache
@@ -103,6 +106,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Character names**: Search in `characters` collection (new in v1.1.14)
      - **Location names**: Search in `locations` collection (new in v1.1.14)
      - **Topic names**: Search in `topics` collection
+     - **Genre names**: Resolved via hardcoded closed-vocabulary dictionaries mapping genre labels to IDs (movie genres and serie genres); context-aware selection based on whether the SQL references movie or serie genre tables
    - Vector similarity matching ensures fuzzy matching for misspellings and variations
    - Similarity threshold of 0.15 for robust entity matching
 
@@ -115,6 +119,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    - Uses the prompt template from `data/` folder with comprehensive database schema
    - Files in `data/` are hot-reloaded, so prompt/config edits are picked up automatically without restarting the API
    - GPT-4o generates a SQL query based on the anonymized question pattern
+   - **Best-effort interpretation**: The model always produces a SQL query even when the question is ambiguous; it never returns an error solely because of ambiguity
    - This is the core text-to-SQL task
 
 7. **Query De-anonymization**
@@ -124,10 +129,11 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 
 8. **SQL Execution & Retry Strategy**
    - Execute the SQL query against MariaDB with pagination support
-   - Three conditions can trigger a one-time retry using the stronger model (`llm_model_complex`), **but only when `complex_question_processing: true`**:
+   - Three conditions can trigger a one-time **full pipeline retry** using the stronger model (`llm_model_complex`), **but only when `complex_question_processing: true`**:
      - The text-to-SQL model returns an error instead of a SQL query
      - The generated SQL raises a MariaDB execution error
      - The generated SQL runs successfully but returns 0 rows on page 1
+   - **Zero-count direct answer**: If the SQL returns a single row with a single column whose value is 0 (e.g., an incorrect `COUNT`), the stronger model is asked to directly provide the correct scalar value — no full pipeline retry. A synthetic SQL is built (e.g., `SELECT 4 AS 'How many Academy awards did Katharine Hepburn win?' FROM DUAL`), **executed** against MariaDB, and its result is returned. The synthetic SQL is then cached so subsequent calls return the answer directly without invoking the stronger model again. This execute-then-cache approach ensures **consistency** (the result always comes from SQL execution, same as every other query) and **validation** (the synthetic SQL is confirmed to be well-formed before being persisted to the cache).
    - When `complex_question_processing: false` (default), none of the above triggers fire; the raw failure or empty result is returned immediately.
    - Retry messages in the `messages` array include the selected `llm_model_complex` value so clients can see which stronger model handled the escalation.
    - For complex-question resolution, `o1*` and `o3*` models use a compatible temperature of `1`, while the other supported model families continue using `0`.
