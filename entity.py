@@ -200,22 +200,24 @@ def resolve_entities(
     entity_extraction,
     sql_query,
     justification,
+    answer="",
     position_counter: int,
     text_message_cls,
     messages: list,
     chromadb_collections_by_name: dict,
 ) -> dict[str, Any]:
-    """Resolve extracted entities into concrete SQL and justification substitutions."""
+    """Resolve extracted entities into concrete SQL, justification and answer substitutions."""
+    answer = answer or ""
     def add_message(text: str):
         """Append a positional diagnostic message to the response message list."""
         nonlocal position_counter
         messages.append(text_message_cls(position=position_counter, text=text))
         position_counter += 1
 
-    def apply_entity_match_from_docid(*, cursor, key: str, cfg: dict, docid, doclang: str, message: str, current_sql_query: str, current_justification: str):
+    def apply_entity_match_from_docid(*, cursor, key: str, cfg: dict, docid, doclang: str, message: str, current_sql_query: str, current_justification: str, current_answer: str = ""):
         """Apply a resolved document ID by loading the row and replacing placeholders."""
         if docid is None:
-            return False, current_sql_query, current_justification
+            return False, current_sql_query, current_justification, current_answer
 
         languages_map = cfg.get("languages", {}) or {}
         strfieldnamenew = languages_map.get(doclang) or languages_map.get("*") or cfg.get("default_field")
@@ -224,7 +226,7 @@ def resolve_entities(
         strtablename = cfg.get("strtablename")
         strtableid = cfg.get("strtableid")
         if not strtablename or not strtableid:
-            return False, current_sql_query, current_justification
+            return False, current_sql_query, current_justification, current_answer
 
         strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strtableid + " = %s"
         cursor.execute(strsql_query, (docid,))
@@ -235,7 +237,7 @@ def resolve_entities(
                 f"Entity resolution: embeddings returned docid={docid} (lang={doclang}) for {placeholder}, "
                 f"but no row exists in table {strtablename}.{strtableid}. Embeddings collection may be out of sync with the underlying table."
             )
-            return False, current_sql_query, current_justification
+            return False, current_sql_query, current_justification, current_answer
         first_record = sql_query_results[0]
 
         first_record_value = first_record.get(strtableidlookup, "")
@@ -244,7 +246,7 @@ def resolve_entities(
         placeholder = "{{" + str(key) + "}}"
         target_col = cfg.get("default_field")
         if not target_col:
-            return False, current_sql_query, current_justification
+            return False, current_sql_query, current_justification, current_answer
 
         current_sql_query = re.sub(
             rf"\b{re.escape(target_col)}\b\s*=\s*'{re.escape(placeholder)}'",
@@ -272,8 +274,9 @@ def resolve_entities(
         )
 
         current_justification = current_justification.replace(placeholder, str(first_record_value))
+        current_answer = current_answer.replace(placeholder, str(first_record_value))
         add_message(message.format(placeholder=placeholder, resolved=first_record_value))
-        return True, current_sql_query, current_justification
+        return True, current_sql_query, current_justification, current_answer
 
     ambiguous_question_for_text2sql = 0
 
@@ -292,6 +295,7 @@ def resolve_entities(
                     sql_query = re.sub(rf"'{re.escape(placeholder)}'", raw_value, sql_query, flags=re.IGNORECASE)
                     sql_query = re.sub(rf"{re.escape(placeholder)}", raw_value, sql_query, flags=re.IGNORECASE)
                     justification = justification.replace(placeholder, raw_value)
+                    answer = answer.replace(placeholder, raw_value)
                     add_message(f"Entity resolution: {placeholder} -> {raw_value} (numeric)")
                     continue
 
@@ -310,6 +314,7 @@ def resolve_entities(
                     sql_query = re.sub(rf"'{re.escape(placeholder)}'", genre_id_str, sql_query, flags=re.IGNORECASE)
                     sql_query = re.sub(rf"{re.escape(placeholder)}", genre_id_str, sql_query, flags=re.IGNORECASE)
                     justification = justification.replace(placeholder, raw_value)
+                    answer = answer.replace(placeholder, raw_value)
                     add_message(f"Entity resolution: {placeholder} -> {genre_id_str} ({raw_value}) (genre)")
                     continue
 
@@ -320,9 +325,10 @@ def resolve_entities(
                         continue
                     placeholder = "{{" + str(key) + "}}"
                     raw_value_sql = _sql_escape_literal(raw_value)
-                    if placeholder in sql_query or placeholder in justification:
+                    if placeholder in sql_query or placeholder in justification or placeholder in answer:
                         sql_query = sql_query.replace(placeholder, raw_value_sql)
                         justification = justification.replace(placeholder, raw_value)
+                        answer = answer.replace(placeholder, raw_value)
                         add_message(f"Entity resolution: {placeholder} -> {raw_value} (generic)")
                     continue
 
@@ -427,7 +433,7 @@ def resolve_entities(
                             canonical_value_sql = _sql_escape_literal(str(canonical_value))
                             target_col = search_cfg.get("default_field") or strcolumndesc
                             if target_col:
-                                placeholder_before = (placeholder in sql_query) or (placeholder in justification)
+                                placeholder_before = (placeholder in sql_query) or (placeholder in justification) or (placeholder in answer)
                                 sql_query = re.sub(rf"\b{re.escape(target_col)}\b\s*=\s*'{re.escape(placeholder)}'", f"{target_col} = '{canonical_value_sql}'", sql_query, flags=re.IGNORECASE)
                                 sql_query = re.sub(rf"\b{re.escape(target_col)}\b\s*=\s*{re.escape(placeholder)}", f"{target_col} = '{canonical_value_sql}'", sql_query, flags=re.IGNORECASE)
                                 sql_query = re.sub(rf"'{re.escape(placeholder)}'", f"'{canonical_value_sql}'", sql_query, flags=re.IGNORECASE)
@@ -437,20 +443,21 @@ def resolve_entities(
                                     justification_value = f"{aka_value} ({canonical_value})"
                                 try:
                                     justification = justification.replace(placeholder, justification_value)
+                                    answer = answer.replace(placeholder, justification_value)
                                 except Exception:
                                     pass
                                 if str(canonical_value) != str(aka_value):
                                     add_message(f"Entity resolution: {placeholder} -> {canonical_value} (SQL canonical), {aka_value} ({canonical_value}) (justification AKA + canonical) (rapidfuzz, source table: {strtablename})")
                                 else:
                                     add_message(f"Entity resolution: {placeholder} -> {canonical_value} (SQL canonical and justification) (rapidfuzz, source table: {strtablename})")
-                                placeholder_after = (placeholder in sql_query) or (placeholder in justification)
+                                placeholder_after = (placeholder in sql_query) or (placeholder in justification) or (placeholder in answer)
                                 if placeholder_before and not placeholder_after:
                                     resolved = True
                                     break
                             continue
 
-                        placeholder_before = (placeholder in sql_query) or (placeholder in justification)
-                        resolved_docid, sql_query, justification = apply_entity_match_from_docid(
+                        placeholder_before = (placeholder in sql_query) or (placeholder in justification) or (placeholder in answer)
+                        resolved_docid, sql_query, justification, answer = apply_entity_match_from_docid(
                             cursor=cursor,
                             key=str(key),
                             cfg=search_cfg,
@@ -459,8 +466,9 @@ def resolve_entities(
                             message=f"Entity resolution: {{placeholder}} -> {{resolved}} (rapidfuzz, source table: {strtablename})",
                             current_sql_query=sql_query,
                             current_justification=justification,
+                            current_answer=answer,
                         )
-                        placeholder_after = (placeholder in sql_query) or (placeholder in justification)
+                        placeholder_after = (placeholder in sql_query) or (placeholder in justification) or (placeholder in answer)
                         if resolved_docid and placeholder_before and not placeholder_after:
                             resolved = True
                             break
@@ -506,8 +514,8 @@ def resolve_entities(
                     if docid is None:
                         continue
 
-                    placeholder_before = (placeholder in sql_query) or (placeholder in justification)
-                    resolved_docid, sql_query, justification = apply_entity_match_from_docid(
+                    placeholder_before = (placeholder in sql_query) or (placeholder in justification) or (placeholder in answer)
+                    resolved_docid, sql_query, justification, answer = apply_entity_match_from_docid(
                         cursor=cursor,
                         key=str(key),
                         cfg=search_cfg,
@@ -516,8 +524,9 @@ def resolve_entities(
                         message=f"Entity resolution: {{placeholder}} -> {{resolved}} (lang={doclang})",
                         current_sql_query=sql_query,
                         current_justification=justification,
+                        current_answer=answer,
                     )
-                    placeholder_after = (placeholder in sql_query) or (placeholder in justification)
+                    placeholder_after = (placeholder in sql_query) or (placeholder in justification) or (placeholder in answer)
                     if resolved_docid and placeholder_before and not placeholder_after:
                         resolved = True
                         break
@@ -525,9 +534,10 @@ def resolve_entities(
                 if resolved:
                     continue
 
-                if placeholder in sql_query or placeholder in justification:
+                if placeholder in sql_query or placeholder in justification or placeholder in answer:
                     sql_query = sql_query.replace(placeholder, raw_value_sql)
                     justification = justification.replace(placeholder, raw_value)
+                    answer = answer.replace(placeholder, raw_value)
                     add_message(f"Entity resolution: {placeholder} -> {raw_value} (raw fallback)")
 
     unresolved_placeholders = re.findall(r"{{[^}]+}}", sql_query or "")
@@ -541,6 +551,7 @@ def resolve_entities(
     return {
         "sql_query": sql_query,
         "justification": justification,
+        "answer": answer,
         "position_counter": position_counter,
         "messages": messages,
         "ambiguous_question_for_text2sql": ambiguous_question_for_text2sql,

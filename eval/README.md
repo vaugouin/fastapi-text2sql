@@ -1,318 +1,311 @@
-# 📚 DataFrame Assertion Evaluator - Complete Documentation
+# Text2SQL Evaluator
 
-**Version:** 1.1  
-**Last Updated:** 2026-02-20  
-**Status:** ✅ Production Ready  
-**File:** text2sql-eval.py
+**Version:** 2.1
+**Last Updated:** 2026-04-21
+**Status:** Production Ready
+**Main file:** [text2sql-eval.py](text2sql-eval.py)
 
----
-
-## 📋 Table of Contents
-
-1. [Quick Start](#1-quick-start)
-2. [Complete Feature Set](#2-complete-feature-set)
-3. [Assertion Types](#3-assertion-types)
-4. [Error Reporting](#4-error-reporting)
-5. [Database Integration](#5-database-integration)
-6. [Usage Examples](#6-usage-examples)
-7. [Testing](#7-testing)
-8. [Migration Guide](#8-migration-guide)
-9. [Troubleshooting](#9-troubleshooting)
-10. [Appendix](#10-appendix)
+End-to-end evaluation harness for the FastAPI Text2SQL service: calls the running `/search/text2sql` endpoint with a curated question bank, stores each JSON response, and scores the responses against three assertion types (entity extraction, SQL regex, result-set DataFrame). All results, scores, and timing metrics are persisted to a MariaDB table for historical analysis and regression tracking.
 
 ---
 
-# 1. Quick Start
+## Table of Contents
 
-## ⚡ 30-Second Overview
-
-The DataFrame assertion evaluator validates SQL query results against expected conditions and provides detailed error reporting.
-
-### Key Features
-
-✅ **Detailed error messages** - See exactly what failed and why  
-✅ **Correct IN semantics** - Required values must be present  
-✅ **Multiple assertion types** - COUNT(*), COUNT(column), CELL(row,col), IN, NOT IN, comparisons  
-✅ **AND/OR logic** - Complex multi-part assertions  
-✅ **HTML-escaped operators supported** - `&gt;`, `&lt;` are accepted in assertions (unescaped before parsing)
-✅ **Entity extraction assertions** - Validate `entity_extraction` output (0/1) via `ASSERTIONS_ENTITY_EXTRACTION`
-
----
-
-# 2. Complete Feature Set
-
-
-### Parameters
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `df_results` | `pd.DataFrame` | Query results to validate |
-| `strassertions` | `str` | Assertion string (SQL-like syntax) |
-
-### Returns
-
-| Type | Description |
-|------|-------------|
-| `bool` | Overall pass/fail status (True if all pass) |
-| `list[dict]` | List of detailed results for each assertion |
+1. [Architecture](#1-architecture)
+2. [Quick Start & CLI](#2-quick-start--cli)
+3. [Processes](#3-processes)
+4. [Assertion Types](#4-assertion-types)
+5. [Entity Extraction DSL](#5-entity-extraction-dsl)
+6. [Database Schema](#6-database-schema)
+7. [Error Reporting](#7-error-reporting)
+8. [Source Files](#8-source-files)
+9. [Performance Metrics](#9-performance-metrics)
+10. [Troubleshooting](#10-troubleshooting)
+11. [Version History](#11-version-history)
 
 ---
 
-# 3. Assertion Types
+## 1. Architecture
 
-## 3.1 COUNT(*) Assertions (Row count)
+The evaluator is a **single-pass multi-phase pipeline** driven by a numeric process index. Each phase reads from or writes to one of three evaluation tables:
 
-**Syntax:**
-```
-COUNT(*) <operator> <number>
-```
+| Table | Role |
+|---|---|
+| `T_WC_T2S_EVALUATION` | Question bank (EN + FR) + three assertion columns (`ASSERTIONS_ENTITY_EXTRACTION`, `ASSERTIONS_SQL_QUERY`, `ASSERTIONS_QUERY_RESULT`) |
+| `T_WC_T2S_EVALUATION_CATEGORY` | Taxonomy (categories of questions) |
+| `T_WC_T2S_EVALUATION_EXECUTION` | One row per `(eval_id, api_version, entity_extraction_model, text2sql_model, complex_model, language)` combination — stores the full JSON response, per-assertion scores, aggregated `ASSERTIONS_TOTAL_SCORE`, and timing breakdown |
 
-**Supported Operators:** `==`, `!=`, `<`, `>`, `<=`, `>=`
+Phases run in order: **translations → cleanup → run → process**. Rerunning the same command is idempotent — the `run` phase skips combinations already present in `T_WC_T2S_EVALUATION_EXECUTION`.
 
-**Examples:**
-```python
-"COUNT(*) == 5"           # Exactly 5 rows
-"COUNT(*) >= 3"           # At least 3 rows
-"COUNT(*) < 10"           # Less than 10 rows
-"(COUNT(*) == 5 OR COUNT(*) == 6)"  # 5 or 6 rows
-```
+Phase 11 hits the FastAPI server over HTTP. Phase 20 does the scoring offline against the stored `JSON_RESULT`. This separation means scoring can be re-run after an assertion correction without re-spending LLM tokens.
 
-**Error Output:**
-```
-Assertion #1: FAIL
-Statement: COUNT(*) == 5
-Message: Row count mismatch: Expected == 5, but got 3
-Expected: COUNT(*) == 5
-Actual: COUNT(*) = 3
-```
+---
 
-## 3.2 COUNT(COLUMN_NAME) Assertions (Unique value count)
+## 2. Quick Start & CLI
 
-`COUNT(<column_name>)` returns the number of **unique non-null** values in that DataFrame column.
+```bash
+# Docker (recommended)
+docker run -it --rm --network="host" --name text2sql-eval text2sql-eval-python-app
 
-**Syntax:**
-```
-COUNT(<column_name>) <operator> <number>
+# Custom parameters
+docker run -it --rm --network="host" --name text2sql-eval text2sql-eval-python-app \
+  --api-version 1.1.15 \
+  --entity-extraction-model gpt-4o \
+  --text2sql-model gpt-4o \
+  --complex-model gpt-4o \
+  --language fr
+
+# Launch via helper script (builds image, runs detached)
+./text2sql-eval.sh
 ```
 
-**Supported Operators:** `==`, `!=`, `<`, `>`, `<=`, `>=`
+All CLI arguments are optional; defaults are chosen so `docker run` without arguments reproduces the previous hardcoded configuration.
 
-**Examples:**
-```python
-"COUNT(ID_MOVIE) == 10"     # 10 unique non-null ID_MOVIE values
-"COUNT(ID_MOVIE) >= 3"      # at least 3 unique non-null values
+| Argument | Default | Description |
+|---|---|---|
+| `--entity-extraction-model` | `gpt-4o` | LLM model for entity extraction (matches API `llm_model_entity_extraction`) |
+| `--text2sql-model` | `gpt-4o` | LLM model for text-to-SQL generation |
+| `--complex-model` | `gpt-4o` | LLM model for complex-question processing / stronger-model retry |
+| `--api-version` | `1.1.14` | API version expected in the response; execution aborts on mismatch |
+| `--language` | `*` | Language filter: `en`, `fr`, or `*` for both |
+
+### Required environment variables
+
+The evaluator is configured via `.env` / container env vars:
+
+```bash
+# MariaDB (via citizenphil helpers)
+DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
+
+# Target FastAPI server
+TEXT2SQL_API_URL=http://localhost            # scheme + host only; port is auto-selected
+API_PORT_BLUE=8000
+API_PORT_GREEN=8001
+TEXT2SQL_API_KEY=<X-API-Key value>
+
+# Translations (phases 4/5/6)
+OPENAI_API_KEY=sk-...
 ```
 
-**Notes:**
-- Null values are ignored.
-- This is different from `COUNT(*)`, which is the number of rows.
+The evaluator computes the API port from the patch parity of `--api-version` (even → Blue, odd → Green), matching the Blue/Green deployment convention of the API itself.
 
-## 3.3 IN Assertions (Required Values)
+---
 
-**Syntax:**
-```
-<column_name> IN (<value1>, <value2>, ...)
-```
+## 3. Processes
 
-**Semantics:** All listed values MUST be present in the DataFrame. Extra values are OK.
+Phases are defined by `arrprocessscope` at [text2sql-eval.py:107](text2sql-eval.py#L107). Every phase reports progress via [citizenphil](citizenphil.py) server variables (`strtext2sqlevalcurrentprocess`, `strtext2sqlevalprocessesexecuted`, etc.) so long-running runs can be monitored externally.
 
-**Examples:**
-```python
-"ID_MOVIE IN (910, 22584, 11016)"
-"STATUS IN ('active', 'pending')"
-"RATING IN (7.5, 8.0, 8.5, 9.0)"
-```
+### Phase 4 — Translate categories EN→FR
+- Reads `T_WC_T2S_EVALUATION_CATEGORY` rows where `DESCRIPTION` is set and `DESCRIPTION_FR` is empty
+- Calls OpenAI gpt-4o (`translate_question_to_french`) to populate `DESCRIPTION_FR`
 
-**Success Output:**
-```
-Assertion #1: PASS
-Statement: ID_MOVIE IN (910, 22584, 11016)
-Message: All 3 required values found (DataFrame has 4 unique values)
-```
+### Phase 5 — Translate questions EN→FR
+- Reads `T_WC_T2S_EVALUATION` rows with `QUESTION` set and `QUESTION_FR` empty
+- Populates `QUESTION_FR` via gpt-4o
 
-**Failure Output:**
-```
-Assertion #1: FAIL
-Statement: ID_MOVIE IN (910, 22584, 11016)
-Message: Missing 1 required value(s) in 'ID_MOVIE': 11016
-Expected: All values present
-Actual: Missing: 11016. Found 3 unique values in DataFrame
-```
+### Phase 6 — Translate questions FR→EN
+- Reverse direction: fills `QUESTION` when only `QUESTION_FR` exists
 
-## 3.4 NOT IN Assertions (Forbidden Values)
+### Phase 10 — Cleanup soft-deleted executions
+- `DELETE FROM T_WC_T2S_EVALUATION_EXECUTION WHERE DELETED = 1`
 
-**Syntax:**
-```
-<column_name> NOT IN (<value1>, <value2>, ...)
-```
+### Phase 11 — Run evaluations against the FastAPI server
+- Selects questions where `IS_EVAL = 1` and at least one assertion column is non-empty
+- **Skips combinations already executed** for this `(api_version, entity_extraction_model, text2sql_model, complex_model, language)` tuple (no wasted API calls)
+- **One API call per `(question, language)` pair**: each call sends `ui_language` matching the question language (`"en"` for `QUESTION`, `"fr"` for `QUESTION_FR`). Even if `QUESTION == QUESTION_FR`, the API is called twice because the `answer` field in the response depends on `ui_language`
+- Uses the optional server variable `strtext2sqlevalrunevalid` to resume from a specific ID
+- Posts to `POST {TEXT2SQL_API_URL}/search/text2sql` with `complex_question_processing=True`, `retrieve_from_cache=False`, `store_to_cache=True`, `rows_per_page=100`, `ui_language=<lang>`
+- **Configuration guard**: if `api_version` / `llm_model_*` in the response do not match the CLI args, the script exits immediately to avoid burning tokens with a misconfigured server
+- Persists the full JSON response (including `answer`, `answer_anonymized`, `ui_language`) as `JSON_RESULT` in `T_WC_T2S_EVALUATION_EXECUTION`
+- Default page limit: `LIMIT 10` per run (see line 217). Remove for a full pass.
 
-**Semantics:** None of the listed values should be present in the DataFrame.
+### Phase 20 — Score stored executions
+For every `JSON_RESULT` in `T_WC_T2S_EVALUATION_EXECUTION` matching the CLI filters, the evaluator:
+1. Parses the JSON via `t2s_eval.safe_json_loads()`
+2. Builds a pandas DataFrame from `response_json["result"]` (each row is `{"index": int, "data": dict}`)
+3. Runs the three assertion evaluations (see §4) and computes per-assertion scores
+4. Aggregates `ASSERTIONS_TOTAL_SCORE = 1` iff every non-null per-assertion score is `1`
+5. Writes scores + `ASSERTIONS_RESULT_DETAILED` (human-readable multi-line trace) back to the execution row
+6. Accumulates pipeline timings to print a run summary
 
-**Examples:**
-```python
-"ID_MOVIE NOT IN (289, 3090, 11016)"
-"STATUS NOT IN ('deleted', 'banned')"
-"ERROR_CODE NOT IN (404, 500, 503)"
-```
+Phase 20 is pure offline scoring — re-runnable after assertion corrections without hitting the API.
 
-**Success Output:**
-```
-Assertion #1: PASS
-Statement: ID_MOVIE NOT IN (289, 3090)
-Message: All 5 values in 'ID_MOVIE' are not in the exclusion list
-```
+---
 
-**Failure Output:**
-```
-Assertion #1: FAIL
-Statement: ID_MOVIE NOT IN (289, 3090)
-Message: Found 1 value(s) in 'ID_MOVIE' that should NOT be in the list: 289
-Expected: ID_MOVIE NOT IN (289, 3090)
-Actual: Found violations: 289 (occurred 1 time(s))
-```
+## 4. Assertion Types
 
-## 3.5 Comparison Assertions
+Three assertion columns on `T_WC_T2S_EVALUATION`. Each is optional; omitting one stores `NULL` for that score and excludes it from `ASSERTIONS_TOTAL_SCORE`. HTML-escaped operators (`&gt;`, `&lt;`) are accepted — values are passed through `html.unescape()` before parsing.
 
-**Syntax:**
-```
-<column_name> <operator> <value>
-```
+### 4.1 `ASSERTIONS_ENTITY_EXTRACTION` — Two-Layer EE DSL
+Validates the `entity_extraction` dict returned by the API. Score column: `ASSERTIONS_ENTITY_EXTRACTION_SCORE` (0/1, or `NULL` when the response has no `entity_extraction`).
 
-**Supported Operators:** `==`, `!=`, `<`, `>`, `<=`, `>=`
-
-**Examples:**
-```python
-"IMDB_RATING >= 7.0"        # All ratings >= 7.0
-"PRICE < 100"               # All prices < 100
-"STATUS == 'active'"        # All status = 'active'
-"YEAR != 2024"              # No 2024 values
-```
-
-**Success Output:**
-```
-Assertion #1: PASS
-Statement: IMDB_RATING >= 7.0
-Message: All 5 values in 'IMDB_RATING' satisfy IMDB_RATING >= 7.0
-```
-
-**Failure Output:**
-```
-Assertion #1: FAIL
-Statement: IMDB_RATING >= 7.0
-Message: Found 2 value(s) in 'IMDB_RATING' that violate IMDB_RATING >= 7.0. Sample violations: 6.5, 6.0
-Expected: IMDB_RATING >= 7.0
-Actual: Found 2 violations: 6.5, 6.0
-```
-
-## 3.6 CELL(row, col) Assertions (Single cell)
-
-Use `CELL(row, col)` to assert on a single value by position. Indices are **0-based**.
-
-**Syntax:**
-```
-CELL(<row_index>, <col_index>) <operator> <value>
-```
-
-**Supported Operators:** `==`, `!=`, `<`, `>`, `<=`, `>=`
-
-**Examples:**
-```python
-"CELL(0, 0) == 40"
-"CELL(0, 1) > 500000"
-"CELL(0, 0) == 'Naples'"
-```
-
-## 3.7 Logical Operators (AND/OR)
-
-**Syntax:**
-```
-<assertion1> AND <assertion2>
-<assertion1> OR <assertion2>
-(<assertion1> OR <assertion2>) AND <assertion3>
-```
-
-**Examples:**
-```python
-# Simple AND
-"COUNT(*) == 5 AND RATING >= 7.0"
-
-# Simple OR
-"STATUS == 'active' OR STATUS == 'pending'"
-
-# Complex with parentheses
-"(COUNT(*) == 5 OR COUNT(*) == 6) AND ID_MOVIE IN (910, 22584)"
-
-# Multiple conditions
-"COUNT(*) >= 3 AND RATING >= 7.0 AND ID_MOVIE NOT IN (999)"
-```
-
-**Output:** Each assertion is evaluated separately and shown in the results.
-
-## 3.8 Entity Extraction Assertions (Two-layer EE DSL)
-
-Entity extraction assertions validate the `entity_extraction` dictionary returned by the API.
-
-They are evaluated by `ee_eval_two_layer()` (in `entity_extraction_eval_functions.py`) and return a **0/1 score** stored in `ASSERTIONS_ENTITY_EXTRACTION_SCORE`.
-
-**When it runs:**
-- `ASSERTIONS_ENTITY_EXTRACTION` is not null and not empty
-- `JSON_RESULT` contains a non-empty `entity_extraction` dictionary
-
-**Inputs:**
-- `entity_extraction` is expected to be a `dict` with at least:
-  - `{"question": "..."}`
-- `ASSERTIONS_ENTITY_EXTRACTION` contains a Layer-2 expression in a small DSL.
-
-**Layer 1 (hard gate):**
+**Layer 1 (hard gate, automatic):**
 - `entity_extraction["question"]` must be a non-empty string
-- Placeholders in `question` (e.g. `{{Movie_title1}}`) must match entity keys present in the dict (excluding `question`)
-- Each entity value must be a non-empty string
+- Placeholders inside the anonymized question (e.g. `{{Movie_title1}}`) must match the set of entity keys exactly (order-insensitive), excluding `"question"`
+- Every entity value must be a non-empty string
 
-**Layer 2 (expression DSL):**
-- Boolean operators: `AND`, `OR`, `NOT` (parentheses supported)
-- Functions:
-  - `eq(a, b)`
-  - `nonempty(x)`
-  - `seteq(listA, listB)`
-  - `placeholders($.question)`
-  - `entity_keys($)`
-  - `keys($)`
-  - `matches(x, /regex/flags)` (flags: `i`, `m`, `s`)
+**Layer 2 (gold-value expression DSL):** evaluated by `ee_eval_two_layer()` in [entity_extraction_eval_functions.py](entity_extraction_eval_functions.py). Fail-closed: any parsing/eval error returns `0`.
+
+Supported:
+- Boolean operators: `AND`, `OR`, `NOT`, parentheses
+- Functions: `eq(a, b)`, `nonempty(x)`, `seteq(listA, listB)`, `placeholders($.question)`, `entity_keys($)`, `keys($)`, `matches(x, /regex/flags)` (flags: `i`, `m`, `s`)
 - Root key access: `$.<Key>`
 
-**Syntax example (no entities):**
+Examples:
 ```
 eq($.question, "What are the highest-grossing movies of all time?") AND seteq(entity_keys($), [])
-```
 
-**Syntax example (with entities):**
-```
 (eq($.question, "{{Movie_title1}} ({{Release_year1}})") AND eq($.Movie_title1, "Tommy") AND eq($.Release_year1, "1975"))
+
+(matches($.question, /^best .+ movies$/i) AND eq($.Person_name1, "Martin Scorsese"))
 ```
 
-**Notes:**
-- Newlines inside expressions can cause evaluation failures unless the expression is wrapped in parentheses.
-- Expression evaluation is fail-closed: any parsing/eval error results in score `0`.
+> Wrap multi-line expressions in parentheses — bare newlines can break the DSL parser.
+
+### 4.2 `ASSERTIONS_SQL_QUERY` — SQL regex
+A plain Python regex matched against `response_json["sql_query"]` via `re.search()`. Score column: `ASSERTIONS_SQL_QUERY_SCORE` (0/1, or `NULL` when absent).
+
+Examples:
+```regex
+SELECT\s+.*FROM\s+T_WC_T2S_MOVIE
+JOIN\s+T_WC_T2S_PERSON_MOVIE
+ORDER\s+BY\s+IMDB_RATING_WEIGHTED\s+DESC
+```
+
+Common failure modes reported in the detailed trace:
+- `sql_query` empty (ambiguous question / Text2SQL error)
+- Regex error (`re.error`)
+
+### 4.3 `ASSERTIONS_QUERY_RESULT` — DataFrame assertion DSL
+Validates the result set via `t2s_eval.evaluate_dataframe_assertions()` in [text2sql_eval_functions.py](text2sql_eval_functions.py). Score column: `ASSERTIONS_RESULT_SCORE` (0/1).
+
+Supported forms (combinable with `AND` / `OR` and parentheses):
+
+| Form | Semantics |
+|---|---|
+| `COUNT(*) <op> <n>` | Row count comparison (`==`, `!=`, `<`, `>`, `<=`, `>=`) |
+| `COUNT(<col>) <op> <n>` | Unique non-null value count for a column |
+| `CELL(<row>, <col>) <op> <value>` | Single-cell check, 0-indexed positions; values may be int, float, or quoted string |
+| `<col> IN (<v1>, <v2>, …)` | All listed values must be present (extra values in the DataFrame are OK) |
+| `<col> NOT IN (<v1>, …)` | None of the listed values may appear |
+| `<col> <op> <value>` | Every row must satisfy the comparison |
+
+Examples:
+```
+COUNT(*) == 5
+COUNT(ID_MOVIE) >= 3
+CELL(0, 0) == 'GoodFellas'
+ID_MOVIE IN (910, 22584, 11016)
+ID_MOVIE NOT IN (289, 3090)
+IMDB_RATING >= 7.0
+(COUNT(*) == 5 OR COUNT(*) == 6) AND ID_MOVIE IN (910, 22584) AND RATING >= 7.0
+```
+
+Behaviour on an empty DataFrame: passes iff the assertion is exactly `COUNT(*) == 0`; otherwise fails.
+
+### 4.4 Aggregated score
+`ASSERTIONS_TOTAL_SCORE = 1` iff **all non-null** component scores are `1`. If only one assertion is provided, `TOTAL_SCORE` reflects just that one. If none are provided, it stays `NULL`.
 
 ---
 
-# 4. Error Reporting
+## 5. Entity Extraction DSL — Reference
 
-## 4.1 Console Output Format
+Implemented in [entity_extraction_eval_functions.py](entity_extraction_eval_functions.py) (`ee_eval_two_layer`, helpers `_placeholders`, `_entity_keys`, `_keys_root`, `_nonempty`, `_eval_layer2`).
+
+### Layer 1 gate — what it enforces
+1. `question` key is a non-empty string
+2. `sorted(placeholders(question)) == sorted(entity_keys(ee))`
+3. Every entity value is a non-empty string
+
+If any Layer 1 check fails, `ee_eval_two_layer` returns `False` immediately; Layer 2 is not evaluated.
+
+### Layer 2 expression grammar
+- Literals: `"..."` (double-quoted string), `[...]` (list literal for `seteq`)
+- Root access: `$` refers to the entire `entity_extraction` dict; `$.<Key>` dereferences a top-level key
+- Functions return booleans or values used by outer boolean operators
+- `matches(x, /regex/flags)` — the regex delimiters are literal slashes; trailing flags supported: `i`, `m`, `s`
+
+**Fail-closed** — any exception during parsing or evaluation produces a `0`, never a `1`.
+
+---
+
+## 6. Database Schema
+
+### `T_WC_T2S_EVALUATION` (question bank)
+Key columns:
+- `ID_T2S_EVALUATION` (PK)
+- `QUESTION`, `QUESTION_FR` — dual-language source text
+- `ID_T2S_EVALUATION_CATEGORY` — taxonomy FK
+- `IS_EVAL`, `IS_SAMPLE`, `DELETED`, `DISPLAY_ORDER`
+- `ASSERTIONS_QUERY_RESULT`, `ASSERTIONS_ENTITY_EXTRACTION`, `ASSERTIONS_SQL_QUERY` — the three assertion strings
+- Metadata: `LONG_DESC`, `MOT_CLE`, `MOT_CLE_AUTO`, `DAT_CREAT`, `TIM_UPDATED`
+
+### `T_WC_T2S_EVALUATION_CATEGORY` (taxonomy)
+`ID_T2S_EVALUATION_CATEGORY`, `DESCRIPTION`, `DESCRIPTION_FR`, `ID_PARENT`, `LANG`, soft-delete / audit columns.
+
+### `T_WC_T2S_EVALUATION_EXECUTION` (results)
+One row per execution. Key columns:
+- `ID_ROW` (PK)
+- `ID_T2S_EVALUATION` (FK to question)
+- `LANG` — `en` or `fr`
+- `API_VERSION` — stored in `XXX.YYY.ZZZ` form (via `t2s_eval.format_api_version()`)
+- `ENTITY_EXTRACTION_MODEL`, `TEXT2SQL_MODEL`, `COMPLEX_MODEL` — the tuple that disambiguates executions
+- `JSON_RESULT` — full API response (mediumtext)
+- Timings: `ENTITY_EXTRACTION_PROCESSING_TIME`, `TEXT2SQL_PROCESSING_TIME`, `EMBEDDINGS_PROCESSING_TIME`, `QUERY_EXECUTION_TIME`, `TOTAL_PROCESSING_TIME`
+- Scores: `ASSERTIONS_ENTITY_EXTRACTION_SCORE`, `ASSERTIONS_SQL_QUERY_SCORE`, `ASSERTIONS_RESULT_SCORE`, `ASSERTIONS_TOTAL_SCORE`
+- Detail trace: `ASSERTIONS_RESULT_DETAILED` (human-readable)
+- Costs (reserved): `ENTITY_EXTRACTION_COST`, `TEXT2SQL_COST`, `TOTAL_COST`
+- Audit: `DELETED`, `DAT_CREAT`, `TIM_UPDATED`, `TIM_EXECUTION`
+
+Schema DDL lives at [T2S_EVALUATION-tables.sql](T2S_EVALUATION-tables.sql) and [T2S_EVALUATION-tables-with-data.sql](T2S_EVALUATION-tables-with-data.sql).
+
+### Common queries
+
+```sql
+-- All failures for the current run
+SELECT ID_ROW, ID_T2S_EVALUATION, LANG, ASSERTIONS_RESULT_DETAILED
+FROM T_WC_T2S_EVALUATION_EXECUTION
+WHERE DELETED = 0
+  AND API_VERSION = '001.001.015'
+  AND ASSERTIONS_TOTAL_SCORE = 0;
+
+-- Score rollup by model
+SELECT TEXT2SQL_MODEL,
+       SUM(ASSERTIONS_TOTAL_SCORE) / COUNT(*) AS pass_rate,
+       COUNT(*) AS n
+FROM T_WC_T2S_EVALUATION_EXECUTION
+WHERE DELETED = 0 AND API_VERSION = '001.001.015'
+GROUP BY TEXT2SQL_MODEL;
+
+-- Entity extraction regressions only
+SELECT ID_ROW, ID_T2S_EVALUATION
+FROM T_WC_T2S_EVALUATION_EXECUTION
+WHERE ASSERTIONS_ENTITY_EXTRACTION_SCORE = 0;
+
+-- Specific error patterns
+SELECT ID_ROW FROM T_WC_T2S_EVALUATION_EXECUTION
+WHERE ASSERTIONS_RESULT_DETAILED LIKE '%Missing%required value%';
+```
+
+---
+
+## 7. Error Reporting
+
+### 7.1 Console output (Phase 20)
 
 ```
-================================================================================
+========================================
 Evaluation Result: FAIL ✗
-================================================================================
+========================================
 
-Assertions: (COUNT(*) == 5 OR COUNT(*) == 6) AND 
-ID_MOVIE IN (488, 10178, 5996, 34689, 63618, 42880) AND 
+Assertions on result set: (COUNT(*) == 5 OR COUNT(*) == 6) AND
+ID_MOVIE IN (488, 10178, 5996, 34689, 63618, 42880) AND
 ID_MOVIE NOT IN (289, 3090, 11016, 910, 963, 27725)
 DataFrame shape: 4 rows, 5 columns
 
-================================================================================
+========================================
 Detailed Results:
-================================================================================
+========================================
 
 Assertion #1: ✓ PASS
   Statement: COUNT(*) == 5
@@ -328,351 +321,136 @@ Assertion #3: ✗ FAIL
   Expected: ID_MOVIE NOT IN (289, 3090, 11016, 910, 963, 27725)
   Actual: Found violations: 289 (occurred 1 time(s))
 
-================================================================================
+========================================
+
+ASSERTIONS_SQL_QUERY: PASS
+Regex: ORDER\s+BY\s+IMDB_RATING_WEIGHTED
+SQL query: SELECT ... ORDER BY IMDB_RATING_WEIGHTED DESC LIMIT 100
+
+ASSERTIONS_ENTITY_EXTRACTION: PASS
 ```
 
-## 4.2 Error Types
+### 7.2 Typical failure messages
 
-### 1. Count Mismatch
-```
-Message: Row count mismatch: Expected == 5, but got 3
-Expected: COUNT(*) == 5
-Actual: COUNT(*) = 3
-```
-
-### 2. Missing Required Values (IN)
-```
-Message: Missing 1 required value(s) in 'ID_MOVIE': 11016
-Expected: All values present
-Actual: Missing: 11016. Found 3 unique values in DataFrame
-```
-
-### 3. Forbidden Values Found (NOT IN)
-```
-Message: Found 1 value(s) in 'ID_MOVIE' that should NOT be in the list: 289
-Expected: ID_MOVIE NOT IN (289, 3090)
-Actual: Found violations: 289 (occurred 1 time(s))
-```
-
-### 4. Comparison Violations
-```
-Message: Found 2 value(s) in 'IMDB_RATING' that violate IMDB_RATING >= 7.0. Sample: [6.5, 6.0]
-Expected: IMDB_RATING >= 7.0
-Actual: Found 2 violations: [6.5, 6.0]
-```
-
-### 5. Column Not Found
-```
-Message: Column 'NONEXISTENT_COLUMN' does not exist in DataFrame
-Expected: Column 'NONEXISTENT_COLUMN' to exist
-Actual: Available columns: ID_MOVIE, TITLE
-```
+| Cause | Message |
+|---|---|
+| Count mismatch | `Row count mismatch: Expected == 5, but got 3` |
+| Missing IN values | `Missing 1 required value(s) in 'ID_MOVIE': 11016` |
+| Forbidden NOT IN values | `Found 1 value(s) in 'ID_MOVIE' that should NOT be in the list: 289` |
+| Comparison violation | `Found 2 value(s) in 'IMDB_RATING' that violate IMDB_RATING >= 7.0` |
+| Unknown column | `Column 'NONEXISTENT_COL' does not exist in DataFrame` |
+| SQL regex without sql_query | `Reason: sql_query is missing or empty in JSON_RESULT` |
+| EE without entity_extraction | `ASSERTIONS_ENTITY_EXTRACTION: SKIPPED — entity_extraction dict is missing or empty in JSON_RESULT` |
 
 ---
 
-# 5. Database Integration
-
-## 5.2 Storage Format
-
-### Example Stored String
-
-```
-OVERALL: FAIL
-================================================================================
-
-Assertion #1: PASS
-Statement: COUNT(*) == 4
-Message: Row count check passed
-
-Assertion #2: FAIL
-Statement: ID_MOVIE NOT IN (289)
-Message: Found 1 value(s) in 'ID_MOVIE' that should NOT be in the list: 289
-Expected: ID_MOVIE NOT IN (289)
-Actual: Found violations: 289 (occurred 1 time(s))
-```
-
-## 5.3 Query Examples
-
-### Find All Failures
-
-```sql
-SELECT ID_ROW, ASSERTIONS_DETAILED_RESULTS 
-FROM T_WC_T2S_EVALUATION_EXECUTION 
-WHERE ASSERTIONS_RESULT_SCORE = 0;
-```
-
-### Find Entity Extraction Assertion Failures
-
-```sql
-SELECT ID_ROW, ASSERTIONS_ENTITY_EXTRACTION_SCORE, ASSERTIONS_RESULT_DETAILED
-FROM T_WC_T2S_EVALUATION_EXECUTION
-WHERE ASSERTIONS_ENTITY_EXTRACTION_SCORE = 0;
-```
-
-### Search for Specific Error Types
-
-```sql
--- Count mismatches
-SELECT * FROM T_WC_T2S_EVALUATION_EXECUTION 
-WHERE ASSERTIONS_DETAILED_RESULTS LIKE '%Row count mismatch%';
-
--- Missing required values
-SELECT * FROM T_WC_T2S_EVALUATION_EXECUTION 
-WHERE ASSERTIONS_DETAILED_RESULTS LIKE '%Missing%required value%';
-
--- Forbidden values found
-SELECT * FROM T_WC_T2S_EVALUATION_EXECUTION 
-WHERE ASSERTIONS_DETAILED_RESULTS LIKE '%should NOT be in the list%';
-```
----
-
-# 6. Usage Examples
-
-## 6.1 Real-World Example (Your Use Case)
-
-```python
-# Your actual data
-df_results = pd.DataFrame({
-    'ID_MOVIE': [910, 22584, 11016, 787326, 16227, 324241],
-    'MOVIE_TITLE': ['The Big Sleep', 'To Have and Have Not', 
-                    'Key Largo', 'The Petrified Forest', 
-                    'Dark Passage', 'Discovering Treasure'],
-    'IMDB_RATING': [7.9, 7.8, 7.7, 7.6, 7.5, 7.0]
-})
-
-# Your assertions
-strassertions = "ID_MOVIE IN (910, 22584, 11016, 787326, 16227)"
-
-# Evaluate
-evaluation_result, detailed_results = evaluate_dataframe_assertions(df_results, strassertions)
-
-# Result: PASS ✓
-# Message: All 5 required values found (DataFrame has 6 unique values)
-# The extra value (324241) is OK!
-```
-
----
-
-# 7. Testing
-
-## 7.1 Test Files
-
-### demo_detailed_errors.py
-- 7 comprehensive examples
-- Demonstrates all error types
-- Shows detailed output format
-- Run: `python demo_detailed_errors.py`
-
-### demo_database_storage.py
-- Database format examples
-- Storage demonstration
-- Query examples
-- Run: `python demo_database_storage.py`
-
-### test_philippe_example.py
-- Tests your exact use case
-- Verifies IN assertion fix
-- Run: `python test_philippe_example.py`
-
-### test_corrected_in_behavior.py
-- 5 test cases for IN assertions
-- Tests new behavior
-- Run: `python test_corrected_in_behavior.py`
-
-## 7.2 Expected Results
-
-All tests should show:
-- ✓ Detailed error messages for failures
-- ✓ Your example passes with extra values
-- ✓ Proper IN assertion behavior
-- ✓ Formatted database strings
-
----
-
-# 8. Migration Guide
-
-## 8.1 IN Assertion Behavior Change
-
-
-### New Behavior (Correct)
-`IN` checks required values - DataFrame can have extra values
-
-```python
-DataFrame: [910, 22584, 11016, 324241]
-Assertion: "ID_MOVIE IN (910, 22584, 11016)"
-Result: PASS (all 3 required values found, extra OK)
-```
-
-### Migration Impact
-
-**Breaking Change:** If you were using IN as a whitelist, assertions may now pass when they failed before.
-
-**Fix:** Review your assertions. If you truly need whitelist behavior, you may need a different approach.
-
----
-
-# 9. Troubleshooting
-
-## 9.1 Assertion Syntax Issues
-
-### Invalid Syntax
-```python
-# Wrong
-"ID_MOVIE IN 910, 22584"  # Missing parentheses
-
-# Correct
-"ID_MOVIE IN (910, 22584)"
-```
-
-### Column Names
-```python
-# Wrong (column doesn't exist)
-"NONEXISTENT_COL >= 5"
-
-# Error message will show available columns
-```
-
-### Operators
-```python
-# Wrong
-"COUNT(*) = 5"  # Single =
-
-# Correct
-"COUNT(*) == 5"  # Double ==
-```
-
-## 9.3 Performance Issues
-
-### Large DataFrames
-- IN/NOT IN assertions scan entire column
-- Use indexed database queries when possible
-- Consider chunking very large validations
-
-### Many Assertions
-- Each assertion is evaluated separately
-- Complex OR logic requires multiple evaluations
-- Optimize by combining related assertions
-
----
-
-# 10. Appendix
-
-## 10.1 Version History
-
-| Version | Date | Changes |
-|---------|------|---------|
-| 2.3 | 2026-02-20 | Added CELL(row,col) and COUNT(column) unique count |
-| 2.2 | 2025-02-08 | Added database storage |
-| 2.1 | 2025-02-08 | Fixed IN assertion semantics |
-| 2.0 | 2025-02-08 | Added detailed error reporting |
-| 1.0 | 2025-02-07 | Initial implementation |
-
-## 10.2 File Locations
+## 8. Source Files
 
 | File | Purpose |
-|------|---------|
-| `text2sql-eval.py` | Main evaluation script |
-| `demo_detailed_errors.py` | Error reporting demo |
-| `demo_database_storage.py` | Database storage demo |
-| `test_philippe_example.py` | Your use case test |
-| `test_corrected_in_behavior.py` | IN assertion tests |
-
-## 10.3 Key Line Numbers in text2sql-eval.py
-
-| Line | Function/Section |
-|------|------------------|
-| 249+ | `evaluate_dataframe_assertions()` |
-| 370 | `_evaluate_single_assertion()` |
-| 380 | `_evaluate_count_assertion()` |
-| 428 | `_evaluate_in_assertion()` |
-| 528 | `_evaluate_comparison_assertion()` |
-| 613 | `format_detailed_results_for_db()` |
-| 640 | Integration point - evaluation call |
-| 671 | Database storage |
-
-## 10.4 Supported Python Libraries
-
-- pandas (DataFrame operations)
-- re (Regular expressions)
-- Standard library only (no external dependencies for evaluator)
-
-## 10.5 Database Compatibility
-
-- MySQL (TEXT, LONGTEXT)
-- PostgreSQL (TEXT)
-- MariaDB (TEXT, LONGTEXT)
-- SQLite (TEXT)
-
-## 10.6 Best Practices
-
-1. ✅ Always use absolute paths in file operations
-2. ✅ Store detailed results in database for audit trail
-3. ✅ Use TEXT type for typical assertions (1-5)
-4. ✅ Use LONGTEXT for complex assertions (10+)
-5. ✅ Test assertions with sample data first
-6. ✅ Keep assertions readable with line breaks
-7. ✅ Use meaningful column names in assertions
-8. ✅ Document complex assertion logic
-9. ✅ Monitor assertion performance
-10. ✅ Review failed assertions regularly
-
-## 12.7 Performance Characteristics
-
-| Operation | Performance | Notes |
-|-----------|-------------|-------|
-| COUNT(*) | O(1) | Just len(df) |
-| COUNT(column) | O(n) | nunique() on the column (unique non-null values) |
-| CELL(row,col) | O(1) | Constant-time access by iloc |
-| IN | O(n) | Scans column |
-| NOT IN | O(n) | Scans column |
-| Comparison | O(n) | Scans column |
-| Multiple assertions | O(n * m) | n=rows, m=assertions |
-
-## 12.8 String Length Estimates
-
-| Assertions | Characters | MySQL Type |
-|-----------|------------|------------|
-| 1-2 simple | 200-400 | TEXT |
-| 3-5 simple | 500-1000 | TEXT |
-| 5-10 simple | 1000-2000 | TEXT |
-| 10+ complex | 2000-5000 | LONGTEXT |
-
-## 12.9 Benefits Summary
-
-✅ **90% faster debugging** - Instant problem identification  
-✅ **Correct IN semantics** - Required values check  
-✅ **Complete audit trail** - All results in database  
-✅ **Production ready** - Tested and documented  
-✅ **Easy to use** - Simple API  
-✅ **Comprehensive** - Covers all assertion types  
-✅ **Detailed errors** - Know exactly what failed  
-✅ **Database integration** - Automatic storage  
-
-## 12.10 Contact & Support
-
-For issues or questions:
-1. Check this documentation
-2. Review test files for examples
-3. Run demo scripts
-4. Check troubleshooting section
+|---|---|
+| [text2sql-eval.py](text2sql-eval.py) | Main runner — phase dispatch, API calls, DB I/O, scoring loop |
+| [text2sql_eval_functions.py](text2sql_eval_functions.py) | `evaluate_dataframe_assertions()`, `_evaluate_*_assertion()` helpers, `format_detailed_results_for_db()`, `safe_json_loads()`, `format_api_version()` |
+| [entity_extraction_eval_functions.py](entity_extraction_eval_functions.py) | `ee_eval_two_layer()` + DSL helpers (`_placeholders`, `_entity_keys`, `_eval_layer2`, …) |
+| [citizenphil.py](citizenphil.py) | Shared DB / server-variable / SQL-update helpers (`f_getconnection`, `f_getservervariable`, `f_setservervariable`, `f_sqlupdatearray`, `convert_seconds_to_duration`, `paris_tz`) |
+| [test-cell-condition.py](test-cell-condition.py) | Standalone sanity check for `CELL()` assertions |
+| [Dockerfile](Dockerfile) | `python:3.11-slim` base; installs `requirements.txt`; entrypoint `python ./text2sql-eval.py` |
+| [text2sql-eval.sh](text2sql-eval.sh) | Build image + run container (detached, host network) |
+| [requirements.txt](requirements.txt) | `requests`, `pymysql`, `pandas>=1.5`, `numpy>=1.21`, `pytest>=7`, `pytz`, `python-dotenv>=1`, `openai>=1` |
+| [T2S_EVALUATION-tables.sql](T2S_EVALUATION-tables.sql) | DDL for the three evaluation tables |
+| [T2S_EVALUATION-tables-with-data.sql](T2S_EVALUATION-tables-with-data.sql) | DDL + seed question bank |
+| [how-many-samples-evals-by-category.ipynb](how-many-samples-evals-by-category.ipynb) / `.sql` | Coverage-by-category reporting notebook |
+| [data/](data/) | Ancillary fixtures / export dumps |
 
 ---
 
-# 🎉 Summary
+## 9. Performance Metrics
 
-The DataFrame assertion evaluator provides:
+At the end of Phase 20 the evaluator prints the run summary:
 
-1. **Detailed Error Reporting** - See exactly what failed and why
-2. **Correct IN Semantics** - Required values must be present (extra values OK)
-3. **Multiple Assertion Types** - COUNT, IN, NOT IN, comparisons, AND/OR logic
-4. **Production Ready** - Tested, documented, and deployed
+```
+FastAPI Text2SQL API version: 1.1.15
+Entity extraction model: gpt-4o
+Text2SQL model: gpt-4o
+Complex model: gpt-4o
+Language: *
+Global score: 87/120 = 72.50%
 
-**Status: ✅ Ready for Production Use**
+Sum entity_extraction_processing_time: 42.131s (00:00:42) (n=120)
+Avg entity_extraction_processing_time: 0.351s (n=120)
+Sum text2sql_processing_time: 185.904s (00:03:05) (n=120)
+Avg text2sql_processing_time: 1.549s (n=120)
+Sum embeddings_processing_time: 12.020s (00:00:12) (n=120)
+Avg embeddings_processing_time: 0.100s (n=120)
+Sum query_execution_time: 6.711s (00:00:06) (n=120)
+Avg query_execution_time: 0.056s (n=120)
+Sum total_processing_time: 248.422s (00:04:08) (n=120)
+Avg total_processing_time: 2.070s (n=120)
+
+Total runtime: 312 seconds (00:05:12)
+```
+
+Timings are read from the API response and stored per execution row — you can SQL-aggregate them any way you like.
+
+### Assertion evaluation complexity
+| Operation | Complexity | Notes |
+|---|---|---|
+| `COUNT(*)` | O(1) | `len(df)` |
+| `COUNT(column)` | O(n) | `df[col].dropna().nunique()` |
+| `CELL(r, c)` | O(1) | `df.iloc[r, c]` |
+| `IN` / `NOT IN` | O(n) | Column scan |
+| Comparison | O(n) | Column scan |
+| Multiple assertions | O(n × m) | n rows, m assertions |
+| EE Layer 1+2 | O(p + k + e) | p = placeholders, k = keys, e = expression size |
+| SQL regex | O(|sql_query|) | Standard `re.search()` |
 
 ---
 
-**Documentation Version:** 1.1  
-**Last Updated:** 2026-02-20  
-**Maintainer:** Claude + Philippe  
-**File:** `text2sql-eval.py`  
-**Status:** ✅ Production Ready
+## 10. Troubleshooting
+
+### Evaluator exits immediately with "API version mismatch"
+Your `--api-version` (and/or `--*-model`) does not match what the server actually returned in `response_json["api_version"]` / `llm_model_*`. The guard prevents spending tokens on a wrong configuration. Either rebuild the API container with the expected version or pass `--api-version` matching the running server.
+
+### Assertion syntax pitfalls
+```python
+"ID_MOVIE IN 910, 22584"    # wrong — missing parentheses
+"ID_MOVIE IN (910, 22584)"  # correct
+
+"COUNT(*) = 5"              # wrong — single =
+"COUNT(*) == 5"             # correct
+
+"NONEXISTENT_COL >= 5"      # error message will list available columns
+```
+
+### EE expression eval returns 0 but looks correct
+- The expression must be a single logical line — wrap multi-line text in `(...)` or concatenate
+- The assertion engine is fail-closed: any `re.error`, `SyntaxError`, or missing key yields `0`
+- Placeholder names in `question` must match entity keys exactly (case-sensitive; `{{Movie_title1}}` ↔ `Movie_title1`)
+
+### Phase 11 skips everything
+- Every `(api_version, model triple, language)` combination is already present in `T_WC_T2S_EVALUATION_EXECUTION` — this is the intended re-entrant behaviour
+- To force a re-run, soft-delete the matching executions (`UPDATE ... SET DELETED = 1`) and run Phase 10 first, or bump the API version
+
+### Phase 20 produces no output
+- No executions match the CLI filter tuple — check `API_VERSION` is stored in `XXX.YYY.ZZZ` form
+- `JSON_RESULT` may be empty or unparseable — `safe_json_loads()` will raise
+
+### Questions without assertions
+Phase 11 only selects questions where at least one assertion column is non-empty. Rows with all three assertion columns null are ignored — that's how the question bank distinguishes "sample" entries from "evaluation" entries (also controlled by `IS_EVAL`).
+
+---
+
+## 11. Version History
+
+| Version | Date | Changes |
+|---|---|---|
+| 2.1 | 2026-04-21 | Added `ui_language` parameter to API calls (one call per question×language pair); response now includes `answer`, `answer_anonymized`, `ui_language` in `JSON_RESULT`; removed EN/FR question-text deduplication since the `answer` field is language-specific |
+| 2.0 | 2026-04-21 | Documented multi-phase pipeline, CLI, `ASSERTIONS_SQL_QUERY` regex scoring, `ASSERTIONS_TOTAL_SCORE` aggregation, EN/FR dedupe, language filter, complex-question processing flag, timing rollup |
+| 1.2 | 2026-02-20 | Added `CELL(row, col)` and `COUNT(column)` unique-value assertions |
+| 1.1 | 2026-02-10 | Added two-layer entity extraction DSL (`ee_eval_two_layer`) |
+| 1.0 | 2025-02-07 | Initial DataFrame assertion evaluator |
+
+---
+
+**Last Updated:** 2026-04-21
+**Maintainer:** See repository owner
+**Primary entry point:** [text2sql-eval.py](text2sql-eval.py)
