@@ -18,6 +18,7 @@ from urllib.parse import unquote_plus
 import pymysql.cursors
 from dotenv import load_dotenv
 import re
+import html
 import openai
 import chromadb
 import cleanup
@@ -222,6 +223,7 @@ class Text2SQLRequest(BaseModel):
     llm_model_complex: Optional[str] = "default"
     complex_question_processing: bool = False
     complex_question_already_resolved: bool = False
+    ui_language: Optional[str] = "en"
     
     @model_validator(mode='after')
     def validate_question_or_hashed(self):
@@ -241,6 +243,8 @@ class Text2SQLResponse(BaseModel):
     sql_query_anonymized: str = ""
     justification: str
     justification_anonymized: str = ""
+    answer: str = ""
+    answer_anonymized: str = ""
     error: str
     entity_extraction: Optional[dict] = None
     question_anonymized: Optional[str] = None
@@ -263,6 +267,7 @@ class Text2SQLResponse(BaseModel):
     llm_model_entity_extraction: str
     llm_model_text2sql: str
     llm_model_complex: str
+    ui_language: str = "en"
     api_version: str
     messages: List[TextMessage] = []
     result: List[dict] = []  # Array of records with index and data
@@ -404,6 +409,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     sql_query_anonymized = None
     justification = None
     justification_anonymized = None
+    answer = None
+    answer_anonymized = None
     error_text2sql = None
     llm_defined_limit = None
     llm_defined_offset = None
@@ -418,6 +425,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     embeddings_cache_search_time = 0.0
     query_execution_time = 0.0
     total_processing_time = 0.0
+    sql_execution_failed = False
     ambiguous_question_for_text2sql = 0
     strentityextractionmodel = entity.strentityextractionmodeldefault
     if request.llm_model_entity_extraction and request.llm_model_entity_extraction != "default":
@@ -453,6 +461,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 connection,
                 request.question_hashed,
                 strapiversionformatted,
+                ui_language=request.ui_language or "en",
             )
             if not cache_result_exact.get("found"):
                 print("Exact question hash not found in the SQL cache")
@@ -472,6 +481,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 connection,
                 request.question,
                 strapiversionformatted,
+                ui_language=request.ui_language or "en",
             )
             if not cache_result_exact.get("found"):
                 print("Exact question not found in the SQL cache")
@@ -494,6 +504,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             sql_query = cache_result_exact["sql_query"]
             sql_query_anonymized = cache_result_exact["sql_query_raw"]
             justification = cache_result_exact.get("justification", "")
+            answer = cache_result_exact.get("answer", "")
     else:
         messages.append(TextMessage(
             position=position_counter, 
@@ -585,6 +596,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 connection,
                 input_text_anonymized,
                 strapiversionformatted,
+                ui_language=request.ui_language or "en",
             )
             
             if cache_result_anonymized.get("found"):
@@ -605,8 +617,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     position_counter += 1
 
                 justification = cache_result_anonymized.get("justification", "")
+                answer = cache_result_anonymized.get("answer", "")
                 sql_query_anonymized = sql_query
                 justification_anonymized = justification
+                answer_anonymized = answer
             else:
                 print("Anonymized question not found in the SQL cache")
                 print("So we will look for the anonymized question in the questions embeddings cache")
@@ -698,6 +712,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                                     sql_query_anonymized = sql_query
                                     justification = metadata.get('justification', '')
                                     justification_anonymized = justification
+                                    answer = metadata.get('answer', '')
+                                    answer_anonymized = answer
                                     print(f"Retrieved SQL query from questions embeddings cache: {sql_query}")
                                     messages.append(TextMessage(
                                         position=position_counter,
@@ -744,7 +760,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         text=f"Generating SQL using LLM model '{strtext2sqlmodel}'."
                     ))
                     position_counter += 1
-                    json_content = t2s.f_text2sql(input_text_anonymized, strtext2sqlmodel)
+                    json_content = t2s.f_text2sql(input_text_anonymized, strtext2sqlmodel, ui_language=request.ui_language or "en")
                     if not isinstance(json_content, dict):
                         json_content = {"error": str(json_content)}
 
@@ -757,6 +773,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             sql_query_anonymized = ""
                             justification = json_content.get('justification', '')
                             justification_anonymized = justification
+                            answer = json_content.get('answer', '')
+                            answer_anonymized = answer
                             error_text2sql = json_content.get('error', 'Text2SQL failed to return sql_query')
                             messages.append(TextMessage(
                                 position=position_counter,
@@ -770,6 +788,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             sql_query_anonymized = sql_query
                             justification = json_content.get('justification', '')
                             justification_anonymized = justification
+                            answer = json_content.get('answer', '')
+                            answer_anonymized = answer
                             error_text2sql = json_content.get('error', '')
 
                         text2sql_end_time = time.time()
@@ -850,6 +870,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             sql_query=getattr(retry_response, "sql_query", "") or "",
                             sql_processed=getattr(retry_response, "sql_query", "") or "",
                             justification=getattr(retry_response, "justification", "") or "",
+                            answer=getattr(retry_response, "answer", "") or "",
                             api_version=strapiversionformatted,
                             entity_extraction_processing_time=getattr(retry_response, "entity_extraction_processing_time", 0.0) or 0.0,
                             text2sql_processing_time=getattr(retry_response, "text2sql_processing_time", 0.0) or 0.0,
@@ -857,6 +878,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             query_time=getattr(retry_response, "query_execution_time", 0.0) or 0.0,
                             total_processing_time=getattr(retry_response, "total_processing_time", 0.0) or 0.0,
                             is_anonymized=False,
+                            ui_language=request.ui_language or "en",
                         )
                         messages.append(TextMessage(
                             position=position_counter,
@@ -969,6 +991,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             entity_extraction=entity_extraction,
             sql_query=sql_query,
             justification=justification,
+            answer=answer or "",
             position_counter=position_counter,
             text_message_cls=TextMessage,
             messages=messages,
@@ -976,6 +999,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         )
         sql_query = entity_resolution_result["sql_query"]
         justification = entity_resolution_result["justification"]
+        answer = entity_resolution_result["answer"]
         position_counter = entity_resolution_result["position_counter"]
         ambiguous_question_for_text2sql = max(
             ambiguous_question_for_text2sql,
@@ -1079,7 +1103,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 for index, record in enumerate(raw_results):
                     query_results.append({
                         "index": index,
-                        "data": record
+                        "data": {k: html.unescape(v) if isinstance(v, str) else v for k, v in record.items()}
                     })
             except Exception as e:
                 print(f"Database operation failed: {e}")
@@ -1226,7 +1250,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         synth_cursor.execute(synthetic_sql)
                         synth_results = synth_cursor.fetchall()
                         query_results = [
-                            {"index": idx, "data": row}
+                            {"index": idx, "data": {k: html.unescape(v) if isinstance(v, str) else v for k, v in row.items()}}
                             for idx, row in enumerate(synth_results)
                         ]
                     messages.append(TextMessage(
@@ -1253,6 +1277,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             sql_query=synthetic_sql,
                             sql_processed=synthetic_sql,
                             justification=justification or "",
+                            answer=answer or "",
                             api_version=strapiversionformatted,
                             entity_extraction_processing_time=entity_extraction_processing_time,
                             text2sql_processing_time=text2sql_processing_time,
@@ -1260,6 +1285,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             query_time=query_execution_time,
                             total_processing_time=0.0,
                             is_anonymized=False,
+                            ui_language=request.ui_language or "en",
                         )
                         messages.append(TextMessage(
                             position=position_counter,
@@ -1294,7 +1320,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         total_end_time = time.time()
         total_processing_time = total_end_time - total_start_time
         # Store to SQL cache if requested and not already stored as exact question or anonymized question
-        if request.store_to_cache and not cached_exact_question and request.question:
+        if request.store_to_cache and not cached_exact_question and not sql_execution_failed and request.question:
             messages.append(TextMessage(position=position_counter, text="Storing exact question and SQL query to cache."))
             position_counter += 1
             sql_cache.write_sql_cache_entry(
@@ -1304,6 +1330,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 sql_query=sql_query_llm,
                 sql_processed=sql_query_processed_base,
                 justification=justification or "",
+                answer=answer or "",
                 api_version=strapiversionformatted,
                 entity_extraction_processing_time=entity_extraction_processing_time,
                 text2sql_processing_time=text2sql_processing_time,
@@ -1311,10 +1338,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 query_time=query_execution_time,
                 total_processing_time=total_processing_time,
                 is_anonymized=False,
+                ui_language=request.ui_language or "en",
             )
 
         # Store to SQL cache if requested and not already stored as exact question or anonymized question
-        if request.store_to_cache and not cached_exact_question and not cached_anonymized_question and request.question:
+        if request.store_to_cache and not cached_exact_question and not cached_anonymized_question and not sql_execution_failed and request.question:
             messages.append(TextMessage(
                 position=position_counter, 
                 text="Storing anonymized question and SQL query to cache."
@@ -1327,6 +1355,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 sql_query=sql_query_llm,
                 sql_processed=sql_query_anonymized_base,
                 justification=justification_anonymized or "",
+                answer=answer_anonymized or "",
                 api_version=strapiversionformatted,
                 entity_extraction_processing_time=entity_extraction_processing_time,
                 text2sql_processing_time=text2sql_processing_time,
@@ -1334,9 +1363,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 query_time=query_execution_time,
                 total_processing_time=total_processing_time,
                 is_anonymized=True,
+                ui_language=request.ui_language or "en",
             )
         
-        if USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE and request.store_to_cache and not cached_anonymized_question_embedding and input_text_anonymized:
+        if USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE and request.store_to_cache and not cached_anonymized_question_embedding and not sql_execution_failed and input_text_anonymized:
             messages.append(TextMessage(
                 position=position_counter, 
                 text="Checking if anonymized question exists in embeddings cache before storing."
@@ -1369,6 +1399,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     metadatas=[{
                             "sql_query_anonymized": sql_query_anonymized,
                             "justification": justification_anonymized or "",
+                            "answer": answer_anonymized or "",
                             "api_version": strapiversionformatted,
                             "entity_variables": ",".join(entity_vars_for_metadata),  # Store as comma-separated string
                             "entity_extraction_processing_time": entity_extraction_processing_time,
@@ -1395,13 +1426,20 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     ))
     position_counter += 1
 
+    justification = html.unescape(justification or "")
+    justification_anonymized = html.unescape(justification_anonymized or "")
+    answer = html.unescape(answer or "")
+    answer_anonymized = html.unescape(answer_anonymized or "")
+
     response = Text2SQLResponse(
         question=input_text,
         question_hashed=response_question_hash,
         sql_query=sql_query or "",
         sql_query_anonymized=sql_query_anonymized or "",
-        justification=justification or "",
-        justification_anonymized=justification_anonymized or "",
+        justification=justification,
+        justification_anonymized=justification_anonymized,
+        answer=answer,
+        answer_anonymized=answer_anonymized,
         error=error_text2sql or "",
         entity_extraction=entity_extraction,
         question_anonymized=input_text_anonymized,
@@ -1424,6 +1462,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         llm_model_entity_extraction=strentityextractionmodel,
         llm_model_text2sql=strtext2sqlmodel,
         llm_model_complex=strcomplexquestionmodel,
+        ui_language=request.ui_language or "en",
         api_version=strapiversion,
         result=query_results,
         messages=messages

@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 
 SELECT_CACHE_QUERY = """
-SELECT QUESTION, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION,
+SELECT QUESTION, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, ANSWER,
        ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME,
        TOTAL_PROCESSING_TIME, QUESTION_HASHED, IS_ANONYMIZED
 FROM T_WC_T2S_CACHE
@@ -16,10 +16,10 @@ LIMIT 1
 
 INSERT_CACHE_QUERY = """
 INSERT INTO T_WC_T2S_CACHE
-(QUESTION, QUESTION_HASHED, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, API_VERSION,
+(QUESTION, QUESTION_HASHED, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, ANSWER, API_VERSION,
 ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME, TOTAL_PROCESSING_TIME,
-DELETED, DAT_CREAT, TIM_UPDATED, IS_ANONYMIZED)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), %s)
+DELETED, DAT_CREAT, TIM_UPDATED, IS_ANONYMIZED, UI_LANGUAGE)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), %s, %s)
 """
 
 
@@ -34,6 +34,7 @@ def _normalize_cache_row(row: Optional[dict[str, Any]]) -> dict[str, Any]:
             "sql_query_raw": "",
             "sql_query_processed": "",
             "justification": "",
+            "answer": "",
             "entity_extraction_processing_time": 0.0,
             "text2sql_processing_time": 0.0,
             "embeddings_time": 0.0,
@@ -67,6 +68,7 @@ def _normalize_cache_row(row: Optional[dict[str, Any]]) -> dict[str, Any]:
         "sql_query_raw": sql_query_raw,
         "sql_query_processed": sql_query_processed,
         "justification": row.get("JUSTIFICATION") or "",
+        "answer": row.get("ANSWER") or "",
         "entity_extraction_processing_time": row.get("ENTITY_EXTRACTION_PROCESSING_TIME") or 0.0,
         "text2sql_processing_time": row.get("TEXT2SQL_PROCESSING_TIME") or 0.0,
         "embeddings_time": row.get("EMBEDDINGS_TIME") or 0.0,
@@ -87,22 +89,22 @@ def _fetch_latest_cache_entry(connection, *, where_clause: str, where_params: tu
     return _normalize_cache_row(row)
 
 
-def search_sql_cache_by_question_hash(connection, question_hash: str, api_version: str) -> dict[str, Any]:
+def search_sql_cache_by_question_hash(connection, question_hash: str, api_version: str, ui_language: str = "en") -> dict[str, Any]:
     """Look up the latest cache entry by hashed original question text."""
     return _fetch_latest_cache_entry(
         connection,
-        where_clause="QUESTION_HASHED = %s",
-        where_params=(question_hash,),
+        where_clause="QUESTION_HASHED = %s AND (UI_LANGUAGE = %s OR UI_LANGUAGE IS NULL)",
+        where_params=(question_hash, ui_language),
         api_version=api_version,
     )
 
 
-def search_sql_cache_by_question_text(connection, question_text: str, api_version: str) -> dict[str, Any]:
+def search_sql_cache_by_question_text(connection, question_text: str, api_version: str, ui_language: str = "en") -> dict[str, Any]:
     """Look up the latest cache entry by exact stored question text."""
     return _fetch_latest_cache_entry(
         connection,
-        where_clause="QUESTION = %s",
-        where_params=(question_text,),
+        where_clause="QUESTION = %s AND (UI_LANGUAGE = %s OR UI_LANGUAGE IS NULL)",
+        where_params=(question_text, ui_language),
         api_version=api_version,
     )
 
@@ -115,6 +117,7 @@ def write_sql_cache_entry(
     sql_query: str,
     sql_processed: str,
     justification: str,
+    answer: str = "",
     api_version: str,
     entity_extraction_processing_time: float,
     text2sql_processing_time: float,
@@ -123,6 +126,7 @@ def write_sql_cache_entry(
     total_processing_time: float,
     is_anonymized: bool,
     deleted: int = 0,
+    ui_language: str = "en",
 ) -> dict[str, Any]:
     """Insert a cache entry into ``T_WC_T2S_CACHE`` and return a summary payload."""
     with connection.cursor() as cursor:
@@ -134,6 +138,7 @@ def write_sql_cache_entry(
                 sql_query,
                 sql_processed,
                 justification,
+                answer,
                 api_version,
                 entity_extraction_processing_time,
                 text2sql_processing_time,
@@ -142,6 +147,7 @@ def write_sql_cache_entry(
                 total_processing_time,
                 deleted,
                 1 if is_anonymized else 0,
+                ui_language,
             ),
         )
     connection.commit()
@@ -153,4 +159,5 @@ def write_sql_cache_entry(
         "sql_query": sql_query,
         "sql_processed": sql_processed,
         "justification": justification,
+        "answer": answer,
     }

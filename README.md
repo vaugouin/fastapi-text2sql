@@ -25,6 +25,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **Multi-API Key Support**: Comma-separated `API_KEYS` env var with legacy `API_KEY` fallback
 
 ### Advanced Features
+- **Localized User-Oriented Answers (`ui_language`)**: Each response includes a plain-language `answer` field describing what the query returns, written in the language specified by `ui_language` (default `"en"`). The answer preserves entity placeholders during generation and is de-anonymized alongside the SQL and justification. `ui_language` is part of the cache key so that the same question cached in different languages gets separate entries.
 - **Multi-Language Support**: Handles English, French, and original language titles for movies and series
 - **Processing Transparency**: Detailed messages array showing each processing step
 - **Configurable LLM Models**: Separate model selection for entity extraction, text-to-SQL conversion, and complex-question escalation
@@ -123,9 +124,10 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    - This is the core text-to-SQL task
 
 7. **Query De-anonymization**
-   - Replace placeholders in the generated SQL query with actual validated entity values
+   - Replace placeholders in the generated SQL query, justification, and answer with actual validated entity values
    - Apply parameters from the entity extraction step (person names, movie titles, etc.)
    - Produce the complete, executable SQL query with proper SQL escaping
+   - The `answer` field undergoes the same de-anonymization as `justification`
 
 8. **SQL Execution & Retry Strategy**
    - Execute the SQL query against MariaDB with pagination support
@@ -143,11 +145,13 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    - **Anonymized question cache**: Save the anonymized question and SQL pattern to SQL cache (if applicable)
    - **Embeddings cache**: Save the anonymized question embedding and SQL query to ChromaDB for future semantic searches
    - **Escalated complex-question cache**: After a successful stronger-model retry, the original complex question is also saved to SQL cache with the final SQL returned by the retried pipeline
+   - Cache entries include the `ANSWER` field and `UI_LANGUAGE`; cache lookups filter by `UI_LANGUAGE` so different languages get separate entries
 
 10. **Result Return**
     - Return the result set to the client with comprehensive metadata:
       - Generated SQL query
       - Query results (paginated)
+      - User-oriented `answer` in the requested `ui_language`
       - Performance metrics (entity extraction time, text2SQL time, embeddings time, query execution time)
       - Cache hit indicators
       - Pagination information
@@ -261,7 +265,8 @@ Content-Type: application/json
   "llm_model_entity_extraction": "default",
   "llm_model_text2sql": "default",
   "llm_model_complex": "default",
-  "complex_question_processing": false
+  "complex_question_processing": false,
+  "ui_language": "en"
 }
 ```
 
@@ -275,6 +280,7 @@ Content-Type: application/json
 - `llm_model_entity_extraction` (optional, str, default: "default"): LLM model to use for entity extraction
 - `llm_model_text2sql` (optional, str, default: "default"): LLM model to use for text-to-SQL conversion
 - `llm_model_complex` (optional, str, default: "default"): LLM model to use for complex-question resolution / stronger-model retry
+- `ui_language` (optional, str, default: `"en"`): Language code for the user-oriented `answer` field in the response (e.g., `"en"`, `"fr"`). The answer is a plain-language sentence describing what the query returns, written in the specified language, with no table/column names or SQL details. This value is also used as part of the cache key, so the same question submitted with different `ui_language` values produces separate cache entries.
 - `complex_question_processing` (optional, bool, default: `false`): Controls whether the API is allowed to escalate to the stronger model when the primary pipeline fails. When `false` (the default), the API returns the raw error or empty result set directly to the caller without retrying. When `true`, the three automatic retry triggers are active:
   - The text-to-SQL model cannot produce a SQL query and returns an error
   - The generated SQL raises an execution error on the database
@@ -355,6 +361,9 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "question_hashed": "a1b2c3d4e5f6...",
   "sql_query": "SELECT T_WC_T2S_MOVIE.ID_MOVIE, T_WC_T2S_MOVIE.TITLE... LIMIT 50",
   "justification": "",
+  "answer": "Here are all the color movies featuring Humphrey Bogart.",
+  "answer_anonymized": "Here are all the color movies featuring {{Person_name1}}.",
+  "ui_language": "en",
   "error": "",
   "entity_extraction_processing_time": 0.45,
   "text2sql_processing_time": 1.23,
@@ -411,6 +420,8 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `question_hashed` (str, optional): SHA256 hash of the question for pagination/caching
 - `sql_query` (str): The generated and optimized SQL query
 - `justification` (str): Explanation or reasoning for the SQL query (if provided by LLM)
+- `answer` (str): User-oriented plain-language description of what the query returns, written in the language specified by `ui_language`. Contains no table/column names or SQL details. Intended to be displayed above query results.
+- `answer_anonymized` (str): The `answer` before entity de-anonymization (with placeholders like `{{Person_name1}}`)
 - `error` (str): Error message if query processing failed
 - `result` (list): Array of query results, each with `index` (int) and `data` (dict)
 
@@ -440,6 +451,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `llm_model_entity_extraction` (str): LLM model used for entity extraction
 - `llm_model_text2sql` (str): LLM model used for text-to-SQL conversion
 - `llm_model_complex` (str): LLM model used for complex-question resolution when a stronger-model retry occurs
+- `ui_language` (str): Language code used for the `answer` field (e.g., `"en"`, `"fr"`)
 - `api_version` (str): Current API version (e.g., "1.1.15")
 - `messages` (list): Array of processing step messages, each with `position` (int) and `text` (str)
 ```

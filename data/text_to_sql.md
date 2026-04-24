@@ -8,11 +8,13 @@ Convert the provided natural language question into the following json structure
 {
   "sql_query": "**valid SQL query**",
   "justification": "**brief explanation**",
+  "answer": "**user-oriented answer**",
   "error": "**request clarification**"
 }
 
-- ✅ If the question is valid, return **valid SQL query** to the "sql_query" element and **brief explanation** to the "justification" element.
+- ✅ If the question is valid, return **valid SQL query** to the "sql_query" element, **brief explanation** to the "justification" element, and **user-oriented answer** to the "answer" element.
 **brief explanation** must retain all entity extraction elements, for instance "{{PERSON_NAME}}".
+**user-oriented answer** is a plain-language sentence describing what the query returns, written in **{ui_language}**. It must NOT mention any table name, column name, or technical SQL detail. It must retain all entity extraction placeholders exactly as in the justification (e.g. "{{Person_name1}}"). Think of it as the message displayed to the end user above the query results.
 **error** must be empty.
 - ❓ If the question is ambiguous, do NOT return an error. Instead, make your best interpretation of the user's intent and return a valid SQL query. Use common sense to decide the most likely meaning (e.g., a single word referring to a profession or role implies a person search). Only return an error if the question is completely unrelated to the database schema and truly cannot produce any meaningful SQL query.
 Never include a semicolon at the end of the SQL query.
@@ -782,47 +784,48 @@ Example: "Les films tournés en franscope" → ID_TECHNICAL = 50
 ### Result Columns
 
 #### Persons – return:
-ID_PERSON, PERSON_NAME, POPULARITY
+ID_PERSON, PERSON_NAME, POPULARITY, KNOWN_FOR_DEPARTMENT, BIRTH_YEAR, DEATH_YEAR, PROFILE_PATH
 
 #### Movies – return:
-ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH 
+ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH, RUNTIME, TAGLINE
 
 ### Series - return:
-ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
+ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES, TAGLINE
 
 ### Movies AND Series (UNION) - return for a movie and for a serie:
-ID_MOVIE AS ID_CONTENT, 'movie' AS CONTENT_TYPE, MOVIE_TITLE AS CONTENT_TITLE, DAT_RELEASE AS DAT_FIRST_AIR, DAT_RELEASE AS DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH 
-ID_SERIE AS ID_CONTENT, 'serie' AS CONTENT_TYPE, SERIE_TITLE AS CONTENT_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
+CRITICAL: both SELECT sides of the UNION must have exactly the same number of columns (13). Use NULL placeholders for columns that do not exist on one side. Never use the Movies-only or Series-only column lists above for a UNION query.
+Movie side: ID_MOVIE AS ID_CONTENT, 'movie' AS CONTENT_TYPE, MOVIE_TITLE AS CONTENT_TITLE, DAT_RELEASE AS DAT_FIRST_AIR, DAT_RELEASE AS DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH, RUNTIME, TAGLINE, NULL AS NUMBER_OF_SEASONS, NULL AS NUMBER_OF_EPISODES
+Serie side: ID_SERIE AS ID_CONTENT, 'serie' AS CONTENT_TYPE, SERIE_TITLE AS CONTENT_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH, NULL AS RUNTIME, TAGLINE, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES
 
 #### Topics – return:
-ID_TOPIC, TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG, ID_RECORD, POSTER_PATH
+ID_TOPIC, TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG, ID_RECORD, POSTER_PATH, IMDB_RATING
 
 #### Lists – return:
-ID_T2S_LIST, LIST_NAME, LIST_SOURCE, LIST_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH
+ID_T2S_LIST, LIST_NAME, LIST_SOURCE, LIST_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING
 
 #### Collections – return:
-ID_T2S_COLLECTION, COLLECTION_NAME, COLLECTION_SOURCE, COLLECTION_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH
+ID_T2S_COLLECTION, COLLECTION_NAME, COLLECTION_SOURCE, COLLECTION_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING
 
 #### Movements – return:
-ID_MOVEMENT, MOVEMENT_NAME, MOVEMENT_SOURCE, MOVEMENT_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH
+ID_MOVEMENT, MOVEMENT_NAME, MOVEMENT_SOURCE, MOVEMENT_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING
 
 #### Groups – return:
-ID_GROUP, GROUP_NAME, GROUP_SOURCE, GROUP_TYPE, PROFILE_PATH, WIKIPEDIA_IMAGE_PATH
+ID_GROUP, GROUP_NAME, GROUP_SOURCE, GROUP_TYPE, PROFILE_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, PERSON_COUNT, POPULARITY
 
 #### Deaths – return:
-ID_DEATH, DEATH_NAME, DEATH_SOURCE, DEATH_TYPE, PROFILE_PATH, WIKIPEDIA_IMAGE_PATH
+ID_DEATH, DEATH_NAME, DEATH_SOURCE, DEATH_TYPE, PROFILE_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, PERSON_COUNT, POPULARITY
 
 #### Awards – return:
-ID_AWARD, AWARD_NAME, AWARD_SOURCE, AWARD_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH
+ID_AWARD, AWARD_NAME, AWARD_SOURCE, AWARD_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT, IMDB_RATING
 
 #### Nominations – return:
-ID_NOMINATION, NOMINATION_NAME, NOMINATION_SOURCE, NOMINATION_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH
+ID_NOMINATION, NOMINATION_NAME, NOMINATION_SOURCE, NOMINATION_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT, IMDB_RATING
 
 #### Companies – return:
-ID_COMPANY, COMPANY_NAME, LOGO_PATH
+ID_COMPANY, COMPANY_NAME, LOGO_PATH, DESCRIPTION, ORIGIN_COUNTRY, HEADQUARTERS
 
 #### Networks – return:
-ID_NETWORK, NETWORK_NAME, LOGO_PATH
+ID_NETWORK, NETWORK_NAME, LOGO_PATH, ORIGIN_COUNTRY
 
 #### Locations – return:
 ID_WIKIDATA, ID_PROPERTY, ITEM_LABEL, WIKIPEDIA_IMAGE_PATH
@@ -1001,5 +1004,7 @@ ORDER BY CASE WHEN T_WC_T2S_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END, T_WC
 ---
 
 ## ? Input
+
+UI language: {ui_language}
 
 {user_question}

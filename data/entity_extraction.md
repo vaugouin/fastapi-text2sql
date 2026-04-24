@@ -209,7 +209,7 @@ Do not extract as `Nomination_name` for film movements, franchises, trilogies, g
 
 ### Collection_name boundaries
 Extract as `Collection_name` when the phrase refers to a trilogy or named series of works grouping movies or TV series together.
-Do not extract as `Collection_name` for generic topics, broad franchises or universes, awards, nominations, or curated ranking lists.
+Do not extract as `Collection_name` for generic topics, broad franchises or universes, awards, nominations, `Criterion Collection` by itself or curated ranking lists.
 
 ### Movement_name boundaries
 Extract as `Movement_name` when the phrase refers to a named film movement, cinematic style, or historical school of filmmaking.

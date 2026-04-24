@@ -1,3 +1,4 @@
+import argparse
 import time
 import requests
 import pymysql.cursors
@@ -50,6 +51,22 @@ def translate_question_to_english(question: str) -> str:
     )
     return response.choices[0].message.content.strip()
 
+# ---------------------------------------------------------------------------
+# CLI arguments (all optional; defaults match the previous hardcoded values)
+# ---------------------------------------------------------------------------
+_parser = argparse.ArgumentParser(description="Text2SQL evaluation runner")
+_parser.add_argument("--entity-extraction-model", default="gpt-4o",
+                     help="LLM model for entity extraction (default: gpt-4o)")
+_parser.add_argument("--text2sql-model", default="gpt-4o",
+                     help="LLM model for text-to-SQL (default: gpt-4o)")
+_parser.add_argument("--complex-model", default="gpt-4o",
+                     help="LLM model for complex question processing (default: gpt-4o)")
+_parser.add_argument("--api-version", default="1.1.14",
+                     help="API version to evaluate against (default: 1.1.14)")
+_parser.add_argument("--language", default="*",
+                     help="Language filter: 'en', 'fr', or '*' for all (default: *)")
+_cli_args = _parser.parse_args()
+
 datnow = datetime.now(cp.paris_tz)
 # Compute the date and time for J-1 (yesterday)
 # So we are sure to find the TMDb Id export files for this day
@@ -79,17 +96,11 @@ try:
             strtotalruntime = "RUNNING"
             cp.f_setservervariable("strtext2sqlevaltotalruntime",strtotalruntime,strtotalruntimedesc,0)
             
-            strentityextractionmodeleval = "gpt-4o"
-            strtext2sqlmodeleval = "gpt-4o"
-            strcomplexmodeleval = "gpt-4o"
-            #strentityextractionmodeleval = "newmodel"
-            #strtext2sqlmodeleval = "newmodel"
-            #strcomplexmodeleval = "newmodel"
-            strapiversioneval = "1.1.14"
-            #strapiversioneval = "1.1.15"
-            #strlanguage = "en"
-            strlanguage = "fr"
-            #strlanguage = "*"
+            strentityextractionmodeleval = _cli_args.entity_extraction_model
+            strtext2sqlmodeleval = _cli_args.text2sql_model
+            strcomplexmodeleval = _cli_args.complex_model
+            strapiversioneval = _cli_args.api_version
+            strlanguage = _cli_args.language
 
             #arrprocessscope = {11: 'run evals'}
             #arrprocessscope = {20: 'process evals'}
@@ -203,7 +214,7 @@ try:
                     if strrunevalidold != "":
                         strsql += "AND ID_T2S_EVALUATION >= " + strrunevalidold + " "
                     strsql += "ORDER BY ID_T2S_EVALUATION ASC "
-                    #strsql += "LIMIT 10 "
+                    strsql += "LIMIT 10 "
                 elif intindex == 20:
                     # Processing evaluations results to compute the scoring
                     strcurrentprocess = f"{intindex}: processing evaluations to compute the results "
@@ -308,11 +319,6 @@ try:
                                 if not arrlangpairs:
                                     continue
 
-                            # Group by unique question text: if QUESTION == QUESTION_FR, call API only once
-                            dictquestionlangs = {}
-                            for strq, strlang in arrlangpairs:
-                                dictquestionlangs.setdefault(strq, []).append(strlang)
-
                             # Connection setup
                             base_url_env = os.getenv("TEXT2SQL_API_URL", "http://localhost")
                             parsed_base_url = urlparse(base_url_env)
@@ -331,11 +337,12 @@ try:
                             if api_key:
                                 headers["X-API-Key"] = api_key
 
-                            for strquestion, arrlangs in dictquestionlangs.items():
-                                print(f"  [{', '.join(arrlangs)}] {strquestion}")
+                            # One API call per (question, lang) pair because ui_language affects the answer field
+                            for strquestion, strevallang in arrlangpairs:
+                                print(f"  [{strevallang}] {strquestion}")
                                 payload = {
                                     "question": strquestion,
-                                    "question_hashed": None,
+                                    "question_hashed": "",
                                     "page": 1,
                                     "rows_per_page": lngrowsperpageeval,
                                     "retrieve_from_cache": False,
@@ -343,6 +350,9 @@ try:
                                     "llm_model_entity_extraction": strentityextractionmodeleval,
                                     "llm_model_text2sql": strtext2sqlmodeleval,
                                     "llm_model_complex": strcomplexmodeleval,
+                                    "complex_question_processing": True,
+                                    "complex_question_already_resolved": False,
+                                    "ui_language": strevallang,
                                 }
                                 print(url)
                                 print(payload)
@@ -351,7 +361,7 @@ try:
                                     response = requests.post(url, headers=headers, json=payload, timeout=120)
                                     response.raise_for_status()
                                 except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError, requests.exceptions.HTTPError) as e:
-                                    print(f"⚠ Request failed for eval id {lngid} [{', '.join(arrlangs)}]: {type(e).__name__}: {e}")
+                                    print(f"⚠ Request failed for eval id {lngid} [{strevallang}]: {type(e).__name__}: {e}")
                                     continue
                                 response_json = response.json()
                                 response_text = json.dumps(response_json, ensure_ascii=False)
@@ -374,23 +384,19 @@ try:
                                 if intconfigerror:
                                     # We stop now so we do not consume tokens and money because there is a configuration error
                                     exit()
-                                # Store one row per language
-                                for strevallang in arrlangs:
-                                    arrevalexeccouples = {}
-                                    arrevalexeccouples["ID_T2S_EVALUATION"] = lngid
-                                    arrevalexeccouples["API_VERSION"] = strapiversionevalformatted
-                                    arrevalexeccouples["ENTITY_EXTRACTION_MODEL"] = strentityextractionmodeleval
-                                    arrevalexeccouples["TEXT2SQL_MODEL"] = strtext2sqlmodeleval
-                                    arrevalexeccouples["COMPLEX_MODEL"] = strcomplexmodeleval
-                                    arrevalexeccouples["JSON_RESULT"] = response_text
-                                    arrevalexeccouples["TIM_EXECUTION"] = strdatnow
-                                    arrevalexeccouples["LANG"] = strevallang
-                                    #print("\nArrmoviecouples:")
-                                    #print(arrevalexeccouples)
-                                    #time.sleep(5)
-                                    strsqltablename = "T_WC_T2S_EVALUATION_EXECUTION"
-                                    strsqlupdatecondition = f"ID_T2S_EVALUATION = {lngid} AND API_VERSION = '{strapiversionevalformatted}' AND ENTITY_EXTRACTION_MODEL = '{strentityextractionmodeleval}' AND TEXT2SQL_MODEL = '{strtext2sqlmodeleval}' AND COMPLEX_MODEL = '{strcomplexmodeleval}' AND LANG = '{strevallang}'"
-                                    cp.f_sqlupdatearray(strsqltablename,arrevalexeccouples,strsqlupdatecondition,1)
+                                # Store one execution row for this (question, lang) pair
+                                arrevalexeccouples = {}
+                                arrevalexeccouples["ID_T2S_EVALUATION"] = lngid
+                                arrevalexeccouples["API_VERSION"] = strapiversionevalformatted
+                                arrevalexeccouples["ENTITY_EXTRACTION_MODEL"] = strentityextractionmodeleval
+                                arrevalexeccouples["TEXT2SQL_MODEL"] = strtext2sqlmodeleval
+                                arrevalexeccouples["COMPLEX_MODEL"] = strcomplexmodeleval
+                                arrevalexeccouples["JSON_RESULT"] = response_text
+                                arrevalexeccouples["TIM_EXECUTION"] = strdatnow
+                                arrevalexeccouples["LANG"] = strevallang
+                                strsqltablename = "T_WC_T2S_EVALUATION_EXECUTION"
+                                strsqlupdatecondition = f"ID_T2S_EVALUATION = {lngid} AND API_VERSION = '{strapiversionevalformatted}' AND ENTITY_EXTRACTION_MODEL = '{strentityextractionmodeleval}' AND TEXT2SQL_MODEL = '{strtext2sqlmodeleval}' AND COMPLEX_MODEL = '{strcomplexmodeleval}' AND LANG = '{strevallang}'"
+                                cp.f_sqlupdatearray(strsqltablename,arrevalexeccouples,strsqlupdatecondition,1)
                         elif intindex == 20:
                             # Processing evaluations results to compute the scoring
                             strassertions_entity_extraction = row.get('ASSERTIONS_ENTITY_EXTRACTION')
