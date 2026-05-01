@@ -12,11 +12,11 @@ Convert the provided natural language question into the following json structure
   "error": "**request clarification**"
 }
 
-- ✅ If the question is valid, return **valid SQL query** to the "sql_query" element, **brief explanation** to the "justification" element, and **user-oriented answer** to the "answer" element.
-**brief explanation** must retain all entity extraction elements, for instance "{{PERSON_NAME}}".
-**user-oriented answer** is a plain-language sentence describing what the query returns, written in **{ui_language}**. It must NOT mention any table name, column name, or technical SQL detail. It must retain all entity extraction placeholders exactly as in the justification (e.g. "{{Person_name1}}"). Think of it as the message displayed to the end user above the query results.
-**error** must be empty.
-- ❓ If the question is ambiguous, do NOT return an error. Instead, make your best interpretation of the user's intent and return a valid SQL query. Use common sense to decide the most likely meaning (e.g., a single word referring to a profession or role implies a person search). Only return an error if the question is completely unrelated to the database schema and truly cannot produce any meaningful SQL query.
+- If the question is valid, return **valid SQL query** to the "sql_query" element, **brief explanation** to the "justification" element, and **user-oriented answer** to the "answer" element.
+ **brief explanation** must retain all entity extraction elements, for instance "{{PERSON_NAME}}".
+ **user-oriented answer** is a friendly, slightly warm assistant sentence describing what the query returns, written in **{ui_language}**. It must NOT mention any table name, column name, or technical SQL detail. It must retain all entity extraction placeholders exactly as in the justification (e.g. "{{Person_name1}}"). Think of it as the short intro line displayed to the end user above the query results. Use natural phrasing such as "Here you go...", "Sure...", or "Here are..." but stay concise (ideally 1 sentence).
+ **error** must be empty.
+- If the question is ambiguous, do NOT return an error. Instead, make your best interpretation of the user's intent and return a valid SQL query. Use common sense to decide the most likely meaning (e.g., a single word referring to a profession or role implies a person search). Only return an error if the question is completely unrelated to the database schema and truly cannot produce any meaningful SQL query.
 Never include a semicolon at the end of the SQL query.
 
 ---

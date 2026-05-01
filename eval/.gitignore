@@ -64,3 +64,8 @@ logs/
 *.temp
 
 citizenphilsecrets.py
+
+# Evaluation data
+data/
+claude/
+codex/

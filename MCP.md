@@ -57,7 +57,7 @@ MCP_INTERNAL_BASE_URL = os.getenv(
 # --- MCP Tools ---
 
 @mcp.tool(name="sql_search")
-async def _mcp_sql_search(question: str) -> str:
+async def _mcp_sql_search(question: str, ui_language: str = "en") -> str:
     """
     Query the cinema and TV database in natural language.
 
@@ -67,7 +67,8 @@ async def _mcp_sql_search(question: str) -> str:
     causes of death, awards, nominations, and locations (narrative or filming).
 
     The result returns rows with entity IDs and key fields (title, release date,
-    IMDb rating, poster path). Use the entity tools below to fetch full details.
+    IMDb rating, poster path), plus a plain-language `answer` field generated in
+    the requested `ui_language`. Use the entity tools below to fetch full details.
 
     For precise field knowledge (column names, value ranges, genre codes) read
     the resource context://database-scope before formulating complex questions.
@@ -92,7 +93,7 @@ async def _mcp_sql_search(question: str) -> str:
         async with httpx.AsyncClient(timeout=60) as client:
             r = await client.post(
                 f"{MCP_INTERNAL_BASE_URL}/search/text2sql",
-                json={"question": question},
+                json={"question": question, "ui_language": ui_language},
                 headers={"X-API-Key": MCP_INTERNAL_API_KEY},
             )
             r.raise_for_status()

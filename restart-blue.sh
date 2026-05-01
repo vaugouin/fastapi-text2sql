@@ -11,3 +11,4 @@ docker run -d --rm --network="host" -v $(pwd):/app --name fastapi-text2sql-blue 
 
 docker ps --filter "name=fastapi-text2sql-blue"
 echo "=== $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
+docker logs -f fastapi-text2sql-blue
