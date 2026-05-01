@@ -4,4 +4,4 @@ WORKDIR /app
 COPY requirements.txt /app/
 RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY . /app/
-CMD ["python", "./text2sql-eval.py"]
+ENTRYPOINT ["python", "./text2sql-eval.py"]

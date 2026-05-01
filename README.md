@@ -9,7 +9,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **FastAPI Framework**: High-performance, modern Python web framework with automatic API documentation
 - **API Key Authentication**: Secure access with API key validation using constant-time comparison
 - **ChromaDB Vector Search**: Advanced similarity search for entity matching and query optimization
-- **Entity Extraction & Anonymization**: Intelligent extraction of entities (persons, movies, series, companies, networks, characters, locations, topics) with placeholder replacement
+- **Entity Extraction & Anonymization**: Intelligent extraction of entities (persons, movies, series, companies, networks, characters, locations, topics, lists, awards, nominations, collections, movements, groups, deaths, genres, release years) with placeholder replacement
 - **Config-driven Entity Resolution**: Entity resolution is configured via `data/entity_resolution.json` (embeddings and RapidFuzz strategies)
 - **Hot-Reloaded `data/` Files**: Prompt templates and entity-resolution configuration under `data/` are reloaded automatically when they change
 - **RapidFuzz Person Matching (language-family aware)**: Person resolution uses `guess_language_family()` to route Latin names to `T_WC_T2S_PERSON` and non-Latin names to `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`, while keeping SQL replacement canonical when needed
@@ -65,17 +65,26 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    - If not found in exact cache, extract and anonymize entities from the user question using GPT-4o
    - Entity extraction logic is implemented in `entity.py`
    - Entities extracted include:
-     - Person names (actors, directors, crew)
-     - Movie titles (English, French, and original language)
-     - TV series titles (multi-language support)
-     - Company names (production companies, studios)
-     - Network names (TV networks, streaming platforms)
-     - Character names (movie/series characters like "James Bond", "Sherlock Holmes") - new in v1.1.14
-     - Location names (narrative or filming locations like "New York City", "Gotham City") - new in v1.1.14
-     - Topic names (themes, categories)
-     - Genre names (movie and TV series genres from a closed vocabulary)
-     - Serie type (Documentary, Miniseries, etc. — only with explicit series context)
-   - Replace entities with placeholders (e.g., `{{PERSON_NAME}}`, `{{MOVIE_TITLE}}`, `{{CHARACTER_NAME}}`, `{{LOCATION_NAME}}`, `{{GENRE_NAME}}`)
+     - **Person names** (actors, directors, crew) — placeholder `{{Person_nameN}}`
+     - **Movie titles** (English, French, and original language) — placeholder `{{Movie_titleN}}`
+     - **TV series titles** (multi-language support) — placeholder `{{Serie_titleN}}`
+     - **Company names** (production companies, studios) — placeholder `{{Company_nameN}}`
+     - **Network names** (TV networks, streaming platforms) — placeholder `{{Network_nameN}}`
+     - **Character names** (e.g., "James Bond", "Sherlock Holmes", "R2-D2") — placeholder `{{Character_nameN}}` *(extracted; resolution falls through to raw fallback substitution)*
+     - **Location names** (narrative or filming locations, Wikidata-backed; e.g., "New York City", "Gotham City") — placeholder `{{Location_nameN}}`
+     - **Topic names** (themes, franchises, recurring-character collections like "World War II", "Star Wars", "Philip Marlowe") — placeholder `{{Topic_nameN}}`
+     - **List names** (curated rankings/canons such as "Sight and Sound greatest films", "IMDb top 250 tv shows") — placeholder `{{List_nameN}}`
+     - **Award names** (e.g., "Palme d'Or", "Academy Award for Best Picture", "Primetime Emmy Award") — placeholder `{{Award_nameN}}`
+     - **Nomination names** (the same set, but referenced as a nomination rather than a win) — placeholder `{{Nomination_nameN}}`
+     - **Collection names** (trilogies and named series of works, e.g., "Dollars Trilogy", "James Bond Collection", "Kill Bill - Saga") — placeholder `{{Collection_nameN}}`
+     - **Movement names** (film movements / stylistic schools, e.g., "Film Noir", "French New Wave", "New Hollywood") — placeholder `{{Movement_nameN}}`
+     - **Group names** (organizations, publications, musical/comedy groups associated with persons, e.g., "The Beatles", "Les Cahiers du Cinéma") — placeholder `{{Group_nameN}}`
+     - **Death names** (medical or legal cause/circumstance of a person's death, e.g., "liver cirrhosis", "car collision", "homicide") — placeholder `{{Death_nameN}}`
+     - **Genre names** (movie and TV-series genres, closed vocabulary) — placeholder `{{Genre_nameN}}`
+     - **Release year** (extracted alongside a movie title when the user writes `Title (YYYY)`) — placeholder `{{Release_yearN}}`
+     - **Serie type** (`Documentary`, `Miniseries`, `News`, `Reality`, `Scripted`, `Talk Show`, `Video` — only with explicit series context)
+     - **Identifiers** (`IMDb_ID`, `IMDb_person_ID`, `Wikidata_ID`, `Wikidata_property_ID`, `TMDb_ID`, `Criterion_spine_ID`) when explicitly referenced as identifiers
+   - Replace entities with typed, numbered placeholders (e.g., `{{Person_name1}}`, `{{Movie_title1}}`, `{{Award_name1}}`, `{{Group_name1}}`, `{{Release_year1}}`)
    - **Documentary disambiguation**: "documentary" is deliberately *not* extracted as a genre or serie type unless the question explicitly mentions series/TV context; the text-to-SQL step handles it directly via `IS_DOCUMENTARY = 1`
 
 3. **Anonymized Question Cache Lookup (SQL Database)**
@@ -93,21 +102,30 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    - Entity resolution logic is implemented in `entity.py`, while `main.py` remains focused on request orchestration.
    - Validate and resolve each extracted entity using a configuration-driven strategy list (`data/entity_resolution.json`).
    - Supported resolution strategies:
-     - **Embeddings (ChromaDB)**: for entities like movies, series, companies, networks, topics, locations
-     - **RapidFuzz (DB lexical)**: for entities like persons (can be configured per placeholder)
-   - Example entity strategies:
-     - **Person names**: The API first calls `guess_language_family()` on the extracted value.
-       - If the language family is `Latin`, RapidFuzz searches directly in `T_WC_T2S_PERSON` using canonical person names.
-       - If the language family is not `Latin`, RapidFuzz searches `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` (AKA table), then resolves to canonical `T_WC_T2S_PERSON.PERSON_NAME` for SQL substitution.
-       - The API keeps SQL substitution canonical while formatting justification as `<aka_name> (<canonical_name>)` only when the AKA value differs from the canonical name.
-     - **Movie titles**: Search in `movies` collection with multi-language support (English, French, original)
-     - **TV series titles**: Search in `series` collection with multi-language support
-     - **Company names**: Search in `companies` collection
-     - **Network names**: Search in `networks` collection
-     - **Character names**: Search in `characters` collection (new in v1.1.14)
-     - **Location names**: Search in `locations` collection (new in v1.1.14)
-     - **Topic names**: Search in `topics` collection
-     - **Genre names**: Resolved via hardcoded closed-vocabulary dictionaries mapping genre labels to IDs (movie genres and serie genres); context-aware selection based on whether the SQL references movie or serie genre tables
+     - **Embeddings (ChromaDB)**: vector similarity lookup against a per-entity collection
+     - **RapidFuzz (DB lexical)**: normalized + key-prefix + FULLTEXT/LIKE matching against generated SQL columns
+     - Each placeholder has an ordered `search_list` in [data/entity_resolution.json](data/entity_resolution.json); strategies can be gated by language family and may include a `resolve_to_canonical` step that maps from an AKA table back to the primary entity table.
+   - Per-placeholder strategies in v1.1.15:
+     - **Person names** (`{{Person_nameN}}`): RapidFuzz, language-family aware.
+       - Latin scripts → `T_WC_T2S_PERSON` (canonical names) using `PERSON_NAME_NORM` / `PERSON_NAME_KEY` / `POPULARITY`.
+       - Non-Latin scripts → `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` (AKA table), then resolved to canonical `T_WC_T2S_PERSON.PERSON_NAME`.
+       - SQL substitution always uses the canonical value; justification is formatted as `<aka_name> (<canonical_name>)` only when the AKA differs from the canonical name.
+     - **Movie titles** (`{{Movie_titleN}}`): embeddings on `movies` collection, language-routed columns (`en` → `MOVIE_TITLE`, `fr` → `MOVIE_TITLE_FR`, `*` → `ORIGINAL_TITLE`) on `T_WC_T2S_MOVIE`.
+     - **TV series titles** (`{{Serie_titleN}}`): embeddings on `series` collection, same `en` / `fr` / `*` routing on `T_WC_T2S_SERIE`.
+     - **Company names** (`{{Company_nameN}}`): embeddings on `companies` collection, `T_WC_T2S_COMPANY.COMPANY_NAME`.
+     - **Network names** (`{{Network_nameN}}`): embeddings on `networks` collection, `T_WC_T2S_NETWORK.NETWORK_NAME`.
+     - **Topic names** (`{{Topic_nameN}}`): embeddings on `topics` collection, `T_WC_T2S_TOPIC.TOPIC_NAME` / `TOPIC_NAME_FR`.
+     - **List names** (`{{List_nameN}}`): embeddings on `lists` collection, `T_WC_T2S_LIST.LIST_NAME` / `LIST_NAME_FR`.
+     - **Award names** (`{{Award_nameN}}`): embeddings on `awards` collection, `T_WC_T2S_AWARD.AWARD_NAME` / `AWARD_NAME_FR`.
+     - **Nomination names** (`{{Nomination_nameN}}`): embeddings on `nominations` collection, `T_WC_T2S_NOMINATION.NOMINATION_NAME` / `NOMINATION_NAME_FR`.
+     - **Collection names** (`{{Collection_nameN}}`): embeddings on `collections` collection, `T_WC_T2S_COLLECTION.COLLECTION_NAME` / `COLLECTION_NAME_FR`.
+     - **Movement names** (`{{Movement_nameN}}`): embeddings on `movements` collection, `T_WC_T2S_MOVEMENT.MOVEMENT_NAME` / `MOVEMENT_NAME_FR`.
+     - **Group names** (`{{Group_nameN}}`): embeddings on `groups` collection, `T_WC_T2S_GROUP.GROUP_NAME` / `GROUP_NAME_FR`.
+     - **Death names** (`{{Death_nameN}}`): embeddings on `deaths` collection, `T_WC_T2S_DEATH.DEATH_NAME` / `DEATH_NAME_FR`.
+     - **Location names** (`{{Location_nameN}}`): embeddings on `locations` collection, `T_WC_T2S_ITEM.ITEM_LABEL` / `ITEM_LABEL_FR` (Wikidata-backed; locations are linked to movies/series via `T_WC_WIKIDATA_ITEM_PROPERTY` with `ID_PROPERTY IN ('P840', 'P915')`).
+     - **Character names** (`{{Character_nameN}}`): currently extracted by the LLM but **not yet wired in `entity_resolution.json`** — the value falls through to the SQL-escaped raw fallback. The `characters` ChromaDB collection is provisioned in [main.py:135](main.py#L135) for upcoming use.
+     - **Genre names** (`{{Genre_nameN}}`): closed-vocabulary lookup mapping name → integer `ID_GENRE` via `MOVIE_GENRE_NAME_TO_ID` and `SERIE_GENRE_NAME_TO_ID` ([entity.py:141-181](entity.py#L141-L181)); context-aware based on whether the SQL references `MOVIE_GENRE` or `SERIE_GENRE` tables.
+     - **Release year** (`{{Release_yearN}}`): direct 4-digit numeric substitution (no DB lookup).
    - Vector similarity matching ensures fuzzy matching for misspellings and variations
    - Similarity threshold of 0.15 for robust entity matching
 
@@ -198,6 +216,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    # Optional LLM provider keys (only needed if using non-OpenAI models)
    ANTHROPIC_API_KEY=your_anthropic_api_key_here
    GOOGLE_API_KEY=your_google_api_key_here
+   OPENROUTER_API_KEY=your_openrouter_api_key_here
    
    # Database Configuration
    DB_HOST=localhost
@@ -218,6 +237,12 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    MCP_API_KEY=your_mcp_bearer_token_here
    MCP_INTERNAL_API_KEY=key_for_mcp
    ```
+
+   Provider key usage:
+   - `OPENAI_API_KEY` is required for `gpt-*`, `o1*`, and `o3*` models.
+   - `ANTHROPIC_API_KEY` is required for `claude-*` models.
+   - `GOOGLE_API_KEY` is required for `gemini-*` and `gemma-4-google`.
+   - `OPENROUTER_API_KEY` is required for `gemma-4`.
 
 ## 🚀 Usage
 
@@ -329,14 +354,31 @@ Content-Type: application/json
     - `gemini-1.0-pro`
   - Gemini requests may also try fallback aliases such as `-latest` and a small set of known Gemini variants when the requested model name is not found.
 
+- Google Gemma 4 direct
+  - Supported when the value is exactly `gemma-4-google`
+  - Routed directly to Google using the official `google-genai` SDK
+  - Current mapped Google model:
+    - `gemma-4-26b-a4b-it`
+  - Requires `GOOGLE_API_KEY`
+
+- OpenRouter Gemma 4
+  - Supported when the value is exactly `gemma-4`
+  - Routed through OpenRouter
+  - Current mapped OpenRouter model:
+    - `google/gemma-4-26b-a4b-it:free`
+  - Requires `OPENROUTER_API_KEY`
+
 **Notes:**
 
 - The same model families are accepted for:
   - `llm_model_entity_extraction`
   - `llm_model_text2sql`
   - `llm_model_complex`
+- `gemma-4-google` is intended for direct Google Gemma 4 access on entity extraction and text-to-SQL.
+- `gemma-4` is available through OpenRouter and is useful if you prefer the OpenRouter route for Gemma 4.
 - For `llm_model_complex`, if the selected stronger model is unavailable and it is not already `gpt-4o`, the application may retry once with `gpt-4o`.
 - For `llm_model_complex`, `o1*` and `o3*` models are called with `temperature=1` for compatibility, while the other supported model families use `temperature=0` in the complex-question flow.
+- The project now uses Google's current `google-genai` SDK for Google-hosted Gemini and Gemma requests.
 
 **Note:** Either `question` or `question_hashed` must be provided.
 
@@ -360,11 +402,22 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "question": "List all color movies with Humphrey Bogart",
   "question_hashed": "a1b2c3d4e5f6...",
   "sql_query": "SELECT T_WC_T2S_MOVIE.ID_MOVIE, T_WC_T2S_MOVIE.TITLE... LIMIT 50",
-  "justification": "",
+  "sql_query_anonymized": "SELECT T_WC_T2S_MOVIE.ID_MOVIE, T_WC_T2S_MOVIE.TITLE... WHERE p.PERSON_NAME = '{{Person_name1}}'",
+  "justification": "Filters movies whose color status is non-B&W and joins with Humphrey Bogart's filmography.",
+  "justification_anonymized": "Filters movies whose color status is non-B&W and joins with {{Person_name1}}'s filmography.",
   "answer": "Here are all the color movies featuring Humphrey Bogart.",
   "answer_anonymized": "Here are all the color movies featuring {{Person_name1}}.",
   "ui_language": "en",
   "error": "",
+  "error_code": null,
+  "is_retryable": false,
+  "retry_after_seconds": null,
+  "provider": null,
+  "entity_extraction": {
+    "question": "List all color movies with {{Person_name1}}",
+    "Person_name1": "Humphrey Bogart"
+  },
+  "question_anonymized": "List all color movies with {{Person_name1}}",
   "entity_extraction_processing_time": 0.45,
   "text2sql_processing_time": 1.23,
   "embeddings_processing_time": 0.12,
@@ -381,9 +434,10 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "cached_anonymized_question": false,
   "cached_anonymized_question_embedding": false,
   "ambiguous_question_for_text2sql": false,
-  "llm_model_entity_extraction": "default",
-  "llm_model_text2sql": "default",
-  "llm_model_complex": "default",
+  "llm_model_entity_extraction": "gpt-4o",
+  "llm_model_text2sql": "gpt-4o",
+  "llm_model_complex": "gpt-4o",
+  "complex_model_used": false,
   "api_version": "1.1.15",
   "messages": [
     {
@@ -418,11 +472,19 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 **Core Fields:**
 - `question` (str): The original or retrieved natural language question
 - `question_hashed` (str, optional): SHA256 hash of the question for pagination/caching
-- `sql_query` (str): The generated and optimized SQL query
-- `justification` (str): Explanation or reasoning for the SQL query (if provided by LLM)
+- `sql_query` (str): The generated and optimized SQL query (with entities resolved)
+- `sql_query_anonymized` (str): The same SQL with entity values replaced by typed placeholders (e.g. `{{Person_name1}}`); useful for cache pattern matching and debugging
+- `justification` (str): Explanation or reasoning for the SQL query (if provided by the LLM), with entities resolved
+- `justification_anonymized` (str): The `justification` before entity de-anonymization (with placeholders)
 - `answer` (str): User-oriented plain-language description of what the query returns, written in the language specified by `ui_language`. Contains no table/column names or SQL details. Intended to be displayed above query results.
-- `answer_anonymized` (str): The `answer` before entity de-anonymization (with placeholders like `{{Person_name1}}`)
-- `error` (str): Error message if query processing failed
+- `answer_anonymized` (str): The `answer` before entity de-anonymization (with placeholders)
+- `entity_extraction` (dict, optional): Full LLM entity extraction output, including the anonymized `question` key plus one key per extracted placeholder (e.g., `Person_name1`, `Movie_title1`)
+- `question_anonymized` (str, optional): The user question with entities replaced by typed placeholders
+- `error` (str): Error message if query processing failed (e.g., the LLM's explanation when the question is ambiguous)
+- `error_code` (str, optional): Structured API error code when the failure can be classified. Currently `"429"` is used for retryable provider quota / rate-limit failures.
+- `is_retryable` (bool): Indicates whether the client should treat the failure as retryable.
+- `retry_after_seconds` (float, optional): Suggested wait time before retrying the request. When available, this is extracted from the underlying provider response.
+- `provider` (str, optional): Provider associated with the failure when it can be inferred, such as `google`, `openrouter`, `openai`, or `anthropic`.
 - `result` (list): Array of query results, each with `index` (int) and `data` (dict)
 
 **Performance Metrics:**
@@ -447,18 +509,45 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `cached_anonymized_question_embedding` (bool): Whether similar question found via embeddings
 
 **Configuration & Status:**
-- `ambiguous_question_for_text2sql` (bool): Whether question was too ambiguous for SQL generation
-- `llm_model_entity_extraction` (str): LLM model used for entity extraction
-- `llm_model_text2sql` (str): LLM model used for text-to-SQL conversion
-- `llm_model_complex` (str): LLM model used for complex-question resolution when a stronger-model retry occurs
-- `ui_language` (str): Language code used for the `answer` field (e.g., `"en"`, `"fr"`)
-- `api_version` (str): Current API version (e.g., "1.1.15")
-- `messages` (list): Array of processing step messages, each with `position` (int) and `text` (str)
+- `ambiguous_question_for_text2sql` (bool): Whether question was too ambiguous for SQL generation, or entity resolution left unresolved placeholders
+- `llm_model_entity_extraction` (str): LLM model actually used for entity extraction (resolved value, never `"default"`)
+- `llm_model_text2sql` (str): LLM model actually used for text-to-SQL conversion
+- `llm_model_complex` (str): LLM model **configured** for complex-question resolution / stronger-model retry — exposed even when the retry path was not taken
+- `complex_model_used` (bool, default `false`): **Whether the stronger model was actually invoked** during the request — set to `true` when any of the four complex-retry code paths fired (text2sql error, SQL execution error, zero-row result on page 1, or single-cell zero-count direct answer). Use this rather than `llm_model_complex` to know whether the extra LLM call happened.
+- `ui_language` (str): Language code used for the `answer` field and the cache key (e.g., `"en"`, `"fr"`)
+- `api_version` (str): Current API version
+- `messages` (list): Array of processing step messages, each with `position` (int) and `text` (str). On a stronger-model retry, the messages from the outer and inner runs are merged and renumbered.
+
+### Client handling for quota / rate-limit errors
+
+When an upstream LLM provider rejects a request because of quota exhaustion or temporary rate limiting, the API returns the failure in the normal JSON response and also exposes structured retry metadata.
+
+Typical retryable response pattern:
+
+```json
+{
+  "error": "LLM API call failed: 429 RESOURCE_EXHAUSTED ... Please retry in 27s.",
+  "error_code": "429",
+  "is_retryable": true,
+  "retry_after_seconds": 27.0,
+  "provider": "google"
+}
 ```
 
-## 💡 Sample Usage Examples
+Recommended client behavior:
 
-Based on real API usage data, here are examples of natural language questions the API can successfully convert to SQL:
+- If `is_retryable` is `true`, do not immediately spam retries.
+- If `retry_after_seconds` is present, wait at least that many seconds before retrying.
+- Add a small safety buffer on top of `retry_after_seconds` because provider quota windows are often rolling.
+- Retry the same request with the same payload after the wait period.
+- Use a capped retry policy so clients do not loop forever.
+- If `is_retryable` is `false`, treat the response as a normal failure and surface or handle `error` directly.
+
+Practical notes:
+
+- The API may still return HTTP 200 with a populated `error` field for provider-side LLM failures; clients should inspect the JSON body, not only the HTTP status code.
+- `provider` helps clients log or route provider-specific retry policy decisions.
+- For batch evaluators or agents, serializing requests and honoring `retry_after_seconds` is strongly recommended when using quota-constrained models such as direct Google Gemma 4.
 
 ### 🎬 Movie Queries
 - "I would like all movies directed by William Friedkin"
@@ -597,7 +686,7 @@ fastapi-text2sql/
 ```
 
 **Key Architecture Components:**
-- **ChromaDB Integration**: Vector database for entity matching and similarity search with 10 specialized collections
+- **ChromaDB Integration**: Vector database for entity matching and similarity search with 15 entity collections (`persons`, `movies`, `series`, `companies`, `networks`, `topics`, `locations`, `groups`, `characters`, `lists`, `collections`, `deaths`, `awards`, `nominations`, `movements`) plus a separate `anonymizedqueries` cache collection
 - **Multi-Level Caching**: SQL cache + embeddings cache for performance optimization with automatic cleanup
 - **Entity Extraction**: `entity.py` handles GPT-powered entity recognition and anonymization for supported entity types
 - **Unified LLM Dispatch**: `text2sql.py` routes to OpenAI (native SDK), Anthropic (native `anthropic` SDK), or Google Gemini (`google-generativeai`) based on model name
@@ -624,16 +713,25 @@ Prompt template files are read using UTF-8 encoding so the application starts re
 The current prompt template is specifically designed for a **movie and TV series database** using MariaDB. It includes:
 
 **🎬 Database Schema Coverage:**
-- **Movies**: Complete TMDB (The Movie Database) schema with detailed movie information
-- **TV Series**: Full series data including episodes, seasons, and network information
-- **People**: Actors, directors, and crew members with their roles and relationships
-- **Companies**: Production companies and studios
-- **Ratings**: IMDB ratings integration
-- **Genres**: Movie and series genre classifications
+- **Movies** (`T_WC_T2S_MOVIE`): Complete TMDB (The Movie Database) schema with detailed movie information
+- **TV Series** (`T_WC_T2S_SERIE`): Full series data including episodes, seasons, and network information
+- **People** (`T_WC_T2S_PERSON`, `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`): Actors, directors, and crew members with their roles, relationships, and AKAs (used for non-Latin name resolution)
+- **Companies** (`T_WC_T2S_COMPANY`): Production companies and studios
+- **Networks** (`T_WC_T2S_NETWORK`): TV networks and streaming platforms
+- **Topics** (`T_WC_T2S_TOPIC`): Curated themes, franchises, and recurring-character topics
+- **Lists** (`T_WC_T2S_LIST`): Notable curated rankings, registries, and editorial lists (e.g., Sight and Sound, IMDb Top 250)
+- **Awards** (`T_WC_T2S_AWARD`) and **Nominations** (`T_WC_T2S_NOMINATION`): Award wins and award nominations for movies, series, and persons
+- **Collections** (`T_WC_T2S_COLLECTION`): Trilogies and named series of works (e.g., Dollars Trilogy, James Bond Collection)
+- **Movements** (`T_WC_T2S_MOVEMENT`): Film movements and stylistic schools (Film Noir, French New Wave, etc.)
+- **Groups** (`T_WC_T2S_GROUP`): Organizations, publications, and musical/comedy groups associated with persons
+- **Deaths** (`T_WC_T2S_DEATH`): Causes and circumstances of persons' deaths
+- **Locations** (`T_WC_T2S_ITEM` joined via `T_WC_WIKIDATA_ITEM_PROPERTY` with `ID_PROPERTY IN ('P840', 'P915')`): Wikidata-backed narrative or filming locations
+- **Ratings**: IMDB ratings integration (raw and weighted)
+- **Genres**: Movie and series genre classifications via dedicated join tables (closed vocabulary, 19 movie + 17 serie genres)
 - **Languages**: Multi-language support for titles and content
-- **Topics**: Curated movie and series topics
 - **Images**: Poster, backdrop, and profile image management
-- **Videos**: Trailer, clip, and behind the scenes video management
+- **Videos**: Trailer, clip, and behind-the-scenes video management
+- **Cache** (`T_WC_T2S_CACHE`): Stores both exact and anonymized cached questions, partitioned by `API_VERSION` (`XXX.YYY.ZZZ`) and `UI_LANGUAGE`
 
 **🎯 Key Features:**
 - **Smart Title Matching**: Handles English, French, and original language titles
@@ -703,41 +801,61 @@ The system automatically cleans up cached data on startup to ensure optimal perf
 
 ### Entity Extraction & Anonymization
 
-The system intelligently extracts and replaces entities in natural language questions:
+The system intelligently extracts and replaces entities in natural language questions. As of v1.1.15 the supported placeholder types are:
 
-- **Person Names**: Actors, directors, crew members
-- **Movie Titles**: English, French, and original language titles
-- **TV Series Titles**: Series names in multiple languages
-- **Company Names**: Production companies and studios
-- **Network Names**: TV networks and streaming platforms
-- **Character Names**: Movie/series characters (e.g., "James Bond", "Sherlock Holmes") - new in v1.1.14
-- **Location Names**: Narrative or filming locations (e.g., "New York City", "Gotham City") - new in v1.1.14
-- **Topic Names**: Genres, themes, and categories
+| Placeholder prefix | Description | Resolver |
+|---|---|---|
+| `Person_name` | Actors, directors, writers, composers, crew | RapidFuzz (Latin → `T_WC_T2S_PERSON`; non-Latin → AKA table with canonical resolution) |
+| `Movie_title` | Movie titles (English/French/original) | Embeddings — `movies` collection |
+| `Serie_title` | TV series titles (English/French/original) | Embeddings — `series` collection |
+| `Company_name` | Production / distribution companies | Embeddings — `companies` collection |
+| `Network_name` | TV networks / streaming platforms | Embeddings — `networks` collection |
+| `Topic_name` | Themes, franchises, recurring-character collections | Embeddings — `topics` collection |
+| `List_name` | Curated rankings / canons / registries | Embeddings — `lists` collection |
+| `Award_name` | Named awards or recognitions | Embeddings — `awards` collection |
+| `Nomination_name` | Named award nominations | Embeddings — `nominations` collection |
+| `Collection_name` | Trilogies / named series of works | Embeddings — `collections` collection |
+| `Movement_name` | Film movements / stylistic schools | Embeddings — `movements` collection |
+| `Group_name` | Organizations / publications / musical groups | Embeddings — `groups` collection |
+| `Death_name` | Cause or circumstance of death | Embeddings — `deaths` collection |
+| `Location_name` | Narrative / filming locations (Wikidata) | Embeddings — `locations` collection |
+| `Character_name` | Movie / series character names | *(extracted but currently unresolved — raw fallback)* |
+| `Genre_name` | Movie / TV genre (closed vocabulary) | Hardcoded name → ID dictionaries, context-aware (movie vs series) |
+| `Release_year` | 4-digit year extracted from `Title (YYYY)` patterns | Direct numeric substitution |
+
+In addition to the placeholder types above, the entity-extraction prompt also passes through identifier-style entities when explicitly referenced: `IMDb_ID`, `IMDb_person_ID`, `Wikidata_ID`, `Wikidata_property_ID`, `TMDb_ID`, `Criterion_spine_ID`. A `Serie_type` constant (one of `Documentary`, `Miniseries`, `News`, `Reality`, `Scripted`, `Talk Show`, `Video`) may also be extracted when the question explicitly mentions a series context.
 
 **Process Flow:**
-1. Extract entities from user question using GPT-4o
-2. Replace entities with placeholders (e.g., `{{PERSON_NAME}}`, `{{CHARACTER_NAME}}`, `{{LOCATION_NAME}}`, `{{Release_year1}}`)
-3. Check cache for anonymized question pattern
+1. Extract entities from the user question using GPT-4o (or the configured `llm_model_entity_extraction`)
+2. Replace entities with typed numbered placeholders (e.g., `{{Person_name1}}`, `{{Movie_title1}}`, `{{Award_name1}}`, `{{Group_name1}}`, `{{Release_year1}}`)
+3. Check cache for the anonymized question pattern
 4. Generate SQL if not cached
-5. Replace placeholders with actual entity values using vector search
+5. Resolve each placeholder to a real DB value using the per-prefix `search_list` in [data/entity_resolution.json](data/entity_resolution.json) (embeddings or RapidFuzz, with optional language-family gating)
+6. Substitute resolved values back into `sql_query`, `justification`, and `answer`, using SQL-safe `''` quote escaping
 
-This logic is implemented in `entity.py`, including config-driven resolution, generic fallback replacement, numeric placeholder handling, embeddings-based lookup, and RapidFuzz-based person resolution.
+The full pipeline is implemented in [entity.py](entity.py) — config-driven resolution, generic fallback replacement, special-cased numeric (`Release_year`) and closed-vocabulary (`Genre_name`) placeholders, embeddings-based lookup, and RapidFuzz-based person resolution.
 
-If the user provides a disambiguation pattern like `<movie_title> (YYYY)`, entity extraction can also return a release year placeholder (e.g., `{{Release_year1}}`) in addition to the movie title.
+If the user provides a disambiguation pattern like `<movie_title> (YYYY)`, entity extraction returns a `{{Release_yearN}}` placeholder alongside the `{{Movie_titleN}}` placeholder so the SQL can disambiguate same-titled films by release year.
 
 ### Vector Search Integration
 
-ChromaDB collections for entity matching:
-- `persons`: Actor/director/crew member embeddings
-- `movies`: Movie title embeddings (multiple languages)
-- `series`: TV series title embeddings
-- `companies`: Production company embeddings
-- `networks`: TV network embeddings
-- `characters`: Movie/series character name embeddings (new in v1.1.14)
-- `locations`: Narrative or filming location embeddings (new in v1.1.14)
-- `groups`: Group/collection embeddings (new in v1.1.14)
-- `topics`: Genre/theme embeddings
-- `anonymizedqueries`: Cached anonymized question patterns
+ChromaDB collections for entity matching (15 entity collections + 1 cache collection — see [main.py:124-150](main.py#L124-L150)):
+- `persons` — actor/director/crew embeddings (also used by RapidFuzz pipeline as a secondary signal)
+- `movies` — movie title embeddings (English / French / original)
+- `series` — TV series title embeddings (English / French / original)
+- `companies` — production/distribution company embeddings
+- `networks` — TV network / streaming platform embeddings
+- `topics` — theme, franchise, and recurring-character-collection embeddings
+- `lists` — curated ranking / canon embeddings (e.g., Sight and Sound, IMDb Top 250)
+- `awards` — named award embeddings
+- `nominations` — named award-nomination embeddings
+- `collections` — trilogy / named-work-series embeddings
+- `movements` — film-movement / stylistic-school embeddings
+- `groups` — organization / publication / musical-group embeddings
+- `deaths` — cause-of-death embeddings
+- `characters` — character-name embeddings (provisioned for upcoming use; not currently consumed by `entity_resolution.json`)
+- `locations` — Wikidata-backed narrative / filming location embeddings
+- `anonymizedqueries` — cached anonymized question patterns (disabled by default via `USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE = False`)
 
 ### Processing Transparency (Messages Array)
 
@@ -868,14 +986,17 @@ All successful text2sql requests return a comprehensive response with:
 **Core Fields:**
 - `question`: The original natural language question
 - `question_hashed`: SHA256 hash of the question for pagination/caching
-- `sql_query`: The generated and optimized SQL query
+- `sql_query`: The generated and optimized SQL query (with entities resolved)
 - `sql_query_anonymized`: The SQL query with entity placeholders (new in v1.1.13)
-- `justification`: Explanation or reasoning for the SQL query (if provided)
-- `error`: Error message if query processing failed
+- `justification`: Explanation or reasoning for the SQL query (if provided), with entities resolved
+- `justification_anonymized`: The `justification` before entity de-anonymization
+- `answer`: User-oriented plain-language description of what the query returns, in the requested `ui_language` (new in v1.1.15)
+- `answer_anonymized`: The `answer` before entity de-anonymization (new in v1.1.15)
+- `error`: Error message if query processing failed (e.g., the LLM's explanation when the question is ambiguous)
 - `entity_extraction`: Full entity extraction dictionary from LLM (new in v1.1.13)
 - `question_anonymized`: The anonymized version of the question with placeholders (new in v1.1.13)
-- `result`: Array of query results with index and data
-- `messages`: Array of processing step messages (position and text)
+- `result`: Array of query results with `index` and `data`
+- `messages`: Array of processing step messages (`position` and `text`)
 
 **Performance Metrics:**
 - `entity_extraction_processing_time`: Time for entity extraction (seconds)
@@ -899,10 +1020,22 @@ All successful text2sql requests return a comprehensive response with:
 - `ambiguous_question_for_text2sql`: Whether question was too ambiguous for SQL generation
 
 **Configuration & Metadata:**
-- `llm_model_entity_extraction`: LLM model used for entity extraction
-- `llm_model_text2sql`: LLM model used for text-to-SQL conversion
-- `llm_model_complex`: LLM model used for complex-question resolution / stronger model retry
+- `llm_model_entity_extraction`: LLM model actually used for entity extraction
+- `llm_model_text2sql`: LLM model actually used for text-to-SQL conversion
+- `llm_model_complex`: LLM model **configured** for complex-question resolution / stronger-model retry (does not by itself indicate the retry path was taken)
+- `complex_model_used` (bool, new in v1.1.15): Whether the stronger model was actually invoked during the request — `true` only when one of the four complex-retry code paths fired (text2sql error, SQL execution error, zero-row result on page 1, or single-cell zero-count direct answer)
+- `ui_language` (new in v1.1.15): Language code used for the `answer` field and as part of the cache key
 - `api_version`: Current API version (e.g., "1.1.15")
+
+### New Features in v1.1.15
+
+- **Localized user-oriented `answer`**: every successful response now includes an `answer` field — a plain-language sentence describing what the query returns, written in the language specified by `ui_language` (default `"en"`). The answer is generated alongside the SQL using the same LLM, preserves entity placeholders during generation, and is de-anonymized in lockstep with `sql_query` and `justification`. `ui_language` is also part of the cache key so the same question cached in different languages keeps separate entries.
+- **`answer_anonymized`** companion field exposes the placeholder version for cache reuse and debugging.
+- **`UI_LANGUAGE` cache column**: cache reads and writes filter by language (with `OR UI_LANGUAGE IS NULL` for backward compatibility).
+- **New first-class entities**: `List_name`, `Award_name`, `Nomination_name`, `Collection_name`, `Movement_name`, `Group_name`, `Death_name` — each with a dedicated `T_WC_T2S_*` table, ChromaDB collection, embedding-based resolver in `entity_resolution.json`, and `/`<entity>`/{id}` REST + MCP detail endpoint. Topics no longer overload these concepts.
+- **Single-cell zero-count direct answer**: when the SQL returns exactly one row / one column with value `0` and `complex_question_processing=true`, the stronger model is asked for the correct scalar; the answer is wrapped in a synthetic `SELECT {value} AS '{question}' FROM DUAL`, executed, and cached so subsequent calls bypass the stronger model.
+- **`complex_model_used` response flag**: tells callers whether the stronger model was actually invoked during the request (independent of the configured `llm_model_complex` value). Useful for evaluation pipelines and cost analysis.
+- **`f_build_retry_question_from_reasoning()`**: deterministically composes the retry question from the stronger model's structured reasoning output (typed entities + years), removing earlier free-text drift on retries.
 
 ### New Features in v1.1.14
 
@@ -955,7 +1088,7 @@ This project is open source. Please check the repository for license details.
 ---
 
 **Current Version**: 1.1.15
-**Last Updated**: 2026-04-13
+**Last Updated**: 2026-04-26
 
 **Note**: This API requires an active OpenAI API key to function. Make sure you have sufficient credits in your OpenAI account for the text-to-SQL conversions.
 

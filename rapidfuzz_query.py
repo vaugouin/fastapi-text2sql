@@ -51,6 +51,16 @@ FTX_LIMIT = 20000        # candidates fetched for fulltext fallback
 LIKE_LIMIT = 20000       # last resort fallback
 MIN_CANDIDATES_OK = 200  # if prefix yields >= this, skip fallbacks
 
+# BK-tree (Levenshtein) adaptive distance thresholds.
+# The BK-tree pool covers typos anywhere in the string (including inside
+# the first few characters, which the prefix pool cannot reach).
+BKTREE_LEN_SHORT = 6     # queries up to this length use BKTREE_K_SHORT
+BKTREE_LEN_LONG = 14     # queries beyond this length use BKTREE_K_LONG
+BKTREE_K_SHORT = 1
+BKTREE_K_MEDIUM = 2
+BKTREE_K_LONG = 3
+BKTREE_FETCH_CAP = 500   # max ids batch-fetched from a single BK-tree query
+
 # Environment variables (recommended)
 DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
 DB_PORT = int(os.getenv("DB_PORT", "3306"))
@@ -59,6 +69,7 @@ DB_PASS = os.getenv("DB_PASS", "")
 DB_NAME = os.getenv("DB_NAME", "")
 
 TIMINGS = os.getenv("TIMINGS", "0").strip().lower() in {"1", "true", "yes", "on"}
+BKTREE_ENABLED = os.getenv("BKTREE_ENABLED", "1").strip().lower() in {"1", "true", "yes", "on"}
 
 # ----------------------------
 # Normalization (should match your generated columns logic)
@@ -124,6 +135,130 @@ def build_boolean_query(tokens: List[str]) -> str:
         else:
             parts.append(f"+{t}")
     return " ".join(parts)
+
+# ----------------------------
+# BK-tree (Levenshtein) fuzzy index
+# ----------------------------
+class BKTreeIndex:
+    """In-memory BK-tree keyed by Levenshtein distance.
+
+    Complements the prefix / FULLTEXT / LIKE candidate pools by returning
+    every indexed name within a small edit distance of the query — regardless
+    of where the typo occurs. Designed to fix cases like RICARDO vs RICCARDO
+    where the misspelling sits inside the first characters and therefore
+    defeats a prefix lookup.
+
+    Nodes are represented as lightweight 3-element lists
+    `[norm_name, item_id, children_dict]` keyed on the Levenshtein distance
+    from the parent. The triangle inequality is used to prune the search:
+    at a node whose distance to the query is `d`, only children on edges in
+    `[d - k, d + k]` can contain results within distance `k`.
+
+    Concurrency: queries are safe to run from multiple threads once the tree
+    is fully built. Insertions are NOT thread-safe — build first, query later.
+    """
+
+    __slots__ = ("_root", "_size")
+
+    def __init__(self) -> None:
+        self._root: Optional[List[Any]] = None
+        self._size = 0
+
+    @property
+    def size(self) -> int:
+        return self._size
+
+    def insert(self, item_id: Any, norm_name: str) -> None:
+        if not norm_name:
+            return
+        new_node: List[Any] = [norm_name, item_id, {}]
+        if self._root is None:
+            self._root = new_node
+            self._size = 1
+            return
+        node = self._root
+        while True:
+            d = int(Levenshtein.distance(norm_name, node[0]))
+            children = node[2]
+            child = children.get(d)
+            if child is None:
+                children[d] = new_node
+                self._size += 1
+                return
+            node = child
+
+    def query(self, q_norm: str, max_distance: int) -> List[Tuple[Any, str, int]]:
+        """Return `(id, norm_name, distance)` for every node within `max_distance`.
+
+        Results are unordered; callers that need them sorted should sort by
+        the third element.
+        """
+        out: List[Tuple[Any, str, int]] = []
+        if self._root is None or not q_norm or max_distance < 0:
+            return out
+        k = max_distance
+        stack: List[List[Any]] = [self._root]
+        while stack:
+            node = stack.pop()
+            d = int(Levenshtein.distance(q_norm, node[0]))
+            if d <= k:
+                out.append((node[1], node[0], d))
+            lo = d - k
+            hi = d + k
+            for edge, child in node[2].items():
+                if lo <= edge <= hi:
+                    stack.append(child)
+        return out
+
+    def build_from_cursor(
+        self,
+        cur,
+        table: str,
+        id_col: str,
+        norm_col: str,
+        batch_size: int = 50_000,
+    ) -> None:
+        """Populate the tree by streaming `(id, norm_name)` rows from the DB."""
+        cur.execute(
+            f"SELECT `{id_col}`, `{norm_col}` FROM `{table}`"
+            f" WHERE `{norm_col}` IS NOT NULL AND `{norm_col}` <> ''"
+        )
+        while True:
+            rows = cur.fetchmany(batch_size)
+            if not rows:
+                break
+            for row in rows:
+                nm = row.get(norm_col)
+                if not nm:
+                    continue
+                self.insert(row.get(id_col), nm)
+
+
+def choose_bktree_k(q_norm: str) -> int:
+    """Pick an adaptive max-distance for a BK-tree query based on query length."""
+    n = len(q_norm)
+    if n <= BKTREE_LEN_SHORT:
+        return BKTREE_K_SHORT
+    if n <= BKTREE_LEN_LONG:
+        return BKTREE_K_MEDIUM
+    return BKTREE_K_LONG
+
+
+def build_bktree_for_config(cur, search_cfg: Dict[str, Any]) -> BKTreeIndex:
+    """Build a BK-tree over the normalized name column described by `search_cfg`.
+
+    `search_cfg` must contain `table`, `id`, and `norm` keys (same shape used
+    elsewhere by `search_first_match_configured`).
+    """
+    idx = BKTreeIndex()
+    idx.build_from_cursor(
+        cur,
+        search_cfg["table"],
+        search_cfg["id"],
+        search_cfg["norm"],
+    )
+    return idx
+
 
 # ----------------------------
 # DB Helpers
@@ -249,13 +384,17 @@ def fetch_candidates(
     q_key: str,
     has_fulltext: bool,
     timings: Optional[Dict[str, Any]] = None,
+    bktree: Optional[BKTreeIndex] = None,
 ) -> List[Tuple[int, str, str]]:
     """Fetch candidate rows that may match the query.
 
     Strategy:
         1) Prefix lookup on `PERSON_NAME_KEY`.
-        2) Optional FULLTEXT fallback on `PERSON_NAME_NORM`.
-        3) LIKE fallback as last resort.
+        2) BK-tree Levenshtein pool (optional, when `bktree` is provided).
+           Always runs when available — even if the prefix already produced
+           many rows — so typos inside the prefix cannot hide the correct row.
+        3) Optional FULLTEXT fallback on `PERSON_NAME_NORM`.
+        4) LIKE fallback as last resort.
 
     Args:
         cur: A DB cursor (DictCursor).
@@ -263,6 +402,7 @@ def fetch_candidates(
         q_key: Key form of query (normalized without spaces).
         has_fulltext: Whether FULLTEXT is available on `PERSON_NAME_NORM`.
         timings: Optional dict to store timing measurements.
+        bktree: Optional pre-built `BKTreeIndex` over the normalized name column.
 
     Returns:
         A list of row dicts with at least `ID_PERSON`, `PERSON_NAME`, `PERSON_NAME_NORM`.
@@ -285,9 +425,45 @@ def fetch_candidates(
     if timings is not None:
         timings["prefix_s"] = time.perf_counter() - t0
         timings["prefix_n"] = len(rows)
+
+    # 2) BK-tree pool (always runs when provided; additive to the prefix pool)
+    bk_added = 0
+    if bktree is not None and bktree.size > 0 and q_norm:
+        t_bk0 = time.perf_counter() if timings is not None else 0.0
+        k = choose_bktree_k(q_norm)
+        bk_matches = bktree.query(q_norm, k)
+        if bk_matches:
+            bk_matches.sort(key=lambda m: m[2])
+            seen_ids = {r[strcolumnid] for r in rows}
+            ids_to_fetch: List[Any] = []
+            for mid, _mnm, _md in bk_matches:
+                if mid in seen_ids:
+                    continue
+                ids_to_fetch.append(mid)
+                if len(ids_to_fetch) >= BKTREE_FETCH_CAP:
+                    break
+            if ids_to_fetch:
+                placeholders = ",".join(["%s"] * len(ids_to_fetch))
+                cur.execute(
+                    f"""
+                    SELECT `{strcolumnid}`, `{strcolumndesc}`, `{strcolumndescnorm}`, `{strcolumnpopularity}`
+                    FROM `{strtablename}`
+                    WHERE `{strcolumnid}` IN ({placeholders})
+                    """,
+                    ids_to_fetch,
+                )
+                bk_rows = cur.fetchall() or []
+                rows.extend(bk_rows)
+                bk_added = len(bk_rows)
+        if timings is not None:
+            timings["bktree_s"] = time.perf_counter() - t_bk0
+            timings["bktree_n"] = bk_added
+            timings["bktree_k"] = k
+            timings["bktree_raw"] = len(bk_matches)
+
     if len(rows) >= MIN_CANDIDATES_OK:
         if timings is not None:
-            timings["used"] = "prefix"
+            timings["used"] = "bktree+prefix" if bk_added > 0 else "prefix"
         return rows
 
     # 2) FULLTEXT fallback (recommended)
@@ -314,7 +490,7 @@ def fetch_candidates(
             rows.extend([r for r in rows2 if r[strcolumnid] not in seen])
             if len(rows) >= MIN_CANDIDATES_OK:
                 if timings is not None:
-                    timings["used"] = "fulltext"
+                    timings["used"] = "bktree+fulltext" if bk_added > 0 else "fulltext"
                 return rows
 
     # 3) LIKE fallback (last resort)
@@ -339,7 +515,10 @@ def fetch_candidates(
             rows.extend([r for r in rows3 if r[strcolumnid] not in seen])
 
     if timings is not None and "used" not in timings:
-        timings["used"] = "like" if tokens else "prefix"
+        if tokens:
+            timings["used"] = "bktree+like" if bk_added > 0 else "like"
+        else:
+            timings["used"] = "bktree+prefix" if bk_added > 0 else "prefix"
 
     return rows
 
@@ -421,6 +600,7 @@ def search_first_match(
     raw: str,
     has_fulltext: bool,
     timings_enabled: bool = False,
+    bktree: Optional[BKTreeIndex] = None,
 ) -> Dict[str, Any]:
     """Search for a person name and return the best match.
 
@@ -438,6 +618,9 @@ def search_first_match(
         raw: Raw user input.
         has_fulltext: Whether FULLTEXT is available.
         timings_enabled: If True, return timing details.
+        bktree: Optional pre-built `BKTreeIndex` over the normalized name
+            column. When provided, extends the candidate pool with Levenshtein
+            neighbours so typos in the first characters still resolve.
 
     Returns:
         A dict with:
@@ -499,6 +682,7 @@ def search_first_match(
         q_key,
         has_fulltext,
         timings=fetch_t,
+        bktree=bktree,
     )
     t_fetch1 = time.perf_counter() if timings_enabled else 0.0
 
@@ -533,3 +717,392 @@ def search_first_match(
         "candidates_count": len(candidates),
     }
 
+def db_lookup_by_id(
+    cur,
+    strtablename: str,
+    strkeycolumn: str,
+    strkeyvalue: Any,
+    select_columns: List[str],
+) -> Optional[Dict[str, Any]]:
+    """Lookup a single row by ID and return selected columns.
+
+    Args:
+        cur: A DB cursor (DictCursor).
+        strtablename: Table name.
+        strkeycolumn: Key column name.
+        strkeyvalue: Key value.
+        select_columns: Columns to select.
+
+    Returns:
+        Row dict or None.
+    """
+    cols_sql = ", ".join(f"`{c}`" for c in select_columns)
+    cur.execute(
+        f"SELECT {cols_sql} FROM `{strtablename}` WHERE `{strkeycolumn}` = %s LIMIT 1",
+        (strkeyvalue,),
+    )
+    return cur.fetchone()
+
+def build_match_object(
+    *,
+    source: str,
+    table: str,
+    id_col: str,
+    text_col: str,
+    norm_col: str,
+    row: Dict[str, Any],
+    score: Optional[float] = None,
+    enriched: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build a normalized match object for output."""
+    out: Dict[str, Any] = {
+        "source": source,
+        "table": table,
+        "id": row.get(id_col),
+        "text": row.get(text_col),
+        "norm": row.get(norm_col),
+        "fields": row,
+        "enriched": enriched or {},
+    }
+    if score is not None:
+        out["score"] = float(score)
+    return out
+
+def enrich_match_object(cur, match: Dict[str, Any], enrich_config: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Enrich a match object using config-driven lookups."""
+    if not enrich_config:
+        return match
+
+    enriched: Dict[str, Any] = dict(match.get("enriched") or {})
+    fields = match.get("fields") or {}
+    for step in enrich_config:
+        from_key = step.get("from_key")
+        attach_as = step.get("attach_as")
+        lookup = step.get("lookup") or {}
+        if not from_key or not attach_as:
+            continue
+
+        key_val = fields.get(from_key)
+        if key_val is None:
+            continue
+
+        row = db_lookup_by_id(
+            cur,
+            lookup.get("table"),
+            lookup.get("key_col"),
+            key_val,
+            lookup.get("select_cols") or [],
+        )
+        if row is not None:
+            enriched[attach_as] = row
+
+    match["enriched"] = enriched
+    return match
+
+def search_first_match_configured(
+    *,
+    cur,
+    cmd: str,
+    config: Dict[str, Any],
+    raw: str,
+    timings_enabled: bool = False,
+) -> Dict[str, Any]:
+    """Config-driven search returning structured match objects (with optional enrichment)."""
+    search_cfg = config.get("search") or {}
+    enrich_cfg = config.get("enrich") or []
+    enrich_mode = config.get("enrich_mode", "best_only")
+
+    state_has_fulltext = bool(search_cfg.get("has_fulltext"))
+    state_bktree = search_cfg.get("bktree")
+    base = search_first_match(
+        cur,
+        search_cfg["table"],
+        search_cfg["id"],
+        search_cfg["desc"],
+        search_cfg["norm"],
+        search_cfg["key"],
+        search_cfg["pop"],
+        raw,
+        state_has_fulltext,
+        timings_enabled=timings_enabled,
+        bktree=state_bktree if isinstance(state_bktree, BKTreeIndex) else None,
+    )
+
+    def _wrap_row(row: Optional[Dict[str, Any]], score: Optional[float] = None) -> Optional[Dict[str, Any]]:
+        """Wrap a raw database row in the normalized match-object structure."""
+        if row is None:
+            return None
+        m = build_match_object(
+            source=cmd,
+            table=search_cfg["table"],
+            id_col=search_cfg["id"],
+            text_col=search_cfg["desc"],
+            norm_col=search_cfg["norm"],
+            row=row,
+            score=score,
+        )
+        return m
+
+    hit_match = _wrap_row(base.get("hit"))
+    ranked_matches: List[Dict[str, Any]] = []
+    for r in base.get("ranked") or []:
+        ranked_matches.append(_wrap_row(r, score=r.get("SCORE")))
+
+    best_match = _wrap_row(base.get("best"), score=(base.get("best") or {}).get("SCORE") if base.get("best") else None)
+
+    if enrich_mode == "best_only":
+        if hit_match is not None:
+            hit_match = enrich_match_object(cur, hit_match, enrich_cfg)
+        if best_match is not None:
+            best_match = enrich_match_object(cur, best_match, enrich_cfg)
+    elif enrich_mode == "all_ranked":
+        if hit_match is not None:
+            hit_match = enrich_match_object(cur, hit_match, enrich_cfg)
+        if best_match is not None:
+            best_match = enrich_match_object(cur, best_match, enrich_cfg)
+        ranked_matches = [enrich_match_object(cur, m, enrich_cfg) for m in ranked_matches]
+
+    return {
+        "hit": hit_match,
+        "ranked": ranked_matches,
+        "auto": base.get("auto"),
+        "best": best_match,
+        "reason": base.get("reason"),
+        "timings": base.get("timings"),
+        "candidates_count": base.get("candidates_count"),
+    }
+
+# ----------------------------
+# Main interactive loop
+# ----------------------------
+def main():
+    """Run the interactive CLI loop."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    configs = {
+        "person": {
+            "search": {
+                "table": "T_WC_T2S_PERSON",
+                "id": "ID_PERSON",
+                "desc": "PERSON_NAME",
+                "norm": "PERSON_NAME_NORM",
+                "key": "PERSON_NAME_KEY",
+                "pop": "POPULARITY",
+            },
+            "enrich": [],
+            "enrich_mode": "best_only",
+        },
+        "aka": {
+            "search": {
+                "table": "T_WC_TMDB_PERSON_ALSO_KNOWN_AS",
+                "id": "ID_ROW",
+                "desc": "PERSON_NAME",
+                "norm": "PERSON_NAME_NORM",
+                "key": "PERSON_NAME_KEY",
+                "pop": "ID_PERSON",
+            },
+            "enrich": [
+                {
+                    "from_key": "ID_PERSON",
+                    "attach_as": "person",
+                    "lookup": {
+                        "table": "T_WC_T2S_PERSON",
+                        "key_col": "ID_PERSON",
+                        "select_cols": ["ID_PERSON", "PERSON_NAME"],
+                    },
+                }
+            ],
+            "enrich_mode": "best_only",
+        },
+    }
+
+    table_state: Dict[str, Dict[str, Any]] = {}
+
+    def ensure_table_ready(cmd: str) -> Dict[str, Any]:
+        """Cache per-table search capabilities before running an interactive lookup."""
+        if cmd in table_state:
+            return table_state[cmd]
+
+        search_cfg = configs[cmd]["search"]
+        if not db_has_norm_columns(cur, search_cfg["table"], search_cfg["norm"], search_cfg["key"]):
+            print(
+                f"ERROR: Columns {search_cfg['norm']} and {search_cfg['key']} are missing on table {search_cfg['table']}.\n"
+                "Add them as STORED generated columns + index, then rerun.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+        has_fulltext = db_has_fulltext(cur, search_cfg["table"], search_cfg["norm"])
+        state: Dict[str, Any] = {"has_fulltext": has_fulltext}
+        search_cfg["has_fulltext"] = has_fulltext
+
+        if BKTREE_ENABLED:
+            print(
+                f"Building BK-tree for {search_cfg['table']}...",
+                flush=True,
+            )
+            t0 = time.perf_counter()
+            bktree = build_bktree_for_config(cur, search_cfg)
+            t1 = time.perf_counter()
+            print(f"  bktree built: {bktree.size} entries in {t1 - t0:.1f}s")
+            state["bktree"] = bktree
+            search_cfg["bktree"] = bktree
+
+        table_state[cmd] = state
+        return state
+
+    current_cmd = "person"
+    ensure_table_ready(current_cmd)
+
+    print("Person name checker (RapidFuzz + MariaDB)")
+    print(f"- DB: {DB_HOST}:{DB_PORT}/{DB_NAME}")
+    print("Commands:")
+    print("  person <person_name>")
+    print("  aka <person_name>")
+    print("(If you omit the command, the previous command is reused.)")
+    print("Type 'quit' to exit.\n")
+
+    while True:
+        raw = input("Enter your command (e.g. 'person <name>'): ").strip()
+        if not raw:
+            continue
+        if raw.lower() in ("quit", "exit", "q"):
+            break
+
+        words = raw.split()
+        if not words:
+            continue
+
+        cmd = words[0].lower()
+        if cmd == "help":
+            print("\nCommands:")
+            print("  person <person_name>")
+            print("  aka <person_name>")
+            print("  help")
+            print("  quit / exit / q\n")
+            continue
+
+        if cmd in configs:
+            current_cmd = cmd
+            query = " ".join(words[1:]).strip()
+            if not query:
+                print(f" Current search set to '{current_cmd}'.\n")
+                continue
+        else:
+            query = raw
+            cmd = current_cmd
+
+        cfg = configs[cmd]
+        ensure_table_ready(cmd)
+
+        start_time = time.time()
+
+        result = search_first_match_configured(
+            cur=cur,
+            cmd=cmd,
+            config=cfg,
+            raw=query,
+            timings_enabled=TIMINGS,
+        )
+
+        end_time = time.time()
+        search_duration = end_time - start_time
+
+        if result["hit"] is not None:
+            hit = result["hit"]
+            hit_fields = hit.get("fields") or {}
+            id_label = configs[cmd]["search"]["id"]
+            text_label = configs[cmd]["search"]["desc"]
+            hit_dist = levenshtein_distance(query, hit.get("text") or "")
+            print(
+                f" Valid name: {hit.get('text')}  "
+                f"({id_label}={hit.get('id')})  "
+                f"[Levenshtein={hit_dist}]"
+            )
+            if cmd == "aka":
+                if "ID_PERSON" in hit_fields:
+                    print(f" ID_PERSON={hit_fields.get('ID_PERSON')}")
+                person = (hit.get("enriched") or {}).get("person")
+                if person and person.get("PERSON_NAME") is not None:
+                    print(f" PERSON_NAME (English)={person.get('PERSON_NAME')}")
+            print("")
+            print("")
+            print(f"Search duration: {search_duration:.4f} seconds\n")
+            if TIMINGS:
+                print(f"timings: exact_match={result['timings'].get('exact_match', 0.0):.4f}s\n")
+            continue
+
+        if not result["ranked"]:
+            print(" No candidates found.\n")
+            continue
+
+        if result["auto"] and result["best"]:
+            print(f"  Auto-corrected ({result['reason']}):")
+            print(f"    Input : {query}")
+            id_label = configs[cmd]["search"]["id"]
+            best_dist = levenshtein_distance(query, result["best"].get("text") or "")
+            print(
+                f"    Fixed : {result['best'].get('text')}  "
+                f"({id_label}={result['best'].get('id')})  "
+                f"[Levenshtein={best_dist}]"
+            )
+            if cmd == "aka":
+                best_fields = result["best"].get("fields") or {}
+                if "ID_PERSON" in best_fields:
+                    print(f" ID_PERSON={best_fields.get('ID_PERSON')}")
+                person = (result["best"].get("enriched") or {}).get("person")
+                if person and person.get("PERSON_NAME") is not None:
+                    print(f" PERSON_NAME (English)={person.get('PERSON_NAME')}")
+            print("\n")
+        else:
+            print(f"  Not confident to auto-correct ({result['reason']}). Top suggestions:")
+            if result["best"] is not None:
+                best_fields = result["best"].get("fields") or {}
+                pop_label = configs[cmd]["search"]["pop"]
+                score = result["best"].get("score")
+                best_dist = levenshtein_distance(query, result["best"].get("text") or "")
+                print(
+                    f"    Best : {result['best'].get('text')}  "
+                    f"[score={score:.1f}]  "
+                    f"[Levenshtein={best_dist}]  "
+                    f"{pop_label}={best_fields.get(pop_label)}"
+                )
+            for i, r in enumerate(result["ranked"], 1):
+                r_fields = r.get("fields") or {}
+                pop_label = configs[cmd]["search"]["pop"]
+                score = r.get("score")
+                r_dist = levenshtein_distance(query, r.get("text") or "")
+                print(
+                    f"  {i:2d}. {r.get('text')}  "
+                    f"[score={score:.1f}]  "
+                    f"[Levenshtein={r_dist}]  "
+                    f"{pop_label}={r_fields.get(pop_label)}"
+                )
+            print("")
+
+        print(f"Search duration: {search_duration:.4f} seconds\n")
+        if TIMINGS:
+            fetch_t = result["timings"].get("fetch_breakdown", {})
+            prefix_s = fetch_t.get("prefix_s", 0.0)
+            bktree_s = fetch_t.get("bktree_s", 0.0)
+            fulltext_s = fetch_t.get("fulltext_s", 0.0)
+            like_s = fetch_t.get("like_s", 0.0)
+            print(
+                "timings: "
+                f"exact_match={result['timings'].get('exact_match', 0.0):.4f}s "
+                f"fetch_total={result['timings'].get('fetch_total', 0.0):.4f}s "
+                f"rank={result['timings'].get('rank', 0.0):.4f}s\n"
+                f"  candidates={result.get('candidates_count')} used={fetch_t.get('used')}\n"
+                f"  prefix={prefix_s:.4f}s n={fetch_t.get('prefix_n')}\n"
+                f"  bktree={bktree_s:.4f}s n={fetch_t.get('bktree_n')} "
+                f"k={fetch_t.get('bktree_k')} raw={fetch_t.get('bktree_raw')}\n"
+                f"  fulltext={fulltext_s:.4f}s n={fetch_t.get('fulltext_n')}\n"
+                f"  like={like_s:.4f}s n={fetch_t.get('like_n')}\n"
+            )
+
+    cur.close()
+    conn.close()
+
+if __name__ == "__main__":
+    main()

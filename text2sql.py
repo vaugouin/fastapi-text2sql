@@ -16,9 +16,11 @@ except Exception:
     anthropic_sdk = None
 
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types as genai_types
 except Exception:
     genai = None
+    genai_types = None
 
 # Get the virtual memory details
 memory_info = psutil.virtual_memory()
@@ -70,11 +72,13 @@ load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
 google_api_key = os.getenv("GOOGLE_API_KEY")
+openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
 
 print("LLM API keys loaded:")
 print("- OPENAI_API_KEY:", "found" if api_key else "missing")
 print("- ANTHROPIC_API_KEY:", "found" if anthropic_api_key else "missing")
 print("- GOOGLE_API_KEY:", "found" if google_api_key else "missing")
+print("- OPENROUTER_API_KEY:", "found" if openrouter_api_key else "missing")
 
 
 def _normalize_llm_model(model_name: str, default_value: str) -> str:
@@ -90,6 +94,10 @@ def _normalize_llm_model(model_name: str, default_value: str) -> str:
 def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperature: float) -> str:
     """Call the selected LLM and return raw text content."""
     model_norm = str(model).strip()
+    if model_norm == "gemma-4":
+        model_norm = "google/gemma-4-26b-a4b-it:free"
+    if model_norm == "gemma-4-google":
+        model_norm = "gemma-4-26b-a4b-it"
 
     if model_norm in {"gpt-4o"} or model_norm.startswith("gpt-") or model_norm.startswith("o1") or model_norm.startswith("o3"):
         if not api_key:
@@ -126,6 +134,25 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
             raise RuntimeError("No content in OpenAI API response")
         return response.choices[0].message.content
 
+    if model_norm == "google/gemma-4-26b-a4b-it:free" or model_norm.startswith("google/"):
+        if not openrouter_api_key:
+            raise RuntimeError("OPENROUTER_API_KEY not found in environment variables")
+        client = openai.OpenAI(
+            api_key=openrouter_api_key,
+            base_url="https://openrouter.ai/api/v1",
+        )
+        response = client.chat.completions.create(
+            model=model_norm,
+            temperature=temperature,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        if not response.choices or not response.choices[0].message or not response.choices[0].message.content:
+            raise RuntimeError("No content in OpenRouter API response")
+        return response.choices[0].message.content
+
     if model_norm.startswith("claude-"):
         if anthropic_sdk is None:
             raise RuntimeError("anthropic package is not installed")
@@ -141,56 +168,57 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
         )
         return message.content[0].text
 
-    if model_norm.startswith("gemini-"):
+    if model_norm.startswith("gemini-") or model_norm.startswith("gemma-4-"):
         if genai is None:
-            raise RuntimeError("google-generativeai is not installed")
+            raise RuntimeError("google-genai is not installed")
+        if genai_types is None:
+            raise RuntimeError("google-genai is not installed")
         if not google_api_key:
             raise RuntimeError("GOOGLE_API_KEY not found in environment variables")
 
-        genai.configure(api_key=google_api_key)
+        client = genai.Client(api_key=google_api_key)
 
         tried_models = []
         models_to_try = [model_norm]
 
-        # Some Google GenAI backends expose only certain aliases / versioned names.
-        # When the requested model isn't found, try a small set of known alternatives.
-        if not model_norm.endswith("-latest"):
-            models_to_try.append(f"{model_norm}-latest")
+        if model_norm.startswith("gemini-"):
+            if not model_norm.endswith("-latest"):
+                models_to_try.append(f"{model_norm}-latest")
 
-        # Common fallbacks (keep list short and deterministic)
-        for m in [
-            "gemini-2.5-flash",
-            "gemini-1.5-pro",
-            "gemini-1.5-pro-latest",
-            "gemini-1.5-flash",
-            "gemini-1.5-flash-latest",
-            "gemini-1.5-pro-002",
-            "gemini-1.5-flash-002",
-            "gemini-1.0-pro",
-        ]:
-            if m not in models_to_try:
-                models_to_try.append(m)
+            for m in [
+                "gemini-2.5-flash",
+                "gemini-1.5-pro",
+                "gemini-1.5-pro-latest",
+                "gemini-1.5-flash",
+                "gemini-1.5-flash-latest",
+                "gemini-1.5-pro-002",
+                "gemini-1.5-flash-002",
+                "gemini-1.0-pro",
+            ]:
+                if m not in models_to_try:
+                    models_to_try.append(m)
 
         last_exc = None
         for candidate in models_to_try:
             tried_models.append(candidate)
             try:
-                model_obj = genai.GenerativeModel(candidate)
-
-                # Keep behavior similar to the OpenAI/Claude branches by sending a single prompt
-                # that includes system + user instructions.
-                prompt = f"{system_prompt}\n\n{user_prompt}" if system_prompt else user_prompt
-
-                res = model_obj.generate_content(
-                    prompt,
-                    generation_config={"temperature": temperature},
+                config = genai_types.GenerateContentConfig(
+                    temperature=temperature,
+                    system_instruction=system_prompt,
                 )
-                return getattr(res, "text", str(res))
+                res = client.models.generate_content(
+                    model=candidate,
+                    contents=user_prompt,
+                    config=config,
+                )
+                if getattr(res, "text", None):
+                    return res.text
+                raise RuntimeError("No text in Google GenAI API response")
             except Exception as e:
                 last_exc = e
                 msg = str(e)
                 # Only fall back on "model not found" errors; otherwise surface immediately.
-                if "NOT_FOUND" in msg or "is not found" in msg:
+                if "NOT_FOUND" in msg or "is not found" in msg or "404" in msg:
                     continue
                 raise
 

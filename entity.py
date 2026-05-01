@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 from typing import Any
 
 from language_family import guess_language_family
@@ -17,6 +18,58 @@ strentityextractionmodeldefault = "gpt-4o"
 # automatically whenever the underlying files change on disk.
 entity_extraction_prompt_template: str = ""
 ENTITY_RESOLUTION_CONFIG: list[dict] = []
+
+BKTREE_ENABLED = os.getenv("BKTREE_ENABLED", "1").strip().lower() in {"1", "true", "yes", "on"}
+_BKTREE_CACHE: dict[tuple[str, str, str], rapidfuzz_query.BKTreeIndex] = {}
+
+
+def prebuild_bktrees(connection) -> None:
+    """Eagerly build a BK-tree for every RapidFuzz table in ENTITY_RESOLUTION_CONFIG.
+
+    Called once at API startup so the first non-Latin person query (and any other
+    RapidFuzz-backed lookup) does not pay the lazy build cost. Each tree is keyed
+    by (table, id, norm_col) — the same key used at query time — so the lazy path
+    in resolve_entities() will find them already cached.
+
+    Failures on individual tables are logged and skipped so a single broken table
+    does not block startup.
+    """
+    if not BKTREE_ENABLED:
+        print("[entity] BKTREE_ENABLED=0, skipping BK-tree prebuild")
+        return
+
+    seen: set[tuple[str, str, str]] = set()
+    cursor = connection.cursor()
+    try:
+        for entry in ENTITY_RESOLUTION_CONFIG:
+            for search_cfg in entry.get("search_list") or []:
+                if (search_cfg.get("search_mode") or "").strip().lower() != "rapidfuzz":
+                    continue
+
+                strtablename = search_cfg.get("strtablename")
+                strtableid = search_cfg.get("strtableid")
+                strcolumndesc = search_cfg.get("default_field")
+                strcolumndescnorm = search_cfg.get("rapidfuzz_col_norm") or (f"{strcolumndesc}_NORM" if strcolumndesc else None)
+                if not strtablename or not strtableid or not strcolumndescnorm:
+                    continue
+
+                cache_key = (strtablename, strtableid, strcolumndescnorm)
+                if cache_key in seen or cache_key in _BKTREE_CACHE:
+                    continue
+                seen.add(cache_key)
+
+                t0 = time.perf_counter()
+                try:
+                    bktree_idx = rapidfuzz_query.build_bktree_for_config(
+                        cursor,
+                        {"table": strtablename, "id": strtableid, "norm": strcolumndescnorm},
+                    )
+                    _BKTREE_CACHE[cache_key] = bktree_idx
+                    print(f"[entity] BK-tree built for {strtablename}.{strcolumndescnorm}: {bktree_idx.size} entries in {time.perf_counter() - t0:.1f}s")
+                except Exception as e:
+                    print(f"[entity] BK-tree prebuild failed for {strtablename}.{strcolumndescnorm}: {e}")
+    finally:
+        cursor.close()
 
 
 def _validate_entity_resolution_config(config: Any) -> list[dict]:
@@ -207,6 +260,8 @@ def resolve_entities(
     chromadb_collections_by_name: dict,
 ) -> dict[str, Any]:
     """Resolve extracted entities into concrete SQL, justification and answer substitutions."""
+    sql_query = sql_query or ""
+    justification = justification or ""
     answer = answer or ""
     def add_message(text: str):
         """Append a positional diagnostic message to the response message list."""
@@ -379,6 +434,24 @@ def resolve_entities(
 
                         try:
                             has_fulltext = rapidfuzz_query.db_has_fulltext(cursor, strtablename, strcolumndescnorm)
+                            bktree_idx = None
+                            if BKTREE_ENABLED:
+                                cache_key = (strtablename, strtableid, strcolumndescnorm)
+                                bktree_idx = _BKTREE_CACHE.get(cache_key)
+                                if bktree_idx is None:
+                                    try:
+                                        bktree_idx = rapidfuzz_query.build_bktree_for_config(
+                                            cursor,
+                                            {
+                                                "table": strtablename,
+                                                "id": strtableid,
+                                                "norm": strcolumndescnorm,
+                                            },
+                                        )
+                                        _BKTREE_CACHE[cache_key] = bktree_idx
+                                        print(f"[entity] BK-tree loaded in memory for RapidFuzz search on {strtablename}.{strcolumndescnorm}: {bktree_idx.size} entries")
+                                    except Exception:
+                                        bktree_idx = None
                             rapidfuzz_result = rapidfuzz_query.search_first_match(
                                 cursor,
                                 strtablename,
@@ -390,6 +463,7 @@ def resolve_entities(
                                 raw=raw_value,
                                 has_fulltext=has_fulltext,
                                 timings_enabled=False,
+                                bktree=bktree_idx,
                             )
                         except Exception:
                             continue

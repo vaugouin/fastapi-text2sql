@@ -474,12 +474,21 @@ def _evaluate_in_assertion(df: pd.DataFrame, assertion: str) -> dict:
             "actual": f"All {len(values)} required values found in DataFrame",
         }
 
+    remaining_values: list[Any] = []
+    missing_pool = missing_values.copy()
+    for value in values:
+        if value in missing_pool:
+            missing_pool.remove(value)
+            continue
+        remaining_values.append(value)
+
     return {
         "passed": False,
         "assertion": assertion,
         "message": f"Missing {len(missing_values)} required value(s) in '{column_name}': {missing_values}",
         "expected": f"{column_name} IN ({values_str}) - all values should be present",
         "actual": f"Missing values: {missing_values}. Found {unique_df_values} unique values in DataFrame",
+        "success_if_statement": f"{column_name} IN ({', '.join([str(v) for v in remaining_values])})",
     }
 
 
@@ -593,6 +602,9 @@ def format_detailed_results_for_db(detailed_results: list[dict], overall_pass: b
                 lines.append(f"Actual: {result['actual']}")
             if "error" in result:
                 lines.append(f"Error: {result['error']}")
+            success_if_statement = result.get("success_if_statement")
+            if success_if_statement is not None:
+                lines.append(f"Success if statement: {success_if_statement}")
 
     formatted = "\n".join(lines)
     formatted = formatted.replace("[", "(").replace("]", ")")

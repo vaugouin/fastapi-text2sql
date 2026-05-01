@@ -5,15 +5,18 @@ import pymysql.cursors
 import json
 import openai
 import citizenphil as cp
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
+from decimal import Decimal
 import shutil
 import os
+import unicodedata
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 import pandas as pd
 import pytest
 import re
 import html
+import sys
 
 import entity_extraction_eval_functions as ee_eval
 import text2sql_eval_functions as t2s_eval
@@ -22,6 +25,82 @@ import text2sql_eval_functions as t2s_eval
 load_dotenv()
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
+
+EVAL_API_CALL_DELAY_SECONDS = float(os.getenv("TEXT2SQL_EVAL_API_CALL_DELAY_SECONDS", "2"))
+EVAL_API_429_MAX_RETRIES = int(os.getenv("TEXT2SQL_EVAL_API_429_MAX_RETRIES", "6"))
+EVAL_API_429_FALLBACK_DELAY_SECONDS = float(os.getenv("TEXT2SQL_EVAL_API_429_FALLBACK_DELAY_SECONDS", "30"))
+EVAL_API_429_BUFFER_SECONDS = float(os.getenv("TEXT2SQL_EVAL_API_429_BUFFER_SECONDS", "3"))
+
+
+def _extract_retry_after_seconds(response=None, response_json=None, error_text: str = ""):
+    """Extract retry-after seconds from HTTP headers, structured JSON, or provider error text."""
+    candidates = []
+
+    if response is not None:
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                candidates.append(float(retry_after))
+            except (TypeError, ValueError):
+                pass
+
+    if isinstance(response_json, dict):
+        for key in ["retry_after_seconds", "retry_after", "suggested_retry_after_seconds"]:
+            value = response_json.get(key)
+            if value is not None:
+                try:
+                    candidates.append(float(value))
+                except (TypeError, ValueError):
+                    pass
+
+        retry_hint = response_json.get("retry_info")
+        if isinstance(retry_hint, dict):
+            value = retry_hint.get("retry_after_seconds")
+            if value is not None:
+                try:
+                    candidates.append(float(value))
+                except (TypeError, ValueError):
+                    pass
+
+    raw_text = error_text or ""
+    patterns = [
+        r"Please retry in\s+([0-9]+(?:\.[0-9]+)?)s",
+        r"retryDelay['\"]?\s*[:=]\s*['\"]?([0-9]+(?:\.[0-9]+)?)s",
+        r"retry after\s+([0-9]+(?:\.[0-9]+)?)s",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, raw_text, flags=re.IGNORECASE)
+        if match:
+            try:
+                candidates.append(float(match.group(1)))
+            except (TypeError, ValueError):
+                pass
+
+    if not candidates:
+        return None
+    return max(candidates)
+
+
+def _is_retryable_quota_error(response=None, response_json=None, error_text: str = "") -> bool:
+    """Return True when the response/error indicates a retryable provider quota/rate-limit failure."""
+    if response is not None and response.status_code == 429:
+        return True
+
+    if isinstance(response_json, dict):
+        if response_json.get("is_retryable") is True and str(response_json.get("error_code") or "") == "429":
+            return True
+        if response_json.get("error_code") == "429":
+            return True
+
+    haystack = error_text or ""
+    upper = haystack.upper()
+    return (
+        "RESOURCE_EXHAUSTED" in upper
+        or "RATE_LIMIT" in upper
+        or "QUOTA EXCEEDED" in upper
+        or "ERROR CODE: 429" in upper
+        or "429" in upper and "RETRY" in upper
+    )
 
 
 def translate_question_to_french(question: str) -> str:
@@ -51,6 +130,89 @@ def translate_question_to_english(question: str) -> str:
     )
     return response.choices[0].message.content.strip()
 
+
+# ---------------------------------------------------------------------------
+# JSON export helpers (Phases 30 / 31 / 32) — write taxonomy / question bank /
+# execution rows out to /shared/<subfolder>/*.json so an LLM can analyse the
+# evaluator's output without needing direct DB access.
+# ---------------------------------------------------------------------------
+EXPORT_BASE_DIR = os.getenv("TEXT2SQL_EVAL_EXPORT_DIR", "/shared")
+
+QUESTION_TRANSLATION_NOTE = (
+    "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. "
+    "One side is the original input typed by the user; the other is automatically translated by "
+    "gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally "
+    "high-quality but may differ in wording from a natively-typed equivalent — keep this in mind "
+    "when comparing API outputs across languages."
+)
+
+
+def slug_for_filename(text, max_len=60):
+    """ASCII-fold + lowercase + replace non-alphanumeric runs with '-' + truncate.
+
+    'Best films of Martin Scorsese?' -> 'best-films-of-martin-scorsese'
+    'gpt-4o' -> 'gpt-4o'  (already filesystem-safe)
+    Returns 'untitled' when the input collapses to an empty slug.
+    """
+    if not text:
+        return "untitled"
+    nfkd = unicodedata.normalize("NFKD", str(text))
+    ascii_only = "".join(c for c in nfkd if not unicodedata.combining(c))
+    ascii_only = ascii_only.encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_only.lower()).strip("-")
+    if len(slug) > max_len:
+        slug = slug[:max_len].rstrip("-")
+    return slug or "untitled"
+
+
+def json_default(obj):
+    """JSON serializer for date/datetime/Decimal coming out of pymysql rows."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Type {type(obj).__name__} not JSON serializable")
+
+
+def ensure_export_dir(subfolder):
+    """Create EXPORT_BASE_DIR/<subfolder> if missing; return the absolute path or None on error."""
+    target = os.path.join(EXPORT_BASE_DIR, subfolder)
+    try:
+        os.makedirs(target, exist_ok=True)
+        return target
+    except OSError as e:
+        print(f"⚠ Cannot create directory {target}: {e}")
+        return None
+
+
+def write_json_if_changed(output_dir, filename, payload):
+    """Write JSON file when missing or when content differs from disk; return 'wrote' / 'skipped' / 'error'.
+
+    'skipped' = file already exists with byte-identical serialized content (no write performed).
+    'wrote'   = file was created or overwritten because content differed.
+    """
+    output_path = os.path.join(output_dir, filename)
+    try:
+        new_content = json.dumps(payload, ensure_ascii=False, indent=2, default=json_default)
+    except (TypeError, ValueError) as e:
+        print(f"⚠ Failed to serialize payload for {output_path}: {e}")
+        return "error"
+    if os.path.exists(output_path):
+        try:
+            with open(output_path, "r", encoding="utf-8") as f:
+                existing_content = f.read()
+            if existing_content == new_content:
+                return "skipped"
+        except OSError as e:
+            print(f"⚠ Failed to read {output_path} (will attempt rewrite): {e}")
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        return "wrote"
+    except OSError as e:
+        print(f"⚠ Failed to write {output_path}: {e}")
+        return "error"
+
 # ---------------------------------------------------------------------------
 # CLI arguments (all optional; defaults match the previous hardcoded values)
 # ---------------------------------------------------------------------------
@@ -65,6 +227,16 @@ _parser.add_argument("--api-version", default="1.1.14",
                      help="API version to evaluate against (default: 1.1.14)")
 _parser.add_argument("--language", default="*",
                      help="Language filter: 'en', 'fr', or '*' for all (default: *)")
+_parser.add_argument("--store-to-cache", dest="store_to_cache", action="store_true",
+                     help="Store evaluation API results in cache (default: true)")
+_parser.add_argument("--no-store-to-cache", dest="store_to_cache", action="store_false",
+                     help="Do not store evaluation API results in cache")
+_parser.add_argument("--complex-model-used", dest="complex_model_used", action="store_true",
+                     help="Set API input complex_model_used=true for the evaluation run")
+_parser.add_argument("--no-complex-model-used", dest="complex_model_used", action="store_false",
+                     help="Set API input complex_model_used=false for the evaluation run (default)")
+_parser.set_defaults(store_to_cache=True)
+_parser.set_defaults(complex_model_used=False)
 _cli_args = _parser.parse_args()
 
 datnow = datetime.now(cp.paris_tz)
@@ -101,12 +273,29 @@ try:
             strcomplexmodeleval = _cli_args.complex_model
             strapiversioneval = _cli_args.api_version
             strlanguage = _cli_args.language
+            blnstoretocache = _cli_args.store_to_cache
+            blncomplexmodelused = _cli_args.complex_model_used
 
             #arrprocessscope = {11: 'run evals'}
             #arrprocessscope = {20: 'process evals'}
-            arrprocessscope = {4: 'translate categories to French', 5: 'translate EN to FR', 6: 'translate FR to EN', 10: 'cleanup deleted eval executions', 11: 'run evals', 20: 'process evals'}
-            #arrprocessscope = {4: 'translate categories to French', 5: 'translate EN to FR', 6: 'translate FR to EN', 10: 'cleanup deleted eval executions'}
+            arrprocessscope = {4: 'translate categories to French', 5: 'translate EN to FR', 6: 'translate FR to EN', 10: 'cleanup deleted eval executions', 11: 'run evals', 20: 'process evals', 30: 'export categories to JSON', 31: 'export evaluations to JSON', 32: 'export executions to JSON'}
+            #arrprocessscope = {4: 'translate categories to French', 5: 'translate EN to FR', 6: 'translate FR to EN', 10: 'cleanup deleted eval executions', 20: 'process evals', 30: 'export categories to JSON', 31: 'export evaluations to JSON', 32: 'export executions to JSON'}
             strrunevalidold = cp.f_getservervariable("strtext2sqlevalrunevalid",0)
+            # Pre-initialize process-20 accumulators so the global-score summary
+            # printed at the end of the script always has values to read, even
+            # when process 20 is not in arrprocessscope.
+            dblcumulatedscore = 0
+            dblevalcount = 0
+            dbl_entity_extraction_processing_time_sum = 0.0
+            lng_entity_extraction_processing_time_count = 0
+            dbl_text2sql_processing_time_sum = 0.0
+            lng_text2sql_processing_time_count = 0
+            dbl_embeddings_processing_time_sum = 0.0
+            lng_embeddings_processing_time_count = 0
+            dbl_query_execution_time_sum = 0.0
+            lng_query_execution_time_count = 0
+            dbl_total_processing_time_sum = 0.0
+            lng_total_processing_time_count = 0
             for intindex, strdesc in arrprocessscope.items():
                 # Get the current date and time
                 datnow = datetime.now(cp.paris_tz)
@@ -156,7 +345,7 @@ try:
                     strsql += "AND QUESTION_FR <> '' "
                     strsql += "AND (QUESTION IS NULL OR QUESTION = '') "
                     strsql += "ORDER BY ID_T2S_EVALUATION ASC "
-                    #strsql += "LIMIT 10 "
+                    strsql += "LIMIT 10 "
                 elif intindex == 10:
                     strcurrentprocess = f"{intindex}: deleting deleted records from T_WC_T2S_EVALUATION_EXECUTION "
                     print(strcurrentprocess)
@@ -214,7 +403,7 @@ try:
                     if strrunevalidold != "":
                         strsql += "AND ID_T2S_EVALUATION >= " + strrunevalidold + " "
                     strsql += "ORDER BY ID_T2S_EVALUATION ASC "
-                    strsql += "LIMIT 10 "
+                    #strsql += "LIMIT 10 "
                 elif intindex == 20:
                     # Processing evaluations results to compute the scoring
                     strcurrentprocess = f"{intindex}: processing evaluations to compute the results "
@@ -231,18 +420,61 @@ try:
                     #strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 20, 13, 14, 2139) "
                     strsql += "ORDER BY T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION ASC "
                     #strsql += "LIMIT 5 "
-                    dblcumulatedscore = 0
-                    dblevalcount = 0
-                    dbl_entity_extraction_processing_time_sum = 0.0
-                    lng_entity_extraction_processing_time_count = 0
-                    dbl_text2sql_processing_time_sum = 0.0
-                    lng_text2sql_processing_time_count = 0
-                    dbl_embeddings_processing_time_sum = 0.0
-                    lng_embeddings_processing_time_count = 0
-                    dbl_query_execution_time_sum = 0.0
-                    lng_query_execution_time_count = 0
-                    dbl_total_processing_time_sum = 0.0
-                    lng_total_processing_time_count = 0
+                elif intindex == 30:
+                    # Export evaluation categories to /shared/evaluation_category/*.json (full taxonomy, CLI-agnostic)
+                    strcurrentprocess = f"{intindex}: exporting evaluation categories to {EXPORT_BASE_DIR}/evaluation_category "
+                    strsql = ""
+                    strsql += "SELECT ID_T2S_EVALUATION_CATEGORY AS id, DESCRIPTION, DESCRIPTION_FR, "
+                    strsql += "LONG_DESC, MOT_CLE, MOT_CLE_AUTO, ID_PARENT, LANG, DISPLAY_ORDER, "
+                    strsql += "DAT_CREAT, TIM_UPDATED "
+                    strsql += "FROM T_WC_T2S_EVALUATION_CATEGORY "
+                    strsql += "WHERE DELETED = 0 "
+                    strsql += "ORDER BY ID_T2S_EVALUATION_CATEGORY ASC "
+                    lng_export_wrote = 0
+                    lng_export_skipped = 0
+                    lng_export_errors = 0
+                elif intindex == 31:
+                    # Export evaluation question bank to /shared/evaluation/*.json (full bank, CLI-agnostic)
+                    strcurrentprocess = f"{intindex}: exporting evaluations to {EXPORT_BASE_DIR}/evaluation "
+                    strsql = ""
+                    strsql += "SELECT ID_T2S_EVALUATION AS id, ID_T2S_EVALUATION_CATEGORY, "
+                    strsql += "QUESTION, QUESTION_FR, "
+                    strsql += "ASSERTIONS_ENTITY_EXTRACTION, ASSERTIONS_SQL_QUERY, ASSERTIONS_QUERY_RESULT, "
+                    strsql += "LONG_DESC, MOT_CLE, MOT_CLE_AUTO, IS_EVAL, IS_SAMPLE, "
+                    strsql += "DISPLAY_ORDER, DAT_CREAT, TIM_UPDATED "
+                    strsql += "FROM T_WC_T2S_EVALUATION "
+                    strsql += "WHERE DELETED = 0 "
+                    strsql += "ORDER BY ID_T2S_EVALUATION ASC "
+                    lng_export_wrote = 0
+                    lng_export_skipped = 0
+                    lng_export_errors = 0
+                elif intindex == 32:
+                    # Export evaluation executions to
+                    # /shared/evaluation_execution/<api_version>_<lang>_<eemodel>_<t2smodel>_<complexmodel>/*.json
+                    # (filtered by CLI tuple — same scope as Phase 20). One subfolder per run signature
+                    # so successive evaluations across versions/models/languages stay separated.
+                    strcurrentprocess = f"{intindex}: exporting evaluation executions to {EXPORT_BASE_DIR}/evaluation_execution/<run-subfolder> "
+                    strsql = ""
+                    strsql += "SELECT EE.ID_ROW AS id, EE.ID_T2S_EVALUATION, EE.LANG, EE.API_VERSION, "
+                    strsql += "EE.ENTITY_EXTRACTION_MODEL, EE.TEXT2SQL_MODEL, EE.COMPLEX_MODEL, "
+                    strsql += "EE.JSON_RESULT, EE.TIM_EXECUTION, EE.DAT_CREAT, EE.TIM_UPDATED, "
+                    strsql += "EE.ENTITY_EXTRACTION_PROCESSING_TIME, EE.TEXT2SQL_PROCESSING_TIME, "
+                    strsql += "EE.EMBEDDINGS_PROCESSING_TIME, EE.QUERY_EXECUTION_TIME, EE.TOTAL_PROCESSING_TIME, "
+                    strsql += "EE.ASSERTIONS_ENTITY_EXTRACTION_SCORE, EE.ASSERTIONS_SQL_QUERY_SCORE, "
+                    strsql += "EE.ASSERTIONS_RESULT_SCORE, EE.ASSERTIONS_TOTAL_SCORE, "
+                    strsql += "EE.ASSERTIONS_RESULT_DETAILED "
+                    strsql += "FROM T_WC_T2S_EVALUATION_EXECUTION EE "
+                    strsql += "WHERE EE.DELETED = 0 "
+                    strsql += f"AND EE.API_VERSION = '{strapiversionevalformatted}' "
+                    strsql += f"AND EE.ENTITY_EXTRACTION_MODEL = '{strentityextractionmodeleval}' "
+                    strsql += f"AND EE.TEXT2SQL_MODEL = '{strtext2sqlmodeleval}' "
+                    strsql += f"AND EE.COMPLEX_MODEL = '{strcomplexmodeleval}' "
+                    if strlanguage != "*":
+                        strsql += f"AND EE.LANG = '{strlanguage}' "
+                    strsql += "ORDER BY EE.ID_ROW ASC "
+                    lng_export_wrote = 0
+                    lng_export_skipped = 0
+                    lng_export_errors = 0
                 if strsql != "":
                     print(strcurrentprocess)
                     cp.f_setservervariable("strtext2sqlevalcurrentprocess",strcurrentprocess,"Current process in the Text2SQL evaluation",0)
@@ -346,10 +578,11 @@ try:
                                     "page": 1,
                                     "rows_per_page": lngrowsperpageeval,
                                     "retrieve_from_cache": False,
-                                    "store_to_cache": True,
+                                    "store_to_cache": blnstoretocache,
                                     "llm_model_entity_extraction": strentityextractionmodeleval,
                                     "llm_model_text2sql": strtext2sqlmodeleval,
                                     "llm_model_complex": strcomplexmodeleval,
+                                    "complex_model_used": blncomplexmodelused,
                                     "complex_question_processing": True,
                                     "complex_question_already_resolved": False,
                                     "ui_language": strevallang,
@@ -357,13 +590,73 @@ try:
                                 print(url)
                                 print(payload)
                                 strdatnow = datetime.now(cp.paris_tz).strftime("%Y-%m-%d %H:%M:%S")
-                                try:
-                                    response = requests.post(url, headers=headers, json=payload, timeout=120)
-                                    response.raise_for_status()
-                                except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError, requests.exceptions.HTTPError) as e:
-                                    print(f"⚠ Request failed for eval id {lngid} [{strevallang}]: {type(e).__name__}: {e}")
+                                if EVAL_API_CALL_DELAY_SECONDS > 0:
+                                    print(f"Sleeping {EVAL_API_CALL_DELAY_SECONDS:.1f}s before API call")
+                                    time.sleep(EVAL_API_CALL_DELAY_SECONDS)
+
+                                retry_count = 0
+                                response = None
+                                response_json = None
+                                while True:
+                                    try:
+                                        response = requests.post(url, headers=headers, json=payload, timeout=120)
+                                    except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError) as e:
+                                        print(f"⚠ Request failed for eval id {lngid} [{strevallang}]: {type(e).__name__}: {e}")
+                                        break
+
+                                    response_json = None
+                                    try:
+                                        response_json = response.json()
+                                    except ValueError:
+                                        response_json = None
+
+                                    error_text = ""
+                                    if isinstance(response_json, dict):
+                                        error_text = str(response_json.get("error") or "")
+                                    if response is not None and response.status_code >= 400 and not error_text:
+                                        error_text = response.text or ""
+
+                                    is_retryable = _is_retryable_quota_error(response=response, response_json=response_json, error_text=error_text)
+                                    if is_retryable:
+                                        retry_count += 1
+                                        retry_after = _extract_retry_after_seconds(response=response, response_json=response_json, error_text=error_text)
+                                        wait_seconds = (retry_after if retry_after is not None else EVAL_API_429_FALLBACK_DELAY_SECONDS) + EVAL_API_429_BUFFER_SECONDS
+                                        structured_error_code = None
+                                        structured_is_retryable = None
+                                        structured_provider = None
+                                        if isinstance(response_json, dict):
+                                            structured_error_code = response_json.get("error_code")
+                                            structured_is_retryable = response_json.get("is_retryable")
+                                            structured_provider = response_json.get("provider")
+                                        print(f"⚠ Retryable 429/quota error for eval id {lngid} [{strevallang}] (attempt {retry_count}/{EVAL_API_429_MAX_RETRIES})")
+                                        print(
+                                            f"⚠ Retry metadata: status={response.status_code if response is not None else 'n/a'} "
+                                            f"error_code={structured_error_code} is_retryable={structured_is_retryable} "
+                                            f"provider={structured_provider} retry_after_seconds={retry_after}"
+                                        )
+                                        if error_text:
+                                            print(f"⚠ Retry error text: {error_text}")
+                                        print(f"⚠ Waiting {wait_seconds:.1f}s before retry")
+                                        if retry_count >= EVAL_API_429_MAX_RETRIES:
+                                            print(f"❌ Retry budget exhausted for eval id {lngid} [{strevallang}]. Stopping evaluation run.")
+                                            sys.exit(1)
+                                        time.sleep(wait_seconds)
+                                        continue
+
+                                    try:
+                                        response.raise_for_status()
+                                    except requests.exceptions.HTTPError as e:
+                                        print(f"⚠ Request failed for eval id {lngid} [{strevallang}]: {type(e).__name__}: {e}")
+                                        break
+
+                                    if response_json is None:
+                                        print(f"⚠ Response JSON parsing failed for eval id {lngid} [{strevallang}]")
+                                        break
+
+                                    break
+
+                                if response is None or response_json is None or (response is not None and response.status_code >= 400):
                                     continue
-                                response_json = response.json()
                                 response_text = json.dumps(response_json, ensure_ascii=False)
                                 print("FastAPI text2sql response received")
                                 print(response_json)
@@ -604,20 +897,209 @@ try:
                             strsqlupdatecondition = f"ID_ROW = {lngid} "
                             cp.f_sqlupdatearray(strsqltablename,arrevalexeccouples,strsqlupdatecondition,1)
                             print("*" * 40)
+                        elif intindex == 30:
+                            # Export evaluation category to JSON: evalcatid_englishDescription.json
+                            strdescription = html.unescape((row.get('DESCRIPTION') or "").strip())
+                            strdescription_fr = html.unescape((row.get('DESCRIPTION_FR') or "").strip())
+                            slug = slug_for_filename(strdescription)
+                            filename = f"{lngid}_{slug}.json"
+                            output_dir = ensure_export_dir("evaluation_category")
+                            if output_dir is None:
+                                lng_export_errors += 1
+                            else:
+                                payload = {
+                                    "evaluation_category_id": lngid,
+                                    "description": strdescription or None,
+                                    "description_fr": strdescription_fr or None,
+                                    "lang": row.get('LANG'),
+                                    "id_parent": row.get('ID_PARENT'),
+                                    "comment": (row.get('LONG_DESC') or "").strip() or None,
+                                    "keywords": (row.get('MOT_CLE') or "").strip() or None,
+                                    "keywords_auto": (row.get('MOT_CLE_AUTO') or "").strip() or None,
+                                    "display_order": row.get('DISPLAY_ORDER'),
+                                    "dat_creat": row.get('DAT_CREAT'),
+                                    "tim_updated": row.get('TIM_UPDATED'),
+                                }
+                                outcome = write_json_if_changed(output_dir, filename, payload)
+                                if outcome == "wrote":
+                                    lng_export_wrote += 1
+                                elif outcome == "skipped":
+                                    lng_export_skipped += 1
+                                else:
+                                    lng_export_errors += 1
+                        elif intindex == 31:
+                            # Export evaluation to JSON: evalid_evalcatid_englishDescription.json
+                            strquestion_en = html.unescape((row.get('QUESTION') or "").strip())
+                            strquestion_fr = html.unescape((row.get('QUESTION_FR') or "").strip())
+                            evalcatid = row.get('ID_T2S_EVALUATION_CATEGORY')
+                            slug_source = strquestion_en or strquestion_fr
+                            slug = slug_for_filename(slug_source)
+                            evalcatid_part = str(evalcatid) if evalcatid is not None else "0"
+                            filename = f"{lngid}_{evalcatid_part}_{slug}.json"
+                            output_dir = ensure_export_dir("evaluation")
+                            if output_dir is None:
+                                lng_export_errors += 1
+                            else:
+                                payload = {
+                                    "evaluation_id": lngid,
+                                    "evaluation_category_id": evalcatid,
+                                    "question_en": strquestion_en or None,
+                                    "question_fr": strquestion_fr or None,
+                                    "translation_note": QUESTION_TRANSLATION_NOTE,
+                                    "assertions": {
+                                        "entity_extraction": (row.get('ASSERTIONS_ENTITY_EXTRACTION') or "").strip() or None,
+                                        "sql_query": (row.get('ASSERTIONS_SQL_QUERY') or "").strip() or None,
+                                        "query_result": (row.get('ASSERTIONS_QUERY_RESULT') or "").strip() or None,
+                                    },
+                                    "comment": (row.get('LONG_DESC') or "").strip() or None,
+                                    "keywords": (row.get('MOT_CLE') or "").strip() or None,
+                                    "keywords_auto": (row.get('MOT_CLE_AUTO') or "").strip() or None,
+                                    "is_eval": row.get('IS_EVAL'),
+                                    "is_sample": row.get('IS_SAMPLE'),
+                                    "display_order": row.get('DISPLAY_ORDER'),
+                                    "dat_creat": row.get('DAT_CREAT'),
+                                    "tim_updated": row.get('TIM_UPDATED'),
+                                }
+                                outcome = write_json_if_changed(output_dir, filename, payload)
+                                if outcome == "wrote":
+                                    lng_export_wrote += 1
+                                elif outcome == "skipped":
+                                    lng_export_skipped += 1
+                                else:
+                                    lng_export_errors += 1
+                        elif intindex == 32:
+                            # Export execution row to JSON:
+                            # YYYYMMDD_evalid_maj.min.rel_lang_eemodel_t2smodel_complexmodel.json
+                            eval_id = row.get('ID_T2S_EVALUATION')
+                            api_version_formatted = row.get('API_VERSION') or strapiversionevalformatted
+                            row_lang = row.get('LANG') or ""
+                            ee_model = row.get('ENTITY_EXTRACTION_MODEL') or ""
+                            t2s_model = row.get('TEXT2SQL_MODEL') or ""
+                            complex_model = row.get('COMPLEX_MODEL') or ""
+                            tim_execution = row.get('TIM_EXECUTION')
+                            if isinstance(tim_execution, (datetime, date)):
+                                date_str = tim_execution.strftime("%Y%m%d")
+                            else:
+                                dat_creat = row.get('DAT_CREAT')
+                                if isinstance(dat_creat, (datetime, date)):
+                                    date_str = dat_creat.strftime("%Y%m%d")
+                                else:
+                                    date_str = datetime.now(cp.paris_tz).strftime("%Y%m%d")
+
+                            ee_slug = slug_for_filename(ee_model, max_len=40)
+                            t2s_slug = slug_for_filename(t2s_model, max_len=40)
+                            complex_slug = slug_for_filename(complex_model, max_len=40)
+
+                            run_subfolder = (
+                                f"{api_version_formatted}_{row_lang}_"
+                                f"{ee_slug}_{t2s_slug}_{complex_slug}"
+                            )
+                            filename = (
+                                f"{date_str}_{eval_id}_{api_version_formatted}_{row_lang}_"
+                                f"{ee_slug}_{t2s_slug}_{complex_slug}.json"
+                            )
+                            output_dir = ensure_export_dir(
+                                os.path.join("evaluation_execution", run_subfolder)
+                            )
+                            if output_dir is None:
+                                lng_export_errors += 1
+                            else:
+                                json_result_text = row.get('JSON_RESULT') or ""
+                                api_output = None
+                                if json_result_text:
+                                    try:
+                                        api_output = t2s_eval.safe_json_loads(json_result_text)
+                                    except Exception as e:
+                                        print(f"⚠ Cannot parse JSON_RESULT for execution row {lngid}: {e}")
+                                        api_output = {"_parse_error": str(e), "_raw_truncated": json_result_text[:500]}
+
+                                # Backfill complex_model_used for evaluations run before the API
+                                # exposed this flag (e.g. 1.1.15). Detect from messages: every
+                                # complex-retry path emits a message containing "stronger model".
+                                if isinstance(api_output, dict) and api_output.get("complex_model_used") is None:
+                                    derived_used = False
+                                    for msg in (api_output.get("messages") or []):
+                                        msg_text = (msg or {}).get("text") if isinstance(msg, dict) else None
+                                        if isinstance(msg_text, str) and "stronger model" in msg_text.lower():
+                                            derived_used = True
+                                            break
+                                    api_output["complex_model_used"] = derived_used
+                                payload = {
+                                    "evaluation_id": eval_id,
+                                    "execution_row_id": lngid,
+                                    "language": row_lang,
+                                    "api_input": {
+                                        "api_version": api_version_formatted,
+                                        "entity_extraction_model": ee_model,
+                                        "text2sql_model": t2s_model,
+                                        "complex_model": complex_model,
+                                        "ui_language": row_lang,
+                                    },
+                                    "api_output": api_output,
+                                    "scoring": {
+                                        "assertions_entity_extraction_score": row.get('ASSERTIONS_ENTITY_EXTRACTION_SCORE'),
+                                        "assertions_sql_query_score": row.get('ASSERTIONS_SQL_QUERY_SCORE'),
+                                        "assertions_result_score": row.get('ASSERTIONS_RESULT_SCORE'),
+                                        "assertions_total_score": row.get('ASSERTIONS_TOTAL_SCORE'),
+                                        "assertions_result_detailed": row.get('ASSERTIONS_RESULT_DETAILED'),
+                                    },
+                                    "timings": {
+                                        "entity_extraction_processing_time": row.get('ENTITY_EXTRACTION_PROCESSING_TIME'),
+                                        "text2sql_processing_time": row.get('TEXT2SQL_PROCESSING_TIME'),
+                                        "embeddings_processing_time": row.get('EMBEDDINGS_PROCESSING_TIME'),
+                                        "query_execution_time": row.get('QUERY_EXECUTION_TIME'),
+                                        "total_processing_time": row.get('TOTAL_PROCESSING_TIME'),
+                                    },
+                                    "tim_execution": tim_execution,
+                                    "tim_updated": row.get('TIM_UPDATED'),
+                                }
+                                outcome = write_json_if_changed(output_dir, filename, payload)
+                                if outcome == "wrote":
+                                    lng_export_wrote += 1
+                                elif outcome == "skipped":
+                                    lng_export_skipped += 1
+                                else:
+                                    lng_export_errors += 1
 
                         lngcount += 1
                         cp.f_setservervariable("strtext2sqlevalprocess"+str(intindex)+strdescvarname+"count",str(lngcount),"Count of rows processed for process "+str(intindex)+" : "+strdesc+"",0)
                         strnow = datetime.now(cp.paris_tz).strftime("%Y-%m-%d %H:%M:%S")
                         cp.f_setservervariable("strtext2sqlevaldatetime",strnow,"Date and time of the last crawled record using the TMDb API",0)
+                if intindex in (30, 31, 32):
+                    print(
+                        f"Export summary (process {intindex}): "
+                        f"wrote={lng_export_wrote}, skipped={lng_export_skipped}, errors={lng_export_errors}"
+                    )
                 print("------------------------------------------")
-            strsql = ""
-            if intindex == 20:
+            print("------------------------------------------")
+            strcurrentprocess = ""
+            cp.f_setservervariable("strtext2sqlevalcurrentprocess",strcurrentprocess,"Current process in the Text2SQL evaluation",0)
+            strnow = datetime.now(cp.paris_tz).strftime("%Y-%m-%d %H:%M:%S")
+            cp.f_setservervariable("strtext2sqlevalenddatetime",strnow,"Date and time of the Text2SQL evaluation ending",0)
+            # Calculate total runtime and convert to readable format
+            end_time = time.time()
+            strtotalruntime = int(end_time - start_time)  # Total runtime in seconds
+            cp.f_setservervariable("strtext2sqlevaltotalruntimeseconds",str(strtotalruntime),strtotalruntimedesc,0)
+            readable_duration = cp.convert_seconds_to_duration(strtotalruntime)
+            cp.f_setservervariable("strtext2sqlevaltotalruntime",readable_duration,strtotalruntimedesc,0)
+            print(f"Total runtime: {strtotalruntime} seconds ({readable_duration})")
+
+            # Global-score summary — printed last so it stays at the bottom of the
+            # script output regardless of which processes ran in arrprocessscope.
+            # Gated on dblevalcount > 0: skipped silently when process 20 was not
+            # in scope or had no scored rows.
+            if dblevalcount > 0:
                 dblglobalscore = dblcumulatedscore / dblevalcount
+                print("==========================================")
+                print("Global score summary")
+                print("==========================================")
                 print(f"FastAPI Text2SQL API version: {strapiversioneval}")
                 print(f"Entity extraction model: {strentityextractionmodeleval}")
                 print(f"Text2SQL model: {strtext2sqlmodeleval}")
                 print(f"Complex model: {strcomplexmodeleval}")
                 print(f"Language: {strlanguage}")
+                print(f"Store to cache: {blnstoretocache}")
+                print(f"Complex model used input: {blncomplexmodelused}")
                 print(f"Global score: {dblcumulatedscore}/{dblevalcount} = {dblglobalscore:.2%}")
                 if lng_entity_extraction_processing_time_count > 0:
                     str_entity_extraction_processing_time_sum_duration = cp.convert_seconds_to_duration(
@@ -699,18 +1181,6 @@ try:
                         f"{dbl_total_processing_time_sum / lng_total_processing_time_count:.3f}s "
                         f"(n={lng_total_processing_time_count})"
                     )
-            print("------------------------------------------")
-            strcurrentprocess = ""
-            cp.f_setservervariable("strtext2sqlevalcurrentprocess",strcurrentprocess,"Current process in the Text2SQL evaluation",0)
-            strnow = datetime.now(cp.paris_tz).strftime("%Y-%m-%d %H:%M:%S")
-            cp.f_setservervariable("strtext2sqlevalenddatetime",strnow,"Date and time of the Text2SQL evaluation ending",0)
-            # Calculate total runtime and convert to readable format
-            end_time = time.time()
-            strtotalruntime = int(end_time - start_time)  # Total runtime in seconds
-            cp.f_setservervariable("strtext2sqlevaltotalruntimeseconds",str(strtotalruntime),strtotalruntimedesc,0)
-            readable_duration = cp.convert_seconds_to_duration(strtotalruntime)
-            cp.f_setservervariable("strtext2sqlevaltotalruntime",readable_duration,strtotalruntimedesc,0)
-            print(f"Total runtime: {strtotalruntime} seconds ({readable_duration})")
     print("Process completed")
 except pymysql.MySQLError as e:
     print(f"❌ MySQL Error: {e}")
