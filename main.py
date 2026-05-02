@@ -51,6 +51,56 @@ def compare_versions(version1: str, version2: str) -> int:
     else:
         return 0
 
+def _extract_retry_metadata(error_text: str) -> dict:
+    error_raw = str(error_text or "")
+    error_upper = error_raw.upper()
+    retry_after_seconds = None
+    for pattern in [
+        r"Please retry in\s+([0-9]+(?:\.[0-9]+)?)s",
+        r"retryDelay['\"]?\s*[:=]\s*['\"]?([0-9]+(?:\.[0-9]+)?)s",
+        r"retry after\s+([0-9]+(?:\.[0-9]+)?)s",
+    ]:
+        match = re.search(pattern, error_raw, flags=re.IGNORECASE)
+        if match:
+            try:
+                retry_after_seconds = float(match.group(1))
+                break
+            except (TypeError, ValueError):
+                pass
+
+    error_code = None
+    if "429" in error_upper or "RESOURCE_EXHAUSTED" in error_upper or "RATE_LIMIT" in error_upper:
+        error_code = "429"
+
+    is_retryable = bool(
+        error_code == "429"
+        or "RESOURCE_EXHAUSTED" in error_upper
+        or "QUOTA EXCEEDED" in error_upper
+        or "RATE_LIMIT" in error_upper
+    )
+
+    provider = None
+    if "GOOGLE" in error_upper or "GENERATIVELANGUAGE.GOOGLEAPIS.COM" in error_upper or "AI.GOOGLE.DEV" in error_upper:
+        provider = "google"
+    elif "OPENROUTER" in error_upper:
+        provider = "openrouter"
+    elif "OPENAI" in error_upper:
+        provider = "openai"
+    elif "ANTHROPIC" in error_upper or "CLAUDE" in error_upper:
+        provider = "anthropic"
+
+    return {
+        "error_code": error_code,
+        "is_retryable": is_retryable,
+        "retry_after_seconds": retry_after_seconds,
+        "provider": provider,
+    }
+
+
+def _is_retryable_quota_error_text(error_text: str) -> bool:
+    retry_metadata = _extract_retry_metadata(error_text)
+    return bool(retry_metadata.get("is_retryable") and str(retry_metadata.get("error_code") or "") == "429")
+
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
 strapiversion = "1.1.16"
 # Convert API version to XXX.YYY.ZZZ format
@@ -209,6 +259,7 @@ if intcleanupenabled:
     cleanup.cleanup_sql_cache(connection, strapiversion)
 
 closed_vocab.init(connection)
+entity.prebuild_bktrees(connection)
 
 class TextExpr(BaseModel):
     text: str
@@ -249,6 +300,10 @@ class Text2SQLResponse(BaseModel):
     answer: str = ""
     answer_anonymized: str = ""
     error: str
+    error_code: Optional[str] = None
+    is_retryable: bool = False
+    retry_after_seconds: Optional[float] = None
+    provider: Optional[str] = None
     entity_extraction: Optional[dict] = None
     question_anonymized: Optional[str] = None
     entity_extraction_processing_time: float
@@ -270,6 +325,7 @@ class Text2SQLResponse(BaseModel):
     llm_model_entity_extraction: str
     llm_model_text2sql: str
     llm_model_complex: str
+    complex_model_used: bool = False
     ui_language: str = "en"
     api_version: str
     messages: List[TextMessage] = []
@@ -430,6 +486,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     total_processing_time = 0.0
     sql_execution_failed = False
     ambiguous_question_for_text2sql = 0
+    complex_model_used = False
     strentityextractionmodel = entity.strentityextractionmodeldefault
     if request.llm_model_entity_extraction and request.llm_model_entity_extraction != "default":
         strentityextractionmodel = request.llm_model_entity_extraction
@@ -755,67 +812,68 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         position_counter += 1
                         embeddings_cache_search_time = time.time() - embeddings_cache_start_time
 
-                # If no cache hit, call Text2SQL on anonymized question
-                if not cached_anonymized_question_embedding:
-                    text2sql_start_time = time.time()
-                    messages.append(TextMessage(
-                        position=position_counter,
-                        text=f"Generating SQL using LLM model '{strtext2sqlmodel}'."
-                    ))
-                    position_counter += 1
-                    json_content = t2s.f_text2sql(input_text_anonymized, strtext2sqlmodel, ui_language=request.ui_language or "en")
-                    if not isinstance(json_content, dict):
-                        json_content = {"error": str(json_content)}
+        # If no SQL/embeddings cache hit produced a sql_query, call Text2SQL on the anonymized question.
+        # Runs regardless of request.retrieve_from_cache: when caching is disabled, both flags stay False
+        # so Text2SQL is always invoked; when caching is enabled and a hit occurred, this is skipped.
+        if not cached_anonymized_question and not cached_anonymized_question_embedding:
+            text2sql_start_time = time.time()
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Generating SQL using LLM model '{strtext2sqlmodel}'."
+            ))
+            position_counter += 1
+            json_content = t2s.f_text2sql(input_text_anonymized, strtext2sqlmodel, ui_language=request.ui_language or "en")
+            if not isinstance(json_content, dict):
+                json_content = {"error": str(json_content)}
 
-                    # Only use json_content when we actually executed Text2SQL (no SQL cache hit, no embeddings cache hit)
-                    if not cached_anonymized_question and not cached_anonymized_question_embedding:
-                        print("JSON content:", json_content)
-                        if 'sql_query' not in json_content:
-                            ambiguous_question_for_text2sql = 1
-                            sql_query = ""
-                            sql_query_anonymized = ""
-                            justification = json_content.get('justification', '')
-                            justification_anonymized = justification
-                            answer = json_content.get('answer', '')
-                            answer_anonymized = answer
-                            error_text2sql = json_content.get('error', 'Text2SQL failed to return sql_query')
-                            messages.append(TextMessage(
-                                position=position_counter,
-                                text=f"Text2SQL failed using LLM model '{strtext2sqlmodel}': {error_text2sql}"
-                            ))
-                            position_counter += 1
-                        else:
-                            sql_query = json_content.get('sql_query', '')
-                            if sql_query.endswith(';'):
-                                sql_query = sql_query[:-1]
-                            sql_query_anonymized = sql_query
-                            justification = json_content.get('justification', '')
-                            justification_anonymized = justification
-                            answer = json_content.get('answer', '')
-                            answer_anonymized = answer
-                            error_text2sql = json_content.get('error', '')
+            print("JSON content:", json_content)
+            if 'sql_query' not in json_content:
+                ambiguous_question_for_text2sql = 1
+                sql_query = ""
+                sql_query_anonymized = ""
+                justification = json_content.get('justification') or ""
+                justification_anonymized = justification
+                answer = json_content.get('answer') or ""
+                answer_anonymized = answer
+                error_text2sql = json_content.get('error') or 'Text2SQL failed to return sql_query'
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Text2SQL failed using LLM model '{strtext2sqlmodel}': {error_text2sql}"
+                ))
+                position_counter += 1
+            else:
+                sql_query = json_content.get('sql_query') or ""
+                if sql_query.endswith(';'):
+                    sql_query = sql_query[:-1]
+                sql_query_anonymized = sql_query
+                justification = json_content.get('justification') or ""
+                justification_anonymized = justification
+                answer = json_content.get('answer') or ""
+                answer_anonymized = answer
+                error_text2sql = json_content.get('error') or ''
 
-                        text2sql_end_time = time.time()
-                        text2sql_processing_time = text2sql_end_time - text2sql_start_time
-                        messages.append(TextMessage(
-                            position=position_counter,
-                            text=f"Generated SQL query: {sql_query_anonymized.replace('"', '\\"')}"
-                        ))
-                        position_counter += 1
-                        messages.append(TextMessage(
-                            position=position_counter, 
-                            text="Justification: " + justification
-                        ))
-                        position_counter += 1
-                        if error_text2sql != "":
-                            messages.append(TextMessage(
-                                position=position_counter, 
-                                text="Error: " + error_text2sql
-                            ))
-                            position_counter += 1
+            text2sql_end_time = time.time()
+            text2sql_processing_time = text2sql_end_time - text2sql_start_time
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Generated SQL query: {sql_query_anonymized.replace('"', '\\"')}"
+            ))
+            position_counter += 1
+            messages.append(TextMessage(
+                position=position_counter,
+                text="Justification: " + justification
+            ))
+            position_counter += 1
+            if error_text2sql != "":
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text="Error: " + error_text2sql
+                ))
+                position_counter += 1
     async def _retry_with_resolved_complex_question(*, start_message: str, success_message: str, empty_question_message: str, error_message: str):
         """Retry the full pipeline using a stronger-model simplification of the original question."""
-        nonlocal position_counter
+        nonlocal position_counter, complex_model_used
+        complex_model_used = True
         messages.append(TextMessage(
             position=position_counter,
             text=start_message
@@ -896,7 +954,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             pass
                         messages.append(TextMessage(
                             position=position_counter,
-                            text=f"Failed to store original complex question to cache after stronger-model retry: {str(cache_retry_error).replace('"', '\\"')}"
+                            text=f"Failed to store original complex question to cache after stronger-model retry: {str(cache_retry_error)}"
                         ))
                         position_counter += 1
 
@@ -911,6 +969,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
 
                 try:
                     retry_response.messages = merged_messages
+                except Exception:
+                    pass
+
+                try:
+                    retry_response.complex_model_used = True
                 except Exception:
                     pass
 
@@ -936,6 +999,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         print("Problem detected so the Text-to-SQL cannot produce a SQL query")
         print("Error: ", error_text2sql)
 
+        retryable_quota_error_text2sql = _is_retryable_quota_error_text(error_text2sql)
+
         # One-time retry: try resolving the original (non-anonymized) question into a simpler one
         # using a stronger model, then rerun the whole pipeline from the beginning.
         try:
@@ -943,12 +1008,20 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 request.complex_question_processing
                 and bool(request.question)
                 and not getattr(request, "complex_question_already_resolved", False)
+                and not retryable_quota_error_text2sql
                 and "original_question" in locals()
                 and isinstance(original_question, str)
                 and original_question.strip() != ""
             )
         except Exception:
             can_retry = False
+
+        if retryable_quota_error_text2sql:
+            messages.append(TextMessage(
+                position=position_counter,
+                text="Retryable provider quota/rate-limit error detected; skipping stronger-model retry so the caller can apply wait-and-retry behavior."
+            ))
+            position_counter += 1
 
         if can_retry:
             retry_response = await _retry_with_resolved_complex_question(
@@ -959,7 +1032,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             )
             if retry_response is not None:
                 return retry_response
-        else:
+        elif not retryable_quota_error_text2sql:
             messages.append(TextMessage(
                 position=position_counter,
                 text="Complex question retry conditions not met (already resolved, missing original question, or no question provided); skipping retry."
@@ -1210,6 +1283,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             can_answer_zero_count = False
 
         if can_answer_zero_count:
+            complex_model_used = True
             messages.append(TextMessage(
                 position=position_counter,
                 text=f"SQL query returned a single-cell result with value 0; asking the stronger model '{strcomplexquestionmodel}' for a direct answer."
@@ -1433,6 +1507,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     justification_anonymized = html.unescape(justification_anonymized or "")
     answer = html.unescape(answer or "")
     answer_anonymized = html.unescape(answer_anonymized or "")
+    response_error_text = error_text2sql or ""
+    if not response_error_text and isinstance(entity_extraction, dict) and entity_extraction.get("error"):
+        response_error_text = str(entity_extraction.get("error") or "")
+    retry_metadata = _extract_retry_metadata(response_error_text)
 
     response = Text2SQLResponse(
         question=input_text,
@@ -1443,7 +1521,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         justification_anonymized=justification_anonymized,
         answer=answer,
         answer_anonymized=answer_anonymized,
-        error=error_text2sql or "",
+        error=response_error_text,
+        error_code=retry_metadata.get("error_code"),
+        is_retryable=bool(retry_metadata.get("is_retryable")),
+        retry_after_seconds=retry_metadata.get("retry_after_seconds"),
+        provider=retry_metadata.get("provider"),
         entity_extraction=entity_extraction,
         question_anonymized=input_text_anonymized,
         entity_extraction_processing_time=entity_extraction_processing_time,
@@ -1465,6 +1547,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         llm_model_entity_extraction=strentityextractionmodel,
         llm_model_text2sql=strtext2sqlmodel,
         llm_model_complex=strcomplexquestionmodel,
+        complex_model_used=complex_model_used,
         ui_language=request.ui_language or "en",
         api_version=strapiversion,
         result=query_results,
@@ -2097,9 +2180,8 @@ async def get_location(wikidata_id: str, api_key: str = Depends(get_api_key)):
 # MCP (Model Context Protocol) server — tools, resource, middleware, mount
 # ---------------------------------------------------------------------------
 
-
 @mcp.tool(name="sql_search")
-async def _mcp_sql_search(question: str) -> str:
+async def _mcp_sql_search(question: str, ui_language: str = "en") -> str:
     """
     Query the cinema and TV database in natural language.
 
@@ -2109,7 +2191,8 @@ async def _mcp_sql_search(question: str) -> str:
     causes of death, awards, nominations, and locations (narrative or filming).
 
     The result returns rows with entity IDs and key fields (title, release date,
-    IMDb rating, poster path). Use the entity tools below to fetch full details.
+    IMDb rating, poster path), plus a plain-language `answer` field generated in
+    the requested `ui_language`. Use the entity tools below to fetch full details.
 
     For precise field knowledge (column names, value ranges, genre codes) read
     the resource context://database-scope before formulating complex questions.
@@ -2134,7 +2217,7 @@ async def _mcp_sql_search(question: str) -> str:
         async with httpx.AsyncClient(timeout=60) as client:
             r = await client.post(
                 f"{MCP_INTERNAL_BASE_URL}/search/text2sql",
-                json={"question": question},
+                json={"question": question, "ui_language": ui_language},
                 headers={"X-API-Key": MCP_INTERNAL_API_KEY},
             )
             r.raise_for_status()

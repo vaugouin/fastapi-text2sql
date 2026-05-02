@@ -13,8 +13,7 @@ python-dotenv>=1.0.0
 
 # LLM provider SDKs
 anthropic>=0.20.0
-google-generativeai
-
+google-genai
 chromadb>=0.4.0
 
 # MCP integration
