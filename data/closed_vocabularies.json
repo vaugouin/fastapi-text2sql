@@ -1,0 +1,43 @@
+{
+  "Status_name": {
+    "aliases": {
+      "cancelled": "Canceled",
+      "annulé": "Canceled",
+      "annule": "Canceled",
+      "sorti": "Released",
+      "released": "Released",
+      "en production": "In Production",
+      "post-production": "Post Production",
+      "post prod": "Post Production",
+      "rumored": "Rumored",
+      "planned": "Planned"
+    }
+  },
+  "Serie_type": {
+    "aliases": {
+      "doc": "Documentary",
+      "documentaire": "Documentary",
+      "documentaries": "Documentary",
+      "mini-série": "Miniseries",
+      "miniserie": "Miniseries",
+      "mini series": "Miniseries",
+      "talk-show": "Talk Show",
+      "talkshow": "Talk Show",
+      "scripted series": "Scripted",
+      "reality tv": "Reality"
+    }
+  },
+  "Genre_name": {
+    "aliases": {
+      "scifi": "Sci-Fi",
+      "sci fi": "Sci-Fi",
+      "sf": "Science Fiction",
+      "rom com": "Romance",
+      "rom-com": "Romance",
+      "romcom": "Romance",
+      "biopic": "History",
+      "western movie": "Western",
+      "westerns": "Western"
+    }
+  }
+}

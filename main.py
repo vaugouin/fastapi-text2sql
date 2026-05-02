@@ -25,6 +25,7 @@ import cleanup
 import entity
 import logs
 import sql_cache
+import closed_vocab
 
 # Load environment variables from .env file
 load_dotenv()
@@ -101,7 +102,7 @@ def _is_retryable_quota_error_text(error_text: str) -> bool:
     return bool(retry_metadata.get("is_retryable") and str(retry_metadata.get("error_code") or "") == "429")
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.15"
+strapiversion = "1.1.16"
 # Convert API version to XXX.YYY.ZZZ format
 strapiversionformatted = format_api_version(strapiversion)
 
@@ -257,6 +258,7 @@ connection = get_db_connection()
 if intcleanupenabled:
     cleanup.cleanup_sql_cache(connection, strapiversion)
 
+closed_vocab.init(connection)
 entity.prebuild_bktrees(connection)
 
 class TextExpr(BaseModel):

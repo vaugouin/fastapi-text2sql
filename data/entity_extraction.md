@@ -148,6 +148,35 @@ Disambiguation:
 - If the user writes a compound topic that includes a genre word but refers to a specific theme (e.g., `Vietnam war`, `World War II`, `cold war`), extract it as `Topic_name`, NOT as `Genre_name`.
 - If the surface form is not in the supported lists above, do NOT extract it as `Genre_name`. Leave it in the anonymized question unchanged, or treat it as a topic if appropriate.
 
+### Status_name
+Production lifecycle status of a movie or TV series.
+The value MUST be one of the following supported status names (case-insensitive, keep the original surface form):
+- `Canceled`, `In Production`, `Planned`, `Post Production`, `Released`, `Rumored`
+
+Examples:
+- `released`
+- `canceled`
+- `in production`
+- `post production`
+
+Disambiguation:
+- Extract `Status_name` only when the question filters by lifecycle status (e.g., "released movies", "canceled series", "movies in production").
+- Common synonyms ("cancelled", "annulé", "sorti", "post-production") are accepted at resolution time and resolve to the canonical value above.
+
+### Serie_type
+Type of a TV series. The value MUST be one of exactly:
+- `Documentary`, `Miniseries`, `News`, `Reality`, `Scripted`, `Talk Show`, `Video`
+
+Examples:
+- `Documentary`
+- `Miniseries`
+- `Talk Show`
+
+Disambiguation:
+- Only extract `Serie_type = Documentary` when the question **explicitly** mentions a TV series, show, or series context (e.g., "documentary series", "documentary TV shows", "documentary shows").
+- If the user writes "documentary" or "documentaries" **without** explicit series/TV context (e.g., "List documentaries", "best documentaries of 2020"), do **NOT** extract it as `Serie_type` or `Genre_name`. Leave the word in the question unchanged so the text-to-SQL step can handle it directly.
+- Common synonyms ("doc", "documentaire", "mini-série", "talk-show") are accepted at resolution time and resolve to the canonical value above.
+
 ## Important Extraction Rules
 
 ### General
@@ -160,20 +189,6 @@ Disambiguation:
 When the user writes `Title (Year)`, extract both:
 - `Movie_titleN`: the title without the year
 - `Release_yearN`: the 4-digit year inside parentheses
-
-### Serie_type
-If a series type is explicitly mentioned and should be extracted, it must be one of exactly:
-- `Documentary`
-- `Miniseries`
-- `News`
-- `Reality`
-- `Scripted`
-- `Talk Show`
-- `Video`
-
-**Important disambiguation for "Documentary":**
-- Only extract `Serie_type = Documentary` when the question **explicitly** mentions a TV series, show, or series context (e.g., "documentary series", "documentary TV shows", "documentary shows").
-- If the user writes "documentary" or "documentaries" **without** explicit series/TV context (e.g., "List documentaries", "best documentaries of 2020"), do **NOT** extract it as `Serie_type` or `Genre_name`. Leave the word in the question unchanged so the text-to-SQL step can handle it directly.
 
 ### Topic_name boundaries
 Do not extract as `Topic_name`:
@@ -437,6 +452,42 @@ Input: `What are Japanese speaking movies?`
 Output:
 {
   "question": "What are Japanese speaking movies?"
+}
+
+Input: `List released movies`
+Output:
+{
+  "question": "List {{Status_name1}} movies",
+  "Status_name1": "Released"
+}
+
+Input: `Show me canceled series`
+Output:
+{
+  "question": "Show me {{Status_name1}} series",
+  "Status_name1": "Canceled"
+}
+
+Input: `Movies still in production`
+Output:
+{
+  "question": "Movies still in {{Status_name1}}",
+  "Status_name1": "In Production"
+}
+
+Input: `Best documentary series of all time`
+Output:
+{
+  "question": "Best {{Serie_type1}} series of all time",
+  "Serie_type1": "Documentary"
+}
+
+Input: `What miniseries did HBO produce?`
+Output:
+{
+  "question": "What {{Serie_type1}} did {{Network_name1}} produce?",
+  "Serie_type1": "Miniseries",
+  "Network_name1": "HBO"
 }
 
 ## User Question
