@@ -192,6 +192,35 @@ def _sql_escape_literal(v: str) -> str:
 # data/closed_vocabularies.json and hot-reload via data_watcher.
 
 
+# Regex-validated placeholders (numeric or string ID literals).
+# Each entry: (placeholder_prefix, regex_pattern, is_numeric).
+#   is_numeric=True  -> substitute as bare number (works for INT columns)
+#   is_numeric=False -> substitute as a quoted SQL string literal (VARCHAR columns)
+# More specific prefixes must come before less specific ones because dispatch
+# uses startswith() on the placeholder key (e.g. IMDb_person_ID before IMDb_ID).
+_REGEX_PLACEHOLDER_RULES: list[tuple[str, str, bool]] = [
+    ("Release_year",         r"\d{4}", True),
+    ("Birth_year",           r"\d{4}", True),
+    ("Death_year",           r"\d{4}", True),
+    ("IMDb_person_ID",       r"nm\d+", False),
+    ("IMDb_ID",              r"tt\d+", False),
+    ("Wikidata_property_ID", r"P\d+",  False),
+    ("Wikidata_ID",          r"Q\d+",  False),
+    ("TMDb_ID",              r"\d+",   True),
+    ("Criterion_spine_ID",   r"\d+",   True),
+]
+
+
+def _match_regex_placeholder_rule(key: str) -> tuple[str, str, bool] | None:
+    """Return the first regex rule whose prefix matches the placeholder key."""
+    if not isinstance(key, str):
+        return None
+    for prefix, pattern, is_numeric in _REGEX_PLACEHOLDER_RULES:
+        if key.startswith(prefix):
+            return prefix, pattern, is_numeric
+    return None
+
+
 
 def resolve_entities(
     *,
@@ -287,17 +316,30 @@ def resolve_entities(
                 if key == "question":
                     continue
 
-                if isinstance(key, str) and key.startswith("Release_year"):
+                regex_rule = _match_regex_placeholder_rule(key)
+                if regex_rule is not None:
+                    prefix, pattern, is_numeric = regex_rule
                     raw_value = "" if value is None else str(value).strip()
-                    if raw_value == "" or not re.fullmatch(r"\d{4}", raw_value):
+                    placeholder = "{{" + key + "}}"
+                    if raw_value == "" or not re.fullmatch(pattern, raw_value):
+                        add_message(
+                            f"Entity resolution: {placeholder} -> rejected '{raw_value}' "
+                            f"(does not match expected pattern {pattern} for {prefix}); leaving placeholder unresolved"
+                        )
                         continue
 
-                    placeholder = "{{" + key + "}}"
-                    sql_query = re.sub(rf"'{re.escape(placeholder)}'", raw_value, sql_query, flags=re.IGNORECASE)
-                    sql_query = re.sub(rf"{re.escape(placeholder)}", raw_value, sql_query, flags=re.IGNORECASE)
+                    if is_numeric:
+                        sub_sql = raw_value
+                        kind = "numeric"
+                    else:
+                        sub_sql = f"'{_sql_escape_literal(raw_value)}'"
+                        kind = "regex string"
+
+                    sql_query = re.sub(rf"'{re.escape(placeholder)}'", sub_sql, sql_query, flags=re.IGNORECASE)
+                    sql_query = re.sub(rf"{re.escape(placeholder)}", sub_sql, sql_query, flags=re.IGNORECASE)
                     justification = justification.replace(placeholder, raw_value)
                     answer = answer.replace(placeholder, raw_value)
-                    add_message(f"Entity resolution: {placeholder} -> {raw_value} (numeric)")
+                    add_message(f"Entity resolution: {placeholder} -> {raw_value} ({kind})")
                     continue
 
                 if isinstance(key, str) and key.startswith("Genre_name"):
@@ -317,6 +359,25 @@ def resolve_entities(
                     justification = justification.replace(placeholder, raw_value)
                     answer = answer.replace(placeholder, raw_value)
                     add_message(f"Entity resolution: {placeholder} -> {genre_id_str} ({raw_value}) (genre)")
+                    continue
+
+                if isinstance(key, str) and key.startswith("Technical_format"):
+                    raw_value = "" if value is None else str(value).strip()
+                    placeholder = "{{" + key + "}}"
+                    if raw_value == "":
+                        continue
+
+                    technical_id = closed_vocab.resolve_technical(raw_value)
+                    if technical_id is None:
+                        add_message(f"Entity resolution: {placeholder} -> unknown technical format '{raw_value}'; leaving placeholder unresolved")
+                        continue
+
+                    technical_id_str = str(technical_id)
+                    sql_query = re.sub(rf"'{re.escape(placeholder)}'", technical_id_str, sql_query, flags=re.IGNORECASE)
+                    sql_query = re.sub(rf"{re.escape(placeholder)}", technical_id_str, sql_query, flags=re.IGNORECASE)
+                    justification = justification.replace(placeholder, raw_value)
+                    answer = answer.replace(placeholder, raw_value)
+                    add_message(f"Entity resolution: {placeholder} -> {technical_id_str} ({raw_value}) (technical_format)")
                     continue
 
                 if isinstance(key, str) and (key.startswith("Status_name") or key.startswith("Serie_type")):

@@ -40,5 +40,39 @@
       "western movie": "Western",
       "westerns": "Western"
     }
+  },
+  "Technical_format": {
+    "aliases": {
+      "35mm": "35 mm",
+      "16mm": "16 mm",
+      "65mm": "65 mm",
+      "70mm": "70 mm",
+      "35-mm": "35 mm",
+      "16-mm": "16 mm",
+      "65-mm": "65 mm",
+      "70-mm": "70 mm",
+      "scope": "cinemascope",
+      "cinéma-scope": "cinemascope",
+      "cinema-scope": "cinemascope",
+      "imax format": "imax",
+      "5.1 surround": "5.1",
+      "7.1 surround": "7.1",
+      "5.1 channel": "5.1",
+      "7.1 channel": "7.1",
+      "dolby digital": "dolby",
+      "dolby surround": "dolby",
+      "super 35": "super_35",
+      "super-35": "super_35",
+      "super 16": "super_16",
+      "super-16": "super_16",
+      "todd-ao": "todd_ao",
+      "todd ao": "todd_ao",
+      "d-cinema": "d_cinema",
+      "digital cinema": "d_cinema",
+      "digital cinema package": "dcp",
+      "tobis-klangfilm": "tobis_klangfilm",
+      "western-electric": "western_electric",
+      "ultra panavision": "ultra_panavision"
+    }
   }
 }

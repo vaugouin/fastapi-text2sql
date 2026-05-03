@@ -32,9 +32,17 @@ This is a FastAPI-based REST API that converts natural language questions into S
    - Entities are extracted from natural language via `entity.f_entity_extraction()` using the configured LLM (default `gpt-4o`)
    - Questions are anonymized with typed placeholders (e.g., `{{Person_name1}}`, `{{Movie_title1}}`, `{{Release_year1}}`, `{{Genre_name1}}`)
    - Extracted entity types produce placeholders matching prefixes in [data/entity_resolution.json](data/entity_resolution.json): `Person_name`, `Movie_title`, `Serie_title`, `Company_name`, `Network_name`, `Topic_name`, `List_name`, `Award_name`, `Nomination_name`, `Collection_name`, `Movement_name`, `Location_name`, `Group_name`, `Death_name`
-   - Two additional special placeholder prefixes handled directly (not in JSON config):
-     - `Release_year*` — 4-digit numeric substitution (used for `<title> (YYYY)` disambiguation patterns)
-     - `Genre_name*` — closed-vocabulary lookup mapping name → integer `ID_GENRE`, context-aware by movie vs series join tables ([entity.py:181](entity.py#L181))
+   - Special placeholder prefixes handled directly in code (not in JSON config):
+     - **Closed-vocabulary** ([closed_vocab.py](closed_vocab.py), loaded at startup via `closed_vocab.init(connection)` in [main.py:261](main.py#L261); aliases hot-reload from [data/closed_vocabularies.json](data/closed_vocabularies.json)):
+       - `Genre_name*` — closed-vocabulary lookup mapping name → integer `ID_GENRE`. Canonicals from `T_WC_TMDB_GENRE`; multilingual aliases from `T_WC_TMDB_GENRE_LANG` + JSON aliases. RapidFuzz typo tolerance.
+       - `Technical_format*` — closed-vocabulary lookup mapping name → integer `ID_TECHNICAL`. Canonicals from `T_WC_T2S_TECHNICAL` (56 active rows: sound systems, color/film/sound technologies, film formats); aliases from JSON only (no `_LANG` companion table yet).
+       - `Status_name*` — closed-vocabulary string substitution (e.g., `Released`, `Canceled`). Canonicals from `DISTINCT STATUS` over `T_WC_T2S_MOVIE` ∪ `T_WC_T2S_SERIE`.
+       - `Serie_type*` — closed-vocabulary string substitution (e.g., `Documentary`, `Miniseries`). Canonicals from `DISTINCT SERIE_TYPE` over `T_WC_T2S_SERIE`.
+     - **Regex-validated** ([entity.py](entity.py) `_REGEX_PLACEHOLDER_RULES`) — each rule defines a placeholder prefix, validation regex, and numeric-vs-string flag. Numeric substitutes a bare number (INT columns); string substitutes a quoted SQL literal (VARCHAR columns). Malformed values are rejected and the placeholder is left unresolved (marks question ambiguous):
+       - Numeric (`\d{4}`): `Release_year*`, `Birth_year*`, `Death_year*`
+       - Numeric (`\d+`): `TMDb_ID*`, `Criterion_spine_ID*`
+       - String (`tt\d+` / `nm\d+`): `IMDb_ID*`, `IMDb_person_ID*`
+       - String (`Q\d+` / `P\d+`): `Wikidata_ID*`, `Wikidata_property_ID*`
 
 3. **Entity Resolution** ([entity.py:197](entity.py#L197) `resolve_entities()`)
    - Driven by [data/entity_resolution.json](data/entity_resolution.json) (hot-reloaded via `data_watcher`)
@@ -128,8 +136,8 @@ This is a FastAPI-based REST API that converts natural language questions into S
 
 **[entity.py](entity.py)**
 - `f_entity_extraction()` — LLM-based entity extraction + anonymization
-- `resolve_entities()` — main resolver combining embeddings + RapidFuzz strategies + special placeholders (`Release_year*`, `Genre_name*`); also accepts and de-anonymizes the `answer` field alongside `justification`
-- `_resolve_genre_id()` — closed-vocabulary genre lookup, movie vs series context-aware (`MOVIE_GENRE_NAME_TO_ID`, `SERIE_GENRE_NAME_TO_ID`)
+- `resolve_entities()` — main resolver combining embeddings + RapidFuzz strategies + closed-vocabulary lookups (`Genre_name*`, `Technical_format*`, `Status_name*`, `Serie_type*` via [closed_vocab.py](closed_vocab.py)) + regex-validated placeholders (`Release_year*`, `Birth_year*`, `Death_year*`, `IMDb_ID*`, `IMDb_person_ID*`, `Wikidata_ID*`, `Wikidata_property_ID*`, `TMDb_ID*`, `Criterion_spine_ID*` via `_REGEX_PLACEHOLDER_RULES`); also accepts and de-anonymizes the `answer` field alongside `justification`
+- `_match_regex_placeholder_rule()` — dispatch helper returning the regex rule (prefix, pattern, is_numeric) that matches a placeholder key
 - Loads and validates `entity_resolution.json` via `data_watcher`
 
 **[rapidfuzz_query.py](rapidfuzz_query.py)**
@@ -427,11 +435,15 @@ Open once per request, pass the connection around, close in a `finally`. Do not 
 
 The pipeline can retry via the stronger model, but only when `complex_question_already_resolved` is `False`. When the outer call invokes itself recursively with a simplified question, it sets `complex_question_already_resolved = True` to prevent runaway retries.
 
-### Gotcha #9 — Genre Resolution Is Context-Aware
+### Gotcha #9 — Closed-Vocabulary Resolution
 
-`Genre_name` placeholders are mapped to integer IDs via `MOVIE_GENRE_NAME_TO_ID` / `SERIE_GENRE_NAME_TO_ID`. `_resolve_genre_id()` picks the correct table by looking for `MOVIE_GENRE` vs `SERIE_GENRE` in the SQL string — don't remove those substrings via refactoring without updating the lookup.
+`Genre_name`, `Technical_format`, `Status_name`, and `Serie_type` are resolved via [closed_vocab.py](closed_vocab.py), which loads canonicals from the database at startup and merges aliases from [data/closed_vocabularies.json](data/closed_vocabularies.json) (hot-reloaded). `Genre_name` produces an integer `ID_GENRE` (no movie-vs-series split — both join tables share the same ID space); `Technical_format` produces an integer `ID_TECHNICAL` (joined to `T_WC_T2S_MOVIE_TECHNICAL`); `Status_name` and `Serie_type` produce canonical strings. Typo tolerance is uniform across all four via RapidFuzz with `score_cutoff=85` and `margin=5`. `Genre_name` also pulls multilingual aliases from `T_WC_TMDB_GENRE_LANG`; `Technical_format` has no `_LANG` companion table yet — multilingual aliases live in JSON only.
 
-### Gotcha #10 — MCP Mount Path
+### Gotcha #10 — Regex Placeholders Reject Malformed Values
+
+The 9 regex-validated placeholders (`Release_year`, `Birth_year`, `Death_year`, `IMDb_ID`, `IMDb_person_ID`, `Wikidata_ID`, `Wikidata_property_ID`, `TMDb_ID`, `Criterion_spine_ID`) validate against a fixed pattern in `entity._REGEX_PLACEHOLDER_RULES`. A value that fails the pattern is **rejected** — the placeholder is left in place, and the trailing unresolved-placeholder check marks the question ambiguous. Order in the rule list matters: `IMDb_person_ID` precedes `IMDb_ID`, and `Wikidata_property_ID` precedes `Wikidata_ID`, because dispatch uses `startswith()`. Numeric rules substitute as bare integers (and strip surrounding quotes via two regex passes); string rules substitute as quoted SQL string literals — adding new ID-style placeholders requires picking the right `is_numeric` based on the target column's SQL type.
+
+### Gotcha #11 — MCP Mount Path
 
 `app.mount("", mcp_app)` (empty string), not `"/mcp"`. Nginx strips/preserves `/mcp` upstream, and FastMCP's own routes live under `/mcp/…`. Mounting under `/mcp` produces `/mcp/mcp` paths.
 
