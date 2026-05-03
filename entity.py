@@ -306,7 +306,7 @@ def resolve_entities(
                     if raw_value == "":
                         continue
 
-                    genre_id = closed_vocab.resolve_genre(raw_value, sql_query)
+                    genre_id = closed_vocab.resolve_genre(raw_value)
                     if genre_id is None:
                         add_message(f"Entity resolution: {placeholder} -> unknown genre name '{raw_value}'; leaving placeholder unresolved")
                         continue

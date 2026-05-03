@@ -1,18 +1,17 @@
 """Closed-vocabulary entity resolution.
 
-Loads canonical values from the database (or, for genres, from the
-text_to_sql.md prompt), loads aliases from a hot-reloaded JSON config in
-``data/closed_vocabularies.json``, and exposes a typo-tolerant matcher built
-on RapidFuzz.
+Loads canonical values from the database, loads aliases from a hot-reloaded
+JSON config in ``data/closed_vocabularies.json`` plus (for genres) from a
+multilingual DB table, and exposes a typo-tolerant matcher built on RapidFuzz.
 
 Design:
-- Canonical values come from the database when a column actually stores them
-  (Status, Serie_type) so the source code never hard-codes a list. Genre
-  id <-> name mappings have no DB reference table, so they are parsed once
-  from the text_to_sql.md prompt.
-- Aliases come from a JSON file watched by ``data_watcher`` so editors can add
-  synonyms ("annule" -> "Canceled", "academy ratio" -> "1.37") without
-  restarting the API.
+- Canonical values come from the database (Status, Serie_type, Genre) so the
+  source code never hard-codes a list. Genre id<->name uses T_WC_TMDB_GENRE.
+- Multilingual genre aliases come from T_WC_TMDB_GENRE_LANG (currently French;
+  extensible to any LANG code by adding rows).
+- Additional English colloquialisms and per-entity synonyms come from a JSON
+  file watched by ``data_watcher`` so editors can add aliases ("annule" ->
+  "Canceled", "rom-com" -> "Romance") without restarting the API.
 - Every entity goes through the same ``_resolve_closed_vocab`` matcher so
   alias resolution and typo tolerance are uniform across all entities.
 """
@@ -20,8 +19,6 @@ Design:
 from __future__ import annotations
 
 import json
-import os
-import re
 import unicodedata
 from typing import Any
 
@@ -104,40 +101,28 @@ def _load_distinct(connection, query: str) -> dict[str, str]:
     return result
 
 
-_GENRE_HEADER_MOVIE = "### Genre Reference for movies T_WC_T2S_MOVIE_GENRE"
-_GENRE_HEADER_SERIE = "### Genre Reference for series T_WC_T2S_SERIE_GENRE"
-_GENRE_PAIR_RE = re.compile(r"(\d+)\s*:\s*([^,\n]+?)(?=,|\n|$)")
-_GENRE_ALT_RE = re.compile(r"^(.+?)\s*\(\s*or\s+(.+?)\s*\)\s*$", re.IGNORECASE)
-
-
-def _parse_genre_section(prompt_text: str, header: str) -> dict[str, int]:
-    """Parse the 'id: Name, id: Name, ...' table that follows ``header`` in the prompt."""
-    start = prompt_text.find(header)
-    if start == -1:
-        return {}
-    next_section = prompt_text.find("\n###", start + len(header))
-    end = next_section if next_section != -1 else len(prompt_text)
-    section = prompt_text[start + len(header) : end]
-
+def _load_genre_id_map(connection, query: str) -> dict[str, int]:
+    """Run a query returning (id, name) rows and produce {normalized_name: id}."""
     result: dict[str, int] = {}
-    for match in _GENRE_PAIR_RE.finditer(section):
-        genre_id = int(match.group(1))
-        raw_name = match.group(2).strip()
-        alt_match = _GENRE_ALT_RE.match(raw_name)
-        if alt_match:
-            primary = alt_match.group(1).strip()
-            alternative = alt_match.group(2).strip()
-            result[_normalize(primary)] = genre_id
-            result[_normalize(alternative)] = genre_id
-        else:
-            result[_normalize(raw_name)] = genre_id
+    with connection.cursor() as cursor:
+        cursor.execute(query)
+        for row in cursor.fetchall():
+            if isinstance(row, dict):
+                gid = row.get("id")
+                name = row.get("name")
+            else:
+                gid = row[0] if len(row) > 0 else None
+                name = row[1] if len(row) > 1 else None
+            if gid is None or name is None:
+                continue
+            name_str = str(name).strip()
+            if not name_str:
+                continue
+            try:
+                result[_normalize(name_str)] = int(gid)
+            except (TypeError, ValueError):
+                continue
     return result
-
-
-def _read_data_file(filename: str) -> str:
-    path = os.path.join(os.path.dirname(__file__), "data", filename)
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
 
 
 def _on_aliases_change(content: str) -> None:
@@ -163,10 +148,16 @@ _STATUS_QUERY = (
 _SERIE_TYPE_QUERY = (
     "SELECT DISTINCT SERIE_TYPE AS V FROM T_WC_T2S_SERIE WHERE SERIE_TYPE IS NOT NULL"
 )
+_GENRE_CANONICALS_QUERY = (
+    "SELECT id, name FROM T_WC_TMDB_GENRE WHERE name IS NOT NULL"
+)
+_GENRE_DB_ALIASES_QUERY = (
+    "SELECT id, name FROM T_WC_TMDB_GENRE_LANG WHERE name IS NOT NULL"
+)
 
 
 def init(connection) -> None:
-    """Load canonical maps from the database and prompt; called once at startup."""
+    """Load canonical maps from the database; called once at startup."""
     global _CANONICAL
     loaded: dict[str, dict[str, Any]] = {}
 
@@ -183,13 +174,16 @@ def init(connection) -> None:
         loaded["Serie_type"] = {}
 
     try:
-        prompt_text = _read_data_file("text_to_sql.md")
-        loaded["Genre_name_movie"] = _parse_genre_section(prompt_text, _GENRE_HEADER_MOVIE)
-        loaded["Genre_name_serie"] = _parse_genre_section(prompt_text, _GENRE_HEADER_SERIE)
+        loaded["Genre_name"] = _load_genre_id_map(connection, _GENRE_CANONICALS_QUERY)
     except Exception as e:
-        print(f"[closed_vocab] Failed to parse Genre canonicals from text_to_sql.md: {e}")
-        loaded.setdefault("Genre_name_movie", {})
-        loaded.setdefault("Genre_name_serie", {})
+        print(f"[closed_vocab] Failed to load Genre_name canonicals: {e}")
+        loaded["Genre_name"] = {}
+
+    try:
+        loaded["Genre_name_db_aliases"] = _load_genre_id_map(connection, _GENRE_DB_ALIASES_QUERY)
+    except Exception as e:
+        print(f"[closed_vocab] Failed to load Genre_name DB aliases: {e}")
+        loaded["Genre_name_db_aliases"] = {}
 
     _CANONICAL = loaded
     summary = ", ".join(f"{k}={len(v)}" for k, v in _CANONICAL.items())
@@ -235,29 +229,23 @@ def resolve(entity: str, raw_value: Any) -> Any:
     return _resolve_closed_vocab(raw_value, canonical, aliases)
 
 
-def resolve_genre(raw_value: Any, sql_query: str | None = None) -> int | None:
-    """Resolve a genre name to its integer ID, picking movie vs serie context from the SQL."""
-    movie_map = _CANONICAL.get("Genre_name_movie", {})
-    serie_map = _CANONICAL.get("Genre_name_serie", {})
-    if not movie_map and not serie_map:
+def resolve_genre(raw_value: Any) -> int | None:
+    """Resolve a genre name to its integer ID.
+
+    Canonicals come from T_WC_TMDB_GENRE (English names). Multilingual aliases
+    come from T_WC_TMDB_GENRE_LANG (currently French; extensible by adding rows
+    with new LANG values). Additional English colloquialisms ("scifi", "biopic",
+    "rom-com", ...) live in data/closed_vocabularies.json. The matcher merges
+    DB aliases with JSON aliases (JSON wins on conflict) so all sources go
+    through the same RapidFuzz-backed resolver.
+    """
+    canonical = _CANONICAL.get("Genre_name", {})
+    if not canonical:
         return None
-
-    sql_upper = (sql_query or "").upper()
-    mentions_serie_genre = "SERIE_GENRE" in sql_upper
-    mentions_movie_genre = "MOVIE_GENRE" in sql_upper
-
-    if mentions_serie_genre and not mentions_movie_genre:
-        primary, secondary = serie_map, movie_map
-    elif mentions_movie_genre and not mentions_serie_genre:
-        primary, secondary = movie_map, serie_map
-    else:
-        primary, secondary = movie_map, serie_map
-
-    # ``primary`` wins over ``secondary`` for keys present in both, matching
-    # the previous behaviour of _resolve_genre_id.
-    combined: dict[str, int] = {**secondary, **primary}
-    aliases = _aliases_for("Genre_name", target_canonical=combined)
-    return _resolve_closed_vocab(raw_value, combined, aliases)
+    db_aliases = _CANONICAL.get("Genre_name_db_aliases", {}) or {}
+    json_aliases = _aliases_for("Genre_name", target_canonical=canonical)
+    aliases = {**db_aliases, **json_aliases}
+    return _resolve_closed_vocab(raw_value, canonical, aliases)
 
 
 def get_canonical_size(entity: str) -> int:
