@@ -29,8 +29,9 @@
   },
   "Genre_name": {
     "aliases": {
-      "scifi": "Sci-Fi",
-      "sci fi": "Sci-Fi",
+      "scifi": "Science Fiction",
+      "sci fi": "Science Fiction",
+      "sci-fi": "Science Fiction",
       "sf": "Science Fiction",
       "rom com": "Romance",
       "rom-com": "Romance",
