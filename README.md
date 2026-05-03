@@ -9,8 +9,9 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **FastAPI Framework**: High-performance, modern Python web framework with automatic API documentation
 - **API Key Authentication**: Secure access with API key validation using constant-time comparison
 - **ChromaDB Vector Search**: Advanced similarity search for entity matching and query optimization
-- **Entity Extraction & Anonymization**: Intelligent extraction of entities (persons, movies, series, companies, networks, characters, locations, topics, lists, awards, nominations, collections, movements, groups, deaths, genres, release years) with placeholder replacement
-- **Config-driven Entity Resolution**: Entity resolution is configured via `data/entity_resolution.json` (embeddings and RapidFuzz strategies)
+- **Entity Extraction & Anonymization**: Intelligent extraction of entities (persons, movies, series, companies, networks, characters, locations, topics, lists, awards, nominations, collections, movements, groups, deaths, genres, technical formats, statuses, series types, release/birth/death years, IMDb / Wikidata / TMDb / Criterion identifiers) with placeholder replacement
+- **Config-driven Entity Resolution**: Entity resolution is configured via `data/entity_resolution.json` (embeddings and RapidFuzz strategies), plus a closed-vocabulary layer (`closed_vocab.py` + `data/closed_vocabularies.json`) for `Genre_name`, `Technical_format`, `Status_name`, and `Serie_type`, and a regex-validated layer in `entity.py` for years and ID-style placeholders
+- **DB-driven Canonicals with Hot-Reloaded Aliases**: `Genre_name` and `Technical_format` canonicals load at startup from reference tables (`T_WC_TMDB_GENRE` + `T_WC_TMDB_GENRE_LANG`, `T_WC_T2S_TECHNICAL`); `Status_name` and `Serie_type` load via DISTINCT queries; format / typo / multilingual aliases live in `data/closed_vocabularies.json` and hot-reload within ~5 seconds
 - **Hot-Reloaded `data/` Files**: Prompt templates and entity-resolution configuration under `data/` are reloaded automatically when they change
 - **RapidFuzz Person Matching (language-family aware)**: Person resolution uses `guess_language_family()` to route Latin names to `T_WC_T2S_PERSON` and non-Latin names to `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`, while keeping SQL replacement canonical when needed
 - **Multi-Level Caching**: Sophisticated three-tier caching system (exact questions, anonymized questions, vector embeddings)
@@ -80,11 +81,14 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Movement names** (film movements / stylistic schools, e.g., "Film Noir", "French New Wave", "New Hollywood") — placeholder `{{Movement_nameN}}`
      - **Group names** (organizations, publications, musical/comedy groups associated with persons, e.g., "The Beatles", "Les Cahiers du Cinéma") — placeholder `{{Group_nameN}}`
      - **Death names** (medical or legal cause/circumstance of a person's death, e.g., "liver cirrhosis", "car collision", "homicide") — placeholder `{{Death_nameN}}`
-     - **Genre names** (movie and TV-series genres, closed vocabulary) — placeholder `{{Genre_nameN}}`
+     - **Genre names** (movie and TV-series genres, closed vocabulary backed by `T_WC_TMDB_GENRE` + multilingual aliases in `T_WC_TMDB_GENRE_LANG`) — placeholder `{{Genre_nameN}}`
+     - **Technical formats** (sound systems, color/film/sound technologies, film formats — closed vocabulary backed by `T_WC_T2S_TECHNICAL`, e.g. `IMAX`, `Technicolor`, `35mm`, `Dolby`) — placeholder `{{Technical_formatN}}`
+     - **Status name** (`Canceled`, `In Production`, `Planned`, `Post Production`, `Released`, `Rumored` — closed vocabulary loaded from `T_WC_T2S_MOVIE.STATUS` ∪ `T_WC_T2S_SERIE.STATUS`) — placeholder `{{Status_nameN}}`
+     - **Serie type** (`Documentary`, `Miniseries`, `News`, `Reality`, `Scripted`, `Talk Show`, `Video` — closed vocabulary loaded from `T_WC_T2S_SERIE.SERIE_TYPE`, only with explicit series context) — placeholder `{{Serie_typeN}}`
      - **Release year** (extracted alongside a movie title when the user writes `Title (YYYY)`) — placeholder `{{Release_yearN}}`
-     - **Serie type** (`Documentary`, `Miniseries`, `News`, `Reality`, `Scripted`, `Talk Show`, `Video` — only with explicit series context)
-     - **Identifiers** (`IMDb_ID`, `IMDb_person_ID`, `Wikidata_ID`, `Wikidata_property_ID`, `TMDb_ID`, `Criterion_spine_ID`) when explicitly referenced as identifiers
-   - Replace entities with typed, numbered placeholders (e.g., `{{Person_name1}}`, `{{Movie_title1}}`, `{{Award_name1}}`, `{{Group_name1}}`, `{{Release_year1}}`)
+     - **Birth year / Death year** (4-digit years for person filtering, e.g. "actors born in 1962", "directors who died in 1980") — placeholders `{{Birth_yearN}}` / `{{Death_yearN}}`
+     - **Identifiers** (regex-validated, with malformed values rejected): `IMDb_ID` (`tt\d+`), `IMDb_person_ID` (`nm\d+`), `Wikidata_ID` (`Q\d+`), `Wikidata_property_ID` (`P\d+`), `TMDb_ID` (`\d+`), `Criterion_spine_ID` (`\d+`)
+   - Replace entities with typed, numbered placeholders (e.g., `{{Person_name1}}`, `{{Movie_title1}}`, `{{Award_name1}}`, `{{Group_name1}}`, `{{Release_year1}}`, `{{Technical_format1}}`)
    - **Documentary disambiguation**: "documentary" is deliberately *not* extracted as a genre or serie type unless the question explicitly mentions series/TV context; the text-to-SQL step handles it directly via `IS_DOCUMENTARY = 1`
 
 3. **Anonymized Question Cache Lookup (SQL Database)**
@@ -99,13 +103,13 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    - Returns cached SQL query if a sufficiently similar question is found
 
 5. **Entity Validation & Resolution**
-   - Entity resolution logic is implemented in `entity.py`, while `main.py` remains focused on request orchestration.
-   - Validate and resolve each extracted entity using a configuration-driven strategy list (`data/entity_resolution.json`).
-   - Supported resolution strategies:
-     - **Embeddings (ChromaDB)**: vector similarity lookup against a per-entity collection
-     - **RapidFuzz (DB lexical)**: normalized + key-prefix + FULLTEXT/LIKE matching against generated SQL columns
-     - Each placeholder has an ordered `search_list` in [data/entity_resolution.json](data/entity_resolution.json); strategies can be gated by language family and may include a `resolve_to_canonical` step that maps from an AKA table back to the primary entity table.
-   - Per-placeholder strategies in v1.1.15:
+   - Entity resolution logic is implemented in `entity.py` (with `closed_vocab.py` for the closed-vocabulary layer); `main.py` remains focused on request orchestration.
+   - Each placeholder is dispatched to one of four resolver categories:
+     - **Embeddings (ChromaDB)** — vector similarity lookup against a per-entity collection (config-driven via `data/entity_resolution.json`).
+     - **RapidFuzz (DB lexical)** — normalized + key-prefix + FULLTEXT/LIKE matching against generated SQL columns (config-driven via `data/entity_resolution.json`); strategies can be gated by language family and may include a `resolve_to_canonical` step that maps from an AKA table back to the primary entity table.
+     - **Closed vocabulary** ([closed_vocab.py](closed_vocab.py)) — RapidFuzz-backed in-memory lookup against canonical maps loaded from the database at startup, layered with hot-reloaded aliases from [data/closed_vocabularies.json](data/closed_vocabularies.json). `score_cutoff = 85`, `margin = 5`.
+     - **Regex-validated** ([entity.py](entity.py) `_REGEX_PLACEHOLDER_RULES`) — patterns matched in order; the value is rejected (placeholder left unresolved → marks question ambiguous) on a regex mismatch. Numeric rules substitute as bare integers (INT columns); string rules substitute as quoted SQL string literals (VARCHAR columns).
+   - Per-placeholder strategies (current):
      - **Person names** (`{{Person_nameN}}`): RapidFuzz, language-family aware.
        - Latin scripts → `T_WC_T2S_PERSON` (canonical names) using `PERSON_NAME_NORM` / `PERSON_NAME_KEY` / `POPULARITY`.
        - Non-Latin scripts → `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` (AKA table), then resolved to canonical `T_WC_T2S_PERSON.PERSON_NAME`.
@@ -124,14 +128,22 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Death names** (`{{Death_nameN}}`): embeddings on `deaths` collection, `T_WC_T2S_DEATH.DEATH_NAME` / `DEATH_NAME_FR`.
      - **Location names** (`{{Location_nameN}}`): embeddings on `locations` collection, `T_WC_T2S_ITEM.ITEM_LABEL` / `ITEM_LABEL_FR` (Wikidata-backed; locations are linked to movies/series via `T_WC_WIKIDATA_ITEM_PROPERTY` with `ID_PROPERTY IN ('P840', 'P915')`).
      - **Character names** (`{{Character_nameN}}`): currently extracted by the LLM but **not yet wired in `entity_resolution.json`** — the value falls through to the SQL-escaped raw fallback. The `characters` ChromaDB collection is provisioned in [main.py:135](main.py#L135) for upcoming use.
-     - **Genre names** (`{{Genre_nameN}}`): closed-vocabulary lookup mapping name → integer `ID_GENRE` via `MOVIE_GENRE_NAME_TO_ID` and `SERIE_GENRE_NAME_TO_ID` ([entity.py:141-181](entity.py#L141-L181)); context-aware based on whether the SQL references `MOVIE_GENRE` or `SERIE_GENRE` tables.
-     - **Release year** (`{{Release_yearN}}`): direct 4-digit numeric substitution (no DB lookup).
+     - **Genre names** (`{{Genre_nameN}}`): closed-vocabulary lookup mapping name → integer `ID_GENRE`. Canonicals from `T_WC_TMDB_GENRE`; multilingual aliases from `T_WC_TMDB_GENRE_LANG` (currently French; auto-extends to any LANG inserted) layered with JSON aliases. Both `MOVIE_GENRE` and `SERIE_GENRE` join tables share the same ID space — no movie-vs-series context dispatch.
+     - **Technical formats** (`{{Technical_formatN}}`): closed-vocabulary lookup mapping name → integer `ID_TECHNICAL`. Canonicals from `T_WC_T2S_TECHNICAL` (56 active rows: sound systems, color/film/sound technologies, film formats); aliases from `data/closed_vocabularies.json` only (no `_LANG` companion table yet).
+     - **Status name** (`{{Status_nameN}}`): closed-vocabulary string substitution for `STATUS` (e.g. `Released`, `Canceled`). Canonicals from `DISTINCT STATUS` over `T_WC_T2S_MOVIE` ∪ `T_WC_T2S_SERIE`.
+     - **Serie type** (`{{Serie_typeN}}`): closed-vocabulary string substitution for `SERIE_TYPE` (e.g. `Documentary`, `Miniseries`). Canonicals from `DISTINCT SERIE_TYPE` over `T_WC_T2S_SERIE`.
+     - **Release / Birth / Death years** (`{{Release_yearN}}`, `{{Birth_yearN}}`, `{{Death_yearN}}`): regex `\d{4}`, bare numeric substitution into INT columns.
+     - **TMDb / Criterion identifiers** (`{{TMDb_IDN}}`, `{{Criterion_spine_IDN}}`): regex `\d+`, bare numeric substitution into INT primary keys.
+     - **IMDb identifiers** (`{{IMDb_IDN}}`, `{{IMDb_person_IDN}}`): regex `tt\d+` / `nm\d+`, quoted SQL string substitution into VARCHAR `ID_IMDB` columns.
+     - **Wikidata identifiers** (`{{Wikidata_IDN}}`, `{{Wikidata_property_IDN}}`): regex `Q\d+` / `P\d+`, quoted SQL string substitution into VARCHAR `ID_WIKIDATA` / `ID_PROPERTY` columns.
    - Vector similarity matching ensures fuzzy matching for misspellings and variations
    - Similarity threshold of 0.15 for robust entity matching
 
    - Safety:
      - If unresolved placeholders remain in the SQL query after entity resolution, the API skips execution to avoid running a broken query.
      - If an embeddings result references an ID that no longer exists in the underlying table, the API emits a diagnostic message indicating the embeddings collection may be out of sync.
+     - Closed-vocabulary lookups that fall below the RapidFuzz threshold are rejected (placeholder left unresolved → ambiguous).
+     - Regex-validated values that fail the pattern are rejected (placeholder left unresolved → ambiguous), tightening defense against LLM hallucinations on identifier-style entities.
 
 6. **Text-to-SQL Generation (LLM)**
    - If no cache hit occurs, process the anonymized question through the LLM model
@@ -658,7 +670,8 @@ docker run -p 8000:8000 fastapi-text2sql
 fastapi-text2sql/
 ├── main.py                  # FastAPI app, endpoint orchestration, entity detail endpoints, MCP server, DB/Chroma startup
 ├── text2sql.py              # Core text-to-SQL conversion, unified LLM dispatch (OpenAI/Anthropic/Gemini), retry helpers
-├── entity.py                # Entity extraction, entity-resolution config loading, and placeholder resolution logic
+├── entity.py                # Entity extraction, entity-resolution config loading, regex-validated placeholders, and placeholder resolution logic
+├── closed_vocab.py          # Closed-vocabulary resolver (Genre_name, Technical_format, Status_name, Serie_type) — DB-driven canonicals + JSON aliases + RapidFuzz typo tolerance
 ├── sql_cache.py             # SQL cache lookups and cache writes for exact/anonymized questions
 ├── auth.py                  # API key authentication middleware (multi-key support via API_KEYS)
 ├── logs.py                  # API usage logging (JSON log files in logs/ folder)
@@ -679,7 +692,11 @@ fastapi-text2sql/
 │   ├── entity_extraction.md                                          # Entity extraction prompt (hot-reloaded)
 │   ├── text_to_sql.md                                                # Text2SQL prompt (hot-reloaded)
 │   ├── complex_question.md                                           # Stronger model prompt (complex question simplification, hot-reloaded)
-│   └── entity_resolution.json                                        # Entity resolution configuration (embeddings + rapidfuzz, hot-reloaded)
+│   ├── entity_resolution.json                                        # Entity resolution configuration (embeddings + rapidfuzz, hot-reloaded)
+│   └── closed_vocabularies.json                                      # Closed-vocabulary aliases for Genre_name, Technical_format, Status_name, Serie_type (hot-reloaded)
+├── doc/
+│   └── sql/                 # Reference SQL dumps for canonical tables
+│       └── T_WC_T2S_TECHNICAL.sql                                    # 56-row Technical_format canonical table
 ├── logs/                    # API usage logs with timing metrics (auto-created)
 ├── CLAUDE.md                # AI assistant guide for understanding the codebase
 └── README.md                # This file
@@ -727,7 +744,8 @@ The current prompt template is specifically designed for a **movie and TV series
 - **Deaths** (`T_WC_T2S_DEATH`): Causes and circumstances of persons' deaths
 - **Locations** (`T_WC_T2S_ITEM` joined via `T_WC_WIKIDATA_ITEM_PROPERTY` with `ID_PROPERTY IN ('P840', 'P915')`): Wikidata-backed narrative or filming locations
 - **Ratings**: IMDB ratings integration (raw and weighted)
-- **Genres**: Movie and series genre classifications via dedicated join tables (closed vocabulary, 19 movie + 17 serie genres)
+- **Genres** (`T_WC_TMDB_GENRE` + `T_WC_TMDB_GENRE_LANG`): closed-vocabulary reference table; 27 canonical English names plus multilingual aliases (currently French, extensible to any LANG); used by both `T_WC_T2S_MOVIE_GENRE` and `T_WC_T2S_SERIE_GENRE` join tables (shared ID space)
+- **Technical formats** (`T_WC_T2S_TECHNICAL`): closed-vocabulary reference table grouping 56 active rows by `TECHNICAL_TYPE` (sound systems, color/film/sound technologies, film formats — e.g. IMAX, Technicolor, CinemaScope, 35 mm, Dolby); joined to movies via `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL`
 - **Languages**: Multi-language support for titles and content
 - **Images**: Poster, backdrop, and profile image management
 - **Videos**: Trailer, clip, and behind-the-scenes video management
@@ -801,7 +819,9 @@ The system automatically cleans up cached data on startup to ensure optimal perf
 
 ### Entity Extraction & Anonymization
 
-The system intelligently extracts and replaces entities in natural language questions. As of v1.1.15 the supported placeholder types are:
+The system intelligently extracts and replaces entities in natural language questions. The supported placeholder types are:
+
+**Embeddings + RapidFuzz (config-driven via [data/entity_resolution.json](data/entity_resolution.json)):**
 
 | Placeholder prefix | Description | Resolver |
 |---|---|---|
@@ -820,10 +840,24 @@ The system intelligently extracts and replaces entities in natural language ques
 | `Death_name` | Cause or circumstance of death | Embeddings — `deaths` collection |
 | `Location_name` | Narrative / filming locations (Wikidata) | Embeddings — `locations` collection |
 | `Character_name` | Movie / series character names | *(extracted but currently unresolved — raw fallback)* |
-| `Genre_name` | Movie / TV genre (closed vocabulary) | Hardcoded name → ID dictionaries, context-aware (movie vs series) |
-| `Release_year` | 4-digit year extracted from `Title (YYYY)` patterns | Direct numeric substitution |
 
-In addition to the placeholder types above, the entity-extraction prompt also passes through identifier-style entities when explicitly referenced: `IMDb_ID`, `IMDb_person_ID`, `Wikidata_ID`, `Wikidata_property_ID`, `TMDb_ID`, `Criterion_spine_ID`. A `Serie_type` constant (one of `Documentary`, `Miniseries`, `News`, `Reality`, `Scripted`, `Talk Show`, `Video`) may also be extracted when the question explicitly mentions a series context.
+**Closed vocabulary ([closed_vocab.py](closed_vocab.py); DB-driven canonicals + JSON aliases hot-reloaded from [data/closed_vocabularies.json](data/closed_vocabularies.json); RapidFuzz typo tolerance, `score_cutoff = 85`):**
+
+| Placeholder prefix | Description | Canonical source | Substitution |
+|---|---|---|---|
+| `Genre_name` | Movie / TV genre | `T_WC_TMDB_GENRE` (canonicals) + `T_WC_TMDB_GENRE_LANG` (multilingual aliases) | Integer `ID_GENRE` |
+| `Technical_format` | Sound systems, color/film/sound tech, film formats | `T_WC_T2S_TECHNICAL` (56 active rows grouped by `TECHNICAL_TYPE`) | Integer `ID_TECHNICAL` |
+| `Status_name` | Production lifecycle status | `DISTINCT STATUS` over `T_WC_T2S_MOVIE` ∪ `T_WC_T2S_SERIE` | Canonical string (e.g. `Released`, `Canceled`) |
+| `Serie_type` | TV series type | `DISTINCT SERIE_TYPE` over `T_WC_T2S_SERIE` | Canonical string (e.g. `Documentary`, `Miniseries`) |
+
+**Regex-validated ([entity.py](entity.py) `_REGEX_PLACEHOLDER_RULES`; malformed values are rejected and the placeholder is left unresolved):**
+
+| Placeholder prefix | Pattern | Substitution kind | Target column |
+|---|---|---|---|
+| `Release_year` / `Birth_year` / `Death_year` | `\d{4}` | Bare integer | INT (`RELEASE_YEAR` / `BIRTH_YEAR` / `DEATH_YEAR`) |
+| `TMDb_ID` / `Criterion_spine_ID` | `\d+` | Bare integer | INT primary keys (`ID_*`) |
+| `IMDb_ID` / `IMDb_person_ID` | `tt\d+` / `nm\d+` | Quoted SQL string | VARCHAR `ID_IMDB` |
+| `Wikidata_ID` / `Wikidata_property_ID` | `Q\d+` / `P\d+` | Quoted SQL string | VARCHAR `ID_WIKIDATA` / `ID_PROPERTY` |
 
 **Process Flow:**
 1. Extract entities from the user question using GPT-4o (or the configured `llm_model_entity_extraction`)
@@ -833,7 +867,7 @@ In addition to the placeholder types above, the entity-extraction prompt also pa
 5. Resolve each placeholder to a real DB value using the per-prefix `search_list` in [data/entity_resolution.json](data/entity_resolution.json) (embeddings or RapidFuzz, with optional language-family gating)
 6. Substitute resolved values back into `sql_query`, `justification`, and `answer`, using SQL-safe `''` quote escaping
 
-The full pipeline is implemented in [entity.py](entity.py) — config-driven resolution, generic fallback replacement, special-cased numeric (`Release_year`) and closed-vocabulary (`Genre_name`) placeholders, embeddings-based lookup, and RapidFuzz-based person resolution.
+The full pipeline is implemented in [entity.py](entity.py) (resolver dispatch, regex-validated placeholders, embeddings, RapidFuzz person resolution, generic fallback replacement) plus [closed_vocab.py](closed_vocab.py) (DB-driven closed-vocabulary lookups for `Genre_name`, `Technical_format`, `Status_name`, `Serie_type` with RapidFuzz typo tolerance and JSON-driven alias layering).
 
 If the user provides a disambiguation pattern like `<movie_title> (YYYY)`, entity extraction returns a `{{Release_yearN}}` placeholder alongside the `{{Movie_titleN}}` placeholder so the SQL can disambiguate same-titled films by release year.
 
@@ -1027,6 +1061,20 @@ All successful text2sql requests return a comprehensive response with:
 - `ui_language` (new in v1.1.15): Language code used for the `answer` field and as part of the cache key
 - `api_version`: Current API version (e.g., "1.1.15")
 
+### Recent updates within v1.1.15
+
+The following changes ship inside the existing v1.1.15 deployment (no version bump). They reorganize entity resolution into four well-defined categories and remove duplicated canonical lists from the prompt templates:
+
+- **Closed-vocabulary resolver layer ([closed_vocab.py](closed_vocab.py))**: introduced a unified DB-driven canonical loader (`closed_vocab.init(connection)` runs once at startup) plus a JSON-driven alias loader (hot-reloaded via `data_watcher`). Powers `Genre_name`, `Technical_format`, `Status_name`, and `Serie_type` resolution through a single `_resolve_closed_vocab()` matcher (RapidFuzz, `score_cutoff = 85`, `margin = 5`). Hard-coded `MOVIE_GENRE_NAME_TO_ID` / `SERIE_GENRE_NAME_TO_ID` dicts removed from `entity.py`; movie-vs-series context dispatch retired (both join tables share the same `T_WC_TMDB_GENRE` ID space).
+- **`Technical_format` placeholder added**: new closed-vocabulary entity backed by the `T_WC_T2S_TECHNICAL` reference table (56 active rows: sound systems, color/film/sound technologies, film formats — IMAX, Technicolor, CinemaScope, 35 mm, Dolby, etc.). Resolver substitutes the integer `ID_TECHNICAL` into `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL`. The "do not extract technical formats" rule was lifted from `data/entity_extraction.md`.
+- **Multilingual genre aliases via DB**: `T_WC_TMDB_GENRE_LANG(id, LANG, name)` is now read at startup alongside `T_WC_TMDB_GENRE`; adding rows for any new LANG (de, es, ja, …) auto-extends genre matching with no code change.
+- **`Status_name` and `Serie_type` placeholders added**: closed-vocabulary string substitution for production lifecycle status (`Released`, `Canceled`, `In Production`, `Post Production`, `Planned`, `Rumored`) and TV series type (`Documentary`, `Miniseries`, `News`, `Reality`, `Scripted`, `Talk Show`, `Video`).
+- **Hot-reloaded alias config (`data/closed_vocabularies.json`)**: per-entity alias dictionaries for typos, format variants, and multilingual synonyms (e.g. `35mm` → `35 mm`, `scifi` → `Science Fiction`, `cancelled` → `Canceled`, `documentaire` → `Documentary`). Edits picked up within ~5 seconds without restart.
+- **Regex-validated placeholder layer ([entity.py](entity.py) `_REGEX_PLACEHOLDER_RULES`)**: unified dispatcher covering 9 placeholders — `Release_year`, `Birth_year`, `Death_year` (`\d{4}` numeric), `TMDb_ID`, `Criterion_spine_ID` (`\d+` numeric), `IMDb_ID` / `IMDb_person_ID` (`tt\d+` / `nm\d+` quoted strings), `Wikidata_ID` / `Wikidata_property_ID` (`Q\d+` / `P\d+` quoted strings). Malformed values are now rejected at resolution time (placeholder left unresolved → marks question ambiguous), tightening defense against LLM hallucinations on identifier-style entities.
+- **`Birth_year` / `Death_year` placeholders added**: 4-digit year extraction for person filtering ("actors born in 1962", "directors who died in 1980"), reusing the `Release_year` substitution shape.
+- **Prompt deduplication (Option 1)**: the 56-row Technical_format ID:DESCRIPTION list and the 27 + 18 Genre Reference blocks have been removed from `data/text_to_sql.md`. The LLM now emits placeholders (`{{Genre_nameN}}`, `{{Technical_formatN}}`) and the resolver substitutes the integer ID at runtime — single source of truth for canonicals = the database. Saves ~500 prompt tokens per request and eliminates drift between prompt and DB.
+- **`doc/sql/T_WC_T2S_TECHNICAL.sql`**: reference dump of the Technical_format canonical table is now versioned alongside the code.
+
 ### New Features in v1.1.15
 
 - **Localized user-oriented `answer`**: every successful response now includes an `answer` field — a plain-language sentence describing what the query returns, written in the language specified by `ui_language` (default `"en"`). The answer is generated alongside the SQL using the same LLM, preserves entity placeholders during generation, and is de-anonymized in lockstep with `sql_query` and `justification`. `ui_language` is also part of the cache key so the same question cached in different languages keeps separate entries.
@@ -1088,7 +1136,7 @@ This project is open source. Please check the repository for license details.
 ---
 
 **Current Version**: 1.1.15
-**Last Updated**: 2026-04-26
+**Last Updated**: 2026-05-03
 
 **Note**: This API requires an active OpenAI API key to function. Make sure you have sufficient credits in your OpenAI account for the text-to-SQL conversions.
 

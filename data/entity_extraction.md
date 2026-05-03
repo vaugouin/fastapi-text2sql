@@ -84,6 +84,16 @@ Examples: `550`, `1399`, `1289813`
 Criterion Collection spine identifiers when explicitly referenced as an identifier.
 Examples: `1`, `2`, `3`
 
+### Birth_year
+A 4-digit year representing a person's year of birth.
+Extract only when the question filters or reasons about a person's birth year (e.g., "actors born in 1962", "directors born in 1899").
+Examples: `1899`, `1962`, `2000`
+
+### Death_year
+A 4-digit year representing a person's year of death.
+Extract only when the question filters or reasons about a person's death year (e.g., "directors who died in 1980", "actresses who passed away in 2020").
+Examples: `1980`, `1999`, `2020`
+
 ### List_name
 Notable curated film lists or TV series lists.
 Examples: `Sight and Sound greatest films of all time`, `IMDb top 250 tv shows`, `Roger Ebert's Great Movies List`
@@ -177,6 +187,28 @@ Disambiguation:
 - If the user writes "documentary" or "documentaries" **without** explicit series/TV context (e.g., "List documentaries", "best documentaries of 2020"), do **NOT** extract it as `Serie_type` or `Genre_name`. Leave the word in the question unchanged so the text-to-SQL step can handle it directly.
 - Common synonyms ("doc", "documentaire", "mini-série", "talk-show") are accepted at resolution time and resolve to the canonical value above.
 
+### Technical_format
+A movie technical format, technology, or process — covers sound systems, color technologies, film technologies, sound technologies, and film formats stored in the `T_WC_T2S_TECHNICAL` reference table.
+
+Surface forms include (non-exhaustive):
+- Sound systems: `dolby`, `stereo`, `dts`, `sdds`, `mono`, `5.1`, `7.1`, `imax`, `auro`
+- Color technologies: `technicolor`, `eastmancolor`, `metrocolor`, `fujicolor`, `agfacolor`, `warnercolor`, `kodachrome`, `deluxe`, `cinecolor`, `gevacolor`, `pathécolor`, `trucolor`, `sovcolor`, `anscocolor`, `gasparcolor`, `colorfilm`
+- Film technologies: `cinemascope`, `panavision`, `vistavision`, `super_35`, `super_16`, `techniscope`, `technovision`, `ultra_panavision`, `panaflex`, `technirama`, `tohoscope`, `todd_ao`, `cinerama`, `polyvision`, `arriflex`, `panoramique`, `d_cinema`
+- Sound technologies: `western_electric`, `westrex`, `photophone`, `tobis_klangfilm`, `vitaphone`, `perspecta`, `movietone`
+- Film formats: `35 mm`, `16 mm`, `65 mm`, `70 mm`, `digital`, `dcp`, `franscope`
+
+Examples:
+- `IMAX`
+- `Technicolor`
+- `35mm`
+- `Dolby`
+- `cinemascope`
+
+Disambiguation:
+- Extract `Technical_format` only when the question filters or asks about a specific technical format, technology, or process (e.g., "movies shot in IMAX", "Technicolor films", "films tournés en franscope", "70mm releases").
+- Common synonyms / format variants ("35mm", "70mm", "scope", "imax format", "5.1 surround", "dolby digital", "super 35", "todd-ao", "d-cinema") are accepted at resolution time and resolve to the canonical value above.
+- If the user writes a format that is not in the supported lists above and not a known alias, do NOT extract it as `Technical_format`. Leave the word in the question unchanged.
+
 ## Important Extraction Rules
 
 ### General
@@ -241,9 +273,10 @@ Do not extract as `Death_name` for diseases, injuries, crimes, or accidents when
 ### Do not extract these as entities unless they are explicit identifiers or exact supported placeholder values
 - spoken languages
 - countries or nationalities used only as descriptive filters
-- technical formats or technologies such as `Technicolor`, `Dolby`, `IMAX`, `35 mm`
 
 If such information appears, keep it in the anonymized `question` unchanged.
+
+Technical formats and technologies (`Technicolor`, `Dolby`, `IMAX`, `35 mm`, `cinemascope`, etc.) are now extracted as `Technical_format` placeholders — see the dedicated section above.
 
 ## Examples
 
@@ -445,7 +478,37 @@ Output:
 Input: `What movies used the Technicolor technology?`
 Output:
 {
-  "question": "What movies used the Technicolor technology?"
+  "question": "What movies used the {{Technical_format1}} technology?",
+  "Technical_format1": "Technicolor"
+}
+
+Input: `Films shot in IMAX`
+Output:
+{
+  "question": "Films shot in {{Technical_format1}}",
+  "Technical_format1": "IMAX"
+}
+
+Input: `Movies released in 35mm and 70mm`
+Output:
+{
+  "question": "Movies released in {{Technical_format1}} and {{Technical_format2}}",
+  "Technical_format1": "35mm",
+  "Technical_format2": "70mm"
+}
+
+Input: `Les films tournés en franscope`
+Output:
+{
+  "question": "Les films tournés en {{Technical_format1}}",
+  "Technical_format1": "franscope"
+}
+
+Input: `Dolby surround movies`
+Output:
+{
+  "question": "{{Technical_format1}} movies",
+  "Technical_format1": "Dolby surround"
 }
 
 Input: `What are Japanese speaking movies?`
@@ -488,6 +551,62 @@ Output:
   "question": "What {{Serie_type1}} did {{Network_name1}} produce?",
   "Serie_type1": "Miniseries",
   "Network_name1": "HBO"
+}
+
+Input: `Actors born in 1962`
+Output:
+{
+  "question": "Actors born in {{Birth_year1}}",
+  "Birth_year1": "1962"
+}
+
+Input: `Directors who died in 1980`
+Output:
+{
+  "question": "Directors who died in {{Death_year1}}",
+  "Death_year1": "1980"
+}
+
+Input: `What is the movie with IMDb ID tt0038355?`
+Output:
+{
+  "question": "What is the movie with IMDb ID {{IMDb_ID1}}?",
+  "IMDb_ID1": "tt0038355"
+}
+
+Input: `Show me the person with IMDb ID nm0000007`
+Output:
+{
+  "question": "Show me the person with IMDb ID {{IMDb_person_ID1}}",
+  "IMDb_person_ID1": "nm0000007"
+}
+
+Input: `What is Wikidata item Q28385?`
+Output:
+{
+  "question": "What is Wikidata item {{Wikidata_ID1}}?",
+  "Wikidata_ID1": "Q28385"
+}
+
+Input: `Movies tagged with Wikidata property P136`
+Output:
+{
+  "question": "Movies tagged with Wikidata property {{Wikidata_property_ID1}}",
+  "Wikidata_property_ID1": "P136"
+}
+
+Input: `What is the TMDb movie 550?`
+Output:
+{
+  "question": "What is the TMDb movie {{TMDb_ID1}}?",
+  "TMDb_ID1": "550"
+}
+
+Input: `What is Criterion spine number 1?`
+Output:
+{
+  "question": "What is Criterion spine number {{Criterion_spine_ID1}}?",
+  "Criterion_spine_ID1": "1"
 }
 
 ## User Question

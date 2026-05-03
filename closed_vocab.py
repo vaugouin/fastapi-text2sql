@@ -154,6 +154,10 @@ _GENRE_CANONICALS_QUERY = (
 _GENRE_DB_ALIASES_QUERY = (
     "SELECT id, name FROM T_WC_TMDB_GENRE_LANG WHERE name IS NOT NULL"
 )
+_TECHNICAL_CANONICALS_QUERY = (
+    "SELECT ID_TECHNICAL AS id, DESCRIPTION AS name FROM T_WC_T2S_TECHNICAL "
+    "WHERE DESCRIPTION IS NOT NULL AND (DELETED = 0 OR DELETED IS NULL)"
+)
 
 
 def init(connection) -> None:
@@ -184,6 +188,12 @@ def init(connection) -> None:
     except Exception as e:
         print(f"[closed_vocab] Failed to load Genre_name DB aliases: {e}")
         loaded["Genre_name_db_aliases"] = {}
+
+    try:
+        loaded["Technical_format"] = _load_genre_id_map(connection, _TECHNICAL_CANONICALS_QUERY)
+    except Exception as e:
+        print(f"[closed_vocab] Failed to load Technical_format canonicals: {e}")
+        loaded["Technical_format"] = {}
 
     _CANONICAL = loaded
     summary = ", ".join(f"{k}={len(v)}" for k, v in _CANONICAL.items())
@@ -246,6 +256,24 @@ def resolve_genre(raw_value: Any) -> int | None:
     json_aliases = _aliases_for("Genre_name", target_canonical=canonical)
     aliases = {**db_aliases, **json_aliases}
     return _resolve_closed_vocab(raw_value, canonical, aliases)
+
+
+def resolve_technical(raw_value: Any) -> int | None:
+    """Resolve a technical-format name (sound system, color tech, film tech, format) to its integer ID.
+
+    Canonicals come from T_WC_T2S_TECHNICAL.DESCRIPTION (English / loanword
+    surface forms such as "imax", "technicolor", "cinemascope", "35 mm").
+    Aliases (typo / format / multilingual variants like "35mm", "scope",
+    "dolby digital", "todd-ao") live in data/closed_vocabularies.json under
+    the Technical_format key. The matcher merges JSON aliases with the
+    canonical map and goes through the same RapidFuzz-backed resolver as
+    Status_name / Serie_type / Genre_name.
+    """
+    canonical = _CANONICAL.get("Technical_format", {})
+    if not canonical:
+        return None
+    json_aliases = _aliases_for("Technical_format", target_canonical=canonical)
+    return _resolve_closed_vocab(raw_value, canonical, json_aliases)
 
 
 def get_canonical_size(entity: str) -> int:

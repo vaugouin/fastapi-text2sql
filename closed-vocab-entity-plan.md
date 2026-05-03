@@ -56,9 +56,11 @@ These are columns whose allowed values are explicitly listed in [data/text_to_sq
 - Subtle: same vocabulary, two different columns chosen by question intent ("films directed by" → `CREW_DEPARTMENT='Directing'`, "directors" without films → `KNOWN_FOR_DEPARTMENT='Directing'`). The text-to-SQL prompt already encodes that disambiguation, so an entity placeholder just needs to surface the canonical value.
 
 ### B3. `Technical_format` — closed vocabulary (56 values, name → integer ID)
-- Column: `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL`
-- Mapping listed at [data/text_to_sql.md:765-778](data/text_to_sql.md#L765): `1: dolby, 4: technicolor, 29: imax, 50: franscope, 51: 35 mm, 52: digital, 54: 70 mm, 56: dcp, …`
-- This is the **closest analog to `Genre_name`**: name → integer ID, fixed list. Pattern matches `_resolve_genre_id` exactly.
+- Reference table: `T_WC_T2S_TECHNICAL(ID_TECHNICAL INT, DESCRIPTION VARCHAR(50), TECHNICAL_TYPE VARCHAR(20), DELETED INT, …)` — see [doc/sql/T_WC_T2S_TECHNICAL.sql](doc/sql/T_WC_T2S_TECHNICAL.sql)
+- Join column: `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL`
+- Canonicals: 56 active rows grouped by `TECHNICAL_TYPE` — `sound_system` (dolby, stereo, dts, sdds, mono, 5.1, 7.1, imax, auro), `color_technology` (deluxe, technicolor, metrocolor, eastmancolor, fujicolor, agfacolor, warnercolor, kodachrome, gevacolor, …), `film_technology` (cinemascope, panavision, technovision, super_35, vistavision, techniscope, super_16, ultra_panavision, panaflex, technirama, tohoscope, todd_ao, cinerama, polyvision, arriflex, panoramique, d_cinema), `sound_technology` (western_electric, westrex, photophone, tobis_klangfilm, vitaphone, perspecta, movietone), `film_format` (35 mm, 16 mm, 70 mm, 65 mm, digital, dcp, franscope)
+- This is the **direct analog of `Genre_name`** post-migration: same shape (name → integer ID, fixed list, DB-driven via reference table). Loader pattern in `closed_vocab.init()` mirrors the genre branch — `SELECT ID_TECHNICAL, DESCRIPTION FROM T_WC_T2S_TECHNICAL WHERE DELETED = 0 OR DELETED IS NULL`.
+- Multilingual aliases: no `T_WC_T2S_TECHNICAL_LANG` table today; aliases live in [data/closed_vocabularies.json](data/closed_vocabularies.json) under a `Technical_format` key. A `_LANG` companion table can be added later mirroring `T_WC_TMDB_GENRE_LANG` if alias volume justifies it.
 - Note: prompt today says (line 229) "Do not extract these as entities… technical formats or technologies such as `Technicolor`, `Dolby`, `IMAX`, `35 mm`" — so adding this entity would require **removing or inverting that rule** in [data/entity_extraction.md:229](data/entity_extraction.md#L229).
 
 ### B4. `Aspect_ratio` — closed vocabulary (~6 values)
@@ -128,7 +130,7 @@ Following the `Release_year` precedent in [entity.py](entity.py):
 2. **`Status_name` (B1)** — natural user query, 6 values, trivial resolver
 3. **`Department_name` (B2)** — high practical value (filtering directors / cinematographers), 12 values
 4. **`Birth_year` / `Death_year` (D1)** — copy of `Release_year`
-5. **`Technical_format` (B3)** — high precision but requires inverting an extraction rule
+5. **`Technical_format` (B3)** — DB-driven via `T_WC_T2S_TECHNICAL` (56 active rows, name → integer ID, identical loader pattern to `Genre_name`); requires inverting the "do not extract technical formats" rule at [data/entity_extraction.md:229](data/entity_extraction.md#L229)
 6. **`Aspect_ratio` (B4)** — user's own example; small but tidy
 7. **`Character_name` (A2/C1)** — needs decision on whether to use the existing `characters` collection or fuzzy on `CAST_CHARACTER`
 8. **`Country_name` / `Language_name` (B5)** — biggest scope (ISO + multilingual aliases) and conflicts with current extraction rule
@@ -156,19 +158,22 @@ Two sources of truth, layered:
 
 A new module `closed_vocab.py` exposes `load_canonicals(connection)` and caches the result; `data_watcher` is not used here because schema-derived values rarely change, but a manual reload helper (`closed_vocab.refresh()`) lets the user trigger a refresh without restart.
 
-| Entity | SQL query (run once at startup) |
-|---|---|
-| `Status_name` | `SELECT DISTINCT STATUS FROM T_WC_T2S_MOVIE WHERE STATUS IS NOT NULL UNION SELECT DISTINCT STATUS FROM T_WC_T2S_SERIE WHERE STATUS IS NOT NULL` |
-| `Serie_type` | `SELECT DISTINCT SERIE_TYPE FROM T_WC_T2S_SERIE WHERE SERIE_TYPE IS NOT NULL` |
-| `Aspect_ratio` | `SELECT DISTINCT ASPECT_RATIO FROM T_WC_T2S_MOVIE WHERE ASPECT_RATIO IS NOT NULL` |
-| `Department_name` (CREW) | `SELECT DISTINCT CREW_DEPARTMENT FROM T_WC_T2S_PERSON_MOVIE WHERE CREW_DEPARTMENT IS NOT NULL UNION SELECT DISTINCT CREW_DEPARTMENT FROM T_WC_T2S_PERSON_SERIE WHERE CREW_DEPARTMENT IS NOT NULL` |
-| `Department_name` (KNOWN_FOR) | `SELECT DISTINCT KNOWN_FOR_DEPARTMENT FROM T_WC_T2S_PERSON WHERE KNOWN_FOR_DEPARTMENT IS NOT NULL` |
+| Entity | SQL query (run once at startup) | Output shape |
+|---|---|---|
+| `Status_name` | `SELECT STATUS AS V FROM T_WC_T2S_MOVIE WHERE STATUS IS NOT NULL UNION SELECT STATUS AS V FROM T_WC_T2S_SERIE WHERE STATUS IS NOT NULL` | `{normalized_name: canonical_string}` |
+| `Serie_type` | `SELECT DISTINCT SERIE_TYPE AS V FROM T_WC_T2S_SERIE WHERE SERIE_TYPE IS NOT NULL` | `{normalized_name: canonical_string}` |
+| `Aspect_ratio` | `SELECT DISTINCT ASPECT_RATIO FROM T_WC_T2S_MOVIE WHERE ASPECT_RATIO IS NOT NULL` | `{normalized_name: canonical_string}` |
+| `Department_name` (CREW) | `SELECT DISTINCT CREW_DEPARTMENT FROM T_WC_T2S_PERSON_MOVIE WHERE CREW_DEPARTMENT IS NOT NULL UNION SELECT DISTINCT CREW_DEPARTMENT FROM T_WC_T2S_PERSON_SERIE WHERE CREW_DEPARTMENT IS NOT NULL` | `{normalized_name: canonical_string}` |
+| `Department_name` (KNOWN_FOR) | `SELECT DISTINCT KNOWN_FOR_DEPARTMENT FROM T_WC_T2S_PERSON WHERE KNOWN_FOR_DEPARTMENT IS NOT NULL` | `{normalized_name: canonical_string}` |
+| `Genre_name` | `SELECT id, name FROM T_WC_TMDB_GENRE WHERE name IS NOT NULL` | `{normalized_name: int ID_GENRE}` |
+| `Genre_name` (multilingual aliases) | `SELECT id, name FROM T_WC_TMDB_GENRE_LANG WHERE name IS NOT NULL` | `{normalized_alias: int ID_GENRE}` |
+| `Technical_format` | `SELECT ID_TECHNICAL, DESCRIPTION FROM T_WC_T2S_TECHNICAL WHERE DESCRIPTION IS NOT NULL AND (DELETED = 0 OR DELETED IS NULL)` | `{normalized_name: int ID_TECHNICAL}` |
 
-For each, the loader produces a normalized dict: `{"canceled": "Canceled", "in production": "In Production", ...}` — keys are `_normalize(value)` (lower + accent-strip + whitespace-collapse), values are the canonical row exactly as stored.
+For string-canonical entities, the loader produces a normalized dict: `{"canceled": "Canceled", "in production": "In Production", ...}` — keys are `_normalize(value)` (lower + accent-strip + whitespace-collapse), values are the canonical row exactly as stored.
 
-**Genre and Technical_format have no `id ↔ name` reference table** (verified against the `CREATE TABLE` list at [data/text_to_sql.md:56-689](data/text_to_sql.md#L56)). For these two, the recommended option — least intrusive, doesn't require a DB schema change — is to **parse the canonical mapping out of `data/text_to_sql.md`** at startup (the lists at lines 765-778 for Technical and 926+ for Genre) and register the parser with `data_watcher` so prompt edits hot-reload the canonical maps too. This keeps `entity.py` clean (no hard-coded `MOVIE_GENRE_NAME_TO_ID` / `SERIE_GENRE_NAME_TO_ID` dicts) and makes the prompt the single source of truth.
+For ID-canonical entities (`Genre_name`, `Technical_format`), the loader produces `{normalized_name: int_id}` — same code path, the substituted SQL fragment is just an unquoted integer.
 
-If the user prefers a real DB-driven solution for Genre and Technical, the alternative is to add `T_WC_T2S_GENRE(ID_GENRE, GENRE_NAME, GENRE_TYPE)` and `T_WC_T2S_TECHNICAL(ID_TECHNICAL, TECHNICAL_NAME)` reference tables — a one-time schema migration; the loader pattern is then identical to the table above.
+**Multilingual aliases.** `Genre_name` already has a companion `T_WC_TMDB_GENRE_LANG(id, LANG, name)` table providing French aliases today and extensible to any LANG by inserting rows. `Technical_format` has no `_LANG` companion yet; multilingual or colloquial aliases for it should live in [data/closed_vocabularies.json](data/closed_vocabularies.json) (see the JSON section below). A `T_WC_T2S_TECHNICAL_LANG` table mirroring the Genre pattern can be introduced later if alias volume grows.
 
 **2. Aliases: hot-reloaded JSON config file `data/closed_vocabularies.json`**
 
@@ -205,9 +210,23 @@ Synonyms aren't in the database and shouldn't be in source code either. A new fi
   "Technical_format": {
     "aliases": {
       "35mm": "35 mm",
+      "16mm": "16 mm",
+      "65mm": "65 mm",
       "70mm": "70 mm",
+      "35-mm": "35 mm",
+      "70-mm": "70 mm",
       "scope": "cinemascope",
-      "imax format": "imax"
+      "cinéma-scope": "cinemascope",
+      "imax format": "imax",
+      "5.1 surround": "5.1",
+      "7.1 surround": "7.1",
+      "dolby digital": "dolby",
+      "dolby surround": "dolby",
+      "super 35": "super_35",
+      "super 16": "super_16",
+      "todd-ao": "todd_ao",
+      "d-cinema": "d_cinema",
+      "digital cinema": "d_cinema"
     }
   },
   "Department_name": { "aliases": {} },
@@ -271,8 +290,9 @@ def init(connection):
     _CACHE["Serie_type"]       = _load_distinct(connection, SERIE_TYPE_QUERY)
     _CACHE["Aspect_ratio"]     = _load_distinct(connection, ASPECT_QUERY)
     _CACHE["Department_name"]  = _load_distinct(connection, DEPARTMENT_QUERY)
-    _CACHE["Genre_name"]       = _parse_genre_from_prompt()        # or DB if reference table added
-    _CACHE["Technical_format"] = _parse_technical_from_prompt()    # or DB if reference table added
+    _CACHE["Genre_name"]       = _load_id_name_map(connection, GENRE_CANONICALS_QUERY)        # T_WC_TMDB_GENRE
+    _CACHE["Genre_name_db_aliases"] = _load_id_name_map(connection, GENRE_DB_ALIASES_QUERY)   # T_WC_TMDB_GENRE_LANG
+    _CACHE["Technical_format"] = _load_id_name_map(connection, TECHNICAL_CANONICALS_QUERY)    # T_WC_T2S_TECHNICAL
 
 def _on_aliases_change(content):
     global _ALIASES
@@ -286,9 +306,9 @@ def get(entity):
 
 `init(connection)` is called once at FastAPI startup with a short-lived DB connection.
 
-### Side benefit: retrofit `Genre_name` removes hard-coded dicts
+### Side benefit (already realised for `Genre_name`): hard-coded dicts removed
 
-Today's `MOVIE_GENRE_NAME_TO_ID` / `SERIE_GENRE_NAME_TO_ID` at [entity.py:138-178](entity.py#L138) are deleted; `_resolve_genre_id` is rewritten to call `_resolve_closed_vocab` with the prompt-parsed (or DB-loaded) canonical. The movie-vs-serie context disambiguation at [entity.py:181-193](entity.py#L181) still applies, but operates on the loaded canonical map instead of inline dicts. The current strict dict lookup also becomes typo-tolerant ("sciience fiction" → `Science Fiction`) for free.
+The historical `MOVIE_GENRE_NAME_TO_ID` / `SERIE_GENRE_NAME_TO_ID` dicts have been deleted from [entity.py](entity.py). `Genre_name` now resolves through `closed_vocab.resolve_genre()`, loading canonicals from `T_WC_TMDB_GENRE` and DB aliases from `T_WC_TMDB_GENRE_LANG` at startup, with JSON aliases layered on top. The same code path applies to `Technical_format`: the loader returns `{normalized_name: int_id}`, the substituted SQL fragment is an unquoted integer, and typo tolerance is uniform via RapidFuzz.
 
 ### Why not ChromaDB for these
 
@@ -306,7 +326,8 @@ Today's `MOVIE_GENRE_NAME_TO_ID` / `SERIE_GENRE_NAME_TO_ID` at [entity.py:138-17
 - [entity.py](entity.py) — delete `MOVIE_GENRE_NAME_TO_ID` / `SERIE_GENRE_NAME_TO_ID` ([entity.py:138-178](entity.py#L138)); replace `_resolve_genre_id` with a `_resolve_closed_vocab`-based version; add new closed-vocab branches alongside the existing `Genre_name` branch at [entity.py:302-319](entity.py#L302)
 - [main.py](main.py) — call `closed_vocab.init(connection)` at startup (next to ChromaDB collection initialization at [main.py:124-143](main.py#L124))
 - [data/entity_extraction.md](data/entity_extraction.md) — add placeholder definitions, examples, and (for B3/B5) lift the current "do not extract" rules
-- [data/text_to_sql.md](data/text_to_sql.md) — only edited if the user picks the alternative of adding `T_WC_T2S_GENRE` / `T_WC_T2S_TECHNICAL` reference tables; otherwise no change needed (the existing prompt sections become the parser input)
+- [data/text_to_sql.md](data/text_to_sql.md) — no change required for canonical loading: `Genre_name` and `Technical_format` are now both DB-driven (`T_WC_TMDB_GENRE` / `T_WC_TMDB_GENRE_LANG` and `T_WC_T2S_TECHNICAL` respectively); the prompt sections at lines 765-778 / 926+ remain useful as LLM context but are no longer the source of truth for the resolver
+- [doc/sql/T_WC_T2S_TECHNICAL.sql](doc/sql/T_WC_T2S_TECHNICAL.sql) — reference dump of the Technical_format canonical table (56 rows, grouped by `TECHNICAL_TYPE`: sound_system, color_technology, film_technology, sound_technology, film_format)
 
 ## Verification approach (for whichever subset is chosen)
 

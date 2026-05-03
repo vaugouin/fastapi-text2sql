@@ -1,0 +1,2957 @@
+-- phpMyAdmin SQL Dump
+-- version 5.2.1
+-- https://www.phpmyadmin.net/
+--
+-- Hôte : mariadb
+-- Généré le : jeu. 16 avr. 2026 à 12:45
+-- Version du serveur : 11.2.3-MariaDB
+-- Version de PHP : 8.2.16
+
+SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
+START TRANSACTION;
+SET time_zone = "+00:00";
+
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!40101 SET NAMES utf8mb4 */;
+
+--
+-- Base de données : `vaugouindb`
+--
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_AWARD`
+--
+
+CREATE TABLE `T_WC_T2S_AWARD` (
+  `ID_AWARD` int(11) NOT NULL,
+  `ID_WIKIDATA` varchar(20) DEFAULT NULL,
+  `AWARD_NAME` varchar(250) DEFAULT NULL,
+  `AWARD_NAME_FR` varchar(250) DEFAULT NULL,
+  `OVERVIEW` mediumtext DEFAULT NULL,
+  `AWARD_SOURCE` varchar(20) DEFAULT NULL,
+  `AWARD_TYPE` varchar(20) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `MOVIE_COUNT` int(11) DEFAULT NULL,
+  `SERIE_COUNT` int(11) DEFAULT NULL,
+  `PERSON_COUNT` int(11) DEFAULT NULL,
+  `POSTER_PATH` varchar(200) DEFAULT NULL,
+  `WIKIPEDIA_IMAGE_PATH` varchar(200) DEFAULT NULL,
+  `IMDB_RATING` double DEFAULT NULL,
+  `IMDB_RATING_ADJUSTED` double DEFAULT NULL,
+  `POPULARITY` double DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_CACHE`
+--
+
+CREATE TABLE `T_WC_T2S_CACHE` (
+  `ID_ROW` int(11) NOT NULL,
+  `QUESTION` mediumtext DEFAULT NULL,
+  `IS_ANONYMIZED` int(5) DEFAULT NULL,
+  `QUESTION_HASHED` varchar(64) DEFAULT NULL,
+  `SQL_QUERY` mediumtext DEFAULT NULL,
+  `SQL_PROCESSED` mediumtext DEFAULT NULL,
+  `JUSTIFICATION` mediumtext DEFAULT NULL,
+  `API_VERSION` varchar(20) DEFAULT NULL,
+  `ENTITY_EXTRACTION_PROCESSING_TIME` double DEFAULT NULL,
+  `TEXT2SQL_PROCESSING_TIME` double DEFAULT NULL,
+  `EMBEDDINGS_TIME` double DEFAULT NULL,
+  `QUERY_TIME` double DEFAULT NULL,
+  `TOTAL_PROCESSING_TIME` double DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_CHARACTER`
+--
+
+CREATE TABLE `T_WC_T2S_CHARACTER` (
+  `ID_CHARACTER` int(11) NOT NULL,
+  `CAST_CHARACTER` varchar(600) DEFAULT NULL,
+  `ID_WIKIDATA` varchar(50) DEFAULT NULL,
+  `WIKIDATA_NAME` varchar(250) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `TIM_CREDITS_DOWNLOADED` datetime DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `PROFILE_PATH` varchar(200) DEFAULT NULL,
+  `WIKIPEDIA_IMAGE_PATH` varchar(200) DEFAULT NULL,
+  `MOVIE_COUNT` int(11) DEFAULT NULL,
+  `SERIE_COUNT` int(11) DEFAULT NULL,
+  `PERSON_COUNT` int(11) DEFAULT NULL,
+  `IMDB_RATING` double DEFAULT NULL,
+  `IMDB_RATING_ADJUSTED` double DEFAULT NULL,
+  `POPULARITY` double DEFAULT NULL,
+  `CAST_CHARACTER_NORM` varchar(600) GENERATED ALWAYS AS (trim(regexp_replace(lcase(regexp_replace(`CAST_CHARACTER`,'[^[:alnum:] ]',' ')),' +',' '))) STORED,
+  `CAST_CHARACTER_KEY` varchar(600) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_COLLECTION`
+--
+
+CREATE TABLE `T_WC_T2S_COLLECTION` (
+  `ID_T2S_COLLECTION` int(11) NOT NULL,
+  `ID_RECORD` int(11) DEFAULT NULL,
+  `ID_WIKIDATA` varchar(20) DEFAULT NULL,
+  `COLLECTION_NAME` varchar(250) DEFAULT NULL,
+  `COLLECTION_NAME_FR` varchar(250) DEFAULT NULL,
+  `OVERVIEW` mediumtext DEFAULT NULL,
+  `COLLECTION_SOURCE` varchar(20) DEFAULT NULL,
+  `COLLECTION_TYPE` varchar(20) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `MOVIE_COUNT` int(11) DEFAULT NULL,
+  `SERIE_COUNT` int(11) DEFAULT NULL,
+  `POSTER_PATH` varchar(200) DEFAULT NULL,
+  `WIKIPEDIA_IMAGE_PATH` varchar(200) DEFAULT NULL,
+  `IMDB_RATING` double DEFAULT NULL,
+  `IMDB_RATING_ADJUSTED` double DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_COMPANY`
+--
+
+CREATE TABLE `T_WC_T2S_COMPANY` (
+  `ID_COMPANY` int(11) NOT NULL,
+  `COMPANY_NAME` varchar(250) DEFAULT NULL,
+  `DESCRIPTION` mediumtext DEFAULT NULL,
+  `LOGO_PATH` varchar(200) DEFAULT NULL,
+  `HOMEPAGE_URL` varchar(500) DEFAULT NULL,
+  `HEADQUARTERS` varchar(200) DEFAULT NULL,
+  `ORIGIN_COUNTRY` varchar(2) DEFAULT NULL,
+  `ID_PARENT` int(11) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `TIM_CREDITS_DOWNLOADED` datetime DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `MOVIE_COUNT` int(11) DEFAULT NULL,
+  `SERIE_COUNT` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_COMPANY_IMAGE`
+--
+
+CREATE TABLE `T_WC_T2S_COMPANY_IMAGE` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_COMPANY` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `TYPE_IMAGE` varchar(20) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `IMAGE_PATH` varchar(200) DEFAULT NULL,
+  `ASPECT_RATIO` double DEFAULT NULL,
+  `WIDTH` int(5) DEFAULT NULL,
+  `HEIGHT` int(5) DEFAULT NULL,
+  `VOTE_AVERAGE` double DEFAULT NULL,
+  `VOTE_COUNT` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_DEATH`
+--
+
+CREATE TABLE `T_WC_T2S_DEATH` (
+  `ID_DEATH` int(11) NOT NULL,
+  `ID_WIKIDATA` varchar(20) DEFAULT NULL,
+  `DEATH_NAME` varchar(250) DEFAULT NULL,
+  `DEATH_NAME_FR` varchar(250) DEFAULT NULL,
+  `OVERVIEW` mediumtext DEFAULT NULL,
+  `DEATH_SOURCE` varchar(20) DEFAULT NULL,
+  `DEATH_TYPE` varchar(20) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `PERSON_COUNT` int(11) DEFAULT NULL,
+  `PROFILE_PATH` varchar(200) DEFAULT NULL,
+  `WIKIPEDIA_IMAGE_PATH` varchar(200) DEFAULT NULL,
+  `POPULARITY` double DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_EVALUATION`
+--
+
+CREATE TABLE `T_WC_T2S_EVALUATION` (
+  `ID_T2S_EVALUATION` int(11) NOT NULL,
+  `QUESTION` mediumtext DEFAULT NULL,
+  `QUESTION_FR` mediumtext DEFAULT NULL,
+  `IS_SAMPLE` int(5) DEFAULT NULL,
+  `IS_EVAL` int(5) DEFAULT NULL,
+  `ID_T2S_EVALUATION_CATEGORY` int(11) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `LONG_DESC` mediumtext DEFAULT NULL,
+  `MOT_CLE` mediumtext DEFAULT NULL,
+  `MOT_CLE_AUTO` mediumtext DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `ASSERTIONS_QUERY_RESULT` mediumtext DEFAULT NULL,
+  `ASSERTIONS_ENTITY_EXTRACTION` mediumtext DEFAULT NULL,
+  `ASSERTIONS_SQL_QUERY` mediumtext DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_EVALUATION_CATEGORY`
+--
+
+CREATE TABLE `T_WC_T2S_EVALUATION_CATEGORY` (
+  `ID_T2S_EVALUATION_CATEGORY` int(11) NOT NULL,
+  `DESCRIPTION` varchar(100) DEFAULT NULL,
+  `DESCRIPTION_FR` varchar(100) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `ID_PARENT` int(11) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `LONG_DESC` mediumtext DEFAULT NULL,
+  `MOT_CLE` mediumtext DEFAULT NULL,
+  `MOT_CLE_AUTO` mediumtext DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_EVALUATION_EXECUTION`
+--
+
+CREATE TABLE `T_WC_T2S_EVALUATION_EXECUTION` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_T2S_EVALUATION` int(11) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `API_VERSION` varchar(20) DEFAULT NULL,
+  `ENTITY_EXTRACTION_MODEL` varchar(50) DEFAULT NULL,
+  `TEXT2SQL_MODEL` varchar(50) DEFAULT NULL,
+  `COMPLEX_MODEL` varchar(50) DEFAULT NULL,
+  `JSON_RESULT` mediumtext DEFAULT NULL,
+  `TIM_EXECUTION` datetime DEFAULT NULL,
+  `ENTITY_EXTRACTION_COST` double DEFAULT NULL,
+  `TEXT2SQL_COST` double DEFAULT NULL,
+  `TOTAL_COST` double DEFAULT NULL,
+  `ENTITY_EXTRACTION_PROCESSING_TIME` double DEFAULT NULL,
+  `TEXT2SQL_PROCESSING_TIME` double DEFAULT NULL,
+  `EMBEDDINGS_PROCESSING_TIME` double DEFAULT NULL,
+  `QUERY_EXECUTION_TIME` double DEFAULT NULL,
+  `TOTAL_PROCESSING_TIME` double DEFAULT NULL,
+  `ASSERTIONS_ENTITY_EXTRACTION_SCORE` double DEFAULT NULL,
+  `ASSERTIONS_SQL_QUERY_SCORE` double DEFAULT NULL,
+  `ASSERTIONS_RESULT_SCORE` double DEFAULT NULL,
+  `ASSERTIONS_TOTAL_SCORE` double DEFAULT NULL,
+  `ASSERTIONS_RESULT_DETAILED` varchar(2000) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_GROUP`
+--
+
+CREATE TABLE `T_WC_T2S_GROUP` (
+  `ID_GROUP` int(11) NOT NULL,
+  `ID_WIKIDATA` varchar(20) DEFAULT NULL,
+  `GROUP_NAME` varchar(250) DEFAULT NULL,
+  `GROUP_NAME_FR` varchar(250) DEFAULT NULL,
+  `OVERVIEW` mediumtext DEFAULT NULL,
+  `GROUP_SOURCE` varchar(20) DEFAULT NULL,
+  `GROUP_TYPE` varchar(20) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `PERSON_COUNT` int(11) DEFAULT NULL,
+  `PROFILE_PATH` varchar(200) DEFAULT NULL,
+  `WIKIPEDIA_IMAGE_PATH` varchar(200) DEFAULT NULL,
+  `POPULARITY` double DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_ITEM`
+--
+
+CREATE TABLE `T_WC_T2S_ITEM` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_WIKIDATA` varchar(50) NOT NULL,
+  `ITEM_LABEL` varchar(250) DEFAULT NULL,
+  `ITEM_LABEL_FR` varchar(250) DEFAULT NULL,
+  `ALIASES` mediumtext DEFAULT NULL,
+  `DESCRIPTION` mediumtext DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `INSTANCE_OF` varchar(50) DEFAULT NULL,
+  `WIKIPEDIA_IMAGE_PATH` varchar(200) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_LIST`
+--
+
+CREATE TABLE `T_WC_T2S_LIST` (
+  `ID_T2S_LIST` int(11) NOT NULL,
+  `ID_RECORD` int(11) DEFAULT NULL,
+  `ID_WIKIDATA` varchar(20) DEFAULT NULL,
+  `LIST_NAME` varchar(250) DEFAULT NULL,
+  `LIST_NAME_FR` varchar(250) DEFAULT NULL,
+  `OVERVIEW` mediumtext DEFAULT NULL,
+  `LIST_SOURCE` varchar(20) DEFAULT NULL,
+  `LIST_TYPE` varchar(20) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `MOVIE_COUNT` int(11) DEFAULT NULL,
+  `SERIE_COUNT` int(11) DEFAULT NULL,
+  `POSTER_PATH` varchar(200) DEFAULT NULL,
+  `WIKIPEDIA_IMAGE_PATH` varchar(200) DEFAULT NULL,
+  `IMDB_RATING` double DEFAULT NULL,
+  `IMDB_RATING_ADJUSTED` double DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_META_LIST`
+--
+
+CREATE TABLE `T_WC_T2S_META_LIST` (
+  `ID_T2S_META_LIST` int(11) NOT NULL,
+  `META_LIST_NAME` varchar(250) DEFAULT NULL,
+  `META_LIST_NAME_FR` varchar(250) DEFAULT NULL,
+  `OVERVIEW` mediumtext DEFAULT NULL,
+  `FOR_MOVIES` int(5) DEFAULT NULL,
+  `FOR_SERIES` int(5) DEFAULT NULL,
+  `FOR_PERSONS` int(5) DEFAULT NULL,
+  `WIKIDATA_PROPERTIES` mediumtext DEFAULT NULL,
+  `ID_IMDB_LIST` mediumtext DEFAULT NULL,
+  `TMDB_ELEMENTS` mediumtext DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `POSTER_PATH` varchar(200) DEFAULT NULL,
+  `WIKIPEDIA_IMAGE_PATH` varchar(200) DEFAULT NULL,
+  `SORT_BY` int(5) DEFAULT NULL,
+  `TARGET_TABLE` varchar(250) DEFAULT NULL,
+  `TARGET_MOVIES_TABLE` varchar(250) DEFAULT NULL,
+  `TARGET_SERIES_TABLE` varchar(250) DEFAULT NULL,
+  `TARGET_PERSONS_TABLE` varchar(250) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVEMENT`
+--
+
+CREATE TABLE `T_WC_T2S_MOVEMENT` (
+  `ID_MOVEMENT` int(11) NOT NULL,
+  `ID_RECORD` int(11) DEFAULT NULL,
+  `ID_WIKIDATA` varchar(20) DEFAULT NULL,
+  `MOVEMENT_NAME` varchar(250) DEFAULT NULL,
+  `MOVEMENT_NAME_FR` varchar(250) DEFAULT NULL,
+  `OVERVIEW` mediumtext DEFAULT NULL,
+  `MOVEMENT_SOURCE` varchar(20) DEFAULT NULL,
+  `MOVEMENT_TYPE` varchar(20) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `MOVIE_COUNT` int(11) DEFAULT NULL,
+  `SERIE_COUNT` int(11) DEFAULT NULL,
+  `POSTER_PATH` varchar(200) DEFAULT NULL,
+  `WIKIPEDIA_IMAGE_PATH` varchar(200) DEFAULT NULL,
+  `IMDB_RATING` double DEFAULT NULL,
+  `IMDB_RATING_ADJUSTED` double DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVIE`
+--
+
+CREATE TABLE `T_WC_T2S_MOVIE` (
+  `ID_MOVIE` int(11) NOT NULL,
+  `MOVIE_TITLE` varchar(250) DEFAULT NULL,
+  `ORIGINAL_TITLE` varchar(250) DEFAULT NULL,
+  `MOVIE_TITLE_FR` varchar(250) DEFAULT NULL,
+  `DAT_RELEASE` date DEFAULT NULL,
+  `RELEASE_YEAR` int(11) DEFAULT NULL,
+  `RELEASE_MONTH` int(11) DEFAULT NULL,
+  `RELEASE_DAY` int(11) DEFAULT NULL,
+  `ID_IMDB` varchar(20) DEFAULT NULL,
+  `ID_WIKIDATA` varchar(50) DEFAULT NULL,
+  `OVERVIEW` mediumtext DEFAULT NULL,
+  `POSTER_PATH` varchar(200) DEFAULT NULL,
+  `HOMEPAGE_URL` varchar(500) DEFAULT NULL,
+  `POPULARITY` double DEFAULT NULL,
+  `ORIGINAL_LANGUAGE` varchar(2) DEFAULT NULL,
+  `ADULT` int(5) DEFAULT NULL,
+  `STATUS` varchar(100) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `BUDGET` double DEFAULT NULL,
+  `RUNTIME` int(11) DEFAULT NULL,
+  `BACKDROP_PATH` varchar(200) DEFAULT NULL,
+  `REVENUE` double DEFAULT NULL,
+  `TAGLINE` mediumtext DEFAULT NULL,
+  `VIDEO` int(11) DEFAULT NULL,
+  `VOTE_AVERAGE` double DEFAULT NULL,
+  `VOTE_COUNT` int(11) DEFAULT NULL,
+  `IS_COLOR` int(11) DEFAULT NULL,
+  `IS_BLACK_AND_WHITE` int(11) DEFAULT NULL,
+  `IS_SILENT` int(11) DEFAULT NULL,
+  `IS_3D` int(11) DEFAULT NULL,
+  `COLOR_TECHNOLOGY` varchar(100) DEFAULT NULL,
+  `FILM_TECHNOLOGY` mediumtext DEFAULT NULL,
+  `ASPECT_RATIO` varchar(20) DEFAULT NULL,
+  `FILM_FORMAT` varchar(50) DEFAULT NULL,
+  `SOUND_SYSTEM` mediumtext DEFAULT NULL,
+  `SOUND_TECHNOLOGY` varchar(200) DEFAULT NULL,
+  `IS_MOVIE` int(11) DEFAULT NULL,
+  `IS_DOCUMENTARY` int(11) DEFAULT NULL,
+  `IS_SHORT_FILM` int(11) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `IMDB_RATING` double DEFAULT NULL,
+  `IMDB_RATING_ADJUSTED` double DEFAULT NULL,
+  `WIKIDATA_TITLE` varchar(250) DEFAULT NULL,
+  `ALIASES` mediumtext DEFAULT NULL,
+  `PLEX_MEDIA_KEY` varchar(50) DEFAULT NULL,
+  `ID_CRITERION` int(11) DEFAULT NULL,
+  `ID_CRITERION_SPINE` int(11) DEFAULT NULL,
+  `INSTANCE_OF` varchar(50) DEFAULT NULL,
+  `PLOT` mediumtext DEFAULT NULL,
+  `CAST` mediumtext DEFAULT NULL,
+  `PRODUCTION` mediumtext DEFAULT NULL,
+  `RECEPTION` mediumtext DEFAULT NULL,
+  `SOUNDTRACK` mediumtext DEFAULT NULL,
+  `OTHER_SECTIONS` mediumtext DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVIE_AWARD`
+--
+
+CREATE TABLE `T_WC_T2S_MOVIE_AWARD` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `ID_AWARD` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVIE_CHARACTER`
+--
+
+CREATE TABLE `T_WC_T2S_MOVIE_CHARACTER` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `ID_CHARACTER` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVIE_COLLECTION`
+--
+
+CREATE TABLE `T_WC_T2S_MOVIE_COLLECTION` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `ID_T2S_COLLECTION` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVIE_COMPANY`
+--
+
+CREATE TABLE `T_WC_T2S_MOVIE_COMPANY` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `ID_COMPANY` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVIE_GENRE`
+--
+
+CREATE TABLE `T_WC_T2S_MOVIE_GENRE` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `ID_GENRE` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVIE_IMAGE`
+--
+
+CREATE TABLE `T_WC_T2S_MOVIE_IMAGE` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `TYPE_IMAGE` varchar(20) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `IMAGE_PATH` varchar(200) DEFAULT NULL,
+  `ASPECT_RATIO` double DEFAULT NULL,
+  `WIDTH` int(5) DEFAULT NULL,
+  `HEIGHT` int(5) DEFAULT NULL,
+  `VOTE_AVERAGE` double DEFAULT NULL,
+  `VOTE_COUNT` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVIE_LIST`
+--
+
+CREATE TABLE `T_WC_T2S_MOVIE_LIST` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `ID_T2S_LIST` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVIE_MOVEMENT`
+--
+
+CREATE TABLE `T_WC_T2S_MOVIE_MOVEMENT` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `ID_MOVEMENT` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVIE_NOMINATION`
+--
+
+CREATE TABLE `T_WC_T2S_MOVIE_NOMINATION` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `ID_NOMINATION` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVIE_PRODUCTION_COUNTRY`
+--
+
+CREATE TABLE `T_WC_T2S_MOVIE_PRODUCTION_COUNTRY` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `COUNTRY_CODE` varchar(2) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVIE_SPOKEN_LANGUAGE`
+--
+
+CREATE TABLE `T_WC_T2S_MOVIE_SPOKEN_LANGUAGE` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `SPOKEN_LANGUAGE` varchar(2) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVIE_TECHNICAL`
+--
+
+CREATE TABLE `T_WC_T2S_MOVIE_TECHNICAL` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `ID_TECHNICAL` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVIE_TOPIC`
+--
+
+CREATE TABLE `T_WC_T2S_MOVIE_TOPIC` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `ID_TOPIC` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_MOVIE_VIDEO`
+--
+
+CREATE TABLE `T_WC_T2S_MOVIE_VIDEO` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `COUNTRY_CODE` varchar(2) DEFAULT NULL,
+  `VIDEO_KEY` varchar(20) DEFAULT NULL,
+  `VIDEO_NAME` varchar(200) DEFAULT NULL,
+  `VIDEO_SITE` varchar(50) DEFAULT NULL,
+  `VIDEO_TYPE` varchar(50) DEFAULT NULL,
+  `QUALITY` int(5) DEFAULT NULL,
+  `QUALITY_TEXT` varchar(20) DEFAULT NULL,
+  `DAT_PUBLISHED` datetime DEFAULT NULL,
+  `ID_CREDIT` varchar(50) DEFAULT NULL,
+  `OFFICIAL` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_NETWORK`
+--
+
+CREATE TABLE `T_WC_T2S_NETWORK` (
+  `ID_NETWORK` int(11) NOT NULL,
+  `NETWORK_NAME` varchar(250) DEFAULT NULL,
+  `LOGO_PATH` varchar(200) DEFAULT NULL,
+  `HOMEPAGE_URL` varchar(500) DEFAULT NULL,
+  `HEADQUARTERS` varchar(200) DEFAULT NULL,
+  `ORIGIN_COUNTRY` varchar(2) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `TIM_CREDITS_DOWNLOADED` datetime DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `SERIE_COUNT` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_NETWORK_IMAGE`
+--
+
+CREATE TABLE `T_WC_T2S_NETWORK_IMAGE` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_NETWORK` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `TYPE_IMAGE` varchar(20) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `IMAGE_PATH` varchar(200) DEFAULT NULL,
+  `ASPECT_RATIO` double DEFAULT NULL,
+  `WIDTH` int(5) DEFAULT NULL,
+  `HEIGHT` int(5) DEFAULT NULL,
+  `VOTE_AVERAGE` double DEFAULT NULL,
+  `VOTE_COUNT` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_NOMINATION`
+--
+
+CREATE TABLE `T_WC_T2S_NOMINATION` (
+  `ID_NOMINATION` int(11) NOT NULL,
+  `ID_WIKIDATA` varchar(20) DEFAULT NULL,
+  `NOMINATION_NAME` varchar(250) DEFAULT NULL,
+  `NOMINATION_NAME_FR` varchar(250) DEFAULT NULL,
+  `OVERVIEW` mediumtext DEFAULT NULL,
+  `NOMINATION_SOURCE` varchar(20) DEFAULT NULL,
+  `NOMINATION_TYPE` varchar(20) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `MOVIE_COUNT` int(11) DEFAULT NULL,
+  `SERIE_COUNT` int(11) DEFAULT NULL,
+  `PERSON_COUNT` int(11) DEFAULT NULL,
+  `POSTER_PATH` varchar(200) DEFAULT NULL,
+  `WIKIPEDIA_IMAGE_PATH` varchar(200) DEFAULT NULL,
+  `IMDB_RATING` double DEFAULT NULL,
+  `IMDB_RATING_ADJUSTED` double DEFAULT NULL,
+  `POPULARITY` double DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_PERSON`
+--
+
+CREATE TABLE `T_WC_T2S_PERSON` (
+  `ID_PERSON` int(11) NOT NULL,
+  `PERSON_NAME` varchar(200) DEFAULT NULL,
+  `ID_IMDB` varchar(20) DEFAULT NULL,
+  `ID_WIKIDATA` varchar(50) DEFAULT NULL,
+  `BIOGRAPHY` mediumtext DEFAULT NULL,
+  `BIRTHDAY` date DEFAULT NULL,
+  `DEATHDAY` date DEFAULT NULL,
+  `BIRTH_YEAR` int(11) DEFAULT NULL,
+  `BIRTH_MONTH` int(11) DEFAULT NULL,
+  `BIRTH_DAY` int(11) DEFAULT NULL,
+  `DEATH_YEAR` int(11) DEFAULT NULL,
+  `DEATH_MONTH` int(11) DEFAULT NULL,
+  `DEATH_DAY` int(11) DEFAULT NULL,
+  `GENDER` int(11) DEFAULT NULL,
+  `PROFILE_PATH` varchar(200) DEFAULT NULL,
+  `HOMEPAGE_URL` varchar(250) DEFAULT NULL,
+  `COUNTRY_OF_BIRTH` varchar(2) DEFAULT NULL,
+  `POPULARITY` double DEFAULT NULL,
+  `KNOWN_FOR_DEPARTMENT` varchar(200) DEFAULT NULL,
+  `ADULT` int(5) DEFAULT NULL,
+  `ALSO_KNOWN_AS` mediumtext DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `TIM_CREDITS_DOWNLOADED` datetime DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `WIKIDATA_NAME` varchar(250) DEFAULT NULL,
+  `ALIASES` mediumtext DEFAULT NULL,
+  `INSTANCE_OF` varchar(50) DEFAULT NULL,
+  `PERSON_NAME_NORM` varchar(220) GENERATED ALWAYS AS (trim(regexp_replace(lcase(regexp_replace(`PERSON_NAME`,'[^[:alnum:] ]',' ')),' +',' '))) STORED,
+  `PERSON_NAME_KEY` varchar(220) GENERATED ALWAYS AS (replace(trim(regexp_replace(lcase(regexp_replace(`PERSON_NAME`,'[^[:alnum:] ]',' ')),' +',' ')),' ','')) STORED
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_PERSON_AWARD`
+--
+
+CREATE TABLE `T_WC_T2S_PERSON_AWARD` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_PERSON` int(11) NOT NULL,
+  `ID_AWARD` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_PERSON_CHARACTER`
+--
+
+CREATE TABLE `T_WC_T2S_PERSON_CHARACTER` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_PERSON` int(11) NOT NULL,
+  `ID_CHARACTER` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_PERSON_DEATH`
+--
+
+CREATE TABLE `T_WC_T2S_PERSON_DEATH` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_PERSON` int(11) NOT NULL,
+  `ID_DEATH` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_PERSON_GROUP`
+--
+
+CREATE TABLE `T_WC_T2S_PERSON_GROUP` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_PERSON` int(11) NOT NULL,
+  `ID_GROUP` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_PERSON_IMAGE`
+--
+
+CREATE TABLE `T_WC_T2S_PERSON_IMAGE` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_PERSON` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `TYPE_IMAGE` varchar(20) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `IMAGE_PATH` varchar(200) DEFAULT NULL,
+  `ASPECT_RATIO` double DEFAULT NULL,
+  `WIDTH` int(5) DEFAULT NULL,
+  `HEIGHT` int(5) DEFAULT NULL,
+  `VOTE_AVERAGE` double DEFAULT NULL,
+  `VOTE_COUNT` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_PERSON_MOVIE`
+--
+
+CREATE TABLE `T_WC_T2S_PERSON_MOVIE` (
+  `ID_T2S_PERSON_MOVIE` int(11) NOT NULL,
+  `ID_PERSON` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `ID_CREDIT` varchar(50) DEFAULT NULL,
+  `CAST_CHARACTER` varchar(600) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `CREDIT_TYPE` varchar(10) DEFAULT NULL,
+  `CREW_DEPARTMENT` varchar(200) DEFAULT NULL,
+  `CREW_JOB` varchar(200) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_PERSON_NOMINATION`
+--
+
+CREATE TABLE `T_WC_T2S_PERSON_NOMINATION` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_PERSON` int(11) NOT NULL,
+  `ID_NOMINATION` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_PERSON_SERIE`
+--
+
+CREATE TABLE `T_WC_T2S_PERSON_SERIE` (
+  `ID_T2S_PERSON_SERIE` int(11) NOT NULL,
+  `ID_PERSON` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `ID_CREDIT` varchar(50) DEFAULT NULL,
+  `CAST_CHARACTER` varchar(600) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `CREDIT_TYPE` varchar(10) DEFAULT NULL,
+  `CREW_DEPARTMENT` varchar(200) DEFAULT NULL,
+  `CREW_JOB` varchar(200) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_SERIE`
+--
+
+CREATE TABLE `T_WC_T2S_SERIE` (
+  `ID_SERIE` int(11) NOT NULL,
+  `SERIE_TITLE` varchar(250) DEFAULT NULL,
+  `FIRST_AIR_YEAR` int(11) DEFAULT NULL,
+  `FIRST_AIR_MONTH` int(11) DEFAULT NULL,
+  `FIRST_AIR_DAY` int(11) DEFAULT NULL,
+  `DAT_FIRST_AIR` date DEFAULT NULL,
+  `LAST_AIR_YEAR` int(11) DEFAULT NULL,
+  `LAST_AIR_MONTH` int(11) DEFAULT NULL,
+  `LAST_AIR_DAY` int(11) DEFAULT NULL,
+  `DAT_LAST_AIR` date DEFAULT NULL,
+  `ID_IMDB` varchar(20) DEFAULT NULL,
+  `ID_WIKIDATA` varchar(50) DEFAULT NULL,
+  `OVERVIEW` mediumtext DEFAULT NULL,
+  `POSTER_PATH` varchar(200) DEFAULT NULL,
+  `HOMEPAGE_URL` varchar(500) DEFAULT NULL,
+  `ORIGINAL_TITLE` varchar(250) DEFAULT NULL,
+  `SERIE_TITLE_FR` varchar(250) DEFAULT NULL,
+  `POPULARITY` double DEFAULT NULL,
+  `ORIGINAL_LANGUAGE` varchar(2) DEFAULT NULL,
+  `ADULT` int(5) DEFAULT NULL,
+  `STATUS` varchar(100) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `BACKDROP_PATH` varchar(200) DEFAULT NULL,
+  `TAGLINE` mediumtext DEFAULT NULL,
+  `VOTE_AVERAGE` double DEFAULT NULL,
+  `VOTE_COUNT` int(11) DEFAULT NULL,
+  `NUMBER_OF_EPISODES` int(11) DEFAULT NULL,
+  `NUMBER_OF_SEASONS` int(11) DEFAULT NULL,
+  `SERIE_TYPE` varchar(50) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `IMDB_RATING` double DEFAULT NULL,
+  `IMDB_RATING_ADJUSTED` double DEFAULT NULL,
+  `WIKIDATA_TITLE` varchar(250) DEFAULT NULL,
+  `ALIASES` mediumtext DEFAULT NULL,
+  `PLEX_MEDIA_KEY` varchar(50) DEFAULT NULL,
+  `INSTANCE_OF` varchar(50) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_SERIE_AWARD`
+--
+
+CREATE TABLE `T_WC_T2S_SERIE_AWARD` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `ID_AWARD` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_SERIE_CHARACTER`
+--
+
+CREATE TABLE `T_WC_T2S_SERIE_CHARACTER` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `ID_CHARACTER` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_SERIE_COLLECTION`
+--
+
+CREATE TABLE `T_WC_T2S_SERIE_COLLECTION` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `ID_T2S_COLLECTION` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_SERIE_COMPANY`
+--
+
+CREATE TABLE `T_WC_T2S_SERIE_COMPANY` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `ID_COMPANY` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_SERIE_GENRE`
+--
+
+CREATE TABLE `T_WC_T2S_SERIE_GENRE` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `ID_GENRE` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_SERIE_IMAGE`
+--
+
+CREATE TABLE `T_WC_T2S_SERIE_IMAGE` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `TYPE_IMAGE` varchar(20) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `IMAGE_PATH` varchar(200) DEFAULT NULL,
+  `ASPECT_RATIO` double DEFAULT NULL,
+  `WIDTH` int(5) DEFAULT NULL,
+  `HEIGHT` int(5) DEFAULT NULL,
+  `VOTE_AVERAGE` double DEFAULT NULL,
+  `VOTE_COUNT` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_SERIE_LIST`
+--
+
+CREATE TABLE `T_WC_T2S_SERIE_LIST` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `ID_T2S_LIST` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_SERIE_MOVEMENT`
+--
+
+CREATE TABLE `T_WC_T2S_SERIE_MOVEMENT` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `ID_MOVEMENT` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_SERIE_NETWORK`
+--
+
+CREATE TABLE `T_WC_T2S_SERIE_NETWORK` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `ID_NETWORK` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_SERIE_NOMINATION`
+--
+
+CREATE TABLE `T_WC_T2S_SERIE_NOMINATION` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `ID_NOMINATION` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_SERIE_PRODUCTION_COUNTRY`
+--
+
+CREATE TABLE `T_WC_T2S_SERIE_PRODUCTION_COUNTRY` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `COUNTRY_CODE` varchar(2) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_SERIE_SPOKEN_LANGUAGE`
+--
+
+CREATE TABLE `T_WC_T2S_SERIE_SPOKEN_LANGUAGE` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `SPOKEN_LANGUAGE` varchar(2) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_SERIE_TOPIC`
+--
+
+CREATE TABLE `T_WC_T2S_SERIE_TOPIC` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `ID_TOPIC` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_SERIE_VIDEO`
+--
+
+CREATE TABLE `T_WC_T2S_SERIE_VIDEO` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `COUNTRY_CODE` varchar(2) DEFAULT NULL,
+  `VIDEO_KEY` varchar(20) DEFAULT NULL,
+  `VIDEO_NAME` varchar(200) DEFAULT NULL,
+  `VIDEO_SITE` varchar(50) DEFAULT NULL,
+  `VIDEO_TYPE` varchar(50) DEFAULT NULL,
+  `QUALITY` int(5) DEFAULT NULL,
+  `QUALITY_TEXT` varchar(20) DEFAULT NULL,
+  `DAT_PUBLISHED` datetime DEFAULT NULL,
+  `ID_CREDIT` varchar(50) DEFAULT NULL,
+  `OFFICIAL` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_TECHNICAL`
+--
+
+CREATE TABLE `T_WC_T2S_TECHNICAL` (
+  `ID_TECHNICAL` int(11) NOT NULL,
+  `DESCRIPTION` varchar(50) DEFAULT NULL,
+  `TECHNICAL_TYPE` varchar(20) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `T_WC_T2S_TOPIC`
+--
+
+CREATE TABLE `T_WC_T2S_TOPIC` (
+  `ID_TOPIC` int(11) NOT NULL,
+  `ID_RECORD` int(11) DEFAULT NULL,
+  `ID_WIKIDATA` varchar(20) DEFAULT NULL,
+  `TOPIC_NAME` varchar(250) DEFAULT NULL,
+  `TOPIC_NAME_FR` varchar(250) DEFAULT NULL,
+  `OVERVIEW` mediumtext DEFAULT NULL,
+  `TOPIC_SOURCE` varchar(20) DEFAULT NULL,
+  `TOPIC_TYPE` varchar(20) DEFAULT NULL,
+  `LANG` varchar(2) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `MOVIE_COUNT` int(11) DEFAULT NULL,
+  `SERIE_COUNT` int(11) DEFAULT NULL,
+  `POSTER_PATH` varchar(200) DEFAULT NULL,
+  `WIKIPEDIA_IMAGE_PATH` varchar(200) DEFAULT NULL,
+  `IMDB_RATING` double DEFAULT NULL,
+  `IMDB_RATING_ADJUSTED` double DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Index pour les tables déchargées
+--
+
+--
+-- Index pour la table `T_WC_T2S_AWARD`
+--
+ALTER TABLE `T_WC_T2S_AWARD`
+  ADD PRIMARY KEY (`ID_AWARD`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `AWARD_SOURCE` (`AWARD_SOURCE`),
+  ADD KEY `AWARD_NAME` (`AWARD_NAME`),
+  ADD KEY `LANG` (`LANG`),
+  ADD KEY `MOVIE_COUNT` (`MOVIE_COUNT`),
+  ADD KEY `SERIE_COUNT` (`SERIE_COUNT`),
+  ADD KEY `PERSON_COUNT` (`PERSON_COUNT`),
+  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
+  ADD KEY `AWARD_NAME_FR` (`AWARD_NAME_FR`),
+  ADD KEY `WIKIPEDIA_IMAGE_PATH` (`WIKIPEDIA_IMAGE_PATH`),
+  ADD KEY `AWARD_TYPE` (`AWARD_TYPE`),
+  ADD KEY `IMDB_RATING` (`IMDB_RATING`),
+  ADD KEY `IMDB_RATING_ADJUSTED` (`IMDB_RATING_ADJUSTED`),
+  ADD KEY `POPULARITY` (`POPULARITY`),
+  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`);
+
+--
+-- Index pour la table `T_WC_T2S_CACHE`
+--
+ALTER TABLE `T_WC_T2S_CACHE`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `QUESTION_HASHED` (`QUESTION_HASHED`),
+  ADD KEY `API_VERSION` (`API_VERSION`),
+  ADD KEY `PROCESSING_TIME` (`TEXT2SQL_PROCESSING_TIME`),
+  ADD KEY `QUERY_TIME` (`QUERY_TIME`),
+  ADD KEY `QUESTION` (`QUESTION`(768)),
+  ADD KEY `EMBEDDINGS_TIME` (`EMBEDDINGS_TIME`),
+  ADD KEY `ENTITY_EXTRACTION_PROCESSING_TIME` (`ENTITY_EXTRACTION_PROCESSING_TIME`),
+  ADD KEY `TOTAL_PROCESSING_TIME` (`TOTAL_PROCESSING_TIME`),
+  ADD KEY `IS_ANONYMIZED` (`IS_ANONYMIZED`);
+
+--
+-- Index pour la table `T_WC_T2S_CHARACTER`
+--
+ALTER TABLE `T_WC_T2S_CHARACTER`
+  ADD PRIMARY KEY (`ID_CHARACTER`),
+  ADD UNIQUE KEY `uq_t2s_character_cast_character_key` (`CAST_CHARACTER_KEY`),
+  ADD KEY `CAST_CHARACTER` (`CAST_CHARACTER`),
+  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
+  ADD KEY `PROFILE_PATH` (`PROFILE_PATH`),
+  ADD KEY `POPULARITY` (`POPULARITY`),
+  ADD KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `WIKIDATA_NAME` (`WIKIDATA_NAME`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `MOVIE_COUNT` (`MOVIE_COUNT`),
+  ADD KEY `SERIE_COUNT` (`SERIE_COUNT`),
+  ADD KEY `PERSON_COUNT` (`PERSON_COUNT`),
+  ADD KEY `IDX_T2S_CAST_CHARACTER_KEY` (`CAST_CHARACTER_KEY`),
+  ADD KEY `IDX_T2S_CAST_CHARACTER_NORM` (`CAST_CHARACTER_NORM`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `WIKIPEDIA_IMAGE_PATH` (`WIKIPEDIA_IMAGE_PATH`),
+  ADD KEY `IMDB_RATING` (`IMDB_RATING`),
+  ADD KEY `IMDB_RATING_ADJUSTED` (`IMDB_RATING_ADJUSTED`);
+ALTER TABLE `T_WC_T2S_CHARACTER` ADD FULLTEXT KEY `ft_cast_character_norm` (`CAST_CHARACTER_NORM`);
+
+--
+-- Index pour la table `T_WC_T2S_COLLECTION`
+--
+ALTER TABLE `T_WC_T2S_COLLECTION`
+  ADD PRIMARY KEY (`ID_T2S_COLLECTION`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `COLLECTION_SOURCE` (`COLLECTION_SOURCE`),
+  ADD KEY `COLLECTION_NAME` (`COLLECTION_NAME`),
+  ADD KEY `ID_RECORD` (`ID_RECORD`),
+  ADD KEY `MOVIE_COUNT` (`MOVIE_COUNT`),
+  ADD KEY `SERIE_COUNT` (`SERIE_COUNT`),
+  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
+  ADD KEY `COLLECTION_NAME_FR` (`COLLECTION_NAME_FR`),
+  ADD KEY `WIKIPEDIA_IMAGE_PATH` (`WIKIPEDIA_IMAGE_PATH`),
+  ADD KEY `COLLECTION_TYPE` (`COLLECTION_TYPE`),
+  ADD KEY `IMDB_RATING` (`IMDB_RATING`),
+  ADD KEY `IMDB_RATING_ADJUSTED` (`IMDB_RATING_ADJUSTED`),
+  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`);
+
+--
+-- Index pour la table `T_WC_T2S_COMPANY`
+--
+ALTER TABLE `T_WC_T2S_COMPANY`
+  ADD PRIMARY KEY (`ID_COMPANY`),
+  ADD KEY `COMPANY_NAME` (`COMPANY_NAME`),
+  ADD KEY `LOGO_PATH` (`LOGO_PATH`),
+  ADD KEY `HOMEPAGE_URL` (`HOMEPAGE_URL`),
+  ADD KEY `HEADQUARTERS` (`HEADQUARTERS`),
+  ADD KEY `ORIGIN_COUNTRY` (`ORIGIN_COUNTRY`),
+  ADD KEY `ID_PARENT` (`ID_PARENT`),
+  ADD KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `MOVIE_COUNT` (`MOVIE_COUNT`),
+  ADD KEY `SERIE_COUNT` (`SERIE_COUNT`);
+
+--
+-- Index pour la table `T_WC_T2S_COMPANY_IMAGE`
+--
+ALTER TABLE `T_WC_T2S_COMPANY_IMAGE`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_COMPANY` (`ID_COMPANY`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
+  ADD KEY `LANG` (`LANG`),
+  ADD KEY `IMAGE_PATH` (`IMAGE_PATH`),
+  ADD KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
+  ADD KEY `WIDTH` (`WIDTH`),
+  ADD KEY `HEIGHT` (`HEIGHT`),
+  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`);
+
+--
+-- Index pour la table `T_WC_T2S_DEATH`
+--
+ALTER TABLE `T_WC_T2S_DEATH`
+  ADD PRIMARY KEY (`ID_DEATH`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `DEATH_SOURCE` (`DEATH_SOURCE`),
+  ADD KEY `DEATH_NAME` (`DEATH_NAME`),
+  ADD KEY `LANG` (`LANG`),
+  ADD KEY `PERSON_COUNT` (`PERSON_COUNT`),
+  ADD KEY `PROFILE_PATH` (`PROFILE_PATH`),
+  ADD KEY `DEATH_NAME_FR` (`DEATH_NAME_FR`),
+  ADD KEY `WIKIPEDIA_IMAGE_PATH` (`WIKIPEDIA_IMAGE_PATH`),
+  ADD KEY `DEATH_TYPE` (`DEATH_TYPE`),
+  ADD KEY `POPULARITY` (`POPULARITY`),
+  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`);
+
+--
+-- Index pour la table `T_WC_T2S_EVALUATION`
+--
+ALTER TABLE `T_WC_T2S_EVALUATION`
+  ADD PRIMARY KEY (`ID_T2S_EVALUATION`),
+  ADD KEY `IS_SAMPLE` (`IS_SAMPLE`),
+  ADD KEY `ID_T2S_EVALUATION_CATEGORY` (`ID_T2S_EVALUATION_CATEGORY`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `QUESTION` (`QUESTION`(768)),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `IS_EVAL` (`IS_EVAL`);
+
+--
+-- Index pour la table `T_WC_T2S_EVALUATION_CATEGORY`
+--
+ALTER TABLE `T_WC_T2S_EVALUATION_CATEGORY`
+  ADD PRIMARY KEY (`ID_T2S_EVALUATION_CATEGORY`),
+  ADD KEY `LANG` (`LANG`),
+  ADD KEY `ID_PARENT` (`ID_PARENT`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `DESCRIPTION` (`DESCRIPTION`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DESCRIPTION_FR` (`DESCRIPTION_FR`);
+
+--
+-- Index pour la table `T_WC_T2S_EVALUATION_EXECUTION`
+--
+ALTER TABLE `T_WC_T2S_EVALUATION_EXECUTION`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `API_VERSION` (`API_VERSION`),
+  ADD KEY `ID_T2S_EVALUATION` (`ID_T2S_EVALUATION`),
+  ADD KEY `ENTITY_EXTRACTION_MODEL` (`ENTITY_EXTRACTION_MODEL`),
+  ADD KEY `TEXT2SQL_MODEL` (`TEXT2SQL_MODEL`),
+  ADD KEY `TIM_EXECUTION` (`TIM_EXECUTION`),
+  ADD KEY `ASSERTIONS_RESULT_SCORE` (`ASSERTIONS_RESULT_SCORE`),
+  ADD KEY `EVAL_COST` (`TOTAL_COST`),
+  ADD KEY `ENTITY_EXTRACTION_PROCESSING_TIME` (`ENTITY_EXTRACTION_PROCESSING_TIME`),
+  ADD KEY `TEXT2SQL_PROCESSING_TIME` (`TEXT2SQL_PROCESSING_TIME`),
+  ADD KEY `EMBEDDINGS_PROCESSING_TIME` (`EMBEDDINGS_PROCESSING_TIME`),
+  ADD KEY `QUERY_EXECUTION_TIME` (`QUERY_EXECUTION_TIME`),
+  ADD KEY `TOTAL_PROCESSING_TIME` (`TOTAL_PROCESSING_TIME`),
+  ADD KEY `ENTITY_EXTRACTION_COST` (`ENTITY_EXTRACTION_COST`),
+  ADD KEY `TEXT2SQL_COST` (`TEXT2SQL_COST`),
+  ADD KEY `ASSERTIONS_ENTITY_EXTRACTION_SCORE` (`ASSERTIONS_ENTITY_EXTRACTION_SCORE`),
+  ADD KEY `ASSERTIONS_SQL_QUERY_SCORE` (`ASSERTIONS_SQL_QUERY_SCORE`),
+  ADD KEY `ASSERTIONS_TOTAL_SCORE` (`ASSERTIONS_TOTAL_SCORE`),
+  ADD KEY `COMPLEX_MODEL` (`COMPLEX_MODEL`);
+
+--
+-- Index pour la table `T_WC_T2S_GROUP`
+--
+ALTER TABLE `T_WC_T2S_GROUP`
+  ADD PRIMARY KEY (`ID_GROUP`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `GROUP_SOURCE` (`GROUP_SOURCE`),
+  ADD KEY `GROUP_NAME` (`GROUP_NAME`),
+  ADD KEY `LANG` (`LANG`),
+  ADD KEY `PERSON_COUNT` (`PERSON_COUNT`),
+  ADD KEY `PROFILE_PATH` (`PROFILE_PATH`),
+  ADD KEY `GROUP_NAME_FR` (`GROUP_NAME_FR`),
+  ADD KEY `WIKIPEDIA_IMAGE_PATH` (`WIKIPEDIA_IMAGE_PATH`),
+  ADD KEY `GROUP_TYPE` (`GROUP_TYPE`),
+  ADD KEY `POPULARITY` (`POPULARITY`),
+  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`);
+
+--
+-- Index pour la table `T_WC_T2S_ITEM`
+--
+ALTER TABLE `T_WC_T2S_ITEM`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `ITEM_LABEL` (`ITEM_LABEL`),
+  ADD KEY `ITEM_LABEL_FR` (`ITEM_LABEL_FR`),
+  ADD KEY `DESCRIPTION` (`DESCRIPTION`(768)),
+  ADD KEY `INSTANCE_OF` (`INSTANCE_OF`),
+  ADD KEY `WIKIPEDIA_IMAGE_PATH` (`WIKIPEDIA_IMAGE_PATH`),
+  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`);
+
+--
+-- Index pour la table `T_WC_T2S_LIST`
+--
+ALTER TABLE `T_WC_T2S_LIST`
+  ADD PRIMARY KEY (`ID_T2S_LIST`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `LIST_SOURCE` (`LIST_SOURCE`),
+  ADD KEY `LIST_NAME` (`LIST_NAME`),
+  ADD KEY `ID_RECORD` (`ID_RECORD`),
+  ADD KEY `LANG` (`LANG`),
+  ADD KEY `MOVIE_COUNT` (`MOVIE_COUNT`),
+  ADD KEY `SERIE_COUNT` (`SERIE_COUNT`),
+  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
+  ADD KEY `LIST_NAME_FR` (`LIST_NAME_FR`),
+  ADD KEY `WIKIPEDIA_IMAGE_PATH` (`WIKIPEDIA_IMAGE_PATH`),
+  ADD KEY `LIST_TYPE` (`LIST_TYPE`),
+  ADD KEY `IMDB_RATING` (`IMDB_RATING`),
+  ADD KEY `IMDB_RATING_ADJUSTED` (`IMDB_RATING_ADJUSTED`),
+  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`);
+
+--
+-- Index pour la table `T_WC_T2S_META_LIST`
+--
+ALTER TABLE `T_WC_T2S_META_LIST`
+  ADD PRIMARY KEY (`ID_T2S_META_LIST`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `META_LIST_NAME` (`META_LIST_NAME`),
+  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
+  ADD KEY `META_LIST_NAME_FR` (`META_LIST_NAME_FR`),
+  ADD KEY `WIKIPEDIA_IMAGE_PATH` (`WIKIPEDIA_IMAGE_PATH`),
+  ADD KEY `FOR_MOVIES` (`FOR_MOVIES`),
+  ADD KEY `FOR_SERIES` (`FOR_SERIES`),
+  ADD KEY `FOR_PERSONS` (`FOR_PERSONS`),
+  ADD KEY `SORT_BY` (`SORT_BY`),
+  ADD KEY `TARGET_TABLE` (`TARGET_TABLE`),
+  ADD KEY `TARGET_MOVIES_TABLE` (`TARGET_MOVIES_TABLE`),
+  ADD KEY `TARGET_SERIES_TABLE` (`TARGET_SERIES_TABLE`),
+  ADD KEY `TARGET_PERSONS_TABLE` (`TARGET_PERSONS_TABLE`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVEMENT`
+--
+ALTER TABLE `T_WC_T2S_MOVEMENT`
+  ADD PRIMARY KEY (`ID_MOVEMENT`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `MOVEMENT_SOURCE` (`MOVEMENT_SOURCE`),
+  ADD KEY `MOVEMENT_NAME` (`MOVEMENT_NAME`),
+  ADD KEY `ID_RECORD` (`ID_RECORD`),
+  ADD KEY `LANG` (`LANG`),
+  ADD KEY `MOVIE_COUNT` (`MOVIE_COUNT`),
+  ADD KEY `SERIE_COUNT` (`SERIE_COUNT`),
+  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
+  ADD KEY `MOVEMENT_NAME_FR` (`MOVEMENT_NAME_FR`),
+  ADD KEY `WIKIPEDIA_IMAGE_PATH` (`WIKIPEDIA_IMAGE_PATH`),
+  ADD KEY `MOVEMENT_TYPE` (`MOVEMENT_TYPE`),
+  ADD KEY `IMDB_RATING` (`IMDB_RATING`),
+  ADD KEY `IMDB_RATING_ADJUSTED` (`IMDB_RATING_ADJUSTED`),
+  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVIE`
+--
+ALTER TABLE `T_WC_T2S_MOVIE`
+  ADD PRIMARY KEY (`ID_MOVIE`),
+  ADD KEY `MOVIE_TITLE` (`MOVIE_TITLE`),
+  ADD KEY `ORIGINAL_TITLE` (`ORIGINAL_TITLE`),
+  ADD KEY `DAT_RELEASE` (`DAT_RELEASE`),
+  ADD KEY `RELEASE_YEAR` (`RELEASE_YEAR`),
+  ADD KEY `RELEASE_MONTH` (`RELEASE_MONTH`),
+  ADD KEY `RELEASE_DAY` (`RELEASE_DAY`),
+  ADD KEY `ID_IMDB` (`ID_IMDB`),
+  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
+  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
+  ADD KEY `HOMEPAGE_URL` (`HOMEPAGE_URL`),
+  ADD KEY `POPULARITY` (`POPULARITY`),
+  ADD KEY `ORIGINAL_LANGUAGE` (`ORIGINAL_LANGUAGE`),
+  ADD KEY `ADULT` (`ADULT`),
+  ADD KEY `STATUS` (`STATUS`),
+  ADD KEY `BUDGET` (`BUDGET`),
+  ADD KEY `RUNTIME` (`RUNTIME`),
+  ADD KEY `BACKDROP_PATH` (`BACKDROP_PATH`),
+  ADD KEY `REVENUE` (`REVENUE`),
+  ADD KEY `VIDEO` (`VIDEO`),
+  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`),
+  ADD KEY `IS_COLOR` (`IS_COLOR`),
+  ADD KEY `IS_BLACK_AND_WHITE` (`IS_BLACK_AND_WHITE`),
+  ADD KEY `IS_SILENT` (`IS_SILENT`),
+  ADD KEY `IS_3D` (`IS_3D`),
+  ADD KEY `COLOR_TECHNOLOGY` (`COLOR_TECHNOLOGY`),
+  ADD KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
+  ADD KEY `FILM_FORMAT` (`FILM_FORMAT`),
+  ADD KEY `IS_MOVIE` (`IS_MOVIE`),
+  ADD KEY `IS_DOCUMENTARY` (`IS_DOCUMENTARY`),
+  ADD KEY `IS_SHORT_FILM` (`IS_SHORT_FILM`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `IMDB_RATING` (`IMDB_RATING`),
+  ADD KEY `WIKIDATA_TITLE` (`WIKIDATA_TITLE`),
+  ADD KEY `PLEX_MEDIA_KEY` (`PLEX_MEDIA_KEY`),
+  ADD KEY `ID_CRITERION` (`ID_CRITERION`),
+  ADD KEY `ID_CRITERION_SPINE` (`ID_CRITERION_SPINE`),
+  ADD KEY `INSTANCE_OF` (`INSTANCE_OF`),
+  ADD KEY `SOUND_TECHNOLOGY` (`SOUND_TECHNOLOGY`),
+  ADD KEY `IMDB_RATING_ADJUSTED` (`IMDB_RATING_ADJUSTED`),
+  ADD KEY `MOVIE_TITLE_FR` (`MOVIE_TITLE_FR`),
+  ADD KEY `DELETED` (`DELETED`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVIE_AWARD`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_AWARD`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
+  ADD KEY `ID_AWARD` (`ID_AWARD`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVIE_CHARACTER`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_CHARACTER`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
+  ADD KEY `ID_CHARACTER` (`ID_CHARACTER`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVIE_COLLECTION`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_COLLECTION`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
+  ADD KEY `ID_T2S_COLLECTION` (`ID_T2S_COLLECTION`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVIE_COMPANY`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_COMPANY`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
+  ADD KEY `ID_COMPANY` (`ID_COMPANY`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVIE_GENRE`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_GENRE`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
+  ADD KEY `ID_GENRE` (`ID_GENRE`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVIE_IMAGE`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_IMAGE`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
+  ADD KEY `LANG` (`LANG`),
+  ADD KEY `IMAGE_PATH` (`IMAGE_PATH`),
+  ADD KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
+  ADD KEY `WIDTH` (`WIDTH`),
+  ADD KEY `HEIGHT` (`HEIGHT`),
+  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVIE_LIST`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_LIST`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
+  ADD KEY `ID_T2S_LIST` (`ID_T2S_LIST`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVIE_MOVEMENT`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_MOVEMENT`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
+  ADD KEY `ID_MOVEMENT` (`ID_MOVEMENT`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVIE_NOMINATION`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_NOMINATION`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
+  ADD KEY `ID_NOMINATION` (`ID_NOMINATION`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVIE_PRODUCTION_COUNTRY`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_PRODUCTION_COUNTRY`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
+  ADD KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVIE_SPOKEN_LANGUAGE`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_SPOKEN_LANGUAGE`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
+  ADD KEY `SPOKEN_LANGUAGE` (`SPOKEN_LANGUAGE`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVIE_TECHNICAL`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_TECHNICAL`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
+  ADD KEY `ID_TECHNICAL` (`ID_TECHNICAL`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVIE_TOPIC`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_TOPIC`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
+  ADD KEY `ID_TOPIC` (`ID_TOPIC`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_MOVIE_VIDEO`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_VIDEO`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `LANG` (`LANG`),
+  ADD KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
+  ADD KEY `VIDEO_KEY` (`VIDEO_KEY`),
+  ADD KEY `VIDEO_SITE` (`VIDEO_SITE`),
+  ADD KEY `VIDEO_TYPE` (`VIDEO_TYPE`),
+  ADD KEY `QUALITY` (`QUALITY`),
+  ADD KEY `VIDEO_NAME` (`VIDEO_NAME`),
+  ADD KEY `QUALITY_TEXT` (`QUALITY_TEXT`),
+  ADD KEY `DAT_PUBLISHED` (`DAT_PUBLISHED`),
+  ADD KEY `ID_CREDIT` (`ID_CREDIT`),
+  ADD KEY `OFFICIAL` (`OFFICIAL`);
+
+--
+-- Index pour la table `T_WC_T2S_NETWORK`
+--
+ALTER TABLE `T_WC_T2S_NETWORK`
+  ADD PRIMARY KEY (`ID_NETWORK`),
+  ADD KEY `NETWORK_NAME` (`NETWORK_NAME`),
+  ADD KEY `LOGO_PATH` (`LOGO_PATH`),
+  ADD KEY `HOMEPAGE_URL` (`HOMEPAGE_URL`),
+  ADD KEY `ORIGIN_COUNTRY` (`ORIGIN_COUNTRY`),
+  ADD KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `HEADQUARTERS` (`HEADQUARTERS`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `SERIE_COUNT` (`SERIE_COUNT`);
+
+--
+-- Index pour la table `T_WC_T2S_NETWORK_IMAGE`
+--
+ALTER TABLE `T_WC_T2S_NETWORK_IMAGE`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_NETWORK` (`ID_NETWORK`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
+  ADD KEY `LANG` (`LANG`),
+  ADD KEY `IMAGE_PATH` (`IMAGE_PATH`),
+  ADD KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
+  ADD KEY `WIDTH` (`WIDTH`),
+  ADD KEY `HEIGHT` (`HEIGHT`),
+  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`);
+
+--
+-- Index pour la table `T_WC_T2S_NOMINATION`
+--
+ALTER TABLE `T_WC_T2S_NOMINATION`
+  ADD PRIMARY KEY (`ID_NOMINATION`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `NOMINATION_SOURCE` (`NOMINATION_SOURCE`),
+  ADD KEY `NOMINATION_NAME` (`NOMINATION_NAME`),
+  ADD KEY `LANG` (`LANG`),
+  ADD KEY `MOVIE_COUNT` (`MOVIE_COUNT`),
+  ADD KEY `SERIE_COUNT` (`SERIE_COUNT`),
+  ADD KEY `PERSON_COUNT` (`PERSON_COUNT`),
+  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
+  ADD KEY `NOMINATION_NAME_FR` (`NOMINATION_NAME_FR`),
+  ADD KEY `WIKIPEDIA_IMAGE_PATH` (`WIKIPEDIA_IMAGE_PATH`),
+  ADD KEY `NOMINATION_TYPE` (`NOMINATION_TYPE`),
+  ADD KEY `IMDB_RATING` (`IMDB_RATING`),
+  ADD KEY `IMDB_RATING_ADJUSTED` (`IMDB_RATING_ADJUSTED`),
+  ADD KEY `POPULARITY` (`POPULARITY`),
+  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`);
+
+--
+-- Index pour la table `T_WC_T2S_PERSON`
+--
+ALTER TABLE `T_WC_T2S_PERSON`
+  ADD PRIMARY KEY (`ID_PERSON`),
+  ADD KEY `PERSON_NAME` (`PERSON_NAME`),
+  ADD KEY `ID_IMDB` (`ID_IMDB`),
+  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
+  ADD KEY `BIRTH_YEAR` (`BIRTH_YEAR`),
+  ADD KEY `BIRTH_MONTH` (`BIRTH_MONTH`),
+  ADD KEY `BIRTH_DAY` (`BIRTH_DAY`),
+  ADD KEY `DEATH_YEAR` (`DEATH_YEAR`),
+  ADD KEY `DEATH_MONTH` (`DEATH_MONTH`),
+  ADD KEY `DEATH_DAY` (`DEATH_DAY`),
+  ADD KEY `GENDER` (`GENDER`),
+  ADD KEY `PROFILE_PATH` (`PROFILE_PATH`),
+  ADD KEY `HOMEPAGE_URL` (`HOMEPAGE_URL`),
+  ADD KEY `COUNTRY_OF_BIRTH` (`COUNTRY_OF_BIRTH`),
+  ADD KEY `POPULARITY` (`POPULARITY`),
+  ADD KEY `KNOWN_FOR_DEPARTMENT` (`KNOWN_FOR_DEPARTMENT`),
+  ADD KEY `ADULT` (`ADULT`),
+  ADD KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `WIKIDATA_NAME` (`WIKIDATA_NAME`),
+  ADD KEY `INSTANCE_OF` (`INSTANCE_OF`),
+  ADD KEY `BIRTHDAY` (`BIRTHDAY`),
+  ADD KEY `DEATHDAY` (`DEATHDAY`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `IDX_T2S_PERSON_NAME_KEY` (`PERSON_NAME_KEY`),
+  ADD KEY `IDX_T2S_PERSON_NAME_NORM` (`PERSON_NAME_NORM`);
+ALTER TABLE `T_WC_T2S_PERSON` ADD FULLTEXT KEY `ft_person_name_norm` (`PERSON_NAME_NORM`);
+
+--
+-- Index pour la table `T_WC_T2S_PERSON_AWARD`
+--
+ALTER TABLE `T_WC_T2S_PERSON_AWARD`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_PERSON` (`ID_PERSON`),
+  ADD KEY `ID_AWARD` (`ID_AWARD`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_PERSON_CHARACTER`
+--
+ALTER TABLE `T_WC_T2S_PERSON_CHARACTER`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_PERSON` (`ID_PERSON`),
+  ADD KEY `ID_CHARACTER` (`ID_CHARACTER`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_PERSON_DEATH`
+--
+ALTER TABLE `T_WC_T2S_PERSON_DEATH`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_PERSON` (`ID_PERSON`),
+  ADD KEY `ID_DEATH` (`ID_DEATH`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_PERSON_GROUP`
+--
+ALTER TABLE `T_WC_T2S_PERSON_GROUP`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_PERSON` (`ID_PERSON`),
+  ADD KEY `ID_GROUP` (`ID_GROUP`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_PERSON_IMAGE`
+--
+ALTER TABLE `T_WC_T2S_PERSON_IMAGE`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_PERSON` (`ID_PERSON`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
+  ADD KEY `LANG` (`LANG`),
+  ADD KEY `IMAGE_PATH` (`IMAGE_PATH`),
+  ADD KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
+  ADD KEY `WIDTH` (`WIDTH`),
+  ADD KEY `HEIGHT` (`HEIGHT`),
+  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`);
+
+--
+-- Index pour la table `T_WC_T2S_PERSON_MOVIE`
+--
+ALTER TABLE `T_WC_T2S_PERSON_MOVIE`
+  ADD PRIMARY KEY (`ID_T2S_PERSON_MOVIE`),
+  ADD KEY `ID_PERSON` (`ID_PERSON`),
+  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
+  ADD KEY `ID_CREDIT` (`ID_CREDIT`),
+  ADD KEY `CAST_CHARACTER` (`CAST_CHARACTER`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `CREDIT_TYPE` (`CREDIT_TYPE`),
+  ADD KEY `CREW_DEPARTMENT` (`CREW_DEPARTMENT`),
+  ADD KEY `CREW_JOB` (`CREW_JOB`);
+
+--
+-- Index pour la table `T_WC_T2S_PERSON_NOMINATION`
+--
+ALTER TABLE `T_WC_T2S_PERSON_NOMINATION`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_PERSON` (`ID_PERSON`),
+  ADD KEY `ID_NOMINATION` (`ID_NOMINATION`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_PERSON_SERIE`
+--
+ALTER TABLE `T_WC_T2S_PERSON_SERIE`
+  ADD PRIMARY KEY (`ID_T2S_PERSON_SERIE`),
+  ADD KEY `ID_PERSON` (`ID_PERSON`),
+  ADD KEY `ID_SERIE` (`ID_SERIE`),
+  ADD KEY `ID_CREDIT` (`ID_CREDIT`),
+  ADD KEY `CAST_CHARACTER` (`CAST_CHARACTER`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `CREDIT_TYPE` (`CREDIT_TYPE`),
+  ADD KEY `CREW_DEPARTMENT` (`CREW_DEPARTMENT`),
+  ADD KEY `CREW_JOB` (`CREW_JOB`);
+
+--
+-- Index pour la table `T_WC_T2S_SERIE`
+--
+ALTER TABLE `T_WC_T2S_SERIE`
+  ADD PRIMARY KEY (`ID_SERIE`),
+  ADD KEY `SERIE_TITLE` (`SERIE_TITLE`),
+  ADD KEY `FIRST_AIR_YEAR` (`FIRST_AIR_YEAR`),
+  ADD KEY `FIRST_AIR_MONTH` (`FIRST_AIR_MONTH`),
+  ADD KEY `FIRST_AIR_DAY` (`FIRST_AIR_DAY`),
+  ADD KEY `DAT_FIRST_AIR` (`DAT_FIRST_AIR`),
+  ADD KEY `LAST_AIR_YEAR` (`LAST_AIR_YEAR`),
+  ADD KEY `LAST_AIR_MONTH` (`LAST_AIR_MONTH`),
+  ADD KEY `LAST_AIR_DAY` (`LAST_AIR_DAY`),
+  ADD KEY `DAT_LAST_AIR` (`DAT_LAST_AIR`),
+  ADD KEY `ID_IMDB` (`ID_IMDB`),
+  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
+  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
+  ADD KEY `HOMEPAGE_URL` (`HOMEPAGE_URL`),
+  ADD KEY `ORIGINAL_TITLE` (`ORIGINAL_TITLE`),
+  ADD KEY `POPULARITY` (`POPULARITY`),
+  ADD KEY `ORIGINAL_LANGUAGE` (`ORIGINAL_LANGUAGE`),
+  ADD KEY `ADULT` (`ADULT`),
+  ADD KEY `STATUS` (`STATUS`),
+  ADD KEY `BACKDROP_PATH` (`BACKDROP_PATH`),
+  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`),
+  ADD KEY `NUMBER_OF_EPISODES` (`NUMBER_OF_EPISODES`),
+  ADD KEY `NUMBER_OF_SEASONS` (`NUMBER_OF_SEASONS`),
+  ADD KEY `SERIE_TYPE` (`SERIE_TYPE`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `IMDB_RATING` (`IMDB_RATING`),
+  ADD KEY `WIKIDATA_TITLE` (`WIKIDATA_TITLE`),
+  ADD KEY `PLEX_MEDIA_KEY` (`PLEX_MEDIA_KEY`),
+  ADD KEY `INSTANCE_OF` (`INSTANCE_OF`),
+  ADD KEY `IMDB_RATING_ADJUSTED` (`IMDB_RATING_ADJUSTED`),
+  ADD KEY `SERIE_TITLE_FR` (`SERIE_TITLE_FR`),
+  ADD KEY `DELETED` (`DELETED`);
+
+--
+-- Index pour la table `T_WC_T2S_SERIE_AWARD`
+--
+ALTER TABLE `T_WC_T2S_SERIE_AWARD`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_SERIE` (`ID_SERIE`),
+  ADD KEY `ID_AWARD` (`ID_AWARD`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_SERIE_CHARACTER`
+--
+ALTER TABLE `T_WC_T2S_SERIE_CHARACTER`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_SERIE` (`ID_SERIE`),
+  ADD KEY `ID_CHARACTER` (`ID_CHARACTER`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_SERIE_COLLECTION`
+--
+ALTER TABLE `T_WC_T2S_SERIE_COLLECTION`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_SERIE` (`ID_SERIE`),
+  ADD KEY `ID_T2S_COLLECTION` (`ID_T2S_COLLECTION`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_SERIE_COMPANY`
+--
+ALTER TABLE `T_WC_T2S_SERIE_COMPANY`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_SERIE` (`ID_SERIE`),
+  ADD KEY `ID_COMPANY` (`ID_COMPANY`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_SERIE_GENRE`
+--
+ALTER TABLE `T_WC_T2S_SERIE_GENRE`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_SERIE` (`ID_SERIE`),
+  ADD KEY `ID_GENRE` (`ID_GENRE`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_SERIE_IMAGE`
+--
+ALTER TABLE `T_WC_T2S_SERIE_IMAGE`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_SERIE` (`ID_SERIE`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
+  ADD KEY `LANG` (`LANG`),
+  ADD KEY `IMAGE_PATH` (`IMAGE_PATH`),
+  ADD KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
+  ADD KEY `WIDTH` (`WIDTH`),
+  ADD KEY `HEIGHT` (`HEIGHT`),
+  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`);
+
+--
+-- Index pour la table `T_WC_T2S_SERIE_LIST`
+--
+ALTER TABLE `T_WC_T2S_SERIE_LIST`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_SERIE` (`ID_SERIE`),
+  ADD KEY `ID_T2S_LIST` (`ID_T2S_LIST`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_SERIE_MOVEMENT`
+--
+ALTER TABLE `T_WC_T2S_SERIE_MOVEMENT`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_SERIE` (`ID_SERIE`),
+  ADD KEY `ID_MOVEMENT` (`ID_MOVEMENT`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_SERIE_NETWORK`
+--
+ALTER TABLE `T_WC_T2S_SERIE_NETWORK`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_SERIE` (`ID_SERIE`),
+  ADD KEY `ID_NETWORK` (`ID_NETWORK`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_SERIE_NOMINATION`
+--
+ALTER TABLE `T_WC_T2S_SERIE_NOMINATION`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_SERIE` (`ID_SERIE`),
+  ADD KEY `ID_NOMINATION` (`ID_NOMINATION`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_SERIE_PRODUCTION_COUNTRY`
+--
+ALTER TABLE `T_WC_T2S_SERIE_PRODUCTION_COUNTRY`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_SERIE` (`ID_SERIE`),
+  ADD KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_SERIE_SPOKEN_LANGUAGE`
+--
+ALTER TABLE `T_WC_T2S_SERIE_SPOKEN_LANGUAGE`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_SERIE` (`ID_SERIE`),
+  ADD KEY `SPOKEN_LANGUAGE` (`SPOKEN_LANGUAGE`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_SERIE_TOPIC`
+--
+ALTER TABLE `T_WC_T2S_SERIE_TOPIC`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_SERIE` (`ID_SERIE`),
+  ADD KEY `ID_TOPIC` (`ID_TOPIC`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
+
+--
+-- Index pour la table `T_WC_T2S_SERIE_VIDEO`
+--
+ALTER TABLE `T_WC_T2S_SERIE_VIDEO`
+  ADD PRIMARY KEY (`ID_ROW`),
+  ADD KEY `ID_SERIE` (`ID_SERIE`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `LANG` (`LANG`),
+  ADD KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
+  ADD KEY `VIDEO_KEY` (`VIDEO_KEY`),
+  ADD KEY `VIDEO_SITE` (`VIDEO_SITE`),
+  ADD KEY `VIDEO_TYPE` (`VIDEO_TYPE`),
+  ADD KEY `QUALITY` (`QUALITY`),
+  ADD KEY `VIDEO_NAME` (`VIDEO_NAME`),
+  ADD KEY `QUALITY_TEXT` (`QUALITY_TEXT`),
+  ADD KEY `DAT_PUBLISHED` (`DAT_PUBLISHED`),
+  ADD KEY `ID_CREDIT` (`ID_CREDIT`),
+  ADD KEY `OFFICIAL` (`OFFICIAL`);
+
+--
+-- Index pour la table `T_WC_T2S_TECHNICAL`
+--
+ALTER TABLE `T_WC_T2S_TECHNICAL`
+  ADD PRIMARY KEY (`ID_TECHNICAL`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `TECHNICAL_TYPE` (`TECHNICAL_TYPE`),
+  ADD KEY `DESCRIPTION` (`DESCRIPTION`);
+
+--
+-- Index pour la table `T_WC_T2S_TOPIC`
+--
+ALTER TABLE `T_WC_T2S_TOPIC`
+  ADD PRIMARY KEY (`ID_TOPIC`),
+  ADD KEY `DELETED` (`DELETED`),
+  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  ADD KEY `ID_OWNER` (`ID_OWNER`),
+  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
+  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
+  ADD KEY `TOPIC_SOURCE` (`TOPIC_SOURCE`),
+  ADD KEY `TOPIC_NAME` (`TOPIC_NAME`),
+  ADD KEY `ID_RECORD` (`ID_RECORD`),
+  ADD KEY `LANG` (`LANG`),
+  ADD KEY `MOVIE_COUNT` (`MOVIE_COUNT`),
+  ADD KEY `SERIE_COUNT` (`SERIE_COUNT`),
+  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
+  ADD KEY `TOPIC_NAME_FR` (`TOPIC_NAME_FR`),
+  ADD KEY `WIKIPEDIA_IMAGE_PATH` (`WIKIPEDIA_IMAGE_PATH`),
+  ADD KEY `TOPIC_TYPE` (`TOPIC_TYPE`),
+  ADD KEY `IMDB_RATING` (`IMDB_RATING`),
+  ADD KEY `IMDB_RATING_ADJUSTED` (`IMDB_RATING_ADJUSTED`),
+  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`);
+
+--
+-- AUTO_INCREMENT pour les tables déchargées
+--
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_AWARD`
+--
+ALTER TABLE `T_WC_T2S_AWARD`
+  MODIFY `ID_AWARD` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_CACHE`
+--
+ALTER TABLE `T_WC_T2S_CACHE`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_CHARACTER`
+--
+ALTER TABLE `T_WC_T2S_CHARACTER`
+  MODIFY `ID_CHARACTER` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_COLLECTION`
+--
+ALTER TABLE `T_WC_T2S_COLLECTION`
+  MODIFY `ID_T2S_COLLECTION` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_COMPANY_IMAGE`
+--
+ALTER TABLE `T_WC_T2S_COMPANY_IMAGE`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_DEATH`
+--
+ALTER TABLE `T_WC_T2S_DEATH`
+  MODIFY `ID_DEATH` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_EVALUATION`
+--
+ALTER TABLE `T_WC_T2S_EVALUATION`
+  MODIFY `ID_T2S_EVALUATION` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_EVALUATION_CATEGORY`
+--
+ALTER TABLE `T_WC_T2S_EVALUATION_CATEGORY`
+  MODIFY `ID_T2S_EVALUATION_CATEGORY` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_EVALUATION_EXECUTION`
+--
+ALTER TABLE `T_WC_T2S_EVALUATION_EXECUTION`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_GROUP`
+--
+ALTER TABLE `T_WC_T2S_GROUP`
+  MODIFY `ID_GROUP` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_LIST`
+--
+ALTER TABLE `T_WC_T2S_LIST`
+  MODIFY `ID_T2S_LIST` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_META_LIST`
+--
+ALTER TABLE `T_WC_T2S_META_LIST`
+  MODIFY `ID_T2S_META_LIST` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_MOVEMENT`
+--
+ALTER TABLE `T_WC_T2S_MOVEMENT`
+  MODIFY `ID_MOVEMENT` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_MOVIE_AWARD`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_AWARD`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_MOVIE_CHARACTER`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_CHARACTER`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_MOVIE_COLLECTION`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_COLLECTION`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_MOVIE_COMPANY`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_COMPANY`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_MOVIE_GENRE`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_GENRE`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_MOVIE_IMAGE`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_IMAGE`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_MOVIE_LIST`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_LIST`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_MOVIE_MOVEMENT`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_MOVEMENT`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_MOVIE_NOMINATION`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_NOMINATION`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_MOVIE_PRODUCTION_COUNTRY`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_PRODUCTION_COUNTRY`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_MOVIE_SPOKEN_LANGUAGE`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_SPOKEN_LANGUAGE`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_MOVIE_TECHNICAL`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_TECHNICAL`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_MOVIE_TOPIC`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_TOPIC`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_MOVIE_VIDEO`
+--
+ALTER TABLE `T_WC_T2S_MOVIE_VIDEO`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_NETWORK_IMAGE`
+--
+ALTER TABLE `T_WC_T2S_NETWORK_IMAGE`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_NOMINATION`
+--
+ALTER TABLE `T_WC_T2S_NOMINATION`
+  MODIFY `ID_NOMINATION` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_PERSON_AWARD`
+--
+ALTER TABLE `T_WC_T2S_PERSON_AWARD`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_PERSON_CHARACTER`
+--
+ALTER TABLE `T_WC_T2S_PERSON_CHARACTER`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_PERSON_DEATH`
+--
+ALTER TABLE `T_WC_T2S_PERSON_DEATH`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_PERSON_GROUP`
+--
+ALTER TABLE `T_WC_T2S_PERSON_GROUP`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_PERSON_IMAGE`
+--
+ALTER TABLE `T_WC_T2S_PERSON_IMAGE`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_PERSON_NOMINATION`
+--
+ALTER TABLE `T_WC_T2S_PERSON_NOMINATION`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_SERIE_AWARD`
+--
+ALTER TABLE `T_WC_T2S_SERIE_AWARD`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_SERIE_CHARACTER`
+--
+ALTER TABLE `T_WC_T2S_SERIE_CHARACTER`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_SERIE_COLLECTION`
+--
+ALTER TABLE `T_WC_T2S_SERIE_COLLECTION`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_SERIE_COMPANY`
+--
+ALTER TABLE `T_WC_T2S_SERIE_COMPANY`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_SERIE_GENRE`
+--
+ALTER TABLE `T_WC_T2S_SERIE_GENRE`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_SERIE_IMAGE`
+--
+ALTER TABLE `T_WC_T2S_SERIE_IMAGE`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_SERIE_LIST`
+--
+ALTER TABLE `T_WC_T2S_SERIE_LIST`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_SERIE_MOVEMENT`
+--
+ALTER TABLE `T_WC_T2S_SERIE_MOVEMENT`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_SERIE_NETWORK`
+--
+ALTER TABLE `T_WC_T2S_SERIE_NETWORK`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_SERIE_NOMINATION`
+--
+ALTER TABLE `T_WC_T2S_SERIE_NOMINATION`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_SERIE_PRODUCTION_COUNTRY`
+--
+ALTER TABLE `T_WC_T2S_SERIE_PRODUCTION_COUNTRY`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_SERIE_SPOKEN_LANGUAGE`
+--
+ALTER TABLE `T_WC_T2S_SERIE_SPOKEN_LANGUAGE`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_SERIE_TOPIC`
+--
+ALTER TABLE `T_WC_T2S_SERIE_TOPIC`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_SERIE_VIDEO`
+--
+ALTER TABLE `T_WC_T2S_SERIE_VIDEO`
+  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_TECHNICAL`
+--
+ALTER TABLE `T_WC_T2S_TECHNICAL`
+  MODIFY `ID_TECHNICAL` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT pour la table `T_WC_T2S_TOPIC`
+--
+ALTER TABLE `T_WC_T2S_TOPIC`
+  MODIFY `ID_TOPIC` int(11) NOT NULL AUTO_INCREMENT;
+COMMIT;
+
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;

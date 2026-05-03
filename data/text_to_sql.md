@@ -23,7 +23,7 @@ Never include a semicolon at the end of the SQL query.
 
 ## ? Placeholders / Anonymization
 
-The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}, {{Genre_name1}}.
+The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}, {{Genre_name1}}, {{Technical_format1}}.
 These placeholders represent real entity values that were intentionally replaced earlier.
 
 Rules:
@@ -32,12 +32,14 @@ Rules:
 - When comparing against a placeholder in SQL, treat it as a string literal, for example: T_WC_T2S_MOVIE.MOVIE_TITLE = '{{Movie_title1}}'
 - The placeholders will be substituted with real values AFTER you generate the SQL.
 
-Genre placeholder special case:
+Genre and Technical_format placeholder special case (integer-ID columns):
 - `{{Genre_nameN}}` represents a movie or TV series genre name. Do NOT convert it yourself into the numeric ID.
-- Emit it exactly as a quoted string literal against the `ID_GENRE` column, for example:
-  - Movies: `T_WC_T2S_MOVIE_GENRE.ID_GENRE = '{{Genre_name1}}'`
-  - Series: `T_WC_T2S_SERIE_GENRE.ID_GENRE = '{{Genre_name1}}'`
-- The resolver will substitute the placeholder with the correct integer ID using the Genre Reference tables in this prompt and the surrounding table context (`MOVIE_GENRE` vs `SERIE_GENRE`).
+- `{{Technical_formatN}}` represents a movie technical format / technology / process. Do NOT convert it yourself into the numeric ID.
+- Emit each placeholder exactly as a quoted string literal against the corresponding INT column, for example:
+  - Movies genre: `T_WC_T2S_MOVIE_GENRE.ID_GENRE = '{{Genre_name1}}'`
+  - Series genre: `T_WC_T2S_SERIE_GENRE.ID_GENRE = '{{Genre_name1}}'`
+  - Movie technical: `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL = '{{Technical_format1}}'`
+- The resolver will substitute each placeholder with the correct integer ID at runtime (the surrounding quotes are stripped). The full canonical name → ID mapping lives in the database (`T_WC_TMDB_GENRE` for genres, `T_WC_T2S_TECHNICAL` for technical formats) and is loaded into memory at startup, with multilingual aliases / format variants on top — you do not need to know the IDs.
 
 Example:
 Question:
@@ -762,24 +764,11 @@ CREATE TABLE T_WC_T2S_SERIE_VIDEO (
 - Before returning the final SQL, perform a self-check to ensure every predicate, join condition, comparison, sort expression, grouping expression, and function argument is compatible with the schema and the declared field types.
 - If a requested filter requires a label-to-code or text-to-ID conversion, only use a mapping explicitly defined in this prompt/schema. Otherwise, do not invent one.
 
-### Technical Reference for movies ID_TECHNICAL
-Technical specifications use the T_WC_T2S_MOVIE_TECHNICAL table with ID_TECHNICAL values:
-1: dolby, 2: stereo, 3: deluxe, 4: technicolor, 5: cinemascope,
-6: panavision, 7: dts, 8: sdds, 9: mono, 10: technovision, 11: metrocolor,
-12: super_35, 13: d_cinema, 14: 5.1, 15: eastmancolor, 16: vistavision,
-17: western_electric, 18: westrex, 19: fujicolor, 20: photophone, 
-21: techniscope, 22: super_16, 23: agfacolor, 24: warnercolor,
-25: arriflex, 26: panoramique, 27: 7.1, 28: ultra_panavision,
-29: imax, 30: tobis_klangfilm, 31: panaflex, 32: technirama,
-33: vitaphone, 34: perspecta, 35: tohoscope, 36: todd_ao, 37: colorfilm,
-38: cinecolor, 39: sovcolor, 40: anscocolor, 41: pathécolor, 42: auro,
-43: trucolor, 44: cinerama, 45: polyvision, 46: gevacolor, 47: movietone,
-48: gasparcolor, 49: kodachrome, 50: franscope, 51: 35 mm, 52: digital,
-53: 16 mm, 54: 70 mm, 55: 65 mm, 56: dcp
-
-#### How to Handle Technical Specifications:
-When asking about movies SHOT/FILMED IN a technical format → Use ID_TECHNICAL
-Example: "Les films tournés en franscope" → ID_TECHNICAL = 50
+### Technical format filtering
+- Filter on `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL` (integer FK to `T_WC_T2S_TECHNICAL.ID_TECHNICAL`).
+- Covers sound systems, color technologies, film technologies, sound technologies, and film formats — see `T_WC_T2S_TECHNICAL.TECHNICAL_TYPE` if you need to disambiguate.
+- Always reference a technical format via the `{{Technical_formatN}}` placeholder; the resolver substitutes the correct integer ID at runtime (see the placeholder special case at the top of this prompt).
+- Example: "Les films tournés en franscope" → `WHERE T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL = '{{Technical_format1}}'`
 
 ### Result Columns
 
@@ -923,18 +912,10 @@ ORDER BY CASE WHEN T_WC_T2S_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END, T_WC
 - Network images → ORDER BY VOTE_AVERAGE DESC
 - Person images → ORDER BY VOTE_AVERAGE DESC
 
-### Genre Reference for movies T_WC_T2S_MOVIE_GENRE
-28: Action, 12: Adventure, 16: Animation, 35: Comedy, 80: Crime,
-18: Drama, 10751: Family, 14: Fantasy, 36: History, 27: Horror,
-10402: Music, 9648: Mystery, 10749: Romance, 878: Science Fiction (or Sci-Fi),
-53: Thriller, 10770: TV Movie, 10752: War, 37: Western
-
-### Genre Reference for series T_WC_T2S_SERIE_GENRE
-16: Animation, 18: Drama, 35: Comedy, 36: History, 37: Western, 
-80: Crime, 99: Documentary, 9648: Mystery, 10749: Romance, 
-10751: Family, 10759: Action & Adventure, 10762: Kids, 10763: News, 
-10764: Reality, 10765: Sci-Fi & Fantasy, 10766: Soap, 10767: Talk, 
-10768: War & Politics
+### Genre filtering
+- Movies: filter on `T_WC_T2S_MOVIE_GENRE.ID_GENRE` (integer FK to `T_WC_TMDB_GENRE.id`).
+- Series: filter on `T_WC_T2S_SERIE_GENRE.ID_GENRE` (same `T_WC_TMDB_GENRE` ID space — no separate series-genre table).
+- Always reference a genre via the `{{Genre_nameN}}` placeholder; the resolver substitutes the correct integer ID at runtime (see the Genre placeholder special case at the top of this prompt).
 
 ### Join Conditions
 - T_WC_T2S_PERSON_MOVIE.ID_PERSON = T_WC_T2S_PERSON.ID_PERSON
