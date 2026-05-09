@@ -96,6 +96,19 @@ def evaluate_dataframe_assertions(df_results: pd.DataFrame, strassertions: str) 
         ]
 
     try:
+        # Unified-schema bridge: prompts emit `ID_MOVIE/ID_SERIE/ID_PERSON AS ID_CONTENT`
+        # plus a CONTENT_TYPE discriminator. Synthesize the per-entity columns so
+        # legacy assertions like `ID_MOVIE IN (...)` still resolve. Non-matching rows
+        # become NaN, which the IN/NOT IN evaluator treats as not-in-list.
+        if {"ID_CONTENT", "CONTENT_TYPE"} <= set(df_results.columns):
+            ct = df_results["CONTENT_TYPE"].astype(str).str.lower()
+            if "ID_MOVIE" not in df_results.columns:
+                df_results["ID_MOVIE"] = df_results["ID_CONTENT"].where(ct == "movie")
+            if "ID_SERIE" not in df_results.columns:
+                df_results["ID_SERIE"] = df_results["ID_CONTENT"].where(ct == "serie")
+            if "ID_PERSON" not in df_results.columns:
+                df_results["ID_PERSON"] = df_results["ID_CONTENT"].where(ct == "person")
+
         assertions_str = strassertions.strip()
 
         # Split by AND/OR while preserving the operators

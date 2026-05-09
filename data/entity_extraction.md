@@ -107,8 +107,8 @@ Award nomination received by a person, movie, TV series, or organization.
 Examples: `Academy Award for Best Picture`, `Palme d'Or`, `Primetime Emmy Award`
 
 ### Collection_name
-Trilogies or named series of works.
-Examples: `Dollars Trilogy`, `James Bond Collection`, `Kill Bill - Saga`
+Trilogies, named series of works, universes, and franchises (named groupings of movies and/or TV series).
+Examples: `Dollars Trilogy`, `James Bond Collection`, `Kill Bill - Saga`, `Star Wars`, `Marvel Cinematic Universe`, `DC Extended Universe`, `Batman universe`, `Middle-Earth`, `Harry Potter movies`, `James Bond films`
 
 ### Movement_name
 Film movements or styles.
@@ -125,15 +125,14 @@ Examples: `liver cirrhosis`, `car collision`, `homicide`
 ### Topic_name
 Extract `Topic_name` only for recognizable movie/series-related topics such as:
 - clear thematic topics such as `World War II` or `biographical films`
-- universes or franchises
 - notable recurring character-based collections
+
+Do NOT extract universes or franchises (e.g. `Star Wars`, `Marvel Cinematic Universe`, `DC Extended Universe`, `Batman universe`, `Middle-Earth`, `Harry Potter movies`, `James Bond films`) as `Topic_name` — they are now extracted as `Collection_name`.
 
 Examples:
 - `World War II`
 - `Christmas`
 - `kidnapping`
-- `Marvel Cinematic Universe`
-- `Star Wars`
 - `Philip Marlowe`
 
 ### Genre_name
@@ -187,6 +186,44 @@ Disambiguation:
 - If the user writes "documentary" or "documentaries" **without** explicit series/TV context (e.g., "List documentaries", "best documentaries of 2020"), do **NOT** extract it as `Serie_type` or `Genre_name`. Leave the word in the question unchanged so the text-to-SQL step can handle it directly.
 - Common synonyms ("doc", "documentaire", "mini-série", "talk-show") are accepted at resolution time and resolve to the canonical value above.
 
+### Aspect_ratio
+A movie aspect ratio, expressed in decimal form, in `width:height` form, or by a well-known named convention.
+Common surface forms include (non-exhaustive): `1.33`, `1.37`, `1.66`, `1.78`, `1.85`, `2.35`, `2.39`, `Academy ratio`, `4:3`, `16:9`, `widescreen`, `anamorphic`, `scope`, `Academy`, `flat`, `fullscreen`, `2.35:1`, `2.40:1`.
+
+Examples:
+- `2.35`
+- `1.85:1`
+- `Academy ratio`
+- `16:9`
+- `anamorphic`
+- `widescreen`
+
+Disambiguation:
+- Extract `Aspect_ratio` only when the question filters or asks about the movie's aspect ratio (e.g., "movies shot in 2.35:1", "Academy ratio films", "widescreen movies", "16:9 films").
+- Common surface variants (`2,35` with comma decimal, `2.35:1` with `:1` suffix, named forms `Academy`, `widescreen`, `anamorphic`, `scope`, `4:3`, `16:9`) are accepted at resolution time and resolve to the canonical decimal value (e.g. `1.37`, `1.85`, `2.35`).
+- Do NOT extract a numeric value as `Aspect_ratio` when the context clearly refers to something else (a release year, a runtime, an IMDb rating, a budget, etc.).
+- If the value is not in the supported list above and not a known named alias, do NOT extract it as `Aspect_ratio`. Leave it in the question unchanged.
+
+### Department_name
+A film/TV **crew** department classification. **Crew-only — never Acting/Actors.** Cast (acting) credits are handled by a separate rule and never produce a `Department_name` placeholder.
+
+The value MUST be one of the following canonical crew values (case-insensitive, keep the original surface form when possible):
+- `Art`, `Camera`, `Costume & Make-Up`, `Creator`, `Crew`, `Directing`, `Editing`, `Lighting`, `Production`, `Sound`, `Visual Effects`, `Writing`
+
+Examples:
+- `Directing`
+- `Camera`
+- `Visual Effects`
+- `Sound`
+- `Writing`
+
+Disambiguation:
+- Extract `Department_name` when the question explicitly references a **crew** department or job category by name (e.g., "people in the Camera department", "show me cinematographers", "list directors", "films with the Sound department").
+- Common crew synonyms ("directors", "writers", "editors", "cinematographers", "producers", "creators", "VFX", "réalisateurs", "scénaristes", "monteurs", "producteurs", "créateurs") and their canonical forms are accepted at resolution time and resolve to the canonical value above.
+- **Never extract `Acting`, `Actor`, `Actors`, `Actress`, `Actresses`, `Acteur(s)`, `Actrice(s)`, or any acting/cast role as `Department_name`.** Cast queries are handled by the text-to-SQL step via `CREDIT_TYPE = 'cast'`, not via this placeholder. Leave such words in the question unchanged.
+- Do NOT extract `Department_name` from verb phrasings already covered by other rules (e.g., "directed by X", "written by X", "edited by X") — those are handled inline by the text-to-SQL step from the verb itself together with the `Person_name` placeholder. Extract `Department_name` only when the department/job category itself is the filter.
+- If the surface form is not in the supported crew list above and not a known crew synonym, do NOT extract it as `Department_name`. Leave it in the question unchanged.
+
 ### Technical_format
 A movie technical format, technology, or process — covers sound systems, color technologies, film technologies, sound technologies, and film formats stored in the `T_WC_T2S_TECHNICAL` reference table.
 
@@ -213,7 +250,9 @@ Disambiguation:
 
 ### General
 - Extract only named entities or compact topic expressions that matter for anonymization
-- Do not extract generic words such as `movie`, `film`, `series`, `actor`, `director`
+- Do not extract generic words such as `movie`, `film`, `series`
+- **Crew** job titles (`director`, `cinematographer`, `editor`, `writer`, `producer`, `creator`, `réalisateur`, `scénariste`, etc.) ARE extracted as `Department_name` when they appear as a filter for a person search or a crew search — see the dedicated `Department_name` section above
+- **Acting / cast** roles (`actor`, `actors`, `actress`, `actresses`, `acteur`, `acteurs`, `actrice`, `actrices`, `cast`) are NOT extracted — leave them in the question; the text-to-SQL step routes them via `CREDIT_TYPE = 'cast'` directly
 - Do not normalize or canonicalize names; later steps will handle resolution
 - If two different entities of the same type appear, number them in order of appearance, for example `Person_name1`, `Person_name2`
 
@@ -231,6 +270,7 @@ Do not extract as `Topic_name`:
 - `Criterion Collection` by itself
 - film movements or styles such as `Film Noir`, `French New Wave`, `New Hollywood`, `Cinéma vérité`, `Surrealism`, `Pre-Code movies`
 - trilogies or named series of works such as `Dollars Trilogy`, `James Bond Collection`, `Kill Bill - Saga`
+- universes or franchises such as `Star Wars`, `Marvel Cinematic Universe`, `DC Extended Universe`, `Batman universe`, `Middle-Earth`, `Harry Potter movies`, `James Bond films` — use `Collection_name` instead
 - notable curated film lists or TV series lists such as `Sight and Sound greatest films of all time`, `IMDb top 250 tv shows`, `Roger Ebert's Great Movies List`
 - awards or recognitions such as `Academy Award for Best Picture`, `Palme d'Or`, `Primetime Emmy Award`
 - award nominations such as `Academy Award for Best Picture`, `Palme d'Or`, `Primetime Emmy Award`
@@ -244,7 +284,7 @@ Do not extract as `Genre_name`:
 
 ### List_name boundaries
 Extract as `List_name` when the phrase refers to a named, notable, curated ranking, selection, registry, canon, or editorial list of movies or TV series.
-Do not extract as `List_name` for generic topics, franchises, trilogies, awards, or broad thematic collections.
+Do not extract as `List_name` for generic topics, franchises or universes (use `Collection_name`), trilogies, awards, or broad thematic collections.
 
 ### Award_name boundaries
 Extract as `Award_name` when the phrase refers to a named award, prize, honor, recognition, or award franchise associated with movies, TV series, people, or organizations.
@@ -255,8 +295,8 @@ Extract as `Nomination_name` when the phrase refers to a named award nomination 
 Do not extract as `Nomination_name` for film movements, franchises, trilogies, generic themes, curated ranking lists, or already-awarded recognitions.
 
 ### Collection_name boundaries
-Extract as `Collection_name` when the phrase refers to a trilogy or named series of works grouping movies or TV series together.
-Do not extract as `Collection_name` for generic topics, broad franchises or universes, awards, nominations, `Criterion Collection` by itself or curated ranking lists.
+Extract as `Collection_name` when the phrase refers to a trilogy, named series of works, universe, or franchise grouping movies or TV series together (e.g., `Dollars Trilogy`, `Kill Bill - Saga`, `Star Wars`, `Marvel Cinematic Universe`, `DC Extended Universe`, `Batman universe`, `Middle-Earth`, `Harry Potter movies`, `James Bond films`).
+Do not extract as `Collection_name` for generic topics, awards, nominations, `Criterion Collection` by itself, or curated ranking lists.
 
 ### Movement_name boundaries
 Extract as `Movement_name` when the phrase refers to a named film movement, cinematic style, or historical school of filmmaking.
@@ -265,6 +305,18 @@ Do not extract as `Movement_name` for franchises, universes, trilogies, recurrin
 ### Group_name boundaries
 Extract as `Group_name` when the phrase refers to an organization, club, publication group, collective, or musical/comedy group associated with a person.
 Do not extract as `Group_name` for companies, networks, franchises, topics, awards, nominations, movements, or curated ranking lists.
+
+### Aspect_ratio boundaries
+Extract as `Aspect_ratio` when the phrase refers to a movie aspect ratio by its decimal form (`2.35`, `1.85`, `1.37`), its named convention (`Academy ratio`, `widescreen`, `anamorphic`, `scope`, `fullscreen`), or its `width:height` form (`16:9`, `4:3`, `2.35:1`, `2.40:1`).
+Do not extract as `Aspect_ratio` for film formats (`35 mm`, `70 mm`, `IMAX`) — those are `Technical_format`.
+Do not extract as `Aspect_ratio` for unrelated numeric values mentioned in the question (release years, runtimes, budgets, ratings, IDs).
+
+### Department_name boundaries
+Extract as `Department_name` when the phrase refers to a film/TV **crew** department or job category by name (e.g., `directors`, `cinematographers`, `editors`, `producers`, `creators`, `réalisateurs`, `scénaristes`, `monteurs`).
+Do **NOT** extract as `Department_name`:
+- `actor`, `actors`, `actress`, `actresses`, `acteur(s)`, `actrice(s)`, `cast`, or any other acting/cast role — Acting is not part of the crew vocabulary; the text-to-SQL step handles actor queries via `CREDIT_TYPE = 'cast'` directly.
+- Verb phrasings the text-to-SQL step already handles inline (e.g., `directed by X`, `written by X`, `edited by X`) — those need only `Person_name`.
+- Fine-grained job titles not in the supported canonical crew list (e.g., `gaffer`, `boom operator`, `colorist`) — leave them in the question unchanged.
 
 ### Death_name boundaries
 Extract as `Death_name` when the phrase refers to a named medical cause of death or a named legal/general circumstance of a person's death.
@@ -319,8 +371,29 @@ Output:
 Input: `Star Wars movies`
 Output:
 {
-  "question": "{{Topic_name1}} movies",
-  "Topic_name1": "Star Wars"
+  "question": "{{Collection_name1}} movies",
+  "Collection_name1": "Star Wars"
+}
+
+Input: `Marvel Cinematic Universe movies`
+Output:
+{
+  "question": "{{Collection_name1}} movies",
+  "Collection_name1": "Marvel Cinematic Universe"
+}
+
+Input: `Middle-Earth movies`
+Output:
+{
+  "question": "{{Collection_name1}} movies",
+  "Collection_name1": "Middle-Earth"
+}
+
+Input: `Harry Potter movies`
+Output:
+{
+  "question": "{{Collection_name1}} movies",
+  "Collection_name1": "Harry Potter movies"
 }
 
 Input: `Films récompensés aux oscars`
@@ -511,6 +584,42 @@ Output:
   "Technical_format1": "Dolby surround"
 }
 
+Input: `Movies shot in 2.35:1`
+Output:
+{
+  "question": "Movies shot in {{Aspect_ratio1}}",
+  "Aspect_ratio1": "2.35:1"
+}
+
+Input: `Academy ratio films`
+Output:
+{
+  "question": "{{Aspect_ratio1}} films",
+  "Aspect_ratio1": "Academy ratio"
+}
+
+Input: `Widescreen movies`
+Output:
+{
+  "question": "{{Aspect_ratio1}} movies",
+  "Aspect_ratio1": "Widescreen"
+}
+
+Input: `Films in 16:9`
+Output:
+{
+  "question": "Films in {{Aspect_ratio1}}",
+  "Aspect_ratio1": "16:9"
+}
+
+Input: `Anamorphic movies directed by Steven Spielberg`
+Output:
+{
+  "question": "{{Aspect_ratio1}} movies directed by {{Person_name1}}",
+  "Aspect_ratio1": "Anamorphic",
+  "Person_name1": "Steven Spielberg"
+}
+
 Input: `What are Japanese speaking movies?`
 Output:
 {
@@ -553,6 +662,55 @@ Output:
   "Network_name1": "HBO"
 }
 
+Input: `List directors`
+Output:
+{
+  "question": "List {{Department_name1}}",
+  "Department_name1": "Directing"
+}
+
+Input: `List actors`
+Output:
+{
+  "question": "List actors"
+}
+
+Input: `Actresses in The Big Lebowski`
+Output:
+{
+  "question": "Actresses in {{Movie_title1}}",
+  "Movie_title1": "The Big Lebowski"
+}
+
+Input: `Show me cinematographers`
+Output:
+{
+  "question": "Show me {{Department_name1}}",
+  "Department_name1": "cinematographers"
+}
+
+Input: `People known for Visual Effects`
+Output:
+{
+  "question": "People known for {{Department_name1}}",
+  "Department_name1": "Visual Effects"
+}
+
+Input: `Films with crew in the Sound department`
+Output:
+{
+  "question": "Films with crew in the {{Department_name1}} department",
+  "Department_name1": "Sound"
+}
+
+Input: `Réalisateurs nés en 1962`
+Output:
+{
+  "question": "{{Department_name1}} nés en {{Birth_year1}}",
+  "Department_name1": "Réalisateurs",
+  "Birth_year1": "1962"
+}
+
 Input: `Actors born in 1962`
 Output:
 {
@@ -563,7 +721,8 @@ Output:
 Input: `Directors who died in 1980`
 Output:
 {
-  "question": "Directors who died in {{Death_year1}}",
+  "question": "{{Department_name1}} who died in {{Death_year1}}",
+  "Department_name1": "Directors",
   "Death_year1": "1980"
 }
 

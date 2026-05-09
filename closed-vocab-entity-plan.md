@@ -50,10 +50,11 @@ These are columns whose allowed values are explicitly listed in [data/text_to_sq
 - User phrasings: "released movies", "canceled series", "movies in production"
 - Implementation: closed-vocabulary string substitution (same shape as A1)
 
-### B2. `Department_name` — closed vocabulary (~12 values)
+### B2. `Department_name` — closed vocabulary (~13 values) — **SHIPPED**
 - Columns: `T_WC_T2S_PERSON_MOVIE.CREW_DEPARTMENT`, `T_WC_T2S_PERSON_SERIE.CREW_DEPARTMENT`, `T_WC_T2S_PERSON.KNOWN_FOR_DEPARTMENT`
-- Allowed values at [data/text_to_sql.md:868-871](data/text_to_sql.md#L868): `Art, Camera, Costume & Make-Up, Crew, Directing, Editing, Lighting, Production, Sound, Visual Effects, Writing` (+ `Creator` for series, + `Acting` for KNOWN_FOR)
-- Subtle: same vocabulary, two different columns chosen by question intent ("films directed by" → `CREW_DEPARTMENT='Directing'`, "directors" without films → `KNOWN_FOR_DEPARTMENT='Directing'`). The text-to-SQL prompt already encodes that disambiguation, so an entity placeholder just needs to surface the canonical value.
+- Canonical values: `Art`, `Camera`, `Costume & Make-Up`, `Crew`, `Directing`, `Editing`, `Lighting`, `Production`, `Sound`, `Visual Effects`, `Writing` + `Creator` (series only) + `Acting` (KNOWN_FOR only)
+- Same vocabulary, two different columns chosen by question intent ("films directed by" → `CREW_DEPARTMENT='Directing'`, "directors" without films → `KNOWN_FOR_DEPARTMENT='Directing'`). The text-to-SQL prompt encodes that disambiguation; the placeholder just supplies the canonical value.
+- Implementation: DB-driven canonicals via UNION over the three columns, loaded once at startup by `closed_vocab.init()`. Aliases in [data/closed_vocabularies.json](data/closed_vocabularies.json) cover plural forms (directors, writers, editors, cinematographers, actors, actresses, producers, creators), English synonyms (DP, DOP, VFX, screenwriting, production design, costume, makeup), and French equivalents (réalisateurs, scénaristes, monteurs, acteurs, actrices, producteurs, créateurs, chef opérateur). Resolver shares the `Status_name` / `Serie_type` dispatch path in `entity.resolve_entities()` (single-quoted canonical-string substitution). The "do not extract generic words" rule in [data/entity_extraction.md](data/entity_extraction.md) was relaxed to allow job titles such as `actor`, `director`, `cinematographer` to flow through as `Department_name`.
 
 ### B3. `Technical_format` — closed vocabulary (56 values, name → integer ID)
 - Reference table: `T_WC_T2S_TECHNICAL(ID_TECHNICAL INT, DESCRIPTION VARCHAR(50), TECHNICAL_TYPE VARCHAR(20), DELETED INT, …)` — see [doc/sql/T_WC_T2S_TECHNICAL.sql](doc/sql/T_WC_T2S_TECHNICAL.sql)
@@ -63,10 +64,13 @@ These are columns whose allowed values are explicitly listed in [data/text_to_sq
 - Multilingual aliases: no `T_WC_T2S_TECHNICAL_LANG` table today; aliases live in [data/closed_vocabularies.json](data/closed_vocabularies.json) under a `Technical_format` key. A `_LANG` companion table can be added later mirroring `T_WC_TMDB_GENRE_LANG` if alias volume justifies it.
 - Note: prompt today says (line 229) "Do not extract these as entities… technical formats or technologies such as `Technicolor`, `Dolby`, `IMAX`, `35 mm`" — so adding this entity would require **removing or inverting that rule** in [data/entity_extraction.md:229](data/entity_extraction.md#L229).
 
-### B4. `Aspect_ratio` — closed vocabulary (~6 values)
-- Column: `T_WC_T2S_MOVIE.ASPECT_RATIO` (VARCHAR)
-- Listed at [data/text_to_sql.md:751](data/text_to_sql.md#L751): `1.37, 2.35, 1.85, 1.33, 1.66, 2.39`
-- Stored as string; users may say "2.35:1", "16:9", "Academy ratio" → would need a normalizer mapping common phrasings to the stored decimal form. Possibly low ROI given the small handful of natural user queries, but the user explicitly raised this as the example.
+### B4. `Aspect_ratio` — closed vocabulary (~30 comma-decimal values) — **SHIPPED**
+- Column: `T_WC_T2S_MOVIE.ASPECT_RATIO` (VARCHAR; **French comma-decimal notation** as stored in DB — e.g. `'1,33'` not `'1.33'`)
+- Canonical values (filtered to comma-decimal form): `1,33`, `1,37`, `1,66`, `1,78`, `1,85`, `2,35`, `2,39`, `2,40`, `2,55`, etc.
+- Implementation: DB-driven canonicals via `SELECT DISTINCT ASPECT_RATIO FROM T_WC_T2S_MOVIE WHERE ASPECT_RATIO IS NOT NULL AND ASPECT_RATIO REGEXP '^[0-9]+,[0-9]+$'`, loaded once at startup by `closed_vocab.init()`. The REGEXP filter excludes noisy DB variants (`'4:3'`, `'4/3'`, `'16:9'`, `'1:33'`, `'235:1'`, etc.) from the canonical map so they fall through to the alias layer instead of matching themselves canonically.
+- Aliases in [data/closed_vocabularies.json](data/closed_vocabularies.json) all target comma-decimal canonicals: named conventions (`Academy` → `1,37`, `fullscreen` → `1,33`, `widescreen` / `flat` → `1,85`, `european widescreen` → `1,66`, `modern anamorphic` → `2,39`), `width:height` and slash forms (`4:3` / `4/3` / `4x3` → `1,33`, `16:9` / `16/9` / `16x9` → `1,78`, `21:9` → `2,39`), `N.NN:1` / `N,NN:1` / `N:NN` punctuation variants for every canonical, and bare dot-decimal user input (`1.33` / `1.85` / `2.35` → comma equivalents). `anamorphic` / `scope` / `cinemascope` deliberately removed — those are `Technical_format` aliases and would collide.
+- Resolver order matters: in `_resolve_closed_vocab` canonical exact match runs before alias match. Without the REGEXP filter, a DB value like `'4:3'` would match canonically and the alias `4:3 → 1,33` would never fire — that was the original bug.
+- Resolver shares the `Status_name` / `Serie_type` / `Department_name` dispatch path in `entity.resolve_entities()` (single-quoted canonical-string substitution against the VARCHAR column).
 
 ### B5. `Country_name` and `Language_name` — ISO code lookup
 - Country columns: `T_WC_T2S_COMPANY.ORIGIN_COUNTRY`, `T_WC_T2S_NETWORK.ORIGIN_COUNTRY`, `T_WC_T2S_*_PRODUCTION_COUNTRY.COUNTRY_CODE`, `T_WC_T2S_PERSON.COUNTRY_OF_BIRTH` — 2-letter ISO codes ([data/text_to_sql.md:730](data/text_to_sql.md#L730))

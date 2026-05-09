@@ -148,6 +148,25 @@ _STATUS_QUERY = (
 _SERIE_TYPE_QUERY = (
     "SELECT DISTINCT SERIE_TYPE AS V FROM T_WC_T2S_SERIE WHERE SERIE_TYPE IS NOT NULL"
 )
+_DEPARTMENT_QUERY = (
+    "SELECT DISTINCT CREW_DEPARTMENT AS V FROM T_WC_T2S_PERSON_MOVIE "
+    "WHERE CREW_DEPARTMENT IS NOT NULL AND CREW_DEPARTMENT NOT IN ('Actors', 'Acting') "
+    "UNION SELECT DISTINCT CREW_DEPARTMENT AS V FROM T_WC_T2S_PERSON_SERIE "
+    "WHERE CREW_DEPARTMENT IS NOT NULL AND CREW_DEPARTMENT NOT IN ('Actors', 'Acting') "
+    "UNION SELECT DISTINCT KNOWN_FOR_DEPARTMENT AS V FROM T_WC_T2S_PERSON "
+    "WHERE KNOWN_FOR_DEPARTMENT IS NOT NULL AND KNOWN_FOR_DEPARTMENT NOT IN ('Actors', 'Acting')"
+)
+_ASPECT_RATIO_QUERY = (
+    # Restrict canonicals to well-formed comma-decimal values (French decimal
+    # notation, e.g. '1,33', '1,85', '2,35'). The DB also stores noisy variants
+    # like '4:3', '4/3', '16:9', '1:33', '235:1' that represent the same ratios
+    # in non-canonical form; those are excluded from the canonical map so they
+    # fall through to the alias layer in data/closed_vocabularies.json, which
+    # remaps them to their dominant comma-decimal form.
+    "SELECT DISTINCT ASPECT_RATIO AS V FROM T_WC_T2S_MOVIE "
+    "WHERE ASPECT_RATIO IS NOT NULL "
+    "AND ASPECT_RATIO REGEXP '^[0-9]+,[0-9]+$'"
+)
 _GENRE_CANONICALS_QUERY = (
     "SELECT id, name FROM T_WC_TMDB_GENRE WHERE name IS NOT NULL"
 )
@@ -176,6 +195,18 @@ def init(connection) -> None:
     except Exception as e:
         print(f"[closed_vocab] Failed to load Serie_type canonicals: {e}")
         loaded["Serie_type"] = {}
+
+    try:
+        loaded["Department_name"] = _load_distinct(connection, _DEPARTMENT_QUERY)
+    except Exception as e:
+        print(f"[closed_vocab] Failed to load Department_name canonicals: {e}")
+        loaded["Department_name"] = {}
+
+    try:
+        loaded["Aspect_ratio"] = _load_distinct(connection, _ASPECT_RATIO_QUERY)
+    except Exception as e:
+        print(f"[closed_vocab] Failed to load Aspect_ratio canonicals: {e}")
+        loaded["Aspect_ratio"] = {}
 
     try:
         loaded["Genre_name"] = _load_genre_id_map(connection, _GENRE_CANONICALS_QUERY)
@@ -233,7 +264,8 @@ def _aliases_for(entity: str, target_canonical: dict[str, Any] | None = None) ->
 
 
 def resolve(entity: str, raw_value: Any) -> Any:
-    """Resolve a Status_name / Serie_type value to its canonical string form."""
+    """Resolve a string-canonical value (Status_name / Serie_type / Department_name /
+    Aspect_ratio) to its canonical form, applying alias and typo tolerance."""
     canonical = _CANONICAL.get(entity, {})
     aliases = _aliases_for(entity)
     return _resolve_closed_vocab(raw_value, canonical, aliases)

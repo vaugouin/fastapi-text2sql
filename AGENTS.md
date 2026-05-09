@@ -1,0 +1,370 @@
+# AGENTS.md - Agent Guide for FastAPI Text2SQL
+
+This file gives you the agentic context you need to work on this codebase safely. For project overview, features, install / deploy steps, API request / response examples, sample queries, and human-facing security / performance / troubleshooting material, read @README.md — that file is canonical and not duplicated here.
+
+This is the single canonical guide for autonomous coding agents in this repository. Assistant-specific files such as @CLAUDE.md, and any future tool-specific guide such as `GEMINI.md`, should only point here and should not duplicate repository instructions.
+
+Deeper specs live in their own files:
+- @MCP.md — full MCP integration guide (tool code, resource reference, client setup, bearer token, end-to-end flow)
+- @RAPIDFUZZ.md — RapidFuzz setup and SQL schema requirements
+- @eval/README.md — evaluation harness
+- @doc/sql/*.sql — reference DDL for the database schema; treat these files as read-only unless the user explicitly asks you to edit schema documentation
+
+---
+
+## Where things live (file → role)
+
+Edit at the right layer; the architecture is intentionally split.
+
+**[main.py](main.py)** (~2460 lines) — FastAPI app, ChromaDB / DB startup, request orchestration only.
+- Version utilities: `format_api_version()` ([main.py:33](main.py#L33)), `compare_versions()` ([main.py:38](main.py#L38))
+- `strapiversion` lives at [main.py:105](main.py#L105) (also drives Blue/Green port parity and `MCP_INTERNAL_BASE_URL`)
+- `Text2SQLRequest` / `Text2SQLResponse` Pydantic models around [main.py:214-269](main.py#L214-L269)
+- `POST /search/text2sql` — main pipeline endpoint
+- 14 entity detail endpoints (movies, series, persons, companies, networks, collections, topics, lists, movements, groups, deaths, awards, nominations, locations)
+- FastMCP instance + 15 MCP tools (`sql_search` + 14 entity tools), 1 resource (`context://database-scope`), bearer-token middleware, `app.mount("", mcp_app)` at root
+
+**[text2sql.py](text2sql.py)** — core LLM logic.
+- `_call_chat_llm()` — unified multi-provider dispatcher (OpenAI / Anthropic / Google). Routes on prefix: `gpt-*`/`o1*`/`o3*` → OpenAI; `claude-*` → Anthropic; `gemini-*` → Google.
+- `f_text2sql(user_question, model, ui_language)` — text-to-SQL conversion; replaces `{ui_language}` in the prompt template so the LLM generates the `answer` field in the requested language.
+- `f_resolve_complex_question()` / `f_resolve_complex_question_retry_payload()` — complex-question simplification via stronger model.
+- `f_build_retry_question_from_reasoning()` — deterministic retry-question composer (typed entities + years).
+- `f_answer_single_value()` — direct-answer path for single-cell zero-count results.
+- Hot-reloads `text_to_sql.md` and `complex_question.md` via `data_watcher`.
+
+**[entity.py](entity.py)** — entity extraction + resolution.
+- `f_entity_extraction()` — LLM-based extraction + anonymization.
+- `resolve_entities()` — main resolver: regex-validated branch → closed-vocab branches → embeddings/RapidFuzz from `entity_resolution.json` → raw fallback.
+- `_match_regex_placeholder_rule()` — dispatch helper for regex placeholders.
+- `_REGEX_PLACEHOLDER_RULES` — list of `(prefix, regex, is_numeric)` tuples; **order matters** (uses `startswith()`).
+- Hot-reloads `entity_extraction.md` and `entity_resolution.json` via `data_watcher`.
+
+**[closed_vocab.py](closed_vocab.py)** — closed-vocabulary lookups (DB canonicals + JSON aliases + RapidFuzz typo tolerance).
+- `init(connection)` — loads canonicals at startup. Called once from `main.py` startup.
+- `resolve(entity, raw_value)` — string-canonical lookup (`Status_name`, `Serie_type`, `Department_name`, `Aspect_ratio`).
+- `resolve_genre(raw)` / `resolve_technical(raw)` — integer-ID lookups (`ID_GENRE`, `ID_TECHNICAL`).
+- Aliases hot-reload from [data/closed_vocabularies.json](data/closed_vocabularies.json).
+
+**[rapidfuzz_query.py](rapidfuzz_query.py)** — lexical matching.
+- `search_first_match()` — exact-norm → key prefix → FULLTEXT → LIKE last resort, ranked with `fuzz.WRatio`.
+- Thresholds: `AUTO_SCORE = 90`, `MIN_MARGIN = 5`, `TOP_K = 10`.
+- Requires `*_NORM` / `*_KEY` generated columns and (optional) FULLTEXT index — see [RAPIDFUZZ.md](RAPIDFUZZ.md).
+
+**[sql_cache.py](sql_cache.py)** — cache helpers.
+- `search_sql_cache_by_question_hash()`, `search_sql_cache_by_question_text()`, `write_sql_cache_entry()` — all take the **formatted** API version (`XXX.YYY.ZZZ`).
+- `_normalize_cache_row()` — picks `SQL_QUERY` over `SQL_PROCESSED` when needed to preserve a smaller LLM-defined `LIMIT` (see `used_raw_query_to_preserve_limit`).
+
+**[cleanup.py](cleanup.py)** — version-scoped purge utilities (off by default; see `intcleanupenabled` at [main.py:70-71](main.py#L70-L71)).
+
+**[auth.py](auth.py)** — `get_api_key()` Security dependency. Multi-key via `API_KEYS` (comma-separated); `secrets.compare_digest()` for constant-time comparison.
+
+**[data_watcher.py](data_watcher.py)** — `register(filename, callback)`; daemon thread polls `./data/` every 5 s on mtime; logs hot reloads via `logs.log_hot_reload()`.
+
+**[language_family.py](language_family.py)** — `guess_language_family()` from Unicode code points (Latin / Hangul / Japanese / Chinese / Cyrillic / Arabic / Hebrew / Devanagari / etc.).
+
+**[logs.py](logs.py)** — `log_usage(endpoint, content, strapiversion)` and `log_hot_reload(filename)`. Filenames are `YYYYMMDD-HHMMSS_{endpoint}_{version}_{md5hash}.json`; never overwrite existing files.
+
+**[data/](data/)** — hot-reloaded prompts and config:
+- `text_to_sql.md` — main Text2SQL prompt (loaded by [text2sql.py](text2sql.py))
+- `complex_question.md` — complex-question resolver prompt (loaded by [text2sql.py](text2sql.py))
+- `entity_extraction.md` — entity extraction prompt (loaded by [entity.py](entity.py))
+- `entity_resolution.json` — per-placeholder resolution strategy list (loaded by [entity.py](entity.py))
+- `closed_vocabularies.json` — alias dictionaries (loaded by [closed_vocab.py](closed_vocab.py))
+
+---
+
+## Runtime dependencies
+
+The app loads environment variables from `.env` via `python-dotenv`.
+
+- MariaDB: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`.
+- API auth: `API_KEYS` (comma-separated) or legacy `API_KEY`.
+- LLMs: `OPENAI_API_KEY` for `gpt-*`, `o1*`, `o3*`, and embeddings; `ANTHROPIC_API_KEY` for `claude-*`; `GOOGLE_API_KEY` for `gemini-*`; `OPENROUTER_API_KEY` for OpenRouter-routed models.
+- ChromaDB: `CHROMADB_HOST`, `CHROMADB_PORT`.
+- Blue/Green and MCP: `API_PORT_BLUE`, `API_PORT_GREEN`, `MCP_API_KEY`, `MCP_INTERNAL_API_KEY`, `MCP_INTERNAL_BASE_URL`.
+
+Important startup constraint: `OPENAI_API_KEY` is required at import/startup because `main.py` initializes the OpenAI embedding function for ChromaDB even if the request-time text model is Anthropic or Google.
+
+---
+
+## ChromaDB collections
+
+`main.py` creates or opens 15 entity collections: `persons`, `movies`, `series`, `companies`, `networks`, `topics`, `locations`, `groups`, `characters`, `lists`, `collections`, `deaths`, `awards`, `nominations`, `movements`.
+
+The `anonymizedqueries` collection is separate and is used for the optional embeddings-based anonymized-question cache. If schema, entity IDs, collection document IDs, or language-routed fields change, assume the relevant ChromaDB collection may need to be rebuilt or resynced; stale embeddings can resolve to IDs that no longer exist in the SQL tables.
+
+---
+
+## Hot-reloaded vs restart-required
+
+**Hot-reloaded (no restart)** — picked up within ~5 s of mtime change:
+- Anything under `data/` (the five files above).
+
+**Restart required** — consider whether a user-requested `strapiversion` bump is also needed so the cache key flips and the Blue/Green parity moves:
+- Any change to `*.py`.
+- Any new placeholder (it must dispatch through `entity.py`).
+- New `closed_vocab` canonical loader or query (touched in `closed_vocab.py`).
+
+Do not bump `strapiversion` automatically. If the user explicitly asks for a version bump, update `strapiversion`; otherwise, mention when a prompt/config change may be shadowed by old cached SQL and let the user decide.
+
+---
+
+## Placeholder dispatch order
+
+Inside `entity.resolve_entities()`, the dispatch order is fixed and matters:
+
+1. **Regex-validated** ([entity.py](entity.py) `_REGEX_PLACEHOLDER_RULES`) — uses `startswith()`, so more specific prefixes must come first:
+   - `Release_year`, `Birth_year`, `Death_year` — `\d{4}`, numeric (bare integer)
+   - `IMDb_person_ID` (before `IMDb_ID`) — `nm\d+`, quoted string
+   - `IMDb_ID` — `tt\d+`, quoted string
+   - `Wikidata_property_ID` (before `Wikidata_ID`) — `P\d+`, quoted string
+   - `Wikidata_ID` — `Q\d+`, quoted string
+   - `TMDb_ID`, `Criterion_spine_ID` — `\d+`, numeric
+   - **Malformed values are rejected** → placeholder left unresolved → question marked ambiguous.
+2. **Closed-vocabulary branches** — handled by name-prefix `if/elif`:
+   - `Genre_name*` → `closed_vocab.resolve_genre()` → integer `ID_GENRE` (no quotes in SQL).
+   - `Technical_format*` → `closed_vocab.resolve_technical()` → integer `ID_TECHNICAL` (no quotes in SQL).
+   - `Status_name*` / `Serie_type*` / `Department_name*` / `Aspect_ratio*` → `closed_vocab.resolve(entity, raw)` → canonical string (single-quoted in SQL).
+3. **Embeddings / RapidFuzz** — driven by `data/entity_resolution.json` `search_list` strategies; per-strategy language-family gating is supported.
+4. **Raw fallback** — any unmatched placeholder gets the raw extracted value SQL-escaped and substituted directly. If anything is still left after the loop, `ambiguous_question_for_text2sql = 1` is set.
+
+---
+
+## Adding a new placeholder
+
+Pick the right kind, then follow the canonical pattern:
+
+| Kind | Where the resolver lives | What goes in `entity.py` | Schema edits |
+|---|---|---|---|
+| Regex (year, ID-style literal) | `_REGEX_PLACEHOLDER_RULES` tuple | nothing — dispatcher handles it | none |
+| Closed-vocab string (Status-shape) | `closed_vocab._XXX_QUERY` + `init()` block | name-prefix branch in `resolve_entities()` calling `closed_vocab.resolve("XXX", raw)` | optional aliases entry in `data/closed_vocabularies.json` |
+| Closed-vocab integer ID (Genre-shape) | `closed_vocab._XXX_CANONICALS_QUERY` + `init()` block + `resolve_xxx()` function (mirrors `resolve_genre`/`resolve_technical`) | name-prefix branch substituting the integer (no quotes) | aliases JSON; optional `_LANG` companion table |
+| Embeddings / RapidFuzz (open-vocab name) | new entry in `data/entity_resolution.json` (`search_list` with `embeddings` and/or `rapidfuzz` strategies) | nothing — config-driven | new ChromaDB collection + initialization in [main.py:124-143](main.py#L124-L143) for embeddings |
+
+Always also:
+1. Add the placeholder definition + examples to `data/entity_extraction.md`.
+2. Add a placeholder reference (and any column-picking rule) to `data/text_to_sql.md`.
+3. Update [closed-vocab-entity-checklist.csv](closed-vocab-entity-checklist.csv) if it's a closed-vocab entity.
+4. Bump `strapiversion` only when explicitly requested; otherwise warn that current-version cache rows may shadow the new behavior.
+
+---
+
+## Code conventions
+
+- **Hungarian notation** for variables (legacy style):
+  - `str` — strings (`strtablename`, `strapiversion`)
+  - `lng` — integers (`lngpage`, `lngrowsperpage`)
+  - `dbl` — floats (`dblavailableram`)
+  - `arr` — lists / arrays
+  - `int` — boolean-like flags (`intcleanupenabled`, `intentity`)
+- **Function naming**: public pipeline entry points use `f_` (`f_text2sql`, `f_entity_extraction`, `f_resolve_complex_question`, `f_answer_single_value`, `f_hello_world`); private helpers use `_` (`_call_chat_llm`, `_normalize_llm_model`).
+- **Docstrings**: Google-style on public functions.
+- **Error handling**: broad try/except with console logging; surface failures via the `error` response field and the `messages` trace. Database execution errors are not returned directly to clients — they go through the complex-question retry path when enabled.
+- **JSON serialization**: use `logs.decimal_serializer()` for `Decimal` and `datetime`.
+
+---
+
+## SQL handling rules
+
+**Escaping** — SQL-style doubled single quotes, NOT backslash. `entity._sql_escape_literal()` centralizes this:
+```python
+"O'Brien".replace("'", "\\'")  # WRONG — breaks MariaDB
+"O'Brien".replace("'", "''")   # CORRECT → 'O''Brien'
+```
+
+**Pagination** — three regexes detect and strip LLM-emitted `LIMIT`/`OFFSET` clauses (`LIMIT n OFFSET m`, `LIMIT m, n`, `LIMIT n`); a smaller LLM-defined limit is respected when smaller than `rows_per_page`. Code at [main.py:1010-1046](main.py#L1010-L1046).
+
+**Ambiguous questions** — when the LLM cannot produce a valid query *or* entity resolution leaves unresolved placeholders, set `ambiguous_question_for_text2sql = True`, skip execution, and surface the LLM's explanation in `error`. The legacy `##AMBIGUOUS##` marker is gone — do not reintroduce it.
+
+---
+
+## Entity-resolution config schema (`data/entity_resolution.json`)
+
+Each entry has a `placeholder_prefix` and a `search_list`. Each search entry can define:
+- `search_mode`: `"embeddings"` or `"rapidfuzz"`
+- `apply_when_language_family_in` / `apply_when_language_family_not_in`: gate by script family
+- `strtablename`, `strtableid`, `default_field`: SQL table / PK / display column
+- `collection`: ChromaDB collection name (embeddings mode)
+- `languages`: `{ "en": FIELD, "fr": FIELD, "*": FIELD }` for language-routed column selection on document IDs formatted as `{entity}_{id}_{lang}`
+- `rapidfuzz_col_norm`, `rapidfuzz_col_key`, `rapidfuzz_col_popularity`: generated/norm columns for lexical matching
+- `resolve_to_canonical`: when an AKA table returns a row, look up the canonical value in another table (e.g., `T_WC_TMDB_PERSON_ALSO_KNOWN_AS.ID_PERSON` → `T_WC_T2S_PERSON.PERSON_NAME`)
+
+ChromaDB document ID format is always `{entity}_{id}_{lang}` (e.g., `movie_12345_fr`). Language drives the SQL field via the `languages` map.
+
+---
+
+## Messages array invariant
+
+Every processing step appends `TextMessage(position=int, text=str)` with a monotonically increasing `position_counter`:
+```python
+messages.append(TextMessage(position=position_counter, text="..."))
+position_counter += 1
+```
+When delegating to `entity.resolve_entities()` or `_retry_with_resolved_complex_question()`, the updated counter is threaded through the return dict. On complex-question retry, the messages from the outer and inner runs are renumbered and merged (see [main.py:879-891](main.py#L879-L891)).
+
+---
+
+## Cache API-version filtering
+
+All cache reads and writes must pass `strapiversionformatted` (`XXX.YYY.ZZZ`), never the raw `strapiversion`. The `sql_cache` helpers already take the formatted version as a parameter — pass it through, do not recompute.
+
+Cache lookups also filter by `UI_LANGUAGE` (with `OR UI_LANGUAGE IS NULL` for backward compatibility). Lookups that hit prefer `SQL_PROCESSED`; raw `SQL_QUERY` is used only when it preserves a smaller LLM-defined `LIMIT`.
+
+---
+
+## Version management workflow
+
+When updating prompt templates, schema, or resolver behavior:
+1. Edit the hot-reloaded file in `data/` directly — no versioned filename suffix; hot-reload picks the change up within ~5 s without a restart.
+2. Bump `strapiversion` in [main.py:105](main.py#L105) only when the user explicitly asks for a version bump. This also flips Blue/Green port parity when the patch number changes.
+3. Restart only if you also touched `*.py`.
+4. If `intcleanupenabled = True`, startup cleanup will purge old cached queries for the previous version.
+5. If you do not bump the version after a prompt/config change, tell the user that existing cache rows for the current formatted version may still shadow the new behavior.
+
+Filenames registered at module import time are static:
+- `text_to_sql.md`, `complex_question.md` (registered in [text2sql.py:36,40](text2sql.py#L36))
+- `entity_extraction.md`, `entity_resolution.json` (registered in [entity.py:12-13](entity.py#L12-L13))
+- `closed_vocabularies.json` (registered in [closed_vocab.py](closed_vocab.py))
+
+Version format: input `"1.1.16"` → stored `"001.001.016"` via `format_api_version()` (in both [main.py:33](main.py#L33) and [cleanup.py:5](cleanup.py#L5)).
+
+---
+
+## Verification workflow
+
+Pick verification based on blast radius:
+
+- For small Python-only changes, run the narrowest relevant smoke test or command available in the repo.
+- For prompt, placeholder, resolver, cache, or schema-facing changes, run representative `/search/text2sql` questions when credentials and services are available.
+- For evaluation-sensitive changes, use @eval/README.md and prefer a focused evaluator subset before a full run.
+- For RapidFuzz behavior, check @RAPIDFUZZ.md and the relevant `doc/sql/*-rapidfuzz.sql` generated-column/index requirements.
+- If you cannot run verification because MariaDB, ChromaDB, API keys, or model quota are unavailable, say exactly what was not run and why.
+
+Do not silently populate caches during ad hoc testing when the goal is behavior inspection; use request options such as `store_to_cache=false` where appropriate.
+
+---
+
+## Common gotchas (do NOT step on these)
+
+### Gotcha #1 — SQL Quote Escaping
+Use `''`, never `\'`. Centralize via `entity._sql_escape_literal()`. Backslash escaping breaks MariaDB.
+
+### Gotcha #2 — Cache API Version Filtering
+Always pass `strapiversionformatted` (`XXX.YYY.ZZZ`), never raw `strapiversion`, to `sql_cache` helpers.
+
+### Gotcha #3 — ChromaDB Document IDs
+Format `{entity}_{id}_{lang}` (e.g., `movie_12345_fr`). Language drives the SQL field via the `languages` map in `entity_resolution.json`:
+```
+"languages": { "en": "MOVIE_TITLE", "fr": "MOVIE_TITLE_FR", "*": "ORIGINAL_TITLE" }
+```
+
+### Gotcha #4 — Entity Variable Matching in Embeddings Cache
+A candidate document is only accepted when **all** extracted entity variables appear in it ([main.py:671](main.py#L671)):
+```python
+if all(var in doc_entity_vars for var in entity_variables):
+```
+
+### Gotcha #5 — Messages Position Counter
+Always increment after appending. When delegating to `entity.resolve_entities()` or `_retry_with_resolved_complex_question()`, the updated counter is threaded through the return dict.
+
+### Gotcha #6 — Database Connection Lifecycle
+Open once per request, pass the connection around, close in a `finally`. Do NOT call `get_db_connection()` inside loops.
+
+### Gotcha #7 — Custom Embedding Function Interface
+`OpenAIEmbeddingFunction` ([main.py:80](main.py#L80)) must implement both `__call__()` (batch) and `embed_query()` (single query) — ChromaDB needs both.
+
+### Gotcha #8 — Complex Question Retry Recursion Guard
+The pipeline can retry via the stronger model, but only when `complex_question_already_resolved = False`. The recursive call sets it to `True` to prevent runaway retries.
+
+### Gotcha #9 — Closed-Vocabulary Resolution
+`Genre_name`, `Technical_format`, `Status_name`, `Serie_type`, `Department_name`, and `Aspect_ratio` are resolved via [closed_vocab.py](closed_vocab.py): canonicals from the database at startup, aliases from [data/closed_vocabularies.json](data/closed_vocabularies.json) (hot-reloaded). Typo tolerance is uniform via RapidFuzz with `score_cutoff=85` and `margin=5`. `Genre_name` and `Technical_format` substitute integers (no quotes); `Status_name`, `Serie_type`, `Department_name`, and `Aspect_ratio` substitute single-quoted canonical strings.
+
+**Resolver order matters**: in `_resolve_closed_vocab`, canonical exact match runs **before** alias match. If a user-typed value happens to be a literal canonical (e.g. the DB stores both `'4:3'` and `'1,33'` for the same ratio), the canonical wins and the alias never fires. To remap noisy DB variants to a single dominant form, exclude them from canonicals via the loader query (see `Aspect_ratio` below).
+
+`Department_name` is **crew-only** — its canonical loader explicitly excludes `'Actors'` and `'Acting'` from all three UNIONed source columns (`CREW_DEPARTMENT` × movie + serie, plus `KNOWN_FOR_DEPARTMENT` from `T_WC_T2S_PERSON`). The text-to-SQL prompt picks the column based on question intent (person-search → `KNOWN_FOR_DEPARTMENT`, crew-of-content → `CREW_DEPARTMENT`); whenever `CREW_DEPARTMENT` is filtered via `{{Department_nameN}}`, the prompt also enforces `CREDIT_TYPE = 'crew'` on the same join. Cast / actor queries never produce a `Department_name` placeholder; the LLM emits `CREDIT_TYPE = 'cast'` (film context) or `KNOWN_FOR_DEPARTMENT = 'Acting'` (person-search) inline.
+
+`Aspect_ratio` canonicals are **comma-decimal only** (French notation: `1,33`, `1,85`, `2,35`, `2,39`). The loader query filters with `ASPECT_RATIO REGEXP '^[0-9]+,[0-9]+$'` so noisy DB variants (`'4:3'`, `'4/3'`, `'16:9'`, `'1:33'`, `'235:1'`, etc.) drop out of canonical and fall through to the alias layer, which remaps every common surface form (dot decimals like `1.33`, width:height like `4:3`/`16:9`, slash forms like `4/3`/`16/9`, named conventions like `Academy`/`widescreen`/`flat`) to its dominant comma-decimal canonical. `'anamorphic'` / `'scope'` / `'cinemascope'` deliberately live under `Technical_format`, not `Aspect_ratio`, to avoid cross-entity collision.
+
+Only `Genre_name` has a `_LANG` companion table today; for the others, multilingual aliases live in JSON only.
+
+### Gotcha #10 — Regex Placeholders Reject Malformed Values
+The 9 regex-validated placeholders validate against a fixed pattern in `_REGEX_PLACEHOLDER_RULES`. Failed matches are **rejected** — the placeholder is left in place and the trailing unresolved-placeholder check marks the question ambiguous. Order in the rule list matters because dispatch uses `startswith()`: `IMDb_person_ID` precedes `IMDb_ID`, `Wikidata_property_ID` precedes `Wikidata_ID`. Numeric rules substitute as bare integers (and strip surrounding quotes via two regex passes); string rules substitute as quoted SQL string literals — choose `is_numeric` based on the target column's SQL type.
+
+### Gotcha #11 — MCP Mount Path
+`app.mount("", mcp_app)` (empty string), not `"/mcp"`. Nginx strips/preserves `/mcp` upstream, and FastMCP's own routes live under `/mcp/…`. Mounting under `/mcp` produces `/mcp/mcp` paths.
+
+---
+
+## Database tables you'll touch most
+
+Full prompt-visible schema rules live in [data/text_to_sql.md](data/text_to_sql.md), full DDL lives in [doc/sql/](doc/sql/), and MCP clients also see the `context://database-scope` resource. Quick map:
+
+- `T_WC_T2S_CACHE` — cache storage. Keys: `QUESTION`, `QUESTION_HASHED`, `SQL_QUERY`, `SQL_PROCESSED`, `JUSTIFICATION`, `ANSWER`, `API_VERSION` (`XXX.YYY.ZZZ`), `UI_LANGUAGE`, `IS_ANONYMIZED`, `DELETED`, timing columns.
+- Primary entities: `T_WC_T2S_MOVIE`, `T_WC_T2S_SERIE`, `T_WC_T2S_PERSON`.
+- Reference (closed-vocab): `T_WC_TMDB_GENRE` + `T_WC_TMDB_GENRE_LANG` (genres); `T_WC_T2S_TECHNICAL` (technical formats).
+- Person AKAs: `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` (used by RapidFuzz for non-Latin person names; resolves canonical via `resolve_to_canonical`).
+- Locations: `T_WC_T2S_ITEM` (Wikidata) + `T_WC_WIKIDATA_ITEM_PROPERTY` (joined via `ID_PROPERTY IN ('P840', 'P915')` — narrative / filming).
+- Join tables follow `T_WC_T2S_{PARENT}_{CHILD}` (e.g., `T_WC_T2S_PERSON_MOVIE`, `T_WC_T2S_MOVIE_GENRE`, `T_WC_T2S_SERIE_NETWORK`, `T_WC_T2S_MOVIE_AWARD`).
+
+---
+
+## Database Schema Sources
+
+Full DDL lives under [doc/sql/](doc/sql/); do not duplicate table definitions here. Treat these files as reference-only unless the user explicitly asks for schema-doc edits.
+
+- [doc/sql/T2S-tables.sql](doc/sql/T2S-tables.sql) — canonical Text2SQL read-model tables used by prompts, API detail endpoints, cache, and evaluation tables.
+- [doc/sql/TMDb-tables.sql](doc/sql/TMDb-tables.sql) — upstream/source TMDb tables and reference tables.
+- [doc/sql/Wikidata-tables.sql](doc/sql/Wikidata-tables.sql) — Wikidata staging and canonical tables.
+- [doc/sql/Wikipedia-tables.sql](doc/sql/Wikipedia-tables.sql) — Wikipedia section tables.
+- [doc/sql/T_WC_TMDB_GENRE.sql](doc/sql/T_WC_TMDB_GENRE.sql) — focused genre reference DDL.
+- [doc/sql/T_WC_T2S_TECHNICAL.sql](doc/sql/T_WC_T2S_TECHNICAL.sql) — focused technical-format reference DDL.
+- [doc/sql/T2S_PERSON-rapidfuzz.sql](doc/sql/T2S_PERSON-rapidfuzz.sql) and [doc/sql/T_WC_TMDB_PERSON_ALSO_KNOWN_AS-rapidfuzz.sql](doc/sql/T_WC_TMDB_PERSON_ALSO_KNOWN_AS-rapidfuzz.sql) — generated columns, indexes, and FULLTEXT setup required by RapidFuzz.
+
+When changing SQL-facing behavior:
+
+1. Check [data/text_to_sql.md](data/text_to_sql.md) for the prompt-visible schema and query rules.
+2. Check [doc/sql/](doc/sql/) for real DDL.
+3. Check code users in [main.py](main.py), [entity.py](entity.py), [closed_vocab.py](closed_vocab.py), [sql_cache.py](sql_cache.py), and [rapidfuzz_query.py](rapidfuzz_query.py).
+4. If schema or prompt-visible behavior changes, update [data/text_to_sql.md](data/text_to_sql.md) and relevant docs. Edit [doc/sql/](doc/sql/) only when explicitly requested.
+5. Bump `strapiversion` only when explicitly requested.
+
+---
+
+## SQL Object Naming Conventions
+
+- SQL table and column names are uppercase snake case, except legacy imported TMDb genre columns such as `id` and `name`.
+- Persistent tables use `T_WC_*`.
+- Text2SQL read-model tables use `T_WC_T2S_*`.
+- TMDb source/reference tables use `T_WC_TMDB_*`.
+- Wikidata tables use `T_WC_WIKIDATA_*`; staging tables use `STG_T_WC_WIKIDATA_*`.
+- Wikipedia tables use `T_WC_WIKIPEDIA_*`.
+- Join tables usually follow `T_WC_T2S_{PARENT}_{CHILD}`, for example `T_WC_T2S_MOVIE_GENRE`, `T_WC_T2S_PERSON_MOVIE`.
+- Primary keys are usually `ID_{ENTITY}` for entity tables, `ID_ROW` for generic/join rows, or a table-specific surrogate such as `ID_T2S_PERSON_MOVIE`.
+- Foreign keys reuse the referenced primary-key name, for example `ID_MOVIE`, `ID_PERSON`, `ID_GENRE`.
+- Date columns use `DAT_*`; datetime/timestamp columns use `TIM_*`.
+- Boolean-like flags use `IS_*` or legacy integer flags such as `DELETED`.
+- Ordering uses `DISPLAY_ORDER`.
+- Aggregate counters use `*_COUNT`.
+- Media paths use `*_PATH`.
+- Language-specific labels/titles often use suffixes such as `_FR`; generic language rows use `LANG`.
+- RapidFuzz/generated search columns use `*_NORM` and `*_KEY`; popularity tie-breakers commonly use `POPULARITY`.
+- Index names are mixed legacy style. Preserve existing style: simple `KEY COLUMN_NAME`, `IDX_*` for indexes, `UK_*` for unique keys, `FK_*` for foreign keys, and `ft_*` for FULLTEXT indexes.
+
+---
+
+## SQL execution safety
+
+The text-to-SQL prompt should generate read-only SELECT queries. Do not add write queries to prompt examples or generated-query paths. Cache writes are centralized in [sql_cache.py](sql_cache.py), cleanup deletes are centralized in [cleanup.py](cleanup.py), and schema/reference SQL under [doc/sql/](doc/sql/) is documentation unless the user explicitly asks otherwise.
+
+Prefer parameterized SQL for application-owned queries. Placeholder de-anonymization is a special pipeline step; when inlining placeholder values, use `entity._sql_escape_literal()` and SQL doubled single quotes.
+
+---
+
+## Encoding
+
+Keep Markdown, prompt files, JSON config, and logs UTF-8. These files contain non-ASCII names and multilingual examples. Avoid editor or terminal operations that rewrite them with mojibake.
+
+---
+
+**Last Updated**: 2026-05-07
+**Current Version**: 1.1.16 (see `strapiversion` in [main.py:105](main.py#L105))

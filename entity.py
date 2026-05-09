@@ -380,13 +380,25 @@ def resolve_entities(
                     add_message(f"Entity resolution: {placeholder} -> {technical_id_str} ({raw_value}) (technical_format)")
                     continue
 
-                if isinstance(key, str) and (key.startswith("Status_name") or key.startswith("Serie_type")):
+                if isinstance(key, str) and (
+                    key.startswith("Status_name")
+                    or key.startswith("Serie_type")
+                    or key.startswith("Department_name")
+                    or key.startswith("Aspect_ratio")
+                ):
                     raw_value = "" if value is None else str(value).strip()
                     placeholder = "{{" + key + "}}"
                     if raw_value == "":
                         continue
 
-                    entity_name = "Status_name" if key.startswith("Status_name") else "Serie_type"
+                    if key.startswith("Status_name"):
+                        entity_name = "Status_name"
+                    elif key.startswith("Serie_type"):
+                        entity_name = "Serie_type"
+                    elif key.startswith("Department_name"):
+                        entity_name = "Department_name"
+                    else:
+                        entity_name = "Aspect_ratio"
                     canonical = closed_vocab.resolve(entity_name, raw_value)
                     if canonical is None:
                         add_message(

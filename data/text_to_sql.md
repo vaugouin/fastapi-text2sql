@@ -23,7 +23,7 @@ Never include a semicolon at the end of the SQL query.
 
 ## ? Placeholders / Anonymization
 
-The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}, {{Genre_name1}}, {{Technical_format1}}.
+The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}, {{Genre_name1}}, {{Technical_format1}}, {{Department_name1}}, {{Aspect_ratio1}}.
 These placeholders represent real entity values that were intentionally replaced earlier.
 
 Rules:
@@ -304,14 +304,6 @@ CREATE TABLE T_WC_T2S_SERIE_LIST (
 ### Topics
 Topics are comprehensive collections stored in T_WC_T2S_TOPIC and include:
 
-#### Universes and Franchises
-- Batman universe
-- Marvel Cinematic Universe
-- DC Extended Universe
-- Star Wars saga
-- James Bond films
-- Harry Potter series
-
 #### Character-based Collections
 - Philip Marlowe movies
 - Sherlock Holmes films
@@ -320,7 +312,9 @@ Topics are comprehensive collections stored in T_WC_T2S_TOPIC and include:
 
 #### Other Topics
 Topics can also include thematic collections, movies about a specific topic.
-When a question is about a topic, always display content (movies and/or series) related to this topic in the search result. Do not display a list of topics. 
+When a question is about a topic, always display content (movies and/or series) related to this topic in the search result. Do not display a list of topics.
+
+NOTE: Universes and franchises (e.g., `Star Wars`, `Marvel Cinematic Universe`, `DC Extended Universe`, `Batman universe`, `Middle-Earth`, `Harry Potter movies`, `James Bond films`) are NOT topics anymore. They are now managed as collections in `T_WC_T2S_COLLECTION` — use the `{{Collection_nameN}}` placeholder and the Collection tables (`T_WC_T2S_MOVIE_COLLECTION`, `T_WC_T2S_SERIE_COLLECTION`) to query them.
 
 CREATE TABLE T_WC_T2S_TOPIC (
   ID_TOPIC INT NOT NULL,
@@ -355,8 +349,9 @@ CREATE TABLE T_WC_T2S_LIST (
 );
 
 ### Collections
-Trilogies or named series of works are stored in `T_WC_T2S_COLLECTION`.
-When the user asks about a specific collection, use the `COLLECTION_NAME` field and the `{{Collection_nameN}}` placeholder when present.
+Trilogies, named series of works, universes, and franchises are stored in `T_WC_T2S_COLLECTION`.
+This includes universes and franchises such as `Star Wars`, `Marvel Cinematic Universe`, `DC Extended Universe`, `Batman universe`, `Middle-Earth`, `Harry Potter movies`, and `James Bond films`.
+When the user asks about a specific collection, universe, or franchise, use the `COLLECTION_NAME` field and the `{{Collection_nameN}}` placeholder when present.
 When looking for a trilogy, explicitely search for collections with exactly three elements.
 
 CREATE TABLE T_WC_T2S_COLLECTION (
@@ -750,7 +745,7 @@ CREATE TABLE T_WC_T2S_SERIE_VIDEO (
 - PRODUCTION: Development, filming, and behind-the-scenes information but it must not be used in a WHERE clause
 - RECEPTION: Critical reviews and audience response but it must not be used in a WHERE clause
 - BIOGRAPHY: Personal and professional background of a person but it must not be used in a WHERE clause
-- ASPECT_RATIO is the aspect ratio of the movie. For instance: 1,37 2,35 1,85 1,33 1,66 2,39
+- ASPECT_RATIO is the aspect ratio of the movie (VARCHAR; canonical decimal form, e.g. `1.37`, `1.85`, `2.35`, `2.39`, `1.33`, `1.66`, `1.78`). When the question carries an `{{Aspect_ratioN}}` placeholder, emit it as a quoted string literal against `T_WC_T2S_MOVIE.ASPECT_RATIO` (e.g. `T_WC_T2S_MOVIE.ASPECT_RATIO = '{{Aspect_ratio1}}'`). The resolver substitutes the canonical decimal value at runtime, accepting common surface variants (`Academy`, `widescreen`, `anamorphic`, `scope`, `4:3`, `16:9`, `2.35:1`, `2,35`).
 - ID_TECHNICAL is the technical information of the movie, possible values are listed below and do not use a value outside of the list provided.
 - When searching for a documentary, search in T_WC_T2S_MOVIE table if no more information provided about the content type
 - If user asks for a "movie" or "film" → add IS_MOVIE = 1
@@ -861,6 +856,18 @@ ORDER BY CASE WHEN T_WC_T2S_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END, T_WC
 - When requesting movies or series adapted from the work of a given person, always search for a Writing credit for this person
 - When the question contains only the name of a person and eventually his/her known department, this is a person search query and do not use the KNOWN_FOR_DEPARTMENT field to filter the results
 - On the contrary, if the question concerns a person's job, use the KNOWN_FOR_DEPARTMENT field to filter the results
+- The `{{Department_nameN}}` placeholder is **crew-only** — it never carries `Acting` or `Actors`. Cast (acting) credits are never selected via this placeholder; see the actor / cast rule below.
+- When the question carries a `{{Department_nameN}}` placeholder, treat the placeholder as the canonical crew department string. The resolver substitutes the canonical value at runtime, so always emit it inside single quotes against the appropriate column:
+  - Person-search context (no specific film/serie filter, e.g. "list directors", "show me cinematographers"): `T_WC_T2S_PERSON.KNOWN_FOR_DEPARTMENT = '{{Department_name1}}'`
+  - Crew-of-content context (filtering credits on a specific movie or series): the placeholder filters `CREW_DEPARTMENT`, and you MUST also constrain `CREDIT_TYPE = 'crew'` in the same WHERE clause:
+    - Movies: `T_WC_T2S_PERSON_MOVIE.CREW_DEPARTMENT = '{{Department_name1}}' AND T_WC_T2S_PERSON_MOVIE.CREDIT_TYPE = 'crew'`
+    - Series: `T_WC_T2S_PERSON_SERIE.CREW_DEPARTMENT = '{{Department_name1}}' AND T_WC_T2S_PERSON_SERIE.CREDIT_TYPE = 'crew'`
+  - The same placeholder may appear in either column depending on the question intent — pick the one matching the disambiguation rules above.
+- **Actor / actress / cast queries (no `{{Department_nameN}}` placeholder)**: when the question is about actors, actresses, or the cast of a movie or serie (e.g. "actors in The Big Lebowski", "actresses born in 1962", "cast of Inception"), filter credits with `CREDIT_TYPE = 'cast'` (NOT `'crew'`) on the appropriate join table:
+  - Movies: `T_WC_T2S_PERSON_MOVIE.CREDIT_TYPE = 'cast'`
+  - Series: `T_WC_T2S_PERSON_SERIE.CREDIT_TYPE = 'cast'`
+  - For person-search queries about actors with no film context (e.g. "list actors", "actors born in 1962"), use `T_WC_T2S_PERSON.KNOWN_FOR_DEPARTMENT = 'Acting'` directly — the value `'Acting'` is the canonical KNOWN_FOR value for cast roles and never reaches this prompt as a `{{Department_nameN}}` placeholder.
+  - The cast-section exclusion rules for `CAST_CHARACTER` (see above) still apply in `CREDIT_TYPE = 'cast'` queries.
 - ID_PERSON is the TMDb ID field for a person (The Movie Database)
 
 ### Images about entities 
