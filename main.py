@@ -121,12 +121,17 @@ MCP_INTERNAL_BASE_URL = os.getenv(
 intcleanupenabled = False
 #intcleanupenabled = True
 
+_startup_t0 = time.perf_counter()
+print(f"[startup] Booting Text2SQL API version {strapiversion}...", flush=True)
+
 # Set your OpenAI API key from environment variable
+print("[startup] Loading OpenAI API key from environment...", flush=True)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Validate that the API key was loaded
 if not openai.api_key:
     raise ValueError("OPENAI_API_KEY not found in environment variables. Please check your .env file.")
+print("[startup] OpenAI API key loaded.", flush=True)
 
 class OpenAIEmbeddingFunction:
     def __init__(self, model="text-embedding-3-large"):
@@ -164,48 +169,62 @@ class OpenAIEmbeddingFunction:
         return f"openai_{self.model.replace('-', '_')}"
 
 # Initialize ChromaDB with persistent storage
-chroma_client = chromadb.HttpClient(host=os.getenv("CHROMADB_HOST", "localhost"), port=os.getenv("CHROMADB_PORT", 8000))
+_chromadb_host = os.getenv("CHROMADB_HOST", "localhost")
+_chromadb_port = os.getenv("CHROMADB_PORT", 8000)
+print(f"[startup] Connecting to ChromaDB at {_chromadb_host}:{_chromadb_port}...", flush=True)
+_t0 = time.perf_counter()
+chroma_client = chromadb.HttpClient(host=_chromadb_host, port=_chromadb_port)
+print(f"[startup] ChromaDB connected in {time.perf_counter() - _t0:.2f}s.", flush=True)
 
 # Initialize ChromaDB with OpenAI's embedding function
 embedding_function = OpenAIEmbeddingFunction(model="text-embedding-3-large")
-
-print("ChromaDB initialized with a text-embedding-3-large model.")
+print("[startup] OpenAI embedding function initialized (text-embedding-3-large).", flush=True)
 
 # Create or load entity collections with the custom embedding function
+_collection_names = [
+    "persons",
+    "movies",
+    "series",
+    "companies",
+    "networks",
+    "topics",
+    "locations",
+    "groups",
+    "characters",
+    "lists",
+    "collections",
+    "deaths",
+    "awards",
+    "nominations",
+    "movements",
+]
+print(f"[startup] Creating/loading {len(_collection_names)} ChromaDB entity collections...", flush=True)
+_t0 = time.perf_counter()
 CHROMADB_COLLECTIONS_BY_NAME = {
     name: chroma_client.get_or_create_collection(name=name, embedding_function=embedding_function)
-    for name in [
-        "persons",
-        "movies",
-        "series",
-        "companies",
-        "networks",
-        "topics",
-        "locations",
-        "groups",
-        "characters",
-        "lists",
-        "collections",
-        "deaths",
-        "awards",
-        "nominations",
-        "movements",
-    ]
+    for name in _collection_names
 }
+print(f"[startup] ChromaDB entity collections ready ({len(CHROMADB_COLLECTIONS_BY_NAME)}) in {time.perf_counter() - _t0:.2f}s.", flush=True)
 
 #Anonymized queries collection
 strentitycollection = "anonymizedqueries"
+print(f"[startup] Creating/loading {strentitycollection} cache collection...", flush=True)
+_t0 = time.perf_counter()
 anonymizedqueries = chroma_client.get_or_create_collection(
     name=strentitycollection,
     embedding_function=embedding_function  # Custom embedding model
 )
+print(f"[startup] {strentitycollection} collection ready in {time.perf_counter() - _t0:.2f}s.", flush=True)
 
 # By default, do not use embeddings-based question cache (read/write) for anonymized queries.
 USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE = False
 
 if intcleanupenabled:
     if USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE:
+        print(f"[startup] Cleaning up {strentitycollection} embeddings for previous API versions...", flush=True)
+        _t0 = time.perf_counter()
         cleanup.cleanup_anonymized_queries_collection(anonymizedqueries, strapiversion)
+        print(f"[startup] {strentitycollection} cleanup done in {time.perf_counter() - _t0:.2f}s.", flush=True)
 
 # How many rows per page in the result set
 lngrowsperpagedefault = 50
@@ -253,13 +272,32 @@ def get_db_connection():
     )
 
 answer=42
+
+_db_host = os.getenv('DB_HOST', '?')
+_db_port = os.getenv('DB_PORT', 3306)
+_db_name = os.getenv('DB_NAME', '?')
+print(f"[startup] Connecting to MariaDB {_db_name} at {_db_host}:{_db_port}...", flush=True)
+_t0 = time.perf_counter()
 connection = get_db_connection()
+print(f"[startup] MariaDB connected in {time.perf_counter() - _t0:.2f}s.", flush=True)
 
 if intcleanupenabled:
+    print("[startup] Cleaning up SQL cache for current API version...", flush=True)
+    _t0 = time.perf_counter()
     cleanup.cleanup_sql_cache(connection, strapiversion)
+    print(f"[startup] SQL cache cleanup done in {time.perf_counter() - _t0:.2f}s.", flush=True)
 
+print("[startup] Loading closed-vocabulary canonicals from DB (Status_name, Serie_type, Department_name, Aspect_ratio, Genre_name, Technical_format)...", flush=True)
+_t0 = time.perf_counter()
 closed_vocab.init(connection)
+print(f"[startup] Closed-vocabulary canonicals loaded in {time.perf_counter() - _t0:.2f}s.", flush=True)
+
+print("[startup] Pre-building RapidFuzz BK-trees from DB (this may take a few minutes for large person tables)...", flush=True)
+_t0 = time.perf_counter()
 entity.prebuild_bktrees(connection)
+print(f"[startup] BK-trees pre-built in {time.perf_counter() - _t0:.2f}s.", flush=True)
+
+print(f"[startup] Startup tasks complete in {time.perf_counter() - _startup_t0:.2f}s. Handing off to uvicorn.", flush=True)
 
 class TextExpr(BaseModel):
     text: str
@@ -361,9 +399,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     """Convert a natural language question about cinema or TV into SQL, execute it, and return the result set.
 
     Covers the full entertainment database: movies, TV series, persons (actors, directors,
-    writers, crew), production companies, TV networks, topics (universes, franchises, themes),
-    curated lists, collections (trilogies, sagas), film movements, person groups, causes of
-    death, awards, nominations, and locations (narrative or filming, via Wikidata).
+    writers, crew), production companies, TV networks, topics (themes, recurring-character
+    collections), curated lists (rankings, canons), collections (trilogies, sagas, universes,
+    franchises), film movements, person groups, causes of death, awards, nominations, and
+    locations (narrative or filming, via Wikidata).
 
     Processing pipeline:
     1. Normalize and sanitize the input question.
@@ -1876,8 +1915,8 @@ async def get_network(id: int, api_key: str = Depends(get_api_key)):
 
 @app.get("/collections/{id}", summary="Film/series collection full detail")
 async def get_collection(id: int, api_key: str = Depends(get_api_key)):
-    """Return all fields for a named collection (trilogy, saga, franchise) plus member
-    movies and TV series ordered by DISPLAY_ORDER. The id is ID_T2S_COLLECTION."""
+    """Return all fields for a named collection (trilogy, saga, universe, franchise) plus
+    member movies and TV series ordered by DISPLAY_ORDER. The id is ID_T2S_COLLECTION."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1909,7 +1948,7 @@ async def get_collection(id: int, api_key: str = Depends(get_api_key)):
 
 @app.get("/topics/{id}", summary="Topic full detail")
 async def get_topic(id: int, api_key: str = Depends(get_api_key)):
-    """Return all fields for a topic (universe, franchise, theme, keyword) plus linked
+    """Return all fields for a topic (theme, keyword, recurring-character collection) plus linked
     movies and TV series ordered by DISPLAY_ORDER. The id is ID_TOPIC."""
     conn = get_db_connection()
     try:
@@ -2186,9 +2225,10 @@ async def _mcp_sql_search(question: str, ui_language: str = "en") -> str:
     Query the cinema and TV database in natural language.
 
     Covers movies, TV series, persons (actors, directors, writers, crew),
-    production companies, TV networks, topics (universes, franchises, themes),
-    curated lists, collections (trilogies, sagas), film movements, person groups,
-    causes of death, awards, nominations, and locations (narrative or filming).
+    production companies, TV networks, topics (themes, recurring-character collections),
+    curated lists (rankings, canons), collections (trilogies, sagas, universes, franchises),
+    film movements, person groups, causes of death, awards, nominations, and locations
+    (narrative or filming).
 
     The result returns rows with entity IDs and key fields (title, release date,
     IMDb rating, poster path), plus a plain-language `answer` field generated in
@@ -2282,8 +2322,8 @@ async def _mcp_get_person(id: int) -> str:
 
 @mcp.tool(name="get_collection")
 async def _mcp_get_collection(id: int) -> str:
-    """Get all fields for a named collection (trilogy, saga, franchise) plus member movies
-    and TV series ordered by their position in the collection. id = ID_T2S_COLLECTION."""
+    """Get all fields for a named collection (trilogy, saga, universe, franchise) plus member
+    movies and TV series ordered by their position in the collection. id = ID_T2S_COLLECTION."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2298,8 +2338,8 @@ async def _mcp_get_collection(id: int) -> str:
 
 @mcp.tool(name="get_topic")
 async def _mcp_get_topic(id: int) -> str:
-    """Get all fields for a topic (universe, franchise, theme, keyword) plus linked movies
-    and TV series ordered by their position in the topic. id = ID_TOPIC."""
+    """Get all fields for a topic (theme, keyword, recurring-character collection) plus linked
+    movies and TV series ordered by their position in the topic. id = ID_TOPIC."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2528,10 +2568,20 @@ async def _mcp_database_scope() -> str:
     ## Other Entities
     - T_WC_T2S_COLLECTION: COLLECTION_NAME, OVERVIEW, MOVIE_COUNT, SERIE_COUNT,
         IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
+        Holds trilogies and named series of works (e.g., Dollars Trilogy, James Bond
+        Collection, Kill Bill - Saga) AND universes/franchises (e.g., Star Wars, Marvel
+        Cinematic Universe, DC Extended Universe, Batman universe, Middle-Earth, Harry
+        Potter movies, James Bond films).
     - T_WC_T2S_TOPIC: TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG,
         IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
+        Holds themes (e.g., World War II, Christmas) and recurring-character collections
+        (e.g., Philip Marlowe, Sherlock Holmes). Universes and franchises are NOT here —
+        they live in T_WC_T2S_COLLECTION.
     - T_WC_T2S_LIST: LIST_NAME, OVERVIEW, LIST_TYPE, MOVIE_COUNT, SERIE_COUNT,
         IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
+        Holds curated rankings/canons/registries (e.g., Sight and Sound, IMDb Top 250,
+        AFI Top 100). Universes and franchises are NOT here — they live in
+        T_WC_T2S_COLLECTION.
     - T_WC_T2S_MOVEMENT: MOVEMENT_NAME, OVERVIEW, MOVIE_COUNT, SERIE_COUNT,
         IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
     - T_WC_T2S_GROUP: GROUP_NAME, GROUP_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY

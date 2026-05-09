@@ -10,8 +10,8 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **API Key Authentication**: Secure access with API key validation using constant-time comparison
 - **ChromaDB Vector Search**: Advanced similarity search for entity matching and query optimization
 - **Entity Extraction & Anonymization**: Intelligent extraction of entities (persons, movies, series, companies, networks, characters, locations, topics, lists, awards, nominations, collections, movements, groups, deaths, genres, technical formats, statuses, series types, release/birth/death years, IMDb / Wikidata / TMDb / Criterion identifiers) with placeholder replacement
-- **Config-driven Entity Resolution**: Entity resolution is configured via `data/entity_resolution.json` (embeddings and RapidFuzz strategies), plus a closed-vocabulary layer (`closed_vocab.py` + `data/closed_vocabularies.json`) for `Genre_name`, `Technical_format`, `Status_name`, and `Serie_type`, and a regex-validated layer in `entity.py` for years and ID-style placeholders
-- **DB-driven Canonicals with Hot-Reloaded Aliases**: `Genre_name` and `Technical_format` canonicals load at startup from reference tables (`T_WC_TMDB_GENRE` + `T_WC_TMDB_GENRE_LANG`, `T_WC_T2S_TECHNICAL`); `Status_name` and `Serie_type` load via DISTINCT queries; format / typo / multilingual aliases live in `data/closed_vocabularies.json` and hot-reload within ~5 seconds
+- **Config-driven Entity Resolution**: Entity resolution is configured via `data/entity_resolution.json` (embeddings and RapidFuzz strategies), plus a closed-vocabulary layer (`closed_vocab.py` + `data/closed_vocabularies.json`) for `Genre_name`, `Technical_format`, `Status_name`, `Serie_type`, `Department_name`, and `Aspect_ratio`, and a regex-validated layer in `entity.py` for years and ID-style placeholders
+- **DB-driven Canonicals with Hot-Reloaded Aliases**: `Genre_name` and `Technical_format` canonicals load at startup from reference tables (`T_WC_TMDB_GENRE` + `T_WC_TMDB_GENRE_LANG`, `T_WC_T2S_TECHNICAL`); `Status_name`, `Serie_type`, `Department_name`, and `Aspect_ratio` load via DISTINCT queries; format / typo / multilingual aliases live in `data/closed_vocabularies.json` and hot-reload within ~5 seconds
 - **Hot-Reloaded `data/` Files**: Prompt templates and entity-resolution configuration under `data/` are reloaded automatically when they change
 - **RapidFuzz Person Matching (language-family aware)**: Person resolution uses `guess_language_family()` to route Latin names to `T_WC_T2S_PERSON` and non-Latin names to `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`, while keeping SQL replacement canonical when needed
 - **Multi-Level Caching**: Sophisticated three-tier caching system (exact questions, anonymized questions, vector embeddings)
@@ -73,11 +73,11 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Network names** (TV networks, streaming platforms) — placeholder `{{Network_nameN}}`
      - **Character names** (e.g., "James Bond", "Sherlock Holmes", "R2-D2") — placeholder `{{Character_nameN}}` *(extracted; resolution falls through to raw fallback substitution)*
      - **Location names** (narrative or filming locations, Wikidata-backed; e.g., "New York City", "Gotham City") — placeholder `{{Location_nameN}}`
-     - **Topic names** (themes, franchises, recurring-character collections like "World War II", "Star Wars", "Philip Marlowe") — placeholder `{{Topic_nameN}}`
+     - **Topic names** (themes and recurring-character collections like "World War II", "Christmas", "Philip Marlowe") — placeholder `{{Topic_nameN}}`
      - **List names** (curated rankings/canons such as "Sight and Sound greatest films", "IMDb top 250 tv shows") — placeholder `{{List_nameN}}`
      - **Award names** (e.g., "Palme d'Or", "Academy Award for Best Picture", "Primetime Emmy Award") — placeholder `{{Award_nameN}}`
      - **Nomination names** (the same set, but referenced as a nomination rather than a win) — placeholder `{{Nomination_nameN}}`
-     - **Collection names** (trilogies and named series of works, e.g., "Dollars Trilogy", "James Bond Collection", "Kill Bill - Saga") — placeholder `{{Collection_nameN}}`
+     - **Collection names** (trilogies, named series of works, universes, and franchises, e.g., "Dollars Trilogy", "James Bond Collection", "Kill Bill - Saga", "Star Wars", "Marvel Cinematic Universe", "Middle-Earth", "Harry Potter movies") — placeholder `{{Collection_nameN}}`
      - **Movement names** (film movements / stylistic schools, e.g., "Film Noir", "French New Wave", "New Hollywood") — placeholder `{{Movement_nameN}}`
      - **Group names** (organizations, publications, musical/comedy groups associated with persons, e.g., "The Beatles", "Les Cahiers du Cinéma") — placeholder `{{Group_nameN}}`
      - **Death names** (medical or legal cause/circumstance of a person's death, e.g., "liver cirrhosis", "car collision", "homicide") — placeholder `{{Death_nameN}}`
@@ -85,6 +85,8 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Technical formats** (sound systems, color/film/sound technologies, film formats — closed vocabulary backed by `T_WC_T2S_TECHNICAL`, e.g. `IMAX`, `Technicolor`, `35mm`, `Dolby`) — placeholder `{{Technical_formatN}}`
      - **Status name** (`Canceled`, `In Production`, `Planned`, `Post Production`, `Released`, `Rumored` — closed vocabulary loaded from `T_WC_T2S_MOVIE.STATUS` ∪ `T_WC_T2S_SERIE.STATUS`) — placeholder `{{Status_nameN}}`
      - **Serie type** (`Documentary`, `Miniseries`, `News`, `Reality`, `Scripted`, `Talk Show`, `Video` — closed vocabulary loaded from `T_WC_T2S_SERIE.SERIE_TYPE`, only with explicit series context) — placeholder `{{Serie_typeN}}`
+     - **Department name** (`Art`, `Camera`, `Costume & Make-Up`, `Creator`, `Crew`, `Directing`, `Editing`, `Lighting`, `Production`, `Sound`, `Visual Effects`, `Writing` — **crew-only** closed vocabulary loaded from `CREW_DEPARTMENT` ∪ `KNOWN_FOR_DEPARTMENT` over `T_WC_T2S_PERSON_MOVIE`, `T_WC_T2S_PERSON_SERIE`, `T_WC_T2S_PERSON`, with `'Actors'` / `'Acting'` excluded; cast / actor queries never produce this placeholder — they route via `CREDIT_TYPE = 'cast'` directly) — placeholder `{{Department_nameN}}`
+     - **Aspect ratio** (comma-decimal aspect ratios such as `1,37`, `1,85`, `2,35`, `2,39` — French decimal notation as stored in `T_WC_T2S_MOVIE.ASPECT_RATIO` — plus named conventions `Academy`, `widescreen`, `flat`, `fullscreen`, and `width:height` / slash forms `4:3`, `4/3`, `16:9`, `16/9`, `2.35:1` accepted via aliases — closed vocabulary loaded from `T_WC_T2S_MOVIE` filtered to comma-decimal form via `REGEXP '^[0-9]+,[0-9]+$'`) — placeholder `{{Aspect_ratioN}}`
      - **Release year** (extracted alongside a movie title when the user writes `Title (YYYY)`) — placeholder `{{Release_yearN}}`
      - **Birth year / Death year** (4-digit years for person filtering, e.g. "actors born in 1962", "directors who died in 1980") — placeholders `{{Birth_yearN}}` / `{{Death_yearN}}`
      - **Identifiers** (regex-validated, with malformed values rejected): `IMDb_ID` (`tt\d+`), `IMDb_person_ID` (`nm\d+`), `Wikidata_ID` (`Q\d+`), `Wikidata_property_ID` (`P\d+`), `TMDb_ID` (`\d+`), `Criterion_spine_ID` (`\d+`)
@@ -132,6 +134,8 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Technical formats** (`{{Technical_formatN}}`): closed-vocabulary lookup mapping name → integer `ID_TECHNICAL`. Canonicals from `T_WC_T2S_TECHNICAL` (56 active rows: sound systems, color/film/sound technologies, film formats); aliases from `data/closed_vocabularies.json` only (no `_LANG` companion table yet).
      - **Status name** (`{{Status_nameN}}`): closed-vocabulary string substitution for `STATUS` (e.g. `Released`, `Canceled`). Canonicals from `DISTINCT STATUS` over `T_WC_T2S_MOVIE` ∪ `T_WC_T2S_SERIE`.
      - **Serie type** (`{{Serie_typeN}}`): closed-vocabulary string substitution for `SERIE_TYPE` (e.g. `Documentary`, `Miniseries`). Canonicals from `DISTINCT SERIE_TYPE` over `T_WC_T2S_SERIE`.
+     - **Department name** (`{{Department_nameN}}`): **crew-only** closed-vocabulary string substitution for `CREW_DEPARTMENT` / `KNOWN_FOR_DEPARTMENT` (e.g. `Directing`, `Camera`, `Visual Effects`). Canonicals from a UNION over `T_WC_T2S_PERSON_MOVIE.CREW_DEPARTMENT`, `T_WC_T2S_PERSON_SERIE.CREW_DEPARTMENT`, and `T_WC_T2S_PERSON.KNOWN_FOR_DEPARTMENT`, with `'Actors'` / `'Acting'` explicitly excluded. The text-to-SQL prompt picks the column based on question intent (person-search → `KNOWN_FOR_DEPARTMENT`, crew-of-content → `CREW_DEPARTMENT`); when `CREW_DEPARTMENT` is filtered via the placeholder, the prompt also enforces `CREDIT_TYPE = 'crew'`. Cast / actor queries (`actors in X`, `actresses born in 1962`) never produce this placeholder — they route via `CREDIT_TYPE = 'cast'` (film context) or `KNOWN_FOR_DEPARTMENT = 'Acting'` (person-search) inline.
+     - **Aspect ratio** (`{{Aspect_ratioN}}`): closed-vocabulary string substitution for `T_WC_T2S_MOVIE.ASPECT_RATIO` (canonical comma-decimal form: `1,37`, `1,85`, `2,35`, `2,39`, etc. — French notation as stored in the column). The loader filters DB values with `REGEXP '^[0-9]+,[0-9]+$'` so noisy DB variants (`'4:3'`, `'4/3'`, `'16:9'`, `'1:33'`, `'235:1'`) drop out of canonical and fall through to JSON aliases that remap every common surface form to its dominant comma-decimal canonical. Aliases cover named conventions (`Academy` → `1,37`, `widescreen` / `flat` → `1,85`, `fullscreen` → `1,33`), `width:height` and slash notations (`4:3` / `4/3` → `1,33`, `16:9` / `16/9` → `1,78`, `2.35:1` → `2,35`, `21:9` → `2,39`), and dot-decimal user input (`1.33`, `1.85`, `2.35` → comma equivalents). `anamorphic` / `scope` / `cinemascope` are intentionally not here — they belong to `Technical_format`.
      - **Release / Birth / Death years** (`{{Release_yearN}}`, `{{Birth_yearN}}`, `{{Death_yearN}}`): regex `\d{4}`, bare numeric substitution into INT columns.
      - **TMDb / Criterion identifiers** (`{{TMDb_IDN}}`, `{{Criterion_spine_IDN}}`): regex `\d+`, bare numeric substitution into INT primary keys.
      - **IMDb identifiers** (`{{IMDb_IDN}}`, `{{IMDb_person_IDN}}`): regex `tt\d+` / `nm\d+`, quoted SQL string substitution into VARCHAR `ID_IMDB` columns.
@@ -671,7 +675,7 @@ fastapi-text2sql/
 ├── main.py                  # FastAPI app, endpoint orchestration, entity detail endpoints, MCP server, DB/Chroma startup
 ├── text2sql.py              # Core text-to-SQL conversion, unified LLM dispatch (OpenAI/Anthropic/Gemini), retry helpers
 ├── entity.py                # Entity extraction, entity-resolution config loading, regex-validated placeholders, and placeholder resolution logic
-├── closed_vocab.py          # Closed-vocabulary resolver (Genre_name, Technical_format, Status_name, Serie_type) — DB-driven canonicals + JSON aliases + RapidFuzz typo tolerance
+├── closed_vocab.py          # Closed-vocabulary resolver (Genre_name, Technical_format, Status_name, Serie_type, Department_name, Aspect_ratio) — DB-driven canonicals + JSON aliases + RapidFuzz typo tolerance
 ├── sql_cache.py             # SQL cache lookups and cache writes for exact/anonymized questions
 ├── auth.py                  # API key authentication middleware (multi-key support via API_KEYS)
 ├── logs.py                  # API usage logging (JSON log files in logs/ folder)
@@ -693,7 +697,7 @@ fastapi-text2sql/
 │   ├── text_to_sql.md                                                # Text2SQL prompt (hot-reloaded)
 │   ├── complex_question.md                                           # Stronger model prompt (complex question simplification, hot-reloaded)
 │   ├── entity_resolution.json                                        # Entity resolution configuration (embeddings + rapidfuzz, hot-reloaded)
-│   └── closed_vocabularies.json                                      # Closed-vocabulary aliases for Genre_name, Technical_format, Status_name, Serie_type (hot-reloaded)
+│   └── closed_vocabularies.json                                      # Closed-vocabulary aliases for Genre_name, Technical_format, Status_name, Serie_type, Department_name, Aspect_ratio (hot-reloaded)
 ├── doc/
 │   └── sql/                 # Reference SQL dumps for canonical tables
 │       └── T_WC_T2S_TECHNICAL.sql                                    # 56-row Technical_format canonical table
@@ -735,10 +739,10 @@ The current prompt template is specifically designed for a **movie and TV series
 - **People** (`T_WC_T2S_PERSON`, `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`): Actors, directors, and crew members with their roles, relationships, and AKAs (used for non-Latin name resolution)
 - **Companies** (`T_WC_T2S_COMPANY`): Production companies and studios
 - **Networks** (`T_WC_T2S_NETWORK`): TV networks and streaming platforms
-- **Topics** (`T_WC_T2S_TOPIC`): Curated themes, franchises, and recurring-character topics
+- **Topics** (`T_WC_T2S_TOPIC`): Curated themes and recurring-character topics (e.g., World War II, Christmas, Philip Marlowe)
 - **Lists** (`T_WC_T2S_LIST`): Notable curated rankings, registries, and editorial lists (e.g., Sight and Sound, IMDb Top 250)
 - **Awards** (`T_WC_T2S_AWARD`) and **Nominations** (`T_WC_T2S_NOMINATION`): Award wins and award nominations for movies, series, and persons
-- **Collections** (`T_WC_T2S_COLLECTION`): Trilogies and named series of works (e.g., Dollars Trilogy, James Bond Collection)
+- **Collections** (`T_WC_T2S_COLLECTION`): Trilogies, named series of works, universes, and franchises (e.g., Dollars Trilogy, James Bond Collection, Star Wars, Marvel Cinematic Universe, Middle-Earth, Harry Potter movies)
 - **Movements** (`T_WC_T2S_MOVEMENT`): Film movements and stylistic schools (Film Noir, French New Wave, etc.)
 - **Groups** (`T_WC_T2S_GROUP`): Organizations, publications, and musical/comedy groups associated with persons
 - **Deaths** (`T_WC_T2S_DEATH`): Causes and circumstances of persons' deaths
@@ -830,11 +834,11 @@ The system intelligently extracts and replaces entities in natural language ques
 | `Serie_title` | TV series titles (English/French/original) | Embeddings — `series` collection |
 | `Company_name` | Production / distribution companies | Embeddings — `companies` collection |
 | `Network_name` | TV networks / streaming platforms | Embeddings — `networks` collection |
-| `Topic_name` | Themes, franchises, recurring-character collections | Embeddings — `topics` collection |
+| `Topic_name` | Themes, recurring-character collections | Embeddings — `topics` collection |
 | `List_name` | Curated rankings / canons / registries | Embeddings — `lists` collection |
 | `Award_name` | Named awards or recognitions | Embeddings — `awards` collection |
 | `Nomination_name` | Named award nominations | Embeddings — `nominations` collection |
-| `Collection_name` | Trilogies / named series of works | Embeddings — `collections` collection |
+| `Collection_name` | Trilogies / named series of works / universes / franchises | Embeddings — `collections` collection |
 | `Movement_name` | Film movements / stylistic schools | Embeddings — `movements` collection |
 | `Group_name` | Organizations / publications / musical groups | Embeddings — `groups` collection |
 | `Death_name` | Cause or circumstance of death | Embeddings — `deaths` collection |
@@ -849,6 +853,8 @@ The system intelligently extracts and replaces entities in natural language ques
 | `Technical_format` | Sound systems, color/film/sound tech, film formats | `T_WC_T2S_TECHNICAL` (56 active rows grouped by `TECHNICAL_TYPE`) | Integer `ID_TECHNICAL` |
 | `Status_name` | Production lifecycle status | `DISTINCT STATUS` over `T_WC_T2S_MOVIE` ∪ `T_WC_T2S_SERIE` | Canonical string (e.g. `Released`, `Canceled`) |
 | `Serie_type` | TV series type | `DISTINCT SERIE_TYPE` over `T_WC_T2S_SERIE` | Canonical string (e.g. `Documentary`, `Miniseries`) |
+| `Department_name` | Crew department / known-for crew job (cast / acting excluded) | `DISTINCT CREW_DEPARTMENT` over `T_WC_T2S_PERSON_MOVIE` ∪ `T_WC_T2S_PERSON_SERIE` ∪ `DISTINCT KNOWN_FOR_DEPARTMENT` over `T_WC_T2S_PERSON`, all filtered with `NOT IN ('Actors', 'Acting')` | Canonical string (e.g. `Directing`, `Camera`, `Writing`) |
+| `Aspect_ratio` | Movie aspect ratio (French comma-decimal notation as stored in DB) | `DISTINCT ASPECT_RATIO` over `T_WC_T2S_MOVIE`, filtered to comma-decimal form via `REGEXP '^[0-9]+,[0-9]+$'` so noisy variants (`'4:3'`, `'4/3'`, `'16:9'`, `'1:33'`, etc.) fall through to aliases | Canonical string (e.g. `1,33`, `1,85`, `2,35`, `2,39`) |
 
 **Regex-validated ([entity.py](entity.py) `_REGEX_PLACEHOLDER_RULES`; malformed values are rejected and the placeholder is left unresolved):**
 
@@ -867,7 +873,7 @@ The system intelligently extracts and replaces entities in natural language ques
 5. Resolve each placeholder to a real DB value using the per-prefix `search_list` in [data/entity_resolution.json](data/entity_resolution.json) (embeddings or RapidFuzz, with optional language-family gating)
 6. Substitute resolved values back into `sql_query`, `justification`, and `answer`, using SQL-safe `''` quote escaping
 
-The full pipeline is implemented in [entity.py](entity.py) (resolver dispatch, regex-validated placeholders, embeddings, RapidFuzz person resolution, generic fallback replacement) plus [closed_vocab.py](closed_vocab.py) (DB-driven closed-vocabulary lookups for `Genre_name`, `Technical_format`, `Status_name`, `Serie_type` with RapidFuzz typo tolerance and JSON-driven alias layering).
+The full pipeline is implemented in [entity.py](entity.py) (resolver dispatch, regex-validated placeholders, embeddings, RapidFuzz person resolution, generic fallback replacement) plus [closed_vocab.py](closed_vocab.py) (DB-driven closed-vocabulary lookups for `Genre_name`, `Technical_format`, `Status_name`, `Serie_type`, `Department_name`, `Aspect_ratio` with RapidFuzz typo tolerance and JSON-driven alias layering).
 
 If the user provides a disambiguation pattern like `<movie_title> (YYYY)`, entity extraction returns a `{{Release_yearN}}` placeholder alongside the `{{Movie_titleN}}` placeholder so the SQL can disambiguate same-titled films by release year.
 
@@ -879,11 +885,11 @@ ChromaDB collections for entity matching (15 entity collections + 1 cache collec
 - `series` — TV series title embeddings (English / French / original)
 - `companies` — production/distribution company embeddings
 - `networks` — TV network / streaming platform embeddings
-- `topics` — theme, franchise, and recurring-character-collection embeddings
+- `topics` — theme and recurring-character-collection embeddings
 - `lists` — curated ranking / canon embeddings (e.g., Sight and Sound, IMDb Top 250)
 - `awards` — named award embeddings
 - `nominations` — named award-nomination embeddings
-- `collections` — trilogy / named-work-series embeddings
+- `collections` — trilogy / named-work-series embeddings plus universe / franchise embeddings (e.g., Star Wars, Marvel Cinematic Universe, Middle-Earth)
 - `movements` — film-movement / stylistic-school embeddings
 - `groups` — organization / publication / musical-group embeddings
 - `deaths` — cause-of-death embeddings

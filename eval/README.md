@@ -1,7 +1,7 @@
 # Text2SQL Evaluator
 
-**Version:** 2.4
-**Last Updated:** 2026-04-27
+**Version:** 2.5
+**Last Updated:** 2026-05-06
 **Status:** Production Ready
 **Main file:** [text2sql-eval.py](text2sql-eval.py)
 
@@ -269,6 +269,23 @@ IMDB_RATING >= 7.0
 
 Behaviour on an empty DataFrame: passes iff the assertion is exactly `COUNT(*) == 0`; otherwise fails.
 
+#### Unified-schema column bridge
+
+The Text2SQL prompt emits a unified result shape for movie / serie (and occasionally person) queries: `T_WC_T2S_MOVIE.ID_MOVIE AS ID_CONTENT, 'movie' AS CONTENT_TYPE, …`. Legacy assertions written against the per-table column names (`ID_MOVIE IN (...)`, `ID_SERIE IN (...)`, `ID_PERSON IN (...)`) keep working because `evaluate_dataframe_assertions()` synthesizes virtual columns at the top of the function whenever both `ID_CONTENT` and `CONTENT_TYPE` are present in the DataFrame:
+
+| Virtual column | Source rows |
+|---|---|
+| `ID_MOVIE` | `ID_CONTENT` where `CONTENT_TYPE` (case-insensitive) is `movie`, NaN elsewhere |
+| `ID_SERIE` | `ID_CONTENT` where `CONTENT_TYPE` is `serie`, NaN elsewhere |
+| `ID_PERSON` | `ID_CONTENT` where `CONTENT_TYPE` is `person`, NaN elsewhere |
+
+Behavioural notes:
+- Existing columns are never overwritten — if the DataFrame already carries an `ID_MOVIE` column, the bridge is a no-op for that column.
+- Non-matching rows become NaN, which `IN` / `NOT IN` evaluators treat as not-in-list, so a mixed movie+serie result correctly satisfies `ID_MOVIE IN (...)` for only the movie rows.
+- When `CONTENT_TYPE` is absent (or `ID_CONTENT` is absent), the bridge does not fire and column resolution falls back to the strict exact-match path — `ID_MOVIE IN (...)` against a DataFrame without `ID_MOVIE` fails with the usual `Column 'ID_MOVIE' does not exist in DataFrame` message.
+
+Regression coverage: [test-unified-schema-bridge.py](test-unified-schema-bridge.py) (movies-only, mixed movies+series, ID_PERSON, mixed-case `Movie`, no-op when `ID_MOVIE` already exists, no-op when `CONTENT_TYPE` is absent, `NOT IN` semantics).
+
 ### 4.4 Aggregated score
 `ASSERTIONS_TOTAL_SCORE = 1` iff **all non-null** component scores are `1`. If only one assertion is provided, `TOTAL_SCORE` reflects just that one. If none are provided, it stays `NULL`.
 
@@ -419,6 +436,7 @@ ASSERTIONS_ENTITY_EXTRACTION: PASS
 | [entity_extraction_eval_functions.py](entity_extraction_eval_functions.py) | `ee_eval_two_layer()` + DSL helpers (`_placeholders`, `_entity_keys`, `_eval_layer2`, …) |
 | [citizenphil.py](citizenphil.py) | Shared DB / server-variable / SQL-update helpers (`f_getconnection`, `f_getservervariable`, `f_setservervariable`, `f_sqlupdatearray`, `convert_seconds_to_duration`, `paris_tz`) |
 | [test-cell-condition.py](test-cell-condition.py) | Standalone sanity check for `CELL()` assertions |
+| [test-unified-schema-bridge.py](test-unified-schema-bridge.py) | Standalone regression test for the unified-schema column bridge (`ID_CONTENT` + `CONTENT_TYPE` → virtual `ID_MOVIE` / `ID_SERIE` / `ID_PERSON`); see [§4.3 Unified-schema column bridge](#unified-schema-column-bridge) |
 | [Dockerfile](Dockerfile) | `python:3.11-slim` base; installs `requirements.txt`; entrypoint `python ./text2sql-eval.py` |
 | [text2sql-eval.sh](text2sql-eval.sh) | Build image + run container (detached, host network) |
 | [requirements.txt](requirements.txt) | `requests`, `pymysql`, `pandas>=1.5`, `numpy>=1.21`, `pytest>=7`, `pytz`, `python-dotenv>=1`, `openai>=1` |
@@ -672,6 +690,9 @@ Your `--api-version` (and/or `--*-model`) does not match what the server actuall
 - Every `(api_version, model triple, language)` combination is already present in `T_WC_T2S_EVALUATION_EXECUTION` — this is the intended re-entrant behaviour
 - To force a re-run, soft-delete the matching executions (`UPDATE ... SET DELETED = 1`) and run Phase 10 first, or bump the API version
 
+### `Column 'ID_MOVIE' does not exist in DataFrame` despite the right movies appearing
+The Text2SQL prompt emitted the unified `ID_CONTENT` + `CONTENT_TYPE` result shape but the assertion used a per-table column name (`ID_MOVIE` / `ID_SERIE` / `ID_PERSON`). The evaluator resolves this automatically via the unified-schema bridge documented in [§4.3 Unified-schema column bridge](#unified-schema-column-bridge) — if you still see this message, check that the API response actually contains both `ID_CONTENT` and `CONTENT_TYPE` columns (a malformed SQL that aliased `ID_CONTENT` without emitting `CONTENT_TYPE`, or vice versa, will not trigger the bridge).
+
 ### Phase 20 produces no output
 - No executions match the CLI filter tuple — check `API_VERSION` is stored in `XXX.YYY.ZZZ` form
 - `JSON_RESULT` may be empty or unparseable — `safe_json_loads()` will raise
@@ -685,6 +706,7 @@ Phase 11 only selects questions where at least one assertion column is non-empty
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.5 | 2026-05-06 | Added the **unified-schema column bridge** to `evaluate_dataframe_assertions()` in [text2sql_eval_functions.py](text2sql_eval_functions.py): when a result DataFrame carries both `ID_CONTENT` and `CONTENT_TYPE` (the unified movie/serie/person shape prescribed in [data/text_to_sql.md](../data/text_to_sql.md)), virtual `ID_MOVIE` / `ID_SERIE` / `ID_PERSON` columns are synthesized so legacy `ID_MOVIE IN (...)` / `ID_SERIE IN (...)` / `ID_PERSON IN (...)` assertions resolve without any question-bank migration. Existing columns are never overwritten; non-matching rows become NaN. Fixed the systemic regression where ~621 evaluation rows scored 0 with `Column 'ID_MOVIE' does not exist in DataFrame`. Added [test-unified-schema-bridge.py](test-unified-schema-bridge.py) (12 cases: movies-only, mixed movies+series, ID_PERSON, mixed-case `Movie`, no-op when column already exists, no-op when `CONTENT_TYPE` is absent, `NOT IN` semantics). Documented the bridge in [§4.3 Unified-schema column bridge](#unified-schema-column-bridge) and the matching troubleshooting entry in §12. |
 | 2.4 | 2026-04-27 | Documented the [lib/](lib/) PHP web UI — `global-light.inc.php` (shared bootstrap), `t2sevalexecgraph.inc.php` (multi-layer comparison graph with selectable Y axis and per-layer color), `t2sevalexecdetails.inc.php` (per-`(layer, category)` drill-down with pagination and sort), and `t2sevalexecjson.inc.php` (`JSON_RESULT` viewer with `?format=json` switch). Added [§11 Interactive Web UI (PHP)](#11-interactive-web-ui-php) and a `lib/` row in the source files table; renumbered Troubleshooting (§12) and Version History (§13). Also rewrote [how-many-samples-evals-by-category.ipynb](how-many-samples-evals-by-category.ipynb) to read the Phase 30/31 JSON exports (replacing the legacy CSV source) and updated its source-files entry plus a downstream-consumer note in §10. |
 | 2.3 | 2026-04-25 | Phase 32 now writes execution JSON files into a per-run subfolder `<api_version>_<lang>_<eemodel>_<t2smodel>_<complexmodel>/` under `/shared/evaluation_execution/`, so successive runs across versions, languages, and model triples stay isolated instead of piling up in a single folder. |
 | 2.2 | 2026-04-25 | Added Phases 30/31/32 — JSON exports of `T_WC_T2S_EVALUATION_CATEGORY`, `T_WC_T2S_EVALUATION`, and `T_WC_T2S_EVALUATION_EXECUTION` to `/shared/<subfolder>/` (one file per row, skip-if-exists, ASCII-folded slug filenames, eval ID embedded in execution filenames to avoid same-day collisions). The exports power downstream LLM analysis of the question bank, taxonomy, and execution results without requiring DB access. |
@@ -696,6 +718,6 @@ Phase 11 only selects questions where at least one assertion column is non-empty
 
 ---
 
-**Last Updated:** 2026-04-27
+**Last Updated:** 2026-05-06
 **Maintainer:** See repository owner
 **Primary entry point:** [text2sql-eval.py](text2sql-eval.py)

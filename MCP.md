@@ -62,9 +62,10 @@ async def _mcp_sql_search(question: str, ui_language: str = "en") -> str:
     Query the cinema and TV database in natural language.
 
     Covers movies, TV series, persons (actors, directors, writers, crew),
-    production companies, TV networks, topics (universes, franchises, themes),
-    curated lists, collections (trilogies, sagas), film movements, person groups,
-    causes of death, awards, nominations, and locations (narrative or filming).
+    production companies, TV networks, topics (themes, recurring-character collections),
+    curated lists (rankings, canons), collections (trilogies, sagas, universes, franchises),
+    film movements, person groups, causes of death, awards, nominations, and locations
+    (narrative or filming).
 
     The result returns rows with entity IDs and key fields (title, release date,
     IMDb rating, poster path), plus a plain-language `answer` field generated in
@@ -154,8 +155,8 @@ async def _mcp_get_person(id: int) -> str:
 
 @mcp.tool(name="get_collection")
 async def _mcp_get_collection(id: int) -> str:
-    """Get all fields for a named collection (trilogy, saga, franchise) plus member movies
-    and TV series ordered by their position in the collection. id = ID_T2S_COLLECTION."""
+    """Get all fields for a named collection (trilogy, saga, universe, franchise) plus member
+    movies and TV series ordered by their position in the collection. id = ID_T2S_COLLECTION."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -169,8 +170,8 @@ async def _mcp_get_collection(id: int) -> str:
 
 @mcp.tool(name="get_topic")
 async def _mcp_get_topic(id: int) -> str:
-    """Get all fields for a topic (universe, franchise, theme, keyword) plus linked movies
-    and TV series ordered by their position in the topic. id = ID_TOPIC."""
+    """Get all fields for a topic (theme, keyword, recurring-character collection) plus linked
+    movies and TV series ordered by their position in the topic. id = ID_TOPIC."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -730,7 +731,29 @@ The current Claude.ai connector UI only supports OAuth, not static bearer tokens
 
 ---
 
-## 7. End-to-End Query Flow
+## 7. Checking the Deployed MCP API Version
+
+Use [text2sql-mcp-server-version-check.ps1](text2sql-mcp-server-version-check.ps1) from the repository root to verify which FastAPI `strapiversion` is currently served through the public MCP endpoint.
+
+The script:
+
+1. Sends a JSON-RPC `tools/call` request to `https://www.vaugouin.com/mcp`.
+2. Calls the `sql_search` MCP tool with a simple query.
+3. Parses the Server-Sent Events `data:` payload returned by FastMCP.
+4. Extracts the wrapped FastAPI response field `api_version`.
+5. Computes Blue/Green from patch parity: even patch → Blue, odd patch → Green.
+
+Important: MCP `initialize` returns FastMCP server metadata such as `serverInfo.version`; that is not the Text2SQL API version. Use the wrapped `sql_search` response `api_version` field instead.
+
+Run it with PowerShell:
+
+```powershell
+.\text2sql-mcp-server-version-check.ps1
+```
+
+---
+
+## 8. End-to-End Query Flow
 
 This section describes how a user question travels from a Claude client through the MCP route to your API and back.
 
