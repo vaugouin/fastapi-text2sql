@@ -534,6 +534,152 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `api_version` (str): Current API version
 - `messages` (list): Array of processing step messages, each with `position` (int) and `text` (str). On a stronger-model retry, the messages from the outer and inner runs are merged and renumbered.
 
+#### 3. Entity Detail Endpoints
+
+All entity detail endpoints require the same API key header as `/search/text2sql`:
+
+```http
+X-API-Key: your_api_key
+```
+
+Each endpoint returns `404` when the requested entity is not found. Successful responses include every column selected with `SELECT *` from the endpoint's primary `T_WC_T2S_*` table, plus the embedded relation arrays documented below.
+
+| Method | Endpoint | Identifier | Primary table | Purpose |
+|---|---|---|---|---|
+| `GET` | `/movies/{id}` | `ID_MOVIE` | `T_WC_T2S_MOVIE` | Movie detail |
+| `GET` | `/series/{id}` | `ID_SERIE` | `T_WC_T2S_SERIE` | TV series detail |
+| `GET` | `/persons/{id}` | `ID_PERSON` | `T_WC_T2S_PERSON` | Person detail |
+| `GET` | `/companies/{id}` | `ID_COMPANY` | `T_WC_T2S_COMPANY` | Production company detail |
+| `GET` | `/networks/{id}` | `ID_NETWORK` | `T_WC_T2S_NETWORK` | TV network detail |
+| `GET` | `/collections/{id}` | `ID_T2S_COLLECTION` | `T_WC_T2S_COLLECTION` | Collection, franchise, or universe detail |
+| `GET` | `/topics/{id}` | `ID_TOPIC` | `T_WC_T2S_TOPIC` | Topic detail |
+| `GET` | `/lists/{id}` | `ID_T2S_LIST` | `T_WC_T2S_LIST` | Curated list detail |
+| `GET` | `/movements/{id}` | `ID_MOVEMENT` | `T_WC_T2S_MOVEMENT` | Film movement or style detail |
+| `GET` | `/groups/{id}` | `ID_GROUP` | `T_WC_T2S_GROUP` | Person group detail |
+| `GET` | `/deaths/{id}` | `ID_DEATH` | `T_WC_T2S_DEATH` | Cause or circumstance of death detail |
+| `GET` | `/awards/{id}` | `ID_AWARD` | `T_WC_T2S_AWARD` | Award detail |
+| `GET` | `/nominations/{id}` | `ID_NOMINATION` | `T_WC_T2S_NOMINATION` | Award nomination detail |
+| `GET` | `/locations/{wikidata_id}` | `ID_WIKIDATA`, e.g. `Q90` | `T_WC_T2S_ITEM` | Location detail |
+
+##### `GET /movies/{id}`
+
+Returns all `T_WC_T2S_MOVIE` fields for the TMDb movie ID `ID_MOVIE`, plus:
+
+| Field | Shape |
+|---|---|
+| `cast` | Array of `{ ID_PERSON, PERSON_NAME, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, DISPLAY_ORDER }` where `CREDIT_TYPE = 'cast'`, ordered by `DISPLAY_ORDER` |
+| `crew` | Array of `{ ID_PERSON, PERSON_NAME, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, DISPLAY_ORDER }` where `CREDIT_TYPE = 'crew'`, ordered by `DISPLAY_ORDER` |
+| `genres` | Array of `ID_GENRE` integers |
+| `companies` | Array of `{ ID_COMPANY, COMPANY_NAME }` |
+| `production_countries` | Array of `COUNTRY_CODE` strings |
+| `spoken_languages` | Array of `SPOKEN_LANGUAGE` strings |
+| `topics` | Array of `{ ID_TOPIC, TOPIC_NAME, TOPIC_TYPE }`, ordered by `DISPLAY_ORDER` |
+| `collections` | Array of `{ ID_T2S_COLLECTION, COLLECTION_NAME }`, ordered by `DISPLAY_ORDER` |
+| `movements` | Array of `{ ID_MOVEMENT, MOVEMENT_NAME }`, ordered by `DISPLAY_ORDER` |
+| `awards` | Array of `{ ID_AWARD, AWARD_NAME }`, ordered by `DISPLAY_ORDER` |
+| `nominations` | Array of `{ ID_NOMINATION, NOMINATION_NAME }`, ordered by `DISPLAY_ORDER` |
+
+Base movie fields currently include `ID_MOVIE`, `MOVIE_TITLE`, `DAT_RELEASE`, `RELEASE_YEAR`, `RELEASE_MONTH`, `RELEASE_DAY`, `ID_IMDB`, `ID_WIKIDATA`, `POSTER_PATH`, `POPULARITY`, `ORIGINAL_LANGUAGE`, `STATUS`, `BUDGET`, `RUNTIME`, `BACKDROP_PATH`, `REVENUE`, `TAGLINE`, `VIDEO`, `VOTE_AVERAGE`, `VOTE_COUNT`, `IS_COLOR`, `IS_BLACK_AND_WHITE`, `IS_SILENT`, `ASPECT_RATIO`, `IS_MOVIE`, `IS_DOCUMENTARY`, `IS_SHORT_FILM`, `DAT_CREAT`, `TIM_UPDATED`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `WIKIDATA_TITLE`, `ALIASES`, `PLEX_MEDIA_KEY`, `ID_CRITERION`, `ID_CRITERION_SPINE`, `INSTANCE_OF`, `PLOT`, `CAST`, `PRODUCTION`, `RECEPTION`, and `SOUNDTRACK`.
+
+##### `GET /series/{id}`
+
+Returns all `T_WC_T2S_SERIE` fields for the TMDb series ID `ID_SERIE`, plus:
+
+| Field | Shape |
+|---|---|
+| `cast` | Array of `{ ID_PERSON, PERSON_NAME, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, DISPLAY_ORDER }` where `CREDIT_TYPE = 'cast'`, ordered by `DISPLAY_ORDER` |
+| `crew` | Array of `{ ID_PERSON, PERSON_NAME, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, DISPLAY_ORDER }` where `CREDIT_TYPE = 'crew'`, ordered by `DISPLAY_ORDER` |
+| `genres` | Array of `ID_GENRE` integers |
+| `companies` | Array of `{ ID_COMPANY, COMPANY_NAME }` |
+| `networks` | Array of `{ ID_NETWORK, NETWORK_NAME }` |
+| `production_countries` | Array of `COUNTRY_CODE` strings |
+| `spoken_languages` | Array of `SPOKEN_LANGUAGE` strings |
+| `topics` | Array of `{ ID_TOPIC, TOPIC_NAME, TOPIC_TYPE }`, ordered by `DISPLAY_ORDER` |
+| `collections` | Array of `{ ID_T2S_COLLECTION, COLLECTION_NAME }`, ordered by `DISPLAY_ORDER` |
+| `movements` | Array of `{ ID_MOVEMENT, MOVEMENT_NAME }`, ordered by `DISPLAY_ORDER` |
+| `awards` | Array of `{ ID_AWARD, AWARD_NAME }`, ordered by `DISPLAY_ORDER` |
+| `nominations` | Array of `{ ID_NOMINATION, NOMINATION_NAME }`, ordered by `DISPLAY_ORDER` |
+
+Base series fields currently include `ID_SERIE`, `SERIE_TITLE`, `DAT_FIRST_AIR`, `FIRST_AIR_YEAR`, `FIRST_AIR_MONTH`, `FIRST_AIR_DAY`, `DAT_LAST_AIR`, `LAST_AIR_YEAR`, `LAST_AIR_MONTH`, `LAST_AIR_DAY`, `ID_IMDB`, `ID_WIKIDATA`, `POSTER_PATH`, `POPULARITY`, `ORIGINAL_LANGUAGE`, `STATUS`, `BACKDROP_PATH`, `TAGLINE`, `VOTE_AVERAGE`, `VOTE_COUNT`, `NUMBER_OF_EPISODES`, `NUMBER_OF_SEASONS`, `SERIE_TYPE`, `DAT_CREAT`, `TIM_UPDATED`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `WIKIDATA_TITLE`, `ALIASES`, `PLEX_MEDIA_KEY`, and `INSTANCE_OF`.
+
+##### `GET /persons/{id}`
+
+Returns all `T_WC_T2S_PERSON` fields for the TMDb person ID `ID_PERSON`, plus:
+
+| Field | Shape |
+|---|---|
+| `movie_cast` | Array of `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, DISPLAY_ORDER }` where `CREDIT_TYPE = 'cast'`, ordered by `DAT_RELEASE DESC` |
+| `movie_crew` | Array of `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, DISPLAY_ORDER }` where `CREDIT_TYPE = 'crew'`, ordered by `DAT_RELEASE DESC` |
+| `series_cast` | Array of `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, DISPLAY_ORDER }` where `CREDIT_TYPE = 'cast'`, ordered by `DAT_FIRST_AIR DESC` |
+| `series_crew` | Array of `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, DISPLAY_ORDER }` where `CREDIT_TYPE = 'crew'`, ordered by `DAT_FIRST_AIR DESC` |
+| `groups` | Array of `{ ID_GROUP, GROUP_NAME, GROUP_TYPE }`, ordered by `DISPLAY_ORDER` |
+| `deaths` | Array of `{ ID_DEATH, DEATH_NAME, DEATH_TYPE }`, ordered by `DISPLAY_ORDER` |
+| `awards` | Array of `{ ID_AWARD, AWARD_NAME }`, ordered by `DISPLAY_ORDER` |
+| `nominations` | Array of `{ ID_NOMINATION, NOMINATION_NAME }`, ordered by `DISPLAY_ORDER` |
+
+Base person fields currently include `ID_PERSON`, `PERSON_NAME`, `ID_IMDB`, `ID_WIKIDATA`, `BIOGRAPHY`, `BIRTH_YEAR`, `BIRTH_MONTH`, `BIRTH_DAY`, `DEATH_YEAR`, `DEATH_MONTH`, `DEATH_DAY`, `GENDER`, `PROFILE_PATH`, `COUNTRY_OF_BIRTH`, `POPULARITY`, `KNOWN_FOR_DEPARTMENT`, `TIM_CREDITS_DOWNLOADED`, `DAT_CREAT`, `TIM_UPDATED`, `WIKIDATA_NAME`, `ALIASES`, and `INSTANCE_OF`.
+
+##### `GET /companies/{id}`
+
+Returns all `T_WC_T2S_COMPANY` fields for `ID_COMPANY`, plus:
+
+| Field | Shape |
+|---|---|
+| `movies` | Array of `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED }`, ordered by `IMDB_RATING_WEIGHTED DESC` |
+| `series` | Array of `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED }`, ordered by `IMDB_RATING_WEIGHTED DESC` |
+
+Base company fields currently include `ID_COMPANY`, `COMPANY_NAME`, `DESCRIPTION`, `LOGO_PATH`, `HEADQUARTERS`, `ORIGIN_COUNTRY`, `ID_PARENT`, `TIM_CREDITS_DOWNLOADED`, `DAT_CREAT`, and `TIM_UPDATED`.
+
+##### `GET /networks/{id}`
+
+Returns all `T_WC_T2S_NETWORK` fields for `ID_NETWORK`, plus:
+
+| Field | Shape |
+|---|---|
+| `series` | Array of `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED }`, ordered by `IMDB_RATING_WEIGHTED DESC` |
+
+Base network fields currently include `ID_NETWORK`, `NETWORK_NAME`, `LOGO_PATH`, `ORIGIN_COUNTRY`, `TIM_CREDITS_DOWNLOADED`, `DAT_CREAT`, and `TIM_UPDATED`.
+
+##### `GET /collections/{id}`, `/topics/{id}`, `/lists/{id}`, and `/movements/{id}`
+
+These endpoints return all fields from their primary entity table, plus member movies and series:
+
+| Endpoint | Primary fields include | Embedded arrays |
+|---|---|---|
+| `/collections/{id}` | `ID_T2S_COLLECTION`, `ID_RECORD`, `COLLECTION_NAME`, `COLLECTION_NAME_FR`, `OVERVIEW`, `COLLECTION_SOURCE`, `COLLECTION_TYPE`, `MOVIE_COUNT`, `SERIE_COUNT`, `POSTER_PATH`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED` | `movies` and `series` arrays of `{ ID_MOVIE/ID_SERIE, MOVIE_TITLE/SERIE_TITLE, DAT_RELEASE/DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
+| `/topics/{id}` | `ID_TOPIC`, `TOPIC_NAME`, `TOPIC_TYPE`, `TOPIC_SOURCE`, `LANG`, `ID_RECORD`, `POSTER_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED` | `movies` and `series` arrays of `{ ID_MOVIE/ID_SERIE, MOVIE_TITLE/SERIE_TITLE, DAT_RELEASE/DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
+| `/lists/{id}` | `ID_T2S_LIST`, `ID_RECORD`, `LIST_NAME`, `LIST_NAME_FR`, `OVERVIEW`, `LIST_SOURCE`, `LIST_TYPE`, `MOVIE_COUNT`, `SERIE_COUNT`, `POSTER_PATH`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED` | `movies` and `series` arrays of `{ ID_MOVIE/ID_SERIE, MOVIE_TITLE/SERIE_TITLE, DAT_RELEASE/DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
+| `/movements/{id}` | `ID_MOVEMENT`, `ID_RECORD`, `MOVEMENT_NAME`, `MOVEMENT_NAME_FR`, `OVERVIEW`, `MOVEMENT_SOURCE`, `MOVEMENT_TYPE`, `MOVIE_COUNT`, `SERIE_COUNT`, `POSTER_PATH`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED` | `movies` and `series` arrays of `{ ID_MOVIE/ID_SERIE, MOVIE_TITLE/SERIE_TITLE, DAT_RELEASE/DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
+
+##### `GET /groups/{id}` and `/deaths/{id}`
+
+These endpoints return all fields from their primary entity table, plus associated persons:
+
+| Endpoint | Primary fields include | Embedded arrays |
+|---|---|---|
+| `/groups/{id}` | `ID_GROUP`, `ID_WIKIDATA`, `GROUP_NAME`, `GROUP_NAME_FR`, `OVERVIEW`, `GROUP_SOURCE`, `GROUP_TYPE`, `PERSON_COUNT`, `PROFILE_PATH`, `WIKIPEDIA_IMAGE_PATH`, `POPULARITY` | `persons`: array of `{ ID_PERSON, PERSON_NAME, POPULARITY, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
+| `/deaths/{id}` | `ID_DEATH`, `ID_WIKIDATA`, `DEATH_NAME`, `DEATH_NAME_FR`, `OVERVIEW`, `DEATH_SOURCE`, `DEATH_TYPE`, `PERSON_COUNT`, `PROFILE_PATH`, `WIKIPEDIA_IMAGE_PATH`, `POPULARITY` | `persons`: array of `{ ID_PERSON, PERSON_NAME, POPULARITY, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
+
+##### `GET /awards/{id}` and `/nominations/{id}`
+
+These endpoints return all fields from their primary entity table, plus associated movies, series, and persons:
+
+| Endpoint | Primary fields include | Embedded arrays |
+|---|---|---|
+| `/awards/{id}` | `ID_AWARD`, `ID_WIKIDATA`, `AWARD_NAME`, `AWARD_NAME_FR`, `OVERVIEW`, `AWARD_SOURCE`, `AWARD_TYPE`, `MOVIE_COUNT`, `SERIE_COUNT`, `PERSON_COUNT`, `POSTER_PATH`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `POPULARITY` | `movies`: `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, DISPLAY_ORDER }`; `series`: `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, DISPLAY_ORDER }`; `persons`: `{ ID_PERSON, PERSON_NAME, POPULARITY, DISPLAY_ORDER }`; all ordered by `DISPLAY_ORDER` |
+| `/nominations/{id}` | `ID_NOMINATION`, `ID_WIKIDATA`, `NOMINATION_NAME`, `NOMINATION_NAME_FR`, `OVERVIEW`, `NOMINATION_SOURCE`, `NOMINATION_TYPE`, `MOVIE_COUNT`, `SERIE_COUNT`, `PERSON_COUNT`, `POSTER_PATH`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `POPULARITY` | `movies`: `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, DISPLAY_ORDER }`; `series`: `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, DISPLAY_ORDER }`; `persons`: `{ ID_PERSON, PERSON_NAME, POPULARITY, DISPLAY_ORDER }`; all ordered by `DISPLAY_ORDER` |
+
+##### `GET /locations/{wikidata_id}`
+
+Returns all `T_WC_T2S_ITEM` fields for the location `ID_WIKIDATA`, for example `Q90`, plus movies and series where the location is linked through Wikidata property `P840` (narrative location) or `P915` (filming location).
+
+| Field | Shape |
+|---|---|
+| `movies` | Array of `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, ID_PROPERTY }`, ordered by `IMDB_RATING_WEIGHTED DESC` |
+| `series` | Array of `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, ID_PROPERTY }`, ordered by `IMDB_RATING_WEIGHTED DESC` |
+
+Base location fields currently include `ID_WIKIDATA`, `ITEM_LABEL`, `DESCRIPTION`, `INSTANCE_OF`, and `WIKIPEDIA_IMAGE_PATH`.
+
 ### Client handling for quota / rate-limit errors
 
 When an upstream LLM provider rejects a request because of quota exhaustion or temporary rate limiting, the API returns the failure in the normal JSON response and also exposes structured retry metadata.
