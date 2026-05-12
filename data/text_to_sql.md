@@ -903,6 +903,8 @@ ORDER BY CASE WHEN T_WC_T2S_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END, T_WC
 - Persons → POPULARITY DESC
 - When display persons for a given movie (cast or crew), ORDER BY T_WC_T2S_PERSON_MOVIE.DISPLAY_ORDER ASC
 - When display persons for a given serie (cast or crew), ORDER BY T_WC_T2S_PERSON_SERIE.DISPLAY_ORDER ASC
+- When display movies for a given person (cast or crew), ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC
+- When display series for a given person (cast or crew), ORDER BY T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED DESC
 - Companies → ID_COMPANY ASC
 - Networks → ID_NETWORK ASC
 - Topics → IMDB_RATING_WEIGHTED DESC

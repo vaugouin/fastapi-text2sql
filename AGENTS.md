@@ -178,6 +178,21 @@ Always also:
 
 ---
 
+## Text-to-SQL ↔ entity endpoint coherence
+
+[data/text_to_sql.md](data/text_to_sql.md) (drives LLM-generated SQL for `/search/text2sql`) and the 14 entity detail endpoints in [main.py](main.py) (hand-written SQL for `/movies/{id}`, `/persons/{id}`, etc., plus their MCP `get_*` proxies) are two independent SQL surfaces over the same data. They are kept in sync by hand, not enforced by code.
+
+When working on either side, scan the other for divergence and **surface any discrepancy to the user** — do not silently patch one to match the other, and do not treat this as an automatic refactor target. Default expectation: `data/text_to_sql.md` is the spec; the endpoints should match unless the user says otherwise. Categories of drift to watch for:
+
+- **Filter predicates** — e.g. the `CAST_CHARACTER NOT IN (...)` exclusion for non-documentary movie cast ([data/text_to_sql.md:850-851](data/text_to_sql.md#L850-L851)), `IS_DOCUMENTARY` / `IS_MOVIE` toggles, Criterion Collection criteria, technical / genre / aspect-ratio filters.
+- **Sort order** — the "Default Sorting" section (around line 876+) governs both: `ORDER BY` inside endpoint SQL, and the directional rules (e.g. movies-for-a-person vs persons-for-a-movie) that drive what the text-to-SQL prompt emits.
+- **Included related lists and their key order** — the order in which related-entity lists appear in entity detail responses should track the order of rules in the "Default Sorting" section.
+- **Result columns** — the `Result Columns` section (around line 768+) specifies which columns each entity surface should expose.
+
+When you spot a divergence, describe it (which side has which behavior, where in the spec/code), and let the user decide which side is authoritative for the fix.
+
+---
+
 ## Entity-resolution config schema (`data/entity_resolution.json`)
 
 Each entry has a `placeholder_prefix` and a `search_list`. Each search entry can define:
