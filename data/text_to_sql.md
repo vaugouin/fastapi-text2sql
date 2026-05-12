@@ -873,9 +873,26 @@ ORDER BY CASE WHEN T_WC_T2S_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END, T_WC
 ### Images about entities 
 - TYPE_IMAGE values: poster, logo, backdrop, profile
 
+### Trending / popular content
+"Trending" and "popular" mean recency-weighted popularity, not quality. When the question contains any of these terms (English and French — extend per UI language as needed), override the default sort with POPULARITY DESC:
+- English: trending, what's trending, hot, hot right now, popular, most popular, rising, buzzing
+- French:  tendance, tendances, en tendance, populaire(s), les plus populaires, à la mode, en vogue
+
+Apply to all three entity types:
+- Trending / popular movies   → ORDER BY T_WC_T2S_MOVIE.POPULARITY DESC
+- Trending / popular series   → ORDER BY T_WC_T2S_SERIE.POPULARITY DESC
+- Trending / popular persons  → ORDER BY T_WC_T2S_PERSON.POPULARITY DESC
+- Trending / popular content (movies + series UNION) → ORDER BY POPULARITY DESC on the UNION result
+
+Do NOT confuse these with quality terms:
+- "top rated", "best rated", "highest rated", "best", "meilleurs", "mieux notés", "les mieux classés" → keep the documented default `IMDB_RATING_WEIGHTED DESC`.
+
+"Trending" alone does NOT imply a time filter. Do not invent DAT_RELEASE / DAT_FIRST_AIR / BIRTH_YEAR constraints unless the question explicitly names a window (e.g. "trending in 2024"; "trending this week" has no column to filter against, so ignore the time qualifier).
+
 ### Default Sorting
 - Movies → IMDB_RATING_WEIGHTED DESC
 - Series → IMDB_RATING_WEIGHTED DESC
+- Trending / popular movies, series, persons, or mixed content → see "Trending / popular content" section above (POPULARITY DESC overrides the IMDb default).
 - When display movies for a given topic, ORDER BY T_WC_T2S_MOVIE_TOPIC.DISPLAY_ORDER ASC
 - When display series for a given topic, ORDER BY T_WC_T2S_SERIE_TOPIC.DISPLAY_ORDER ASC
 - When display movies for a given list, ORDER BY T_WC_T2S_MOVIE_LIST.DISPLAY_ORDER ASC
