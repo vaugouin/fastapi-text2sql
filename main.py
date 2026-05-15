@@ -297,7 +297,7 @@ if intcleanupenabled:
     cleanup.cleanup_sql_cache(connection, strapiversion)
     print(f"[startup] SQL cache cleanup done in {time.perf_counter() - _t0:.2f}s.", flush=True)
 
-print("[startup] Loading closed-vocabulary canonicals from DB (Status_name, Serie_type, Department_name, Aspect_ratio, Genre_name, Technical_format)...", flush=True)
+print("[startup] Loading closed-vocabulary canonicals from DB (Status_name, Serie_type, Department_name, Aspect_ratio, Movie_genre, Serie_genre, Technical_format)...", flush=True)
 _t0 = time.perf_counter()
 closed_vocab.init(connection)
 print(f"[startup] Closed-vocabulary canonicals loaded in {time.perf_counter() - _t0:.2f}s.", flush=True)
@@ -1627,7 +1627,14 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
     Each nested list element carries the canonical image path of its related entity:
     PROFILE_PATH for cast/crew (persons); LOGO_PATH for companies; POSTER_PATH for
     topics, lists, collections, movements, awards, and nominations. Topics, lists,
-    collections, movements, awards, and nominations also include WIKIPEDIA_IMAGE_PATH."""
+    collections, movements, awards, and nominations also include WIKIPEDIA_IMAGE_PATH.
+    Companies, topics, lists, collections, and movements also include
+    IMDB_RATING_WEIGHTED and POPULARITY for the related entity.
+
+    The posters list contains every poster image available for this movie from
+    T_WC_T2S_MOVIE_IMAGE (TYPE_IMAGE = 'poster'), ordered by DISPLAY_ORDER; each
+    element exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+    VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1647,7 +1654,8 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
             cursor.execute("SELECT ID_GENRE FROM T_WC_T2S_MOVIE_GENRE WHERE ID_MOVIE = %s", (id,))
             genres = [r["ID_GENRE"] for r in cursor.fetchall()]
             cursor.execute("""
-                SELECT c.ID_COMPANY, c.COMPANY_NAME, c.LOGO_PATH FROM T_WC_T2S_MOVIE_COMPANY mc
+                SELECT c.ID_COMPANY, c.COMPANY_NAME, c.LOGO_PATH, c.IMDB_RATING_WEIGHTED, c.POPULARITY
+                FROM T_WC_T2S_MOVIE_COMPANY mc
                 JOIN T_WC_T2S_COMPANY c ON mc.ID_COMPANY = c.ID_COMPANY
                 WHERE mc.ID_MOVIE = %s ORDER BY c.ID_COMPANY ASC
             """, (id,))
@@ -1657,25 +1665,33 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
             cursor.execute("SELECT SPOKEN_LANGUAGE FROM T_WC_T2S_MOVIE_SPOKEN_LANGUAGE WHERE ID_MOVIE = %s", (id,))
             spoken_languages = [r["SPOKEN_LANGUAGE"] for r in cursor.fetchall()]
             cursor.execute("""
-                SELECT t.ID_TOPIC, t.TOPIC_NAME, t.TOPIC_TYPE, t.POSTER_PATH, t.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_MOVIE_TOPIC mt
+                SELECT t.ID_TOPIC, t.TOPIC_NAME, t.TOPIC_TYPE, t.POSTER_PATH, t.WIKIPEDIA_IMAGE_PATH,
+                       t.IMDB_RATING_WEIGHTED, t.POPULARITY
+                FROM T_WC_T2S_MOVIE_TOPIC mt
                 JOIN T_WC_T2S_TOPIC t ON mt.ID_TOPIC = t.ID_TOPIC
                 WHERE mt.ID_MOVIE = %s ORDER BY mt.DISPLAY_ORDER ASC
             """, (id,))
             topics = cursor.fetchall()
             cursor.execute("""
-                SELECT l.ID_T2S_LIST, l.LIST_NAME, l.LIST_TYPE, l.POSTER_PATH, l.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_MOVIE_LIST ml
+                SELECT l.ID_T2S_LIST, l.LIST_NAME, l.LIST_TYPE, l.POSTER_PATH, l.WIKIPEDIA_IMAGE_PATH,
+                       l.IMDB_RATING_WEIGHTED, l.POPULARITY
+                FROM T_WC_T2S_MOVIE_LIST ml
                 JOIN T_WC_T2S_LIST l ON ml.ID_T2S_LIST = l.ID_T2S_LIST
                 WHERE ml.ID_MOVIE = %s ORDER BY ml.DISPLAY_ORDER ASC
             """, (id,))
             lists = cursor.fetchall()
             cursor.execute("""
-                SELECT c.ID_T2S_COLLECTION, c.COLLECTION_NAME, c.POSTER_PATH, c.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_MOVIE_COLLECTION mc
+                SELECT c.ID_T2S_COLLECTION, c.COLLECTION_NAME, c.POSTER_PATH, c.WIKIPEDIA_IMAGE_PATH,
+                       c.IMDB_RATING_WEIGHTED, c.POPULARITY
+                FROM T_WC_T2S_MOVIE_COLLECTION mc
                 JOIN T_WC_T2S_COLLECTION c ON mc.ID_T2S_COLLECTION = c.ID_T2S_COLLECTION
                 WHERE mc.ID_MOVIE = %s ORDER BY mc.DISPLAY_ORDER ASC
             """, (id,))
             collections = cursor.fetchall()
             cursor.execute("""
-                SELECT m.ID_MOVEMENT, m.MOVEMENT_NAME, m.POSTER_PATH, m.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_MOVIE_MOVEMENT mm
+                SELECT m.ID_MOVEMENT, m.MOVEMENT_NAME, m.POSTER_PATH, m.WIKIPEDIA_IMAGE_PATH,
+                       m.IMDB_RATING_WEIGHTED, m.POPULARITY
+                FROM T_WC_T2S_MOVIE_MOVEMENT mm
                 JOIN T_WC_T2S_MOVEMENT m ON mm.ID_MOVEMENT = m.ID_MOVEMENT
                 WHERE mm.ID_MOVIE = %s ORDER BY mm.DISPLAY_ORDER ASC
             """, (id,))
@@ -1692,6 +1708,14 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
                 WHERE mn.ID_MOVIE = %s ORDER BY mn.DISPLAY_ORDER ASC
             """, (id,))
             nominations = cursor.fetchall()
+            cursor.execute("""
+                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                FROM T_WC_T2S_MOVIE_IMAGE
+                WHERE ID_MOVIE = %s AND TYPE_IMAGE = 'poster'
+                ORDER BY DISPLAY_ORDER ASC
+            """, (id,))
+            posters = cursor.fetchall()
         exclude_self_credits = movie.get("IS_DOCUMENTARY") != 1
         result = {
             **movie,
@@ -1711,6 +1735,7 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
                 and not (exclude_self_credits and c["CAST_CHARACTER"] in CAST_CHARACTER_EXCLUSIONS)
             ],
             "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
+            "posters": list(posters),
         }
         logs.log_usage("movies", {"id": id, "response": result}, strapiversion)
         return result
@@ -1729,7 +1754,13 @@ async def get_series(id: int, api_key: str = Depends(get_api_key)):
     PROFILE_PATH for cast/crew (persons); LOGO_PATH for companies and networks;
     POSTER_PATH for topics, lists, collections, movements, awards, and nominations.
     Topics, lists, collections, movements, awards, and nominations also include
-    WIKIPEDIA_IMAGE_PATH."""
+    WIKIPEDIA_IMAGE_PATH. Companies, topics, lists, collections, and movements also
+    include IMDB_RATING_WEIGHTED and POPULARITY for the related entity.
+
+    The posters list contains every poster image available for this series from
+    T_WC_T2S_SERIE_IMAGE (TYPE_IMAGE = 'poster'), ordered by DISPLAY_ORDER; each
+    element exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+    VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1749,7 +1780,8 @@ async def get_series(id: int, api_key: str = Depends(get_api_key)):
             cursor.execute("SELECT ID_GENRE FROM T_WC_T2S_SERIE_GENRE WHERE ID_SERIE = %s", (id,))
             genres = [r["ID_GENRE"] for r in cursor.fetchall()]
             cursor.execute("""
-                SELECT c.ID_COMPANY, c.COMPANY_NAME, c.LOGO_PATH FROM T_WC_T2S_SERIE_COMPANY sc
+                SELECT c.ID_COMPANY, c.COMPANY_NAME, c.LOGO_PATH, c.IMDB_RATING_WEIGHTED, c.POPULARITY
+                FROM T_WC_T2S_SERIE_COMPANY sc
                 JOIN T_WC_T2S_COMPANY c ON sc.ID_COMPANY = c.ID_COMPANY
                 WHERE sc.ID_SERIE = %s ORDER BY c.ID_COMPANY ASC
             """, (id,))
@@ -1765,25 +1797,33 @@ async def get_series(id: int, api_key: str = Depends(get_api_key)):
             cursor.execute("SELECT SPOKEN_LANGUAGE FROM T_WC_T2S_SERIE_SPOKEN_LANGUAGE WHERE ID_SERIE = %s", (id,))
             spoken_languages = [r["SPOKEN_LANGUAGE"] for r in cursor.fetchall()]
             cursor.execute("""
-                SELECT t.ID_TOPIC, t.TOPIC_NAME, t.TOPIC_TYPE, t.POSTER_PATH, t.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_SERIE_TOPIC st
+                SELECT t.ID_TOPIC, t.TOPIC_NAME, t.TOPIC_TYPE, t.POSTER_PATH, t.WIKIPEDIA_IMAGE_PATH,
+                       t.IMDB_RATING_WEIGHTED, t.POPULARITY
+                FROM T_WC_T2S_SERIE_TOPIC st
                 JOIN T_WC_T2S_TOPIC t ON st.ID_TOPIC = t.ID_TOPIC
                 WHERE st.ID_SERIE = %s ORDER BY st.DISPLAY_ORDER ASC
             """, (id,))
             topics = cursor.fetchall()
             cursor.execute("""
-                SELECT l.ID_T2S_LIST, l.LIST_NAME, l.LIST_TYPE, l.POSTER_PATH, l.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_SERIE_LIST sl
+                SELECT l.ID_T2S_LIST, l.LIST_NAME, l.LIST_TYPE, l.POSTER_PATH, l.WIKIPEDIA_IMAGE_PATH,
+                       l.IMDB_RATING_WEIGHTED, l.POPULARITY
+                FROM T_WC_T2S_SERIE_LIST sl
                 JOIN T_WC_T2S_LIST l ON sl.ID_T2S_LIST = l.ID_T2S_LIST
                 WHERE sl.ID_SERIE = %s ORDER BY sl.DISPLAY_ORDER ASC
             """, (id,))
             lists = cursor.fetchall()
             cursor.execute("""
-                SELECT c.ID_T2S_COLLECTION, c.COLLECTION_NAME, c.POSTER_PATH, c.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_SERIE_COLLECTION sc
+                SELECT c.ID_T2S_COLLECTION, c.COLLECTION_NAME, c.POSTER_PATH, c.WIKIPEDIA_IMAGE_PATH,
+                       c.IMDB_RATING_WEIGHTED, c.POPULARITY
+                FROM T_WC_T2S_SERIE_COLLECTION sc
                 JOIN T_WC_T2S_COLLECTION c ON sc.ID_T2S_COLLECTION = c.ID_T2S_COLLECTION
                 WHERE sc.ID_SERIE = %s ORDER BY sc.DISPLAY_ORDER ASC
             """, (id,))
             collections = cursor.fetchall()
             cursor.execute("""
-                SELECT m.ID_MOVEMENT, m.MOVEMENT_NAME, m.POSTER_PATH, m.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_SERIE_MOVEMENT sm
+                SELECT m.ID_MOVEMENT, m.MOVEMENT_NAME, m.POSTER_PATH, m.WIKIPEDIA_IMAGE_PATH,
+                       m.IMDB_RATING_WEIGHTED, m.POPULARITY
+                FROM T_WC_T2S_SERIE_MOVEMENT sm
                 JOIN T_WC_T2S_MOVEMENT m ON sm.ID_MOVEMENT = m.ID_MOVEMENT
                 WHERE sm.ID_SERIE = %s ORDER BY sm.DISPLAY_ORDER ASC
             """, (id,))
@@ -1800,6 +1840,14 @@ async def get_series(id: int, api_key: str = Depends(get_api_key)):
                 WHERE sn.ID_SERIE = %s ORDER BY sn.DISPLAY_ORDER ASC
             """, (id,))
             nominations = cursor.fetchall()
+            cursor.execute("""
+                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                FROM T_WC_T2S_SERIE_IMAGE
+                WHERE ID_SERIE = %s AND TYPE_IMAGE = 'poster'
+                ORDER BY DISPLAY_ORDER ASC
+            """, (id,))
+            posters = cursor.fetchall()
         result = {
             **serie,
             "genres": genres,
@@ -1815,6 +1863,7 @@ async def get_series(id: int, api_key: str = Depends(get_api_key)):
             "nominations": list(nominations),
             "cast": [c for c in credits if c["CREDIT_TYPE"] == "cast"],
             "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
+            "posters": list(posters),
         }
         logs.log_usage("series", {"id": id, "response": result}, strapiversion)
         return result
@@ -1835,7 +1884,12 @@ async def get_person(id: int, api_key: str = Depends(get_api_key)):
     Each nested list element carries the canonical image path of its related entity:
     POSTER_PATH for movie_cast/movie_crew (movies) and series_cast/series_crew (series);
     PROFILE_PATH for groups and deaths; POSTER_PATH for awards and nominations.
-    Groups, deaths, awards, and nominations also include WIKIPEDIA_IMAGE_PATH."""
+    Groups, deaths, awards, and nominations also include WIKIPEDIA_IMAGE_PATH.
+
+    The portraits list contains every profile picture available for this person from
+    T_WC_T2S_PERSON_IMAGE (TYPE_IMAGE = 'profile'), ordered by DISPLAY_ORDER; each
+    element exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+    VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1886,6 +1940,14 @@ async def get_person(id: int, api_key: str = Depends(get_api_key)):
                 WHERE pn.ID_PERSON = %s ORDER BY pn.DISPLAY_ORDER ASC
             """, (id,))
             nominations = cursor.fetchall()
+            cursor.execute("""
+                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                FROM T_WC_T2S_PERSON_IMAGE
+                WHERE ID_PERSON = %s AND TYPE_IMAGE = 'profile'
+                ORDER BY DISPLAY_ORDER ASC
+            """, (id,))
+            portraits = cursor.fetchall()
         result = {
             **person,
             "movie_cast": [
@@ -1900,6 +1962,7 @@ async def get_person(id: int, api_key: str = Depends(get_api_key)):
             "deaths": list(deaths),
             "awards": list(awards),
             "nominations": list(nominations),
+            "portraits": list(portraits),
         }
         logs.log_usage("persons", {"id": id, "response": result}, strapiversion)
         return result
@@ -1912,7 +1975,9 @@ async def get_company(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for a production company plus associated movies and TV series,
     ordered by adjusted IMDb rating. The id is ID_COMPANY.
 
-    Each nested list element carries POSTER_PATH for the related movie or TV series."""
+    The company itself includes LOGO_PATH, MOVIE_COUNT, SERIE_COUNT,
+    IMDB_RATING_WEIGHTED, and POPULARITY. Each nested list element carries
+    POSTER_PATH for the related movie or TV series."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1975,8 +2040,9 @@ async def get_collection(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for a named collection (trilogy, saga, universe, franchise) plus
     member movies and TV series ordered by DISPLAY_ORDER. The id is ID_T2S_COLLECTION.
 
-    The collection itself includes POSTER_PATH and WIKIPEDIA_IMAGE_PATH. Each nested
-    list element carries POSTER_PATH for the related movie or TV series."""
+    The collection itself includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH,
+    IMDB_RATING_WEIGHTED, and POPULARITY. Each nested list element carries
+    POSTER_PATH for the related movie or TV series."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2011,8 +2077,9 @@ async def get_topic(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for a topic (theme, keyword, recurring-character collection) plus linked
     movies and TV series ordered by DISPLAY_ORDER. The id is ID_TOPIC.
 
-    The topic itself includes POSTER_PATH and WIKIPEDIA_IMAGE_PATH. Each nested list
-    element carries POSTER_PATH for the related movie or TV series."""
+    The topic itself includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH,
+    IMDB_RATING_WEIGHTED, and POPULARITY. Each nested list element carries
+    POSTER_PATH for the related movie or TV series."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2047,8 +2114,9 @@ async def get_list(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for a named curated list plus member movies and TV series
     ordered by DISPLAY_ORDER. The id is ID_T2S_LIST.
 
-    The list itself includes POSTER_PATH and WIKIPEDIA_IMAGE_PATH. Each nested list
-    element carries POSTER_PATH for the related movie or TV series."""
+    The list itself includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH,
+    IMDB_RATING_WEIGHTED, and POPULARITY. Each nested list element carries
+    POSTER_PATH for the related movie or TV series."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2083,8 +2151,9 @@ async def get_movement(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for a film movement or style plus associated movies and TV series
     ordered by DISPLAY_ORDER. The id is ID_MOVEMENT.
 
-    The movement itself includes POSTER_PATH and WIKIPEDIA_IMAGE_PATH. Each nested list
-    element carries POSTER_PATH for the related movie or TV series."""
+    The movement itself includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH,
+    IMDB_RATING_WEIGHTED, and POPULARITY. Each nested list element carries
+    POSTER_PATH for the related movie or TV series."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2357,7 +2426,10 @@ async def _mcp_get_movie(id: int) -> str:
     """Get all fields for a movie (title, release date, runtime, budget, revenue, ratings,
     plot, IMDb/Wikidata IDs, aspect ratio, color/B&W/silent flags) plus embedded relations:
     cast, crew, genre codes, production companies, production countries, spoken languages,
-    topics, collections, movements, awards, and nominations. id = TMDb ID_MOVIE."""
+    topics, collections, movements, awards, and nominations. Each related company, topic,
+    list, collection, and movement carries its own POSTER_PATH (LOGO_PATH for companies),
+    WIKIPEDIA_IMAGE_PATH (when applicable), IMDB_RATING_WEIGHTED, and POPULARITY.
+    id = TMDb ID_MOVIE."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2375,7 +2447,10 @@ async def _mcp_get_series(id: int) -> str:
     """Get all fields for a TV series (title, first/last air date, number of seasons and
     episodes, ratings, status, Wikidata/IMDb IDs) plus embedded relations: cast, crew,
     genre codes, companies, networks, production countries, spoken languages, topics,
-    collections, movements, awards, and nominations. id = TMDb ID_SERIE."""
+    collections, movements, awards, and nominations. Each related company, topic, list,
+    collection, and movement carries its own POSTER_PATH (LOGO_PATH for companies and
+    networks), WIKIPEDIA_IMAGE_PATH (when applicable), IMDB_RATING_WEIGHTED, and
+    POPULARITY. id = TMDb ID_SERIE."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2409,7 +2484,9 @@ async def _mcp_get_person(id: int) -> str:
 @mcp.tool(name="get_collection")
 async def _mcp_get_collection(id: int) -> str:
     """Get all fields for a named collection (trilogy, saga, universe, franchise) plus member
-    movies and TV series ordered by their position in the collection. id = ID_T2S_COLLECTION."""
+    movies and TV series ordered by their position in the collection. The collection itself
+    includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
+    id = ID_T2S_COLLECTION."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2425,7 +2502,9 @@ async def _mcp_get_collection(id: int) -> str:
 @mcp.tool(name="get_topic")
 async def _mcp_get_topic(id: int) -> str:
     """Get all fields for a topic (theme, keyword, recurring-character collection) plus linked
-    movies and TV series ordered by their position in the topic. id = ID_TOPIC."""
+    movies and TV series ordered by their position in the topic. The topic itself includes
+    POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
+    id = ID_TOPIC."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2441,7 +2520,9 @@ async def _mcp_get_topic(id: int) -> str:
 @mcp.tool(name="get_list")
 async def _mcp_get_list(id: int) -> str:
     """Get all fields for a named curated list (e.g. AFI Top 100, Criterion Collection)
-    plus member movies and TV series ordered by their position. id = ID_T2S_LIST."""
+    plus member movies and TV series ordered by their position. The list itself includes
+    POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
+    id = ID_T2S_LIST."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2457,7 +2538,9 @@ async def _mcp_get_list(id: int) -> str:
 @mcp.tool(name="get_movement")
 async def _mcp_get_movement(id: int) -> str:
     """Get all fields for a film movement or style (e.g. French New Wave, Neo-Noir) plus
-    associated movies and TV series ordered by their position. id = ID_MOVEMENT."""
+    associated movies and TV series ordered by their position. The movement itself includes
+    POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
+    id = ID_MOVEMENT."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2536,8 +2619,9 @@ async def _mcp_get_nomination(id: int) -> str:
 
 @mcp.tool(name="get_company")
 async def _mcp_get_company(id: int) -> str:
-    """Get all fields for a production company plus associated movies and TV series.
-    id = ID_COMPANY."""
+    """Get all fields for a production company plus associated movies and TV series. The
+    company itself includes LOGO_PATH, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING_WEIGHTED,
+    and POPULARITY. id = ID_COMPANY."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2653,30 +2737,31 @@ async def _mcp_database_scope() -> str:
 
     ## Other Entities
     - T_WC_T2S_COLLECTION: COLLECTION_NAME, OVERVIEW, MOVIE_COUNT, SERIE_COUNT,
-        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
+        POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
         Holds trilogies and named series of works (e.g., Dollars Trilogy, James Bond
         Collection, Kill Bill - Saga) AND universes/franchises (e.g., Star Wars, Marvel
         Cinematic Universe, DC Extended Universe, Batman universe, Middle-Earth, Harry
         Potter movies, James Bond films).
-    - T_WC_T2S_TOPIC: TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG,
-        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
+    - T_WC_T2S_TOPIC: TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG, MOVIE_COUNT, SERIE_COUNT,
+        POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
         Holds themes (e.g., World War II, Christmas) and recurring-character collections
         (e.g., Philip Marlowe, Sherlock Holmes). Universes and franchises are NOT here —
         they live in T_WC_T2S_COLLECTION.
     - T_WC_T2S_LIST: LIST_NAME, OVERVIEW, LIST_TYPE, MOVIE_COUNT, SERIE_COUNT,
-        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
+        POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
         Holds curated rankings/canons/registries (e.g., Sight and Sound, IMDb Top 250,
         AFI Top 100). Universes and franchises are NOT here — they live in
         T_WC_T2S_COLLECTION.
     - T_WC_T2S_MOVEMENT: MOVEMENT_NAME, OVERVIEW, MOVIE_COUNT, SERIE_COUNT,
-        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
+        POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
     - T_WC_T2S_GROUP: GROUP_NAME, GROUP_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
     - T_WC_T2S_DEATH: DEATH_NAME, DEATH_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
     - T_WC_T2S_AWARD: AWARD_NAME, AWARD_TYPE, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT,
         IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
     - T_WC_T2S_NOMINATION: NOMINATION_NAME, NOMINATION_TYPE, MOVIE_COUNT, SERIE_COUNT,
         PERSON_COUNT, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
-    - T_WC_T2S_COMPANY: COMPANY_NAME, HEADQUARTERS, ORIGIN_COUNTRY, LOGO_PATH
+    - T_WC_T2S_COMPANY: COMPANY_NAME, HEADQUARTERS, ORIGIN_COUNTRY, LOGO_PATH,
+        MOVIE_COUNT, SERIE_COUNT, IMDB_RATING_WEIGHTED, POPULARITY
     - T_WC_T2S_NETWORK: NETWORK_NAME, ORIGIN_COUNTRY, LOGO_PATH
     - T_WC_T2S_ITEM: ID_WIKIDATA, ITEM_LABEL, DESCRIPTION, INSTANCE_OF
 

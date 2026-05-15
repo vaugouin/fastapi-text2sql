@@ -1,453 +1,30 @@
--- phpMyAdmin SQL Dump
--- version 5.2.1
--- https://www.phpmyadmin.net/
---
--- Hôte : mariadb
--- Généré le : ven. 17 avr. 2026 à 09:06
--- Version du serveur : 11.2.3-MariaDB
--- Version de PHP : 8.2.16
-
-SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
-START TRANSACTION;
-SET time_zone = "+00:00";
-
-
-/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
-/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
-/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
-/*!40101 SET NAMES utf8mb4 */;
-
---
--- Base de données : `vaugouindb`
---
-
--- --------------------------------------------------------
-
---
--- Structure de la table `STG_T_WC_WIKIDATA_EXTERNAL_ID_VALUE`
---
-
-CREATE TABLE `STG_T_WC_WIKIDATA_EXTERNAL_ID_VALUE` (
-  `ID_STG_ROW` bigint(20) NOT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
-  `ID_STATEMENT` bigint(20) NOT NULL,
-  `VALUE_EXTERNAL_ID` varchar(1200) NOT NULL,
-  `VALUE_EXTERNAL_ID_NORMALIZED` varchar(1200) DEFAULT NULL,
-  `FORMATTER_URL` text DEFAULT NULL,
-  `FORMATTER_URI_RDF` text DEFAULT NULL,
-  `VALIDATION_STATUS` varchar(100) DEFAULT NULL,
-  `ROW_STATUS` varchar(20) DEFAULT 'NEW',
-  `ERROR_MESSAGE` text DEFAULT NULL,
-  `DAT_IMPORT` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `STG_T_WC_WIKIDATA_ITEM`
---
-
-CREATE TABLE `STG_T_WC_WIKIDATA_ITEM` (
-  `ID_STG_ROW` bigint(20) NOT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
-  `SOURCE_FILE` varchar(500) DEFAULT NULL,
-  `ID_WIKIDATA` varchar(50) NOT NULL,
-  `LABEL_EN` varchar(500) DEFAULT NULL,
-  `DESCRIPTION_EN` text DEFAULT NULL,
-  `LABELS_JSON` longtext DEFAULT NULL,
-  `DESCRIPTIONS_JSON` longtext DEFAULT NULL,
-  `ROW_STATUS` varchar(20) DEFAULT 'NEW',
-  `ERROR_MESSAGE` text DEFAULT NULL,
-  `DAT_IMPORT` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `STG_T_WC_WIKIDATA_ITEM_VALUE`
---
-
-CREATE TABLE `STG_T_WC_WIKIDATA_ITEM_VALUE` (
-  `ID_STG_ROW` bigint(20) NOT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
-  `ID_STATEMENT` bigint(20) NOT NULL,
-  `ID_ITEM` varchar(50) NOT NULL,
-  `ROW_STATUS` varchar(20) DEFAULT 'NEW',
-  `ERROR_MESSAGE` text DEFAULT NULL,
-  `DAT_IMPORT` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `STG_T_WC_WIKIDATA_MEDIA_RESOURCE`
---
-
-CREATE TABLE `STG_T_WC_WIKIDATA_MEDIA_RESOURCE` (
-  `ID_STG_ROW` bigint(20) NOT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
-  `ID_MEDIA_RESOURCE` bigint(20) DEFAULT NULL,
-  `ID_STATEMENT` bigint(20) NOT NULL,
-  `ID_WIKIDATA` varchar(50) NOT NULL,
-  `ID_PROPERTY` varchar(50) NOT NULL,
-  `SOURCE_PLATFORM` varchar(50) NOT NULL,
-  `SOURCE_IDENTIFIER` varchar(1000) NOT NULL,
-  `SOURCE_IDENTIFIER_NORMALIZED` varchar(1000) DEFAULT NULL,
-  `RESOURCE_KEY` varchar(1200) DEFAULT NULL,
-  `RESOURCE_KIND` varchar(50) DEFAULT NULL,
-  `CONTENT_ROLE` varchar(50) DEFAULT NULL,
-  `CONTENT_SCOPE` varchar(50) DEFAULT NULL,
-  `LANG_CODE` varchar(20) DEFAULT NULL,
-  `IS_PREFERRED_RESOURCE` tinyint(1) DEFAULT 0,
-  `IS_PRIMARY_FOR_ENTITY` tinyint(1) DEFAULT 0,
-  `SOURCE_PRIORITY` int(11) DEFAULT NULL,
-  `QUALITY_SCORE` decimal(10,4) DEFAULT NULL,
-  `RESOURCE_TITLE` varchar(1000) DEFAULT NULL,
-  `RESOURCE_SUBTITLE` varchar(1000) DEFAULT NULL,
-  `RESOURCE_DESCRIPTION` text DEFAULT NULL,
-  `CHANNEL_OR_COLLECTION` varchar(1000) DEFAULT NULL,
-  `THUMBNAIL_URL_PRIMARY` text DEFAULT NULL,
-  `DURATION_SECONDS` int(11) DEFAULT NULL,
-  `WIDTH` int(11) DEFAULT NULL,
-  `HEIGHT` int(11) DEFAULT NULL,
-  `MIME_TYPE_PRIMARY` varchar(255) DEFAULT NULL,
-  `FILE_EXTENSION_PRIMARY` varchar(50) DEFAULT NULL,
-  `FILE_SIZE_PRIMARY` bigint(20) DEFAULT NULL,
-  `IS_PLAYABLE` tinyint(1) DEFAULT 0,
-  `IS_DOWNLOADABLE` tinyint(1) DEFAULT 0,
-  `IS_EMBEDDABLE` tinyint(1) DEFAULT 0,
-  `IS_ACTIVE` tinyint(1) DEFAULT 1,
-  `IS_VALID` tinyint(1) DEFAULT NULL,
-  `RESOLUTION_STATUS` varchar(50) DEFAULT NULL,
-  `RESOLUTION_METHOD` varchar(100) DEFAULT NULL,
-  `LAST_RESOLVED_AT` datetime DEFAULT NULL,
-  `LAST_CHECKED_AT` datetime DEFAULT NULL,
-  `LAST_SUCCESS_AT` datetime DEFAULT NULL,
-  `ERROR_CODE` varchar(100) DEFAULT NULL,
-  `ERROR_MESSAGE` text DEFAULT NULL,
-  `DISCOVERED_AT` datetime DEFAULT NULL,
-  `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` bigint(20) DEFAULT NULL,
-  `DELETED` tinyint(1) DEFAULT 0,
-  `ROW_STATUS` varchar(20) DEFAULT 'NEW',
-  `DAT_IMPORT` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `STG_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK`
---
-
-CREATE TABLE `STG_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK` (
-  `ID_STG_ROW` bigint(20) NOT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
-  `ID_MEDIA_RESOURCE_CHECK` bigint(20) DEFAULT NULL,
-  `ID_MEDIA_RESOURCE` bigint(20) NOT NULL,
-  `ID_MEDIA_RESOURCE_URL` bigint(20) DEFAULT NULL,
-  `CHECK_SCOPE` varchar(50) NOT NULL,
-  `CHECK_TYPE` varchar(100) NOT NULL,
-  `CHECK_REASON` varchar(100) DEFAULT NULL,
-  `CHECK_STATUS` varchar(50) NOT NULL,
-  `RESULT_CODE` varchar(100) DEFAULT NULL,
-  `RESULT_SUMMARY` varchar(1000) DEFAULT NULL,
-  `HTTP_STATUS` int(11) DEFAULT NULL,
-  `CONTENT_TYPE_HEADER` varchar(255) DEFAULT NULL,
-  `REDIRECT_URL` text DEFAULT NULL,
-  `RESPONSE_TIME_MS` int(11) DEFAULT NULL,
-  `OBSERVED_URL` text DEFAULT NULL,
-  `OBSERVED_MIME_TYPE` varchar(255) DEFAULT NULL,
-  `OBSERVED_FILE_SIZE` bigint(20) DEFAULT NULL,
-  `OBSERVED_DURATION_SECONDS` int(11) DEFAULT NULL,
-  `OBSERVED_WIDTH` int(11) DEFAULT NULL,
-  `OBSERVED_HEIGHT` int(11) DEFAULT NULL,
-  `ERROR_CODE` varchar(100) DEFAULT NULL,
-  `ERROR_MESSAGE` text DEFAULT NULL,
-  `RAW_RESPONSE_SNIPPET` text DEFAULT NULL,
-  `CHECKED_AT` datetime DEFAULT NULL,
-  `CHECKER_NAME` varchar(100) DEFAULT NULL,
-  `ROW_STATUS` varchar(20) DEFAULT 'NEW',
-  `DAT_IMPORT` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `STG_T_WC_WIKIDATA_MEDIA_RESOURCE_URL`
---
-
-CREATE TABLE `STG_T_WC_WIKIDATA_MEDIA_RESOURCE_URL` (
-  `ID_STG_ROW` bigint(20) NOT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
-  `ID_MEDIA_RESOURCE_URL` bigint(20) DEFAULT NULL,
-  `ID_MEDIA_RESOURCE` bigint(20) NOT NULL,
-  `URL_TYPE` varchar(50) NOT NULL,
-  `URL_ROLE` varchar(100) DEFAULT NULL,
-  `DISPLAY_ORDER` int(11) DEFAULT NULL,
-  `IS_CANONICAL` tinyint(1) DEFAULT 0,
-  `IS_PREFERRED` tinyint(1) DEFAULT 0,
-  `IS_DIRECT_FILE` tinyint(1) DEFAULT 0,
-  `URL` text NOT NULL,
-  `URL_NORMALIZED` text DEFAULT NULL,
-  `URL_HASH` char(64) DEFAULT NULL,
-  `MIME_TYPE` varchar(255) DEFAULT NULL,
-  `FILE_EXTENSION` varchar(50) DEFAULT NULL,
-  `FILE_SIZE` bigint(20) DEFAULT NULL,
-  `WIDTH` int(11) DEFAULT NULL,
-  `HEIGHT` int(11) DEFAULT NULL,
-  `BITRATE` int(11) DEFAULT NULL,
-  `FRAME_RATE` decimal(10,4) DEFAULT NULL,
-  `VIDEO_CODEC` varchar(255) DEFAULT NULL,
-  `AUDIO_CODEC` varchar(255) DEFAULT NULL,
-  `DURATION_SECONDS` int(11) DEFAULT NULL,
-  `QUALITY_LABEL` varchar(100) DEFAULT NULL,
-  `IS_ACTIVE` tinyint(1) DEFAULT 1,
-  `IS_PLAYABLE` tinyint(1) DEFAULT 0,
-  `IS_DOWNLOADABLE` tinyint(1) DEFAULT 0,
-  `IS_EMBEDDABLE` tinyint(1) DEFAULT 0,
-  `IS_PUBLIC` tinyint(1) DEFAULT NULL,
-  `HTTP_STATUS` int(11) DEFAULT NULL,
-  `CONTENT_TYPE_HEADER` varchar(255) DEFAULT NULL,
-  `REDIRECT_URL` text DEFAULT NULL,
-  `LAST_CHECKED_AT` datetime DEFAULT NULL,
-  `LAST_SUCCESS_AT` datetime DEFAULT NULL,
-  `CHECK_COUNT` int(11) DEFAULT 0,
-  `FAIL_COUNT` int(11) DEFAULT 0,
-  `ERROR_CODE` varchar(100) DEFAULT NULL,
-  `ERROR_MESSAGE` text DEFAULT NULL,
-  `DISCOVERED_AT` datetime DEFAULT NULL,
-  `TIM_UPDATED` datetime DEFAULT NULL,
-  `DELETED` tinyint(1) DEFAULT 0,
-  `ROW_STATUS` varchar(20) DEFAULT 'NEW',
-  `DAT_IMPORT` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `STG_T_WC_WIKIDATA_MEDIA_VALUE`
---
-
-CREATE TABLE `STG_T_WC_WIKIDATA_MEDIA_VALUE` (
-  `ID_STG_ROW` bigint(20) NOT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
-  `ID_STATEMENT` bigint(20) NOT NULL,
-  `FILE_NAME` varchar(1000) NOT NULL,
-  `MEDIA_REPOSITORY` varchar(100) DEFAULT NULL,
-  `FILE_PAGE_URL` text DEFAULT NULL,
-  `FILE_DIRECT_URL` text DEFAULT NULL,
-  `MIME_TYPE` varchar(255) DEFAULT NULL,
-  `FILE_EXTENSION` varchar(50) DEFAULT NULL,
-  `ROW_STATUS` varchar(20) DEFAULT 'NEW',
-  `ERROR_MESSAGE` text DEFAULT NULL,
-  `DAT_IMPORT` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `STG_T_WC_WIKIDATA_MOVIE`
---
-
-CREATE TABLE `STG_T_WC_WIKIDATA_MOVIE` (
-  `ID_STG_ROW` bigint(20) NOT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
-  `SOURCE_FILE` varchar(500) DEFAULT NULL,
-  `ID_WIKIDATA` varchar(50) NOT NULL,
-  `LABEL_EN` varchar(500) DEFAULT NULL,
-  `DESCRIPTION_EN` text DEFAULT NULL,
-  `LABELS_JSON` longtext DEFAULT NULL,
-  `DESCRIPTIONS_JSON` longtext DEFAULT NULL,
-  `ROW_STATUS` varchar(20) DEFAULT 'NEW',
-  `ERROR_MESSAGE` text DEFAULT NULL,
-  `DAT_IMPORT` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `STG_T_WC_WIKIDATA_PERSON`
---
-
-CREATE TABLE `STG_T_WC_WIKIDATA_PERSON` (
-  `ID_STG_ROW` bigint(20) NOT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
-  `SOURCE_FILE` varchar(500) DEFAULT NULL,
-  `ID_WIKIDATA` varchar(50) NOT NULL,
-  `LABEL_EN` varchar(500) DEFAULT NULL,
-  `DESCRIPTION_EN` text DEFAULT NULL,
-  `LABELS_JSON` longtext DEFAULT NULL,
-  `DESCRIPTIONS_JSON` longtext DEFAULT NULL,
-  `ROW_STATUS` varchar(20) DEFAULT 'NEW',
-  `ERROR_MESSAGE` text DEFAULT NULL,
-  `DAT_IMPORT` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `STG_T_WC_WIKIDATA_PROPERTY_METADATA`
---
-
-CREATE TABLE `STG_T_WC_WIKIDATA_PROPERTY_METADATA` (
-  `ID_STG_ROW` bigint(20) NOT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
-  `SOURCE_FILE` varchar(500) DEFAULT NULL,
-  `ID_PROPERTY` varchar(50) NOT NULL,
-  `PROPERTY_LABEL` varchar(500) DEFAULT NULL,
-  `PROPERTY_DESCRIPTION` text DEFAULT NULL,
-  `WIKIDATA_DATATYPE` varchar(100) DEFAULT NULL,
-  `LOCAL_VALUE_TYPE` varchar(50) DEFAULT NULL,
-  `EXPECTED_CHILD_TABLE` varchar(100) DEFAULT NULL,
-  `FORMATTER_URL` text DEFAULT NULL,
-  `FORMATTER_URI_FOR_RDF` text DEFAULT NULL,
-  `IS_SUPPORTED` tinyint(1) DEFAULT 1,
-  `IS_ACTIVE` tinyint(1) DEFAULT 1,
-  `LAST_SYNC_AT` datetime DEFAULT NULL,
-  `ROW_STATUS` varchar(20) DEFAULT 'NEW',
-  `ERROR_MESSAGE` text DEFAULT NULL,
-  `DAT_IMPORT` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `STG_T_WC_WIKIDATA_QUANTITY_VALUE`
---
-
-CREATE TABLE `STG_T_WC_WIKIDATA_QUANTITY_VALUE` (
-  `ID_STG_ROW` bigint(20) NOT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
-  `ID_STATEMENT` bigint(20) NOT NULL,
-  `AMOUNT` decimal(30,10) DEFAULT NULL,
-  `UNIT_ID_WIKIDATA` varchar(50) DEFAULT NULL,
-  `LOWER_BOUND` decimal(30,10) DEFAULT NULL,
-  `UPPER_BOUND` decimal(30,10) DEFAULT NULL,
-  `AMOUNT_NORMALIZED` decimal(30,10) DEFAULT NULL,
-  `DISPLAY_VALUE` varchar(255) DEFAULT NULL,
-  `ROW_STATUS` varchar(20) DEFAULT 'NEW',
-  `ERROR_MESSAGE` text DEFAULT NULL,
-  `DAT_IMPORT` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `STG_T_WC_WIKIDATA_SERIE`
---
-
-CREATE TABLE `STG_T_WC_WIKIDATA_SERIE` (
-  `ID_STG_ROW` bigint(20) NOT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
-  `SOURCE_FILE` varchar(500) DEFAULT NULL,
-  `ID_WIKIDATA` varchar(50) NOT NULL,
-  `LABEL_EN` varchar(500) DEFAULT NULL,
-  `DESCRIPTION_EN` text DEFAULT NULL,
-  `LABELS_JSON` longtext DEFAULT NULL,
-  `DESCRIPTIONS_JSON` longtext DEFAULT NULL,
-  `ROW_STATUS` varchar(20) DEFAULT 'NEW',
-  `ERROR_MESSAGE` text DEFAULT NULL,
-  `DAT_IMPORT` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `STG_T_WC_WIKIDATA_STATEMENT`
---
-
-CREATE TABLE `STG_T_WC_WIKIDATA_STATEMENT` (
-  `ID_STG_ROW` bigint(20) NOT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
-  `SOURCE_FILE` varchar(500) DEFAULT NULL,
-  `ID_STATEMENT` bigint(20) NOT NULL,
-  `ID_WIKIDATA` varchar(50) NOT NULL,
-  `ID_PROPERTY` varchar(50) NOT NULL,
-  `STATEMENT_GUID` varchar(255) DEFAULT NULL,
-  `STATEMENT_HASH` varchar(255) DEFAULT NULL,
-  `VALUE_TYPE` varchar(50) NOT NULL,
-  `WIKIDATA_DATATYPE` varchar(100) DEFAULT NULL,
-  `RANK` varchar(50) DEFAULT NULL,
-  `IS_BEST_VALUE` tinyint(1) DEFAULT NULL,
-  `DISPLAY_ORDER` int(11) DEFAULT NULL,
-  `DELETED` tinyint(1) DEFAULT 0,
-  `DAT_CREAT` datetime DEFAULT NULL,
-  `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_CREATOR` bigint(20) DEFAULT NULL,
-  `ID_OWNER` bigint(20) DEFAULT NULL,
-  `ID_USER_UPDATED` bigint(20) DEFAULT NULL,
-  `IMPORT_SOURCE` varchar(100) DEFAULT NULL,
-  `LAST_SYNC_AT` datetime DEFAULT NULL,
-  `IS_VALID` tinyint(1) DEFAULT NULL,
-  `VALIDATION_ERROR` text DEFAULT NULL,
-  `RAW_VALUE_TEXT` text DEFAULT NULL,
-  `ROW_STATUS` varchar(20) DEFAULT 'NEW',
-  `ERROR_MESSAGE` text DEFAULT NULL,
-  `DAT_IMPORT` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `STG_T_WC_WIKIDATA_STRING_VALUE`
---
-
-CREATE TABLE `STG_T_WC_WIKIDATA_STRING_VALUE` (
-  `ID_STG_ROW` bigint(20) NOT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
-  `ID_STATEMENT` bigint(20) NOT NULL,
-  `VALUE_STRING` longtext NOT NULL,
-  `VALUE_STRING_NORMALIZED` longtext DEFAULT NULL,
-  `LANG_CODE` varchar(20) DEFAULT NULL,
-  `ROW_STATUS` varchar(20) DEFAULT 'NEW',
-  `ERROR_MESSAGE` text DEFAULT NULL,
-  `DAT_IMPORT` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `STG_T_WC_WIKIDATA_TIME_VALUE`
---
-
-CREATE TABLE `STG_T_WC_WIKIDATA_TIME_VALUE` (
-  `ID_STG_ROW` bigint(20) NOT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
-  `ID_STATEMENT` bigint(20) NOT NULL,
-  `RAW_TIME_VALUE` varchar(100) DEFAULT NULL,
-  `TIME_PRECISION` int(11) DEFAULT NULL,
-  `CALENDAR_MODEL` varchar(255) DEFAULT NULL,
-  `TIMEZONE_OFFSET` int(11) DEFAULT NULL,
-  `YEAR_VALUE` int(11) DEFAULT NULL,
-  `MONTH_VALUE` int(11) DEFAULT NULL,
-  `DAY_VALUE` int(11) DEFAULT NULL,
-  `DATE_START` date DEFAULT NULL,
-  `DATE_END` date DEFAULT NULL,
-  `ROW_STATUS` varchar(20) DEFAULT 'NEW',
-  `ERROR_MESSAGE` text DEFAULT NULL,
-  `DAT_IMPORT` datetime DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_EXTERNAL_ID_VALUE`
---
-
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_EXTERNAL_ID_VALUE` (
   `ID_STATEMENT` bigint(20) NOT NULL,
   `VALUE_EXTERNAL_ID` varchar(1200) NOT NULL,
   `VALUE_EXTERNAL_ID_NORMALIZED` varchar(1200) DEFAULT NULL,
   `FORMATTER_URL` text DEFAULT NULL,
   `FORMATTER_URI_RDF` text DEFAULT NULL,
-  `VALIDATION_STATUS` varchar(100) DEFAULT NULL
+  `VALIDATION_STATUS` varchar(100) DEFAULT NULL,
+  PRIMARY KEY (`ID_STATEMENT`),
+  KEY `IDX_T_WC_WIKIDATA_EXTERNAL_ID_VALUE_NORMALIZED` (`VALUE_EXTERNAL_ID_NORMALIZED`(255)),
+  KEY `IDX_T_WC_WIKIDATA_EXTERNAL_ID_VALUE_STATUS` (`VALIDATION_STATUS`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_EXTERNAL_ID_VALUE_STATEMENT` FOREIGN KEY (`ID_STATEMENT`) REFERENCES `T_WC_WIKIDATA_STATEMENT` (`ID_STATEMENT`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Déclencheurs `T_WC_WIKIDATA_EXTERNAL_ID_VALUE`
---
-DELIMITER $$
-CREATE TRIGGER `BI_T_WC_WIKIDATA_EXTERNAL_ID_VALUE` BEFORE INSERT ON `T_WC_WIKIDATA_EXTERNAL_ID_VALUE` FOR EACH ROW BEGIN
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_general_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`%`*/ /*!50003 TRIGGER BI_T_WC_WIKIDATA_EXTERNAL_ID_VALUE BEFORE INSERT ON T_WC_WIKIDATA_EXTERNAL_ID_VALUE
+FOR EACH ROW
+BEGIN
   DECLARE v_value_type VARCHAR(50);
   SELECT VALUE_TYPE INTO v_value_type FROM T_WC_WIKIDATA_STATEMENT WHERE ID_STATEMENT=NEW.ID_STATEMENT LIMIT 1;
   IF v_value_type IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='EXTERNAL_ID_VALUE: parent statement not found'; END IF;
@@ -458,18 +35,16 @@ CREATE TRIGGER `BI_T_WC_WIKIDATA_EXTERNAL_ID_VALUE` BEFORE INSERT ON `T_WC_WIKID
      EXISTS (SELECT 1 FROM T_WC_WIKIDATA_TIME_VALUE WHERE ID_STATEMENT=NEW.ID_STATEMENT) OR
      EXISTS (SELECT 1 FROM T_WC_WIKIDATA_QUANTITY_VALUE WHERE ID_STATEMENT=NEW.ID_STATEMENT)
   THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='EXTERNAL_ID_VALUE: statement already exists in another child table'; END IF;
-END
-$$
+END */;;
 DELIMITER ;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_ITEM`
---
-
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_ITEM` (
-  `ID_ROW` bigint(20) NOT NULL,
+  `ID_ROW` bigint(20) NOT NULL AUTO_INCREMENT,
   `ID_WIKIDATA` varchar(50) NOT NULL,
   `LABEL_EN` varchar(500) DEFAULT NULL,
   `DESCRIPTION_EN` text DEFAULT NULL,
@@ -477,17 +52,17 @@ CREATE TABLE `T_WC_WIKIDATA_ITEM` (
   `DESCRIPTIONS_JSON` longtext DEFAULT NULL,
   `DELETED` tinyint(1) DEFAULT 0,
   `DAT_CREAT` datetime DEFAULT current_timestamp(),
-  `TIM_UPDATED` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_ITEM_PROPERTY`
---
-
+  `TIM_UPDATED` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`ID_ROW`),
+  UNIQUE KEY `UK_T_WC_WIKIDATA_ITEM_ID_WIKIDATA` (`ID_WIKIDATA`),
+  KEY `IDX_T_WC_WIKIDATA_ITEM_LABEL_EN` (`LABEL_EN`(255)),
+  KEY `IDX_T_WC_WIKIDATA_ITEM_DELETED` (`DELETED`)
+) ENGINE=InnoDB AUTO_INCREMENT=1187823 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_ITEM_PROPERTY` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_WIKIDATA` varchar(50) NOT NULL,
   `ID_PROPERTY` varchar(50) NOT NULL,
   `ID_ITEM` varchar(50) DEFAULT NULL,
@@ -497,17 +72,24 @@ CREATE TABLE `T_WC_WIKIDATA_ITEM_PROPERTY` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_ITEM_V1`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
+  KEY `ID_PROPERTY` (`ID_PROPERTY`),
+  KEY `ID_ITEM` (`ID_ITEM`)
+) ENGINE=InnoDB AUTO_INCREMENT=7162305 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_ITEM_V1` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_WIKIDATA` varchar(50) NOT NULL,
   `LANG` varchar(10) DEFAULT NULL,
   `LABEL` varchar(250) DEFAULT NULL,
@@ -521,25 +103,46 @@ CREATE TABLE `T_WC_WIKIDATA_ITEM_V1` (
   `TIM_UPDATED` datetime DEFAULT NULL,
   `ID_USER_UPDATED` int(5) DEFAULT NULL,
   `INSTANCE_OF` varchar(50) DEFAULT NULL,
-  `WIKIPEDIA_IMAGE_PATH` varchar(200) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_ITEM_VALUE`
---
-
+  `WIKIPEDIA_IMAGE_PATH` varchar(200) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `LABEL` (`LABEL`),
+  KEY `DESCRIPTION` (`DESCRIPTION`(768)),
+  KEY `LANG` (`LANG`),
+  KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
+  KEY `INSTANCE_OF` (`INSTANCE_OF`),
+  KEY `WIKIPEDIA_IMAGE_PATH` (`WIKIPEDIA_IMAGE_PATH`)
+) ENGINE=InnoDB AUTO_INCREMENT=917979 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_ITEM_VALUE` (
   `ID_STATEMENT` bigint(20) NOT NULL,
-  `ID_ITEM` varchar(50) NOT NULL
+  `ID_ITEM` varchar(50) NOT NULL,
+  PRIMARY KEY (`ID_STATEMENT`),
+  KEY `IDX_T_WC_WIKIDATA_ITEM_VALUE_ID_ITEM` (`ID_ITEM`),
+  KEY `IDX_T_WC_WIKIDATA_ITEM_VALUE_STATEMENT_ITEM` (`ID_STATEMENT`,`ID_ITEM`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_ITEM_VALUE_STATEMENT` FOREIGN KEY (`ID_STATEMENT`) REFERENCES `T_WC_WIKIDATA_STATEMENT` (`ID_STATEMENT`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Déclencheurs `T_WC_WIKIDATA_ITEM_VALUE`
---
-DELIMITER $$
-CREATE TRIGGER `BI_T_WC_WIKIDATA_ITEM_VALUE` BEFORE INSERT ON `T_WC_WIKIDATA_ITEM_VALUE` FOR EACH ROW BEGIN
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_general_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`%`*/ /*!50003 TRIGGER BI_T_WC_WIKIDATA_ITEM_VALUE BEFORE INSERT ON T_WC_WIKIDATA_ITEM_VALUE
+FOR EACH ROW
+BEGIN
   DECLARE v_value_type VARCHAR(50);
   SELECT VALUE_TYPE INTO v_value_type FROM T_WC_WIKIDATA_STATEMENT WHERE ID_STATEMENT=NEW.ID_STATEMENT LIMIT 1;
   IF v_value_type IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ITEM_VALUE: parent statement not found'; END IF;
@@ -550,18 +153,16 @@ CREATE TRIGGER `BI_T_WC_WIKIDATA_ITEM_VALUE` BEFORE INSERT ON `T_WC_WIKIDATA_ITE
      EXISTS (SELECT 1 FROM T_WC_WIKIDATA_TIME_VALUE WHERE ID_STATEMENT=NEW.ID_STATEMENT) OR
      EXISTS (SELECT 1 FROM T_WC_WIKIDATA_QUANTITY_VALUE WHERE ID_STATEMENT=NEW.ID_STATEMENT)
   THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ITEM_VALUE: statement already exists in another child table'; END IF;
-END
-$$
+END */;;
 DELIMITER ;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_MEDIA_RESOURCE`
---
-
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_MEDIA_RESOURCE` (
-  `ID_MEDIA_RESOURCE` bigint(20) NOT NULL,
+  `ID_MEDIA_RESOURCE` bigint(20) NOT NULL AUTO_INCREMENT,
   `ID_STATEMENT` bigint(20) NOT NULL,
   `ID_WIKIDATA` varchar(50) NOT NULL,
   `ID_PROPERTY` varchar(50) NOT NULL,
@@ -604,17 +205,29 @@ CREATE TABLE `T_WC_WIKIDATA_MEDIA_RESOURCE` (
   `DISCOVERED_AT` datetime DEFAULT current_timestamp(),
   `TIM_UPDATED` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `ID_USER_UPDATED` bigint(20) DEFAULT NULL,
-  `DELETED` tinyint(1) DEFAULT 0
+  `DELETED` tinyint(1) DEFAULT 0,
+  PRIMARY KEY (`ID_MEDIA_RESOURCE`),
+  UNIQUE KEY `UK_T_WC_WIKIDATA_MEDIA_RESOURCE_STATEMENT_PLATFORM_IDENTIFIER` (`ID_STATEMENT`,`SOURCE_PLATFORM`,`SOURCE_IDENTIFIER_NORMALIZED`(255)),
+  UNIQUE KEY `UK_T_WC_WIKIDATA_MEDIA_RESOURCE_RESOURCE_KEY` (`RESOURCE_KEY`(255)),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_ID_STATEMENT` (`ID_STATEMENT`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_ID_WIKIDATA` (`ID_WIKIDATA`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_ID_PROPERTY` (`ID_PROPERTY`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_PLATFORM` (`SOURCE_PLATFORM`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_ROLE` (`CONTENT_ROLE`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_STATUS` (`RESOLUTION_STATUS`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_PREFERRED` (`IS_PREFERRED_RESOURCE`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_PRIMARY_ENTITY` (`IS_PRIMARY_FOR_ENTITY`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_ACTIVE` (`IS_ACTIVE`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_VALID` (`IS_VALID`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_DELETED` (`DELETED`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_ENTITY_PLATFORM` (`ID_WIKIDATA`,`SOURCE_PLATFORM`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_MEDIA_RESOURCE_STATEMENT` FOREIGN KEY (`ID_STATEMENT`) REFERENCES `T_WC_WIKIDATA_STATEMENT` (`ID_STATEMENT`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK` (
-  `ID_MEDIA_RESOURCE_CHECK` bigint(20) NOT NULL,
+  `ID_MEDIA_RESOURCE_CHECK` bigint(20) NOT NULL AUTO_INCREMENT,
   `ID_MEDIA_RESOURCE` bigint(20) NOT NULL,
   `ID_MEDIA_RESOURCE_URL` bigint(20) DEFAULT NULL,
   `CHECK_SCOPE` enum('resource','url') NOT NULL,
@@ -638,17 +251,24 @@ CREATE TABLE `T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK` (
   `RAW_RESPONSE_SNIPPET` text DEFAULT NULL,
   `CHECKED_AT` datetime NOT NULL DEFAULT current_timestamp(),
   `CHECKER_NAME` varchar(100) DEFAULT NULL,
-  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL
+  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
+  PRIMARY KEY (`ID_MEDIA_RESOURCE_CHECK`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_RESOURCE` (`ID_MEDIA_RESOURCE`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_RESOURCE_URL` (`ID_MEDIA_RESOURCE_URL`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_SCOPE` (`CHECK_SCOPE`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_TYPE` (`CHECK_TYPE`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_STATUS` (`CHECK_STATUS`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_HTTP_STATUS` (`HTTP_STATUS`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_CHECKED_AT` (`CHECKED_AT`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_IMPORT_BATCH_ID` (`IMPORT_BATCH_ID`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_RESOURCE` FOREIGN KEY (`ID_MEDIA_RESOURCE`) REFERENCES `T_WC_WIKIDATA_MEDIA_RESOURCE` (`ID_MEDIA_RESOURCE`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `FK_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_RESOURCE_URL` FOREIGN KEY (`ID_MEDIA_RESOURCE_URL`) REFERENCES `T_WC_WIKIDATA_MEDIA_RESOURCE_URL` (`ID_MEDIA_RESOURCE_URL`) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_MEDIA_RESOURCE_URL`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_MEDIA_RESOURCE_URL` (
-  `ID_MEDIA_RESOURCE_URL` bigint(20) NOT NULL,
+  `ID_MEDIA_RESOURCE_URL` bigint(20) NOT NULL AUTO_INCREMENT,
   `ID_MEDIA_RESOURCE` bigint(20) NOT NULL,
   `URL_TYPE` enum('page','watch','embed','file','thumbnail','metadata','manifest','subtitle','transcript') NOT NULL,
   `URL_ROLE` varchar(100) DEFAULT NULL,
@@ -686,15 +306,25 @@ CREATE TABLE `T_WC_WIKIDATA_MEDIA_RESOURCE_URL` (
   `ERROR_MESSAGE` text DEFAULT NULL,
   `DISCOVERED_AT` datetime DEFAULT current_timestamp(),
   `TIM_UPDATED` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `DELETED` tinyint(1) DEFAULT 0
+  `DELETED` tinyint(1) DEFAULT 0,
+  PRIMARY KEY (`ID_MEDIA_RESOURCE_URL`),
+  UNIQUE KEY `UK_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_RESOURCE_HASH` (`ID_MEDIA_RESOURCE`,`URL_HASH`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_RESOURCE` (`ID_MEDIA_RESOURCE`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_TYPE` (`URL_TYPE`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_PREFERRED` (`IS_PREFERRED`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_CANONICAL` (`IS_CANONICAL`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_DIRECT_FILE` (`IS_DIRECT_FILE`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_ACTIVE` (`IS_ACTIVE`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_PLAYABLE` (`IS_PLAYABLE`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_DOWNLOADABLE` (`IS_DOWNLOADABLE`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_HTTP_STATUS` (`HTTP_STATUS`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_QUALITY_LABEL` (`QUALITY_LABEL`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_DELETED` (`DELETED`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_RESOURCE` FOREIGN KEY (`ID_MEDIA_RESOURCE`) REFERENCES `T_WC_WIKIDATA_MEDIA_RESOURCE` (`ID_MEDIA_RESOURCE`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_MEDIA_VALUE`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_MEDIA_VALUE` (
   `ID_STATEMENT` bigint(20) NOT NULL,
   `FILE_NAME` varchar(1000) NOT NULL,
@@ -702,14 +332,26 @@ CREATE TABLE `T_WC_WIKIDATA_MEDIA_VALUE` (
   `FILE_PAGE_URL` text DEFAULT NULL,
   `FILE_DIRECT_URL` text DEFAULT NULL,
   `MIME_TYPE` varchar(255) DEFAULT NULL,
-  `FILE_EXTENSION` varchar(50) DEFAULT NULL
+  `FILE_EXTENSION` varchar(50) DEFAULT NULL,
+  PRIMARY KEY (`ID_STATEMENT`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_VALUE_FILE_NAME` (`FILE_NAME`(255)),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_VALUE_MEDIA_REPOSITORY` (`MEDIA_REPOSITORY`),
+  KEY `IDX_T_WC_WIKIDATA_MEDIA_VALUE_MIME_TYPE` (`MIME_TYPE`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_MEDIA_VALUE_STATEMENT` FOREIGN KEY (`ID_STATEMENT`) REFERENCES `T_WC_WIKIDATA_STATEMENT` (`ID_STATEMENT`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Déclencheurs `T_WC_WIKIDATA_MEDIA_VALUE`
---
-DELIMITER $$
-CREATE TRIGGER `BI_T_WC_WIKIDATA_MEDIA_VALUE` BEFORE INSERT ON `T_WC_WIKIDATA_MEDIA_VALUE` FOR EACH ROW BEGIN
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_general_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`%`*/ /*!50003 TRIGGER BI_T_WC_WIKIDATA_MEDIA_VALUE BEFORE INSERT ON T_WC_WIKIDATA_MEDIA_VALUE
+FOR EACH ROW
+BEGIN
   DECLARE v_value_type VARCHAR(50);
   SELECT VALUE_TYPE INTO v_value_type FROM T_WC_WIKIDATA_STATEMENT WHERE ID_STATEMENT=NEW.ID_STATEMENT LIMIT 1;
   IF v_value_type IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='MEDIA_VALUE: parent statement not found'; END IF;
@@ -720,18 +362,16 @@ CREATE TRIGGER `BI_T_WC_WIKIDATA_MEDIA_VALUE` BEFORE INSERT ON `T_WC_WIKIDATA_ME
      EXISTS (SELECT 1 FROM T_WC_WIKIDATA_TIME_VALUE WHERE ID_STATEMENT=NEW.ID_STATEMENT) OR
      EXISTS (SELECT 1 FROM T_WC_WIKIDATA_QUANTITY_VALUE WHERE ID_STATEMENT=NEW.ID_STATEMENT)
   THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='MEDIA_VALUE: statement already exists in another child table'; END IF;
-END
-$$
+END */;;
 DELIMITER ;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_MOVIE`
---
-
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_MOVIE` (
-  `ID_ROW` bigint(20) NOT NULL,
+  `ID_ROW` bigint(20) NOT NULL AUTO_INCREMENT,
   `ID_WIKIDATA` varchar(50) NOT NULL,
   `LABEL_EN` varchar(500) DEFAULT NULL,
   `DESCRIPTION_EN` text DEFAULT NULL,
@@ -739,15 +379,15 @@ CREATE TABLE `T_WC_WIKIDATA_MOVIE` (
   `DESCRIPTIONS_JSON` longtext DEFAULT NULL,
   `DELETED` tinyint(1) DEFAULT 0,
   `DAT_CREAT` datetime DEFAULT current_timestamp(),
-  `TIM_UPDATED` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_MOVIE_V1`
---
-
+  `TIM_UPDATED` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`ID_ROW`),
+  UNIQUE KEY `UK_T_WC_WIKIDATA_MOVIE_ID_WIKIDATA` (`ID_WIKIDATA`),
+  KEY `IDX_T_WC_WIKIDATA_MOVIE_LABEL_EN` (`LABEL_EN`(255)),
+  KEY `IDX_T_WC_WIKIDATA_MOVIE_DELETED` (`DELETED`)
+) ENGINE=InnoDB AUTO_INCREMENT=790517 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_MOVIE_V1` (
   `ID_WIKIDATA` varchar(50) NOT NULL,
   `ID_MOVIE` int(11) NOT NULL,
@@ -767,17 +407,31 @@ CREATE TABLE `T_WC_WIKIDATA_MOVIE_V1` (
   `ID_CRITERION` int(11) DEFAULT NULL,
   `ID_CRITERION_SPINE` int(11) DEFAULT NULL,
   `INSTANCE_OF` varchar(50) DEFAULT NULL,
-  `WIKIPEDIA_POSTER_PATH` varchar(200) DEFAULT NULL
+  `WIKIPEDIA_POSTER_PATH` varchar(200) DEFAULT NULL,
+  PRIMARY KEY (`ID_WIKIDATA`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_IMDB` (`ID_IMDB`),
+  KEY `TITLE` (`TITLE`),
+  KEY `DAT_RELEASE` (`DAT_RELEASE`),
+  KEY `CRAWLER_VERSION` (`CRAWLER_VERSION`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `ID_CRITERION` (`ID_CRITERION`),
+  KEY `ID_CRITERION_SPINE` (`ID_CRITERION_SPINE`),
+  KEY `PLEX_MEDIA_KEY` (`PLEX_MEDIA_KEY`),
+  KEY `INSTANCE_OF` (`INSTANCE_OF`),
+  KEY `WIKIPEDIA_POSTER_PATH` (`WIKIPEDIA_POSTER_PATH`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_PERSON`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_PERSON` (
-  `ID_ROW` bigint(20) NOT NULL,
+  `ID_ROW` bigint(20) NOT NULL AUTO_INCREMENT,
   `ID_WIKIDATA` varchar(50) NOT NULL,
   `LABEL_EN` varchar(500) DEFAULT NULL,
   `DESCRIPTION_EN` text DEFAULT NULL,
@@ -785,15 +439,15 @@ CREATE TABLE `T_WC_WIKIDATA_PERSON` (
   `DESCRIPTIONS_JSON` longtext DEFAULT NULL,
   `DELETED` tinyint(1) DEFAULT 0,
   `DAT_CREAT` datetime DEFAULT current_timestamp(),
-  `TIM_UPDATED` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_PERSON_V1`
---
-
+  `TIM_UPDATED` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`ID_ROW`),
+  UNIQUE KEY `UK_T_WC_WIKIDATA_PERSON_ID_WIKIDATA` (`ID_WIKIDATA`),
+  KEY `IDX_T_WC_WIKIDATA_PERSON_LABEL_EN` (`LABEL_EN`(255)),
+  KEY `IDX_T_WC_WIKIDATA_PERSON_DELETED` (`DELETED`)
+) ENGINE=InnoDB AUTO_INCREMENT=1581033 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_PERSON_V1` (
   `ID_WIKIDATA` varchar(50) NOT NULL,
   `ID_PERSON` int(11) DEFAULT NULL,
@@ -811,15 +465,28 @@ CREATE TABLE `T_WC_WIKIDATA_PERSON_V1` (
   `ID_USER_UPDATED` int(5) DEFAULT NULL,
   `CRAWLER_VERSION` int(5) DEFAULT NULL,
   `INSTANCE_OF` varchar(50) DEFAULT NULL,
-  `WIKIPEDIA_PROFILE_PATH` varchar(200) DEFAULT NULL
+  `WIKIPEDIA_PROFILE_PATH` varchar(200) DEFAULT NULL,
+  PRIMARY KEY (`ID_WIKIDATA`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_IMDB` (`ID_IMDB`),
+  KEY `BIRTHDAY` (`BIRTHDAY`),
+  KEY `DEATHDAY` (`DEATHDAY`),
+  KEY `NAME` (`NAME`),
+  KEY `CRAWLER_VERSION` (`CRAWLER_VERSION`),
+  KEY `ID_PERSON` (`ID_PERSON`),
+  KEY `INSTANCE_OF` (`INSTANCE_OF`),
+  KEY `ALIASES` (`ALIASES`(768)),
+  KEY `WIKIPEDIA_PROFILE_PATH` (`WIKIPEDIA_PROFILE_PATH`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_PROPERTY`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_PROPERTY` (
   `ID_PROPERTY` varchar(50) NOT NULL,
   `LABEL` varchar(250) DEFAULT NULL,
@@ -830,17 +497,22 @@ CREATE TABLE `T_WC_WIKIDATA_PROPERTY` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_PROPERTY`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `LABEL` (`LABEL`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_PROPERTY_METADATA`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_PROPERTY_METADATA` (
-  `ID_ROW` bigint(20) NOT NULL,
+  `ID_ROW` bigint(20) NOT NULL AUTO_INCREMENT,
   `ID_PROPERTY` varchar(50) NOT NULL,
   `PROPERTY_LABEL` varchar(500) DEFAULT NULL,
   `PROPERTY_DESCRIPTION` text DEFAULT NULL,
@@ -854,15 +526,96 @@ CREATE TABLE `T_WC_WIKIDATA_PROPERTY_METADATA` (
   `LAST_SYNC_AT` datetime DEFAULT NULL,
   `DELETED` tinyint(1) DEFAULT 0,
   `DAT_CREAT` datetime DEFAULT current_timestamp(),
-  `TIM_UPDATED` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `TIM_UPDATED` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`ID_ROW`),
+  UNIQUE KEY `UK_T_WC_WIKIDATA_PROPERTY_METADATA_ID_PROPERTY` (`ID_PROPERTY`),
+  KEY `IDX_T_WC_WIKIDATA_PROPERTY_METADATA_LOCAL_VALUE_TYPE` (`LOCAL_VALUE_TYPE`),
+  KEY `IDX_T_WC_WIKIDATA_PROPERTY_METADATA_WIKIDATA_DATATYPE` (`WIKIDATA_DATATYPE`),
+  KEY `IDX_T_WC_WIKIDATA_PROPERTY_METADATA_IS_SUPPORTED` (`IS_SUPPORTED`),
+  KEY `IDX_T_WC_WIKIDATA_PROPERTY_METADATA_IS_ACTIVE` (`IS_ACTIVE`),
+  KEY `IDX_T_WC_WIKIDATA_PROPERTY_METADATA_DELETED` (`DELETED`)
+) ENGINE=InnoDB AUTO_INCREMENT=33023 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_WIKIDATA_QUALIFIER_EXTERNAL_ID_VALUE` (
+  `ID_STATEMENT_QUALIFIER` bigint(20) NOT NULL,
+  `VALUE_EXTERNAL_ID` varchar(1000) NOT NULL,
+  `VALUE_EXTERNAL_ID_NORMALIZED` varchar(1000) DEFAULT NULL,
+  `FORMATTER_URL` text DEFAULT NULL,
+  `FORMATTER_URI_RDF` text DEFAULT NULL,
+  `VALIDATION_STATUS` varchar(100) DEFAULT NULL,
+  PRIMARY KEY (`ID_STATEMENT_QUALIFIER`),
+  KEY `IDX_T_WC_WIKIDATA_QUALIFIER_EXTERNAL_ID_VALUE_NORMALIZED` (`VALUE_EXTERNAL_ID_NORMALIZED`(255)),
+  CONSTRAINT `FK_T_WC_WIKIDATA_QUALIFIER_EXTERNAL_ID_VALUE_PARENT` FOREIGN KEY (`ID_STATEMENT_QUALIFIER`) REFERENCES `T_WC_WIKIDATA_STATEMENT_QUALIFIER` (`ID_STATEMENT_QUALIFIER`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_QUANTITY_VALUE`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_WIKIDATA_QUALIFIER_ITEM_VALUE` (
+  `ID_STATEMENT_QUALIFIER` bigint(20) NOT NULL,
+  `ID_ITEM` varchar(50) NOT NULL,
+  PRIMARY KEY (`ID_STATEMENT_QUALIFIER`),
+  KEY `IDX_T_WC_WIKIDATA_QUAL_ITEM_VALUE_ITEM` (`ID_ITEM`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_QUAL_ITEM_VALUE_PARENT` FOREIGN KEY (`ID_STATEMENT_QUALIFIER`) REFERENCES `T_WC_WIKIDATA_STATEMENT_QUALIFIER` (`ID_STATEMENT_QUALIFIER`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_WIKIDATA_QUALIFIER_MEDIA_VALUE` (
+  `ID_STATEMENT_QUALIFIER` bigint(20) NOT NULL,
+  `FILE_NAME` varchar(1000) NOT NULL,
+  `MEDIA_REPOSITORY` varchar(100) DEFAULT NULL,
+  `FILE_PAGE_URL` text DEFAULT NULL,
+  `FILE_DIRECT_URL` text DEFAULT NULL,
+  `MIME_TYPE` varchar(255) DEFAULT NULL,
+  `FILE_EXTENSION` varchar(50) DEFAULT NULL,
+  PRIMARY KEY (`ID_STATEMENT_QUALIFIER`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_QUALIFIER_MEDIA_VALUE_PARENT` FOREIGN KEY (`ID_STATEMENT_QUALIFIER`) REFERENCES `T_WC_WIKIDATA_STATEMENT_QUALIFIER` (`ID_STATEMENT_QUALIFIER`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_WIKIDATA_QUALIFIER_QUANTITY_VALUE` (
+  `ID_STATEMENT_QUALIFIER` bigint(20) NOT NULL,
+  `AMOUNT` decimal(30,10) DEFAULT NULL,
+  `UNIT_ID_WIKIDATA` varchar(50) DEFAULT NULL,
+  `LOWER_BOUND` decimal(30,10) DEFAULT NULL,
+  `UPPER_BOUND` decimal(30,10) DEFAULT NULL,
+  `AMOUNT_NORMALIZED` decimal(30,10) DEFAULT NULL,
+  `DISPLAY_VALUE` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`ID_STATEMENT_QUALIFIER`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_QUALIFIER_QUANTITY_VALUE_PARENT` FOREIGN KEY (`ID_STATEMENT_QUALIFIER`) REFERENCES `T_WC_WIKIDATA_STATEMENT_QUALIFIER` (`ID_STATEMENT_QUALIFIER`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_WIKIDATA_QUALIFIER_STRING_VALUE` (
+  `ID_STATEMENT_QUALIFIER` bigint(20) NOT NULL,
+  `VALUE_STRING` longtext NOT NULL,
+  `VALUE_STRING_NORMALIZED` longtext DEFAULT NULL,
+  `LANG_CODE` varchar(20) DEFAULT NULL,
+  PRIMARY KEY (`ID_STATEMENT_QUALIFIER`),
+  KEY `IDX_T_WC_WIKIDATA_QUALIFIER_STRING_VALUE_LANG_CODE` (`LANG_CODE`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_QUALIFIER_STRING_VALUE_PARENT` FOREIGN KEY (`ID_STATEMENT_QUALIFIER`) REFERENCES `T_WC_WIKIDATA_STATEMENT_QUALIFIER` (`ID_STATEMENT_QUALIFIER`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_WIKIDATA_QUALIFIER_TIME_VALUE` (
+  `ID_STATEMENT_QUALIFIER` bigint(20) NOT NULL,
+  `RAW_TIME_VALUE` varchar(100) NOT NULL,
+  `PRECISION_CODE` int(11) DEFAULT NULL,
+  `TIMEZONE_OFFSET` int(11) DEFAULT NULL,
+  `CALENDAR_MODEL` varchar(255) DEFAULT NULL,
+  `DATE_START` date DEFAULT NULL,
+  `DATE_END` date DEFAULT NULL,
+  PRIMARY KEY (`ID_STATEMENT_QUALIFIER`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_QUAL_TIME_VALUE_PARENT` FOREIGN KEY (`ID_STATEMENT_QUALIFIER`) REFERENCES `T_WC_WIKIDATA_STATEMENT_QUALIFIER` (`ID_STATEMENT_QUALIFIER`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_QUANTITY_VALUE` (
   `ID_STATEMENT` bigint(20) NOT NULL,
   `AMOUNT` decimal(30,10) DEFAULT NULL,
@@ -870,14 +623,26 @@ CREATE TABLE `T_WC_WIKIDATA_QUANTITY_VALUE` (
   `LOWER_BOUND` decimal(30,10) DEFAULT NULL,
   `UPPER_BOUND` decimal(30,10) DEFAULT NULL,
   `AMOUNT_NORMALIZED` decimal(30,10) DEFAULT NULL,
-  `DISPLAY_VALUE` varchar(255) DEFAULT NULL
+  `DISPLAY_VALUE` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`ID_STATEMENT`),
+  KEY `IDX_T_WC_WIKIDATA_QUANTITY_VALUE_AMOUNT` (`AMOUNT`),
+  KEY `IDX_T_WC_WIKIDATA_QUANTITY_VALUE_UNIT` (`UNIT_ID_WIKIDATA`),
+  KEY `IDX_T_WC_WIKIDATA_QUANTITY_VALUE_AMOUNT_NORMALIZED` (`AMOUNT_NORMALIZED`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_QUANTITY_VALUE_STATEMENT` FOREIGN KEY (`ID_STATEMENT`) REFERENCES `T_WC_WIKIDATA_STATEMENT` (`ID_STATEMENT`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Déclencheurs `T_WC_WIKIDATA_QUANTITY_VALUE`
---
-DELIMITER $$
-CREATE TRIGGER `BI_T_WC_WIKIDATA_QUANTITY_VALUE` BEFORE INSERT ON `T_WC_WIKIDATA_QUANTITY_VALUE` FOR EACH ROW BEGIN
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_general_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`%`*/ /*!50003 TRIGGER BI_T_WC_WIKIDATA_QUANTITY_VALUE BEFORE INSERT ON T_WC_WIKIDATA_QUANTITY_VALUE
+FOR EACH ROW
+BEGIN
   DECLARE v_value_type VARCHAR(50);
   SELECT VALUE_TYPE INTO v_value_type FROM T_WC_WIKIDATA_STATEMENT WHERE ID_STATEMENT=NEW.ID_STATEMENT LIMIT 1;
   IF v_value_type IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='QUANTITY_VALUE: parent statement not found'; END IF;
@@ -888,18 +653,16 @@ CREATE TRIGGER `BI_T_WC_WIKIDATA_QUANTITY_VALUE` BEFORE INSERT ON `T_WC_WIKIDATA
      EXISTS (SELECT 1 FROM T_WC_WIKIDATA_MEDIA_VALUE WHERE ID_STATEMENT=NEW.ID_STATEMENT) OR
      EXISTS (SELECT 1 FROM T_WC_WIKIDATA_TIME_VALUE WHERE ID_STATEMENT=NEW.ID_STATEMENT)
   THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='QUANTITY_VALUE: statement already exists in another child table'; END IF;
-END
-$$
+END */;;
 DELIMITER ;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_SERIE`
---
-
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_SERIE` (
-  `ID_ROW` bigint(20) NOT NULL,
+  `ID_ROW` bigint(20) NOT NULL AUTO_INCREMENT,
   `ID_WIKIDATA` varchar(50) NOT NULL,
   `LABEL_EN` varchar(500) DEFAULT NULL,
   `DESCRIPTION_EN` text DEFAULT NULL,
@@ -907,15 +670,15 @@ CREATE TABLE `T_WC_WIKIDATA_SERIE` (
   `DESCRIPTIONS_JSON` longtext DEFAULT NULL,
   `DELETED` tinyint(1) DEFAULT 0,
   `DAT_CREAT` datetime DEFAULT current_timestamp(),
-  `TIM_UPDATED` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_SERIE_V1`
---
-
+  `TIM_UPDATED` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`ID_ROW`),
+  UNIQUE KEY `UK_T_WC_WIKIDATA_SERIE_ID_WIKIDATA` (`ID_WIKIDATA`),
+  KEY `IDX_T_WC_WIKIDATA_SERIE_LABEL_EN` (`LABEL_EN`(255)),
+  KEY `IDX_T_WC_WIKIDATA_SERIE_DELETED` (`DELETED`)
+) ENGINE=InnoDB AUTO_INCREMENT=266237 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_SERIE_V1` (
   `ID_WIKIDATA` varchar(50) NOT NULL,
   `ID_SERIE` int(11) NOT NULL,
@@ -936,17 +699,32 @@ CREATE TABLE `T_WC_WIKIDATA_SERIE_V1` (
   `ID_CRITERION` int(11) DEFAULT NULL,
   `ID_CRITERION_SPINE` int(11) DEFAULT NULL,
   `INSTANCE_OF` varchar(50) DEFAULT NULL,
-  `WIKIPEDIA_POSTER_PATH` varchar(200) DEFAULT NULL
+  `WIKIPEDIA_POSTER_PATH` varchar(200) DEFAULT NULL,
+  PRIMARY KEY (`ID_WIKIDATA`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_IMDB` (`ID_IMDB`),
+  KEY `TITLE` (`TITLE`),
+  KEY `DAT_RELEASE` (`DAT_START`),
+  KEY `CRAWLER_VERSION` (`CRAWLER_VERSION`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `ID_CRITERION` (`ID_CRITERION`),
+  KEY `ID_CRITERION_SPINE` (`ID_CRITERION_SPINE`),
+  KEY `PLEX_MEDIA_KEY` (`PLEX_MEDIA_KEY`),
+  KEY `INSTANCE_OF` (`INSTANCE_OF`),
+  KEY `DAT_END` (`DAT_END`),
+  KEY `WIKIPEDIA_POSTER_PATH` (`WIKIPEDIA_POSTER_PATH`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_STATEMENT`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_STATEMENT` (
-  `ID_STATEMENT` bigint(20) NOT NULL,
+  `ID_STATEMENT` bigint(20) NOT NULL AUTO_INCREMENT,
   `ID_WIKIDATA` varchar(50) NOT NULL,
   `ID_PROPERTY` varchar(50) NOT NULL,
   `STATEMENT_GUID` varchar(255) DEFAULT NULL,
@@ -967,27 +745,80 @@ CREATE TABLE `T_WC_WIKIDATA_STATEMENT` (
   `LAST_SYNC_AT` datetime DEFAULT NULL,
   `IS_VALID` tinyint(1) DEFAULT NULL,
   `VALIDATION_ERROR` text DEFAULT NULL,
-  `RAW_VALUE_TEXT` text DEFAULT NULL
+  `RAW_VALUE_TEXT` text DEFAULT NULL,
+  PRIMARY KEY (`ID_STATEMENT`),
+  UNIQUE KEY `UK_T_WC_WIKIDATA_STATEMENT_GUID` (`STATEMENT_GUID`),
+  UNIQUE KEY `UK_T_WC_WIKIDATA_STATEMENT_HASH` (`STATEMENT_HASH`),
+  KEY `IDX_T_WC_WIKIDATA_STATEMENT_ID_WIKIDATA` (`ID_WIKIDATA`),
+  KEY `IDX_T_WC_WIKIDATA_STATEMENT_ID_PROPERTY` (`ID_PROPERTY`),
+  KEY `IDX_T_WC_WIKIDATA_STATEMENT_VALUE_TYPE` (`VALUE_TYPE`),
+  KEY `IDX_T_WC_WIKIDATA_STATEMENT_RANK` (`RANK`),
+  KEY `IDX_T_WC_WIKIDATA_STATEMENT_IMPORT_BATCH_ID` (`IMPORT_BATCH_ID`),
+  KEY `IDX_T_WC_WIKIDATA_STATEMENT_DELETED` (`DELETED`),
+  KEY `IDX_T_WC_WIKIDATA_STATEMENT_WIKIDATA_PROPERTY` (`ID_WIKIDATA`,`ID_PROPERTY`),
+  KEY `IDX_T_WC_WIKIDATA_STATEMENT_WIKIDATA_VALUE_TYPE` (`ID_WIKIDATA`,`VALUE_TYPE`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_STATEMENT_PROPERTY_METADATA` FOREIGN KEY (`ID_PROPERTY`) REFERENCES `T_WC_WIKIDATA_PROPERTY_METADATA` (`ID_PROPERTY`) ON UPDATE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=28049832 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_WIKIDATA_STATEMENT_QUALIFIER` (
+  `ID_STATEMENT_QUALIFIER` bigint(20) NOT NULL AUTO_INCREMENT,
+  `ID_STATEMENT` bigint(20) NOT NULL,
+  `ID_QUALIFIER_PROPERTY` varchar(50) NOT NULL,
+  `QUALIFIER_HASH` varchar(255) DEFAULT NULL,
+  `VALUE_TYPE` enum('item','string','external_id','media','time','quantity') NOT NULL,
+  `WIKIDATA_DATATYPE` varchar(100) DEFAULT NULL,
+  `DISPLAY_ORDER` int(11) DEFAULT NULL,
+  `DELETED` tinyint(1) DEFAULT 0,
+  `DAT_CREAT` datetime DEFAULT current_timestamp(),
+  `TIM_UPDATED` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `IMPORT_SOURCE` varchar(100) DEFAULT NULL,
+  `IMPORT_BATCH_ID` varchar(100) DEFAULT NULL,
+  `LAST_SYNC_AT` datetime DEFAULT NULL,
+  `IS_VALID` tinyint(1) DEFAULT NULL,
+  `VALIDATION_ERROR` text DEFAULT NULL,
+  `RAW_VALUE_TEXT` text DEFAULT NULL,
+  PRIMARY KEY (`ID_STATEMENT_QUALIFIER`),
+  UNIQUE KEY `UK_T_WC_WIKIDATA_STMT_QUALIFIER_HASH` (`QUALIFIER_HASH`),
+  KEY `IDX_T_WC_WIKIDATA_STMT_QUALIFIER_STATEMENT` (`ID_STATEMENT`),
+  KEY `IDX_T_WC_WIKIDATA_STMT_QUALIFIER_PROPERTY` (`ID_QUALIFIER_PROPERTY`),
+  KEY `IDX_T_WC_WIKIDATA_STMT_QUALIFIER_VALUE_TYPE` (`VALUE_TYPE`),
+  KEY `IDX_T_WC_WIKIDATA_STMT_QUALIFIER_BATCH` (`IMPORT_BATCH_ID`),
+  KEY `WIKIDATA_DATATYPE` (`WIKIDATA_DATATYPE`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `IMPORT_SOURCE` (`IMPORT_SOURCE`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_STMT_QUALIFIER_PROPERTY_METADATA` FOREIGN KEY (`ID_QUALIFIER_PROPERTY`) REFERENCES `T_WC_WIKIDATA_PROPERTY_METADATA` (`ID_PROPERTY`) ON UPDATE CASCADE,
+  CONSTRAINT `FK_T_WC_WIKIDATA_STMT_QUALIFIER_STATEMENT` FOREIGN KEY (`ID_STATEMENT`) REFERENCES `T_WC_WIKIDATA_STATEMENT` (`ID_STATEMENT`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_STRING_VALUE`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_STRING_VALUE` (
   `ID_STATEMENT` bigint(20) NOT NULL,
   `VALUE_STRING` longtext NOT NULL,
   `VALUE_STRING_NORMALIZED` longtext DEFAULT NULL,
-  `LANG_CODE` varchar(20) DEFAULT NULL
+  `LANG_CODE` varchar(20) DEFAULT NULL,
+  PRIMARY KEY (`ID_STATEMENT`),
+  KEY `IDX_T_WC_WIKIDATA_STRING_VALUE_LANG_CODE` (`LANG_CODE`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_STRING_VALUE_STATEMENT` FOREIGN KEY (`ID_STATEMENT`) REFERENCES `T_WC_WIKIDATA_STATEMENT` (`ID_STATEMENT`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Déclencheurs `T_WC_WIKIDATA_STRING_VALUE`
---
-DELIMITER $$
-CREATE TRIGGER `BI_T_WC_WIKIDATA_STRING_VALUE` BEFORE INSERT ON `T_WC_WIKIDATA_STRING_VALUE` FOR EACH ROW BEGIN
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_general_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`%`*/ /*!50003 TRIGGER BI_T_WC_WIKIDATA_STRING_VALUE BEFORE INSERT ON T_WC_WIKIDATA_STRING_VALUE
+FOR EACH ROW
+BEGIN
   DECLARE v_value_type VARCHAR(50);
   SELECT VALUE_TYPE INTO v_value_type FROM T_WC_WIKIDATA_STATEMENT WHERE ID_STATEMENT=NEW.ID_STATEMENT LIMIT 1;
   IF v_value_type IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='STRING_VALUE: parent statement not found'; END IF;
@@ -998,16 +829,14 @@ CREATE TRIGGER `BI_T_WC_WIKIDATA_STRING_VALUE` BEFORE INSERT ON `T_WC_WIKIDATA_S
      EXISTS (SELECT 1 FROM T_WC_WIKIDATA_TIME_VALUE WHERE ID_STATEMENT=NEW.ID_STATEMENT) OR
      EXISTS (SELECT 1 FROM T_WC_WIKIDATA_QUANTITY_VALUE WHERE ID_STATEMENT=NEW.ID_STATEMENT)
   THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='STRING_VALUE: statement already exists in another child table'; END IF;
-END
-$$
+END */;;
 DELIMITER ;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_WIKIDATA_TIME_VALUE`
---
-
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_WIKIDATA_TIME_VALUE` (
   `ID_STATEMENT` bigint(20) NOT NULL,
   `RAW_TIME_VALUE` varchar(100) DEFAULT NULL,
@@ -1018,14 +847,29 @@ CREATE TABLE `T_WC_WIKIDATA_TIME_VALUE` (
   `MONTH_VALUE` int(11) DEFAULT NULL,
   `DAY_VALUE` int(11) DEFAULT NULL,
   `DATE_START` date DEFAULT NULL,
-  `DATE_END` date DEFAULT NULL
+  `DATE_END` date DEFAULT NULL,
+  PRIMARY KEY (`ID_STATEMENT`),
+  KEY `IDX_T_WC_WIKIDATA_TIME_VALUE_YEAR` (`YEAR_VALUE`),
+  KEY `IDX_T_WC_WIKIDATA_TIME_VALUE_MONTH` (`MONTH_VALUE`),
+  KEY `IDX_T_WC_WIKIDATA_TIME_VALUE_DAY` (`DAY_VALUE`),
+  KEY `IDX_T_WC_WIKIDATA_TIME_VALUE_DATE_START` (`DATE_START`),
+  KEY `IDX_T_WC_WIKIDATA_TIME_VALUE_DATE_END` (`DATE_END`),
+  KEY `IDX_T_WC_WIKIDATA_TIME_VALUE_PRECISION` (`TIME_PRECISION`),
+  CONSTRAINT `FK_T_WC_WIKIDATA_TIME_VALUE_STATEMENT` FOREIGN KEY (`ID_STATEMENT`) REFERENCES `T_WC_WIKIDATA_STATEMENT` (`ID_STATEMENT`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Déclencheurs `T_WC_WIKIDATA_TIME_VALUE`
---
-DELIMITER $$
-CREATE TRIGGER `BI_T_WC_WIKIDATA_TIME_VALUE` BEFORE INSERT ON `T_WC_WIKIDATA_TIME_VALUE` FOR EACH ROW BEGIN
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8mb4 */ ;
+/*!50003 SET character_set_results = utf8mb4 */ ;
+/*!50003 SET collation_connection  = utf8mb4_general_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`%`*/ /*!50003 TRIGGER BI_T_WC_WIKIDATA_TIME_VALUE BEFORE INSERT ON T_WC_WIKIDATA_TIME_VALUE
+FOR EACH ROW
+BEGIN
   DECLARE v_value_type VARCHAR(50);
   SELECT VALUE_TYPE INTO v_value_type FROM T_WC_WIKIDATA_STATEMENT WHERE ID_STATEMENT=NEW.ID_STATEMENT LIMIT 1;
   IF v_value_type IS NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='TIME_VALUE: parent statement not found'; END IF;
@@ -1036,654 +880,9 @@ CREATE TRIGGER `BI_T_WC_WIKIDATA_TIME_VALUE` BEFORE INSERT ON `T_WC_WIKIDATA_TIM
      EXISTS (SELECT 1 FROM T_WC_WIKIDATA_MEDIA_VALUE WHERE ID_STATEMENT=NEW.ID_STATEMENT) OR
      EXISTS (SELECT 1 FROM T_WC_WIKIDATA_QUANTITY_VALUE WHERE ID_STATEMENT=NEW.ID_STATEMENT)
   THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='TIME_VALUE: statement already exists in another child table'; END IF;
-END
-$$
+END */;;
 DELIMITER ;
-
---
--- Index pour les tables déchargées
---
-
---
--- Index pour la table `STG_T_WC_WIKIDATA_EXTERNAL_ID_VALUE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_EXTERNAL_ID_VALUE`
-  ADD PRIMARY KEY (`ID_STG_ROW`),
-  ADD KEY `IDX_STG_EXTERNAL_ID_BATCH` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_STG_EXTERNAL_ID_STATEMENT` (`ID_STATEMENT`);
-
---
--- Index pour la table `STG_T_WC_WIKIDATA_ITEM`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_ITEM`
-  ADD PRIMARY KEY (`ID_STG_ROW`),
-  ADD KEY `IDX_STG_ITEM_BATCH` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_STG_ITEM_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `IDX_STG_ITEM_STATUS` (`ROW_STATUS`);
-
---
--- Index pour la table `STG_T_WC_WIKIDATA_ITEM_VALUE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_ITEM_VALUE`
-  ADD PRIMARY KEY (`ID_STG_ROW`),
-  ADD KEY `IDX_STG_ITEM_VALUE_BATCH` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_STG_ITEM_VALUE_STATEMENT` (`ID_STATEMENT`),
-  ADD KEY `IDX_STG_ITEM_VALUE_ITEM` (`ID_ITEM`);
-
---
--- Index pour la table `STG_T_WC_WIKIDATA_MEDIA_RESOURCE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_MEDIA_RESOURCE`
-  ADD PRIMARY KEY (`ID_STG_ROW`),
-  ADD KEY `IDX_STG_MEDIA_RESOURCE_BATCH` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_STG_MEDIA_RESOURCE_STATEMENT` (`ID_STATEMENT`);
-
---
--- Index pour la table `STG_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK`
-  ADD PRIMARY KEY (`ID_STG_ROW`),
-  ADD KEY `IDX_STG_MEDIA_CHECK_BATCH` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_STG_MEDIA_CHECK_RESOURCE` (`ID_MEDIA_RESOURCE`);
-
---
--- Index pour la table `STG_T_WC_WIKIDATA_MEDIA_RESOURCE_URL`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_MEDIA_RESOURCE_URL`
-  ADD PRIMARY KEY (`ID_STG_ROW`),
-  ADD KEY `IDX_STG_MEDIA_URL_BATCH` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_STG_MEDIA_URL_RESOURCE` (`ID_MEDIA_RESOURCE`);
-
---
--- Index pour la table `STG_T_WC_WIKIDATA_MEDIA_VALUE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_MEDIA_VALUE`
-  ADD PRIMARY KEY (`ID_STG_ROW`),
-  ADD KEY `IDX_STG_MEDIA_VALUE_BATCH` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_STG_MEDIA_VALUE_STATEMENT` (`ID_STATEMENT`);
-
---
--- Index pour la table `STG_T_WC_WIKIDATA_MOVIE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_MOVIE`
-  ADD PRIMARY KEY (`ID_STG_ROW`),
-  ADD KEY `IDX_STG_MOVIE_BATCH` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_STG_MOVIE_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `IDX_STG_MOVIE_STATUS` (`ROW_STATUS`);
-
---
--- Index pour la table `STG_T_WC_WIKIDATA_PERSON`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_PERSON`
-  ADD PRIMARY KEY (`ID_STG_ROW`),
-  ADD KEY `IDX_STG_PERSON_BATCH` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_STG_PERSON_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `IDX_STG_PERSON_STATUS` (`ROW_STATUS`);
-
---
--- Index pour la table `STG_T_WC_WIKIDATA_PROPERTY_METADATA`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_PROPERTY_METADATA`
-  ADD PRIMARY KEY (`ID_STG_ROW`),
-  ADD KEY `IDX_STG_PROPERTY_BATCH` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_STG_PROPERTY_ID` (`ID_PROPERTY`),
-  ADD KEY `IDX_STG_PROPERTY_STATUS` (`ROW_STATUS`);
-
---
--- Index pour la table `STG_T_WC_WIKIDATA_QUANTITY_VALUE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_QUANTITY_VALUE`
-  ADD PRIMARY KEY (`ID_STG_ROW`),
-  ADD KEY `IDX_STG_QUANTITY_VALUE_BATCH` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_STG_QUANTITY_VALUE_STATEMENT` (`ID_STATEMENT`);
-
---
--- Index pour la table `STG_T_WC_WIKIDATA_SERIE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_SERIE`
-  ADD PRIMARY KEY (`ID_STG_ROW`),
-  ADD KEY `IDX_STG_SERIE_BATCH` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_STG_SERIE_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `IDX_STG_SERIE_STATUS` (`ROW_STATUS`);
-
---
--- Index pour la table `STG_T_WC_WIKIDATA_STATEMENT`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_STATEMENT`
-  ADD PRIMARY KEY (`ID_STG_ROW`),
-  ADD KEY `IDX_STG_STATEMENT_BATCH` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_STG_STATEMENT_ID` (`ID_STATEMENT`),
-  ADD KEY `IDX_STG_STATEMENT_STATUS` (`ROW_STATUS`);
-
---
--- Index pour la table `STG_T_WC_WIKIDATA_STRING_VALUE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_STRING_VALUE`
-  ADD PRIMARY KEY (`ID_STG_ROW`),
-  ADD KEY `IDX_STG_STRING_VALUE_BATCH` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_STG_STRING_VALUE_STATEMENT` (`ID_STATEMENT`);
-
---
--- Index pour la table `STG_T_WC_WIKIDATA_TIME_VALUE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_TIME_VALUE`
-  ADD PRIMARY KEY (`ID_STG_ROW`),
-  ADD KEY `IDX_STG_TIME_VALUE_BATCH` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_STG_TIME_VALUE_STATEMENT` (`ID_STATEMENT`);
-
---
--- Index pour la table `T_WC_WIKIDATA_EXTERNAL_ID_VALUE`
---
-ALTER TABLE `T_WC_WIKIDATA_EXTERNAL_ID_VALUE`
-  ADD PRIMARY KEY (`ID_STATEMENT`),
-  ADD KEY `IDX_T_WC_WIKIDATA_EXTERNAL_ID_VALUE_NORMALIZED` (`VALUE_EXTERNAL_ID_NORMALIZED`(255)),
-  ADD KEY `IDX_T_WC_WIKIDATA_EXTERNAL_ID_VALUE_STATUS` (`VALIDATION_STATUS`);
-
---
--- Index pour la table `T_WC_WIKIDATA_ITEM`
---
-ALTER TABLE `T_WC_WIKIDATA_ITEM`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD UNIQUE KEY `UK_T_WC_WIKIDATA_ITEM_ID_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `IDX_T_WC_WIKIDATA_ITEM_LABEL_EN` (`LABEL_EN`(255)),
-  ADD KEY `IDX_T_WC_WIKIDATA_ITEM_DELETED` (`DELETED`);
-
---
--- Index pour la table `T_WC_WIKIDATA_ITEM_PROPERTY`
---
-ALTER TABLE `T_WC_WIKIDATA_ITEM_PROPERTY`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `ID_PROPERTY` (`ID_PROPERTY`),
-  ADD KEY `ID_ITEM` (`ID_ITEM`);
-
---
--- Index pour la table `T_WC_WIKIDATA_ITEM_V1`
---
-ALTER TABLE `T_WC_WIKIDATA_ITEM_V1`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `LABEL` (`LABEL`),
-  ADD KEY `DESCRIPTION` (`DESCRIPTION`(768)),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `INSTANCE_OF` (`INSTANCE_OF`),
-  ADD KEY `WIKIPEDIA_IMAGE_PATH` (`WIKIPEDIA_IMAGE_PATH`);
-
---
--- Index pour la table `T_WC_WIKIDATA_ITEM_VALUE`
---
-ALTER TABLE `T_WC_WIKIDATA_ITEM_VALUE`
-  ADD PRIMARY KEY (`ID_STATEMENT`),
-  ADD KEY `IDX_T_WC_WIKIDATA_ITEM_VALUE_ID_ITEM` (`ID_ITEM`),
-  ADD KEY `IDX_T_WC_WIKIDATA_ITEM_VALUE_STATEMENT_ITEM` (`ID_STATEMENT`,`ID_ITEM`);
-
---
--- Index pour la table `T_WC_WIKIDATA_MEDIA_RESOURCE`
---
-ALTER TABLE `T_WC_WIKIDATA_MEDIA_RESOURCE`
-  ADD PRIMARY KEY (`ID_MEDIA_RESOURCE`),
-  ADD UNIQUE KEY `UK_T_WC_WIKIDATA_MEDIA_RESOURCE_STATEMENT_PLATFORM_IDENTIFIER` (`ID_STATEMENT`,`SOURCE_PLATFORM`,`SOURCE_IDENTIFIER_NORMALIZED`(255)),
-  ADD UNIQUE KEY `UK_T_WC_WIKIDATA_MEDIA_RESOURCE_RESOURCE_KEY` (`RESOURCE_KEY`(255)),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_ID_STATEMENT` (`ID_STATEMENT`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_ID_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_ID_PROPERTY` (`ID_PROPERTY`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_PLATFORM` (`SOURCE_PLATFORM`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_ROLE` (`CONTENT_ROLE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_STATUS` (`RESOLUTION_STATUS`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_PREFERRED` (`IS_PREFERRED_RESOURCE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_PRIMARY_ENTITY` (`IS_PRIMARY_FOR_ENTITY`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_ACTIVE` (`IS_ACTIVE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_VALID` (`IS_VALID`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_DELETED` (`DELETED`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_ENTITY_PLATFORM` (`ID_WIKIDATA`,`SOURCE_PLATFORM`);
-
---
--- Index pour la table `T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK`
---
-ALTER TABLE `T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK`
-  ADD PRIMARY KEY (`ID_MEDIA_RESOURCE_CHECK`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_RESOURCE` (`ID_MEDIA_RESOURCE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_RESOURCE_URL` (`ID_MEDIA_RESOURCE_URL`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_SCOPE` (`CHECK_SCOPE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_TYPE` (`CHECK_TYPE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_STATUS` (`CHECK_STATUS`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_HTTP_STATUS` (`HTTP_STATUS`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_CHECKED_AT` (`CHECKED_AT`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_IMPORT_BATCH_ID` (`IMPORT_BATCH_ID`);
-
---
--- Index pour la table `T_WC_WIKIDATA_MEDIA_RESOURCE_URL`
---
-ALTER TABLE `T_WC_WIKIDATA_MEDIA_RESOURCE_URL`
-  ADD PRIMARY KEY (`ID_MEDIA_RESOURCE_URL`),
-  ADD UNIQUE KEY `UK_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_RESOURCE_HASH` (`ID_MEDIA_RESOURCE`,`URL_HASH`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_RESOURCE` (`ID_MEDIA_RESOURCE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_TYPE` (`URL_TYPE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_PREFERRED` (`IS_PREFERRED`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_CANONICAL` (`IS_CANONICAL`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_DIRECT_FILE` (`IS_DIRECT_FILE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_ACTIVE` (`IS_ACTIVE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_PLAYABLE` (`IS_PLAYABLE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_DOWNLOADABLE` (`IS_DOWNLOADABLE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_HTTP_STATUS` (`HTTP_STATUS`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_QUALITY_LABEL` (`QUALITY_LABEL`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_DELETED` (`DELETED`);
-
---
--- Index pour la table `T_WC_WIKIDATA_MEDIA_VALUE`
---
-ALTER TABLE `T_WC_WIKIDATA_MEDIA_VALUE`
-  ADD PRIMARY KEY (`ID_STATEMENT`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_VALUE_FILE_NAME` (`FILE_NAME`(255)),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_VALUE_MEDIA_REPOSITORY` (`MEDIA_REPOSITORY`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MEDIA_VALUE_MIME_TYPE` (`MIME_TYPE`);
-
---
--- Index pour la table `T_WC_WIKIDATA_MOVIE`
---
-ALTER TABLE `T_WC_WIKIDATA_MOVIE`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD UNIQUE KEY `UK_T_WC_WIKIDATA_MOVIE_ID_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `IDX_T_WC_WIKIDATA_MOVIE_LABEL_EN` (`LABEL_EN`(255)),
-  ADD KEY `IDX_T_WC_WIKIDATA_MOVIE_DELETED` (`DELETED`);
-
---
--- Index pour la table `T_WC_WIKIDATA_MOVIE_V1`
---
-ALTER TABLE `T_WC_WIKIDATA_MOVIE_V1`
-  ADD PRIMARY KEY (`ID_WIKIDATA`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_IMDB` (`ID_IMDB`),
-  ADD KEY `TITLE` (`TITLE`),
-  ADD KEY `DAT_RELEASE` (`DAT_RELEASE`),
-  ADD KEY `CRAWLER_VERSION` (`CRAWLER_VERSION`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `ID_CRITERION` (`ID_CRITERION`),
-  ADD KEY `ID_CRITERION_SPINE` (`ID_CRITERION_SPINE`),
-  ADD KEY `PLEX_MEDIA_KEY` (`PLEX_MEDIA_KEY`),
-  ADD KEY `INSTANCE_OF` (`INSTANCE_OF`),
-  ADD KEY `WIKIPEDIA_POSTER_PATH` (`WIKIPEDIA_POSTER_PATH`);
-
---
--- Index pour la table `T_WC_WIKIDATA_PERSON`
---
-ALTER TABLE `T_WC_WIKIDATA_PERSON`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD UNIQUE KEY `UK_T_WC_WIKIDATA_PERSON_ID_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `IDX_T_WC_WIKIDATA_PERSON_LABEL_EN` (`LABEL_EN`(255)),
-  ADD KEY `IDX_T_WC_WIKIDATA_PERSON_DELETED` (`DELETED`);
-
---
--- Index pour la table `T_WC_WIKIDATA_PERSON_V1`
---
-ALTER TABLE `T_WC_WIKIDATA_PERSON_V1`
-  ADD PRIMARY KEY (`ID_WIKIDATA`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_IMDB` (`ID_IMDB`),
-  ADD KEY `BIRTHDAY` (`BIRTHDAY`),
-  ADD KEY `DEATHDAY` (`DEATHDAY`),
-  ADD KEY `NAME` (`NAME`),
-  ADD KEY `CRAWLER_VERSION` (`CRAWLER_VERSION`),
-  ADD KEY `ID_PERSON` (`ID_PERSON`),
-  ADD KEY `INSTANCE_OF` (`INSTANCE_OF`),
-  ADD KEY `ALIASES` (`ALIASES`(768)),
-  ADD KEY `WIKIPEDIA_PROFILE_PATH` (`WIKIPEDIA_PROFILE_PATH`);
-
---
--- Index pour la table `T_WC_WIKIDATA_PROPERTY`
---
-ALTER TABLE `T_WC_WIKIDATA_PROPERTY`
-  ADD PRIMARY KEY (`ID_PROPERTY`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `LABEL` (`LABEL`);
-
---
--- Index pour la table `T_WC_WIKIDATA_PROPERTY_METADATA`
---
-ALTER TABLE `T_WC_WIKIDATA_PROPERTY_METADATA`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD UNIQUE KEY `UK_T_WC_WIKIDATA_PROPERTY_METADATA_ID_PROPERTY` (`ID_PROPERTY`),
-  ADD KEY `IDX_T_WC_WIKIDATA_PROPERTY_METADATA_LOCAL_VALUE_TYPE` (`LOCAL_VALUE_TYPE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_PROPERTY_METADATA_WIKIDATA_DATATYPE` (`WIKIDATA_DATATYPE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_PROPERTY_METADATA_IS_SUPPORTED` (`IS_SUPPORTED`),
-  ADD KEY `IDX_T_WC_WIKIDATA_PROPERTY_METADATA_IS_ACTIVE` (`IS_ACTIVE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_PROPERTY_METADATA_DELETED` (`DELETED`);
-
---
--- Index pour la table `T_WC_WIKIDATA_QUANTITY_VALUE`
---
-ALTER TABLE `T_WC_WIKIDATA_QUANTITY_VALUE`
-  ADD PRIMARY KEY (`ID_STATEMENT`),
-  ADD KEY `IDX_T_WC_WIKIDATA_QUANTITY_VALUE_AMOUNT` (`AMOUNT`),
-  ADD KEY `IDX_T_WC_WIKIDATA_QUANTITY_VALUE_UNIT` (`UNIT_ID_WIKIDATA`),
-  ADD KEY `IDX_T_WC_WIKIDATA_QUANTITY_VALUE_AMOUNT_NORMALIZED` (`AMOUNT_NORMALIZED`);
-
---
--- Index pour la table `T_WC_WIKIDATA_SERIE`
---
-ALTER TABLE `T_WC_WIKIDATA_SERIE`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD UNIQUE KEY `UK_T_WC_WIKIDATA_SERIE_ID_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `IDX_T_WC_WIKIDATA_SERIE_LABEL_EN` (`LABEL_EN`(255)),
-  ADD KEY `IDX_T_WC_WIKIDATA_SERIE_DELETED` (`DELETED`);
-
---
--- Index pour la table `T_WC_WIKIDATA_SERIE_V1`
---
-ALTER TABLE `T_WC_WIKIDATA_SERIE_V1`
-  ADD PRIMARY KEY (`ID_WIKIDATA`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_IMDB` (`ID_IMDB`),
-  ADD KEY `TITLE` (`TITLE`),
-  ADD KEY `DAT_RELEASE` (`DAT_START`),
-  ADD KEY `CRAWLER_VERSION` (`CRAWLER_VERSION`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `ID_CRITERION` (`ID_CRITERION`),
-  ADD KEY `ID_CRITERION_SPINE` (`ID_CRITERION_SPINE`),
-  ADD KEY `PLEX_MEDIA_KEY` (`PLEX_MEDIA_KEY`),
-  ADD KEY `INSTANCE_OF` (`INSTANCE_OF`),
-  ADD KEY `DAT_END` (`DAT_END`),
-  ADD KEY `WIKIPEDIA_POSTER_PATH` (`WIKIPEDIA_POSTER_PATH`);
-
---
--- Index pour la table `T_WC_WIKIDATA_STATEMENT`
---
-ALTER TABLE `T_WC_WIKIDATA_STATEMENT`
-  ADD PRIMARY KEY (`ID_STATEMENT`),
-  ADD UNIQUE KEY `UK_T_WC_WIKIDATA_STATEMENT_GUID` (`STATEMENT_GUID`),
-  ADD UNIQUE KEY `UK_T_WC_WIKIDATA_STATEMENT_HASH` (`STATEMENT_HASH`),
-  ADD KEY `IDX_T_WC_WIKIDATA_STATEMENT_ID_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `IDX_T_WC_WIKIDATA_STATEMENT_ID_PROPERTY` (`ID_PROPERTY`),
-  ADD KEY `IDX_T_WC_WIKIDATA_STATEMENT_VALUE_TYPE` (`VALUE_TYPE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_STATEMENT_RANK` (`RANK`),
-  ADD KEY `IDX_T_WC_WIKIDATA_STATEMENT_IMPORT_BATCH_ID` (`IMPORT_BATCH_ID`),
-  ADD KEY `IDX_T_WC_WIKIDATA_STATEMENT_DELETED` (`DELETED`),
-  ADD KEY `IDX_T_WC_WIKIDATA_STATEMENT_WIKIDATA_PROPERTY` (`ID_WIKIDATA`,`ID_PROPERTY`),
-  ADD KEY `IDX_T_WC_WIKIDATA_STATEMENT_WIKIDATA_VALUE_TYPE` (`ID_WIKIDATA`,`VALUE_TYPE`);
-
---
--- Index pour la table `T_WC_WIKIDATA_STRING_VALUE`
---
-ALTER TABLE `T_WC_WIKIDATA_STRING_VALUE`
-  ADD PRIMARY KEY (`ID_STATEMENT`),
-  ADD KEY `IDX_T_WC_WIKIDATA_STRING_VALUE_LANG_CODE` (`LANG_CODE`);
-
---
--- Index pour la table `T_WC_WIKIDATA_TIME_VALUE`
---
-ALTER TABLE `T_WC_WIKIDATA_TIME_VALUE`
-  ADD PRIMARY KEY (`ID_STATEMENT`),
-  ADD KEY `IDX_T_WC_WIKIDATA_TIME_VALUE_YEAR` (`YEAR_VALUE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_TIME_VALUE_MONTH` (`MONTH_VALUE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_TIME_VALUE_DAY` (`DAY_VALUE`),
-  ADD KEY `IDX_T_WC_WIKIDATA_TIME_VALUE_DATE_START` (`DATE_START`),
-  ADD KEY `IDX_T_WC_WIKIDATA_TIME_VALUE_DATE_END` (`DATE_END`),
-  ADD KEY `IDX_T_WC_WIKIDATA_TIME_VALUE_PRECISION` (`TIME_PRECISION`);
-
---
--- AUTO_INCREMENT pour les tables déchargées
---
-
---
--- AUTO_INCREMENT pour la table `STG_T_WC_WIKIDATA_EXTERNAL_ID_VALUE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_EXTERNAL_ID_VALUE`
-  MODIFY `ID_STG_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `STG_T_WC_WIKIDATA_ITEM`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_ITEM`
-  MODIFY `ID_STG_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `STG_T_WC_WIKIDATA_ITEM_VALUE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_ITEM_VALUE`
-  MODIFY `ID_STG_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `STG_T_WC_WIKIDATA_MEDIA_RESOURCE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_MEDIA_RESOURCE`
-  MODIFY `ID_STG_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `STG_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK`
-  MODIFY `ID_STG_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `STG_T_WC_WIKIDATA_MEDIA_RESOURCE_URL`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_MEDIA_RESOURCE_URL`
-  MODIFY `ID_STG_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `STG_T_WC_WIKIDATA_MEDIA_VALUE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_MEDIA_VALUE`
-  MODIFY `ID_STG_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `STG_T_WC_WIKIDATA_MOVIE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_MOVIE`
-  MODIFY `ID_STG_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `STG_T_WC_WIKIDATA_PERSON`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_PERSON`
-  MODIFY `ID_STG_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `STG_T_WC_WIKIDATA_PROPERTY_METADATA`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_PROPERTY_METADATA`
-  MODIFY `ID_STG_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `STG_T_WC_WIKIDATA_QUANTITY_VALUE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_QUANTITY_VALUE`
-  MODIFY `ID_STG_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `STG_T_WC_WIKIDATA_SERIE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_SERIE`
-  MODIFY `ID_STG_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `STG_T_WC_WIKIDATA_STATEMENT`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_STATEMENT`
-  MODIFY `ID_STG_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `STG_T_WC_WIKIDATA_STRING_VALUE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_STRING_VALUE`
-  MODIFY `ID_STG_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `STG_T_WC_WIKIDATA_TIME_VALUE`
---
-ALTER TABLE `STG_T_WC_WIKIDATA_TIME_VALUE`
-  MODIFY `ID_STG_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_WIKIDATA_ITEM`
---
-ALTER TABLE `T_WC_WIKIDATA_ITEM`
-  MODIFY `ID_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_WIKIDATA_ITEM_PROPERTY`
---
-ALTER TABLE `T_WC_WIKIDATA_ITEM_PROPERTY`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_WIKIDATA_ITEM_V1`
---
-ALTER TABLE `T_WC_WIKIDATA_ITEM_V1`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_WIKIDATA_MEDIA_RESOURCE`
---
-ALTER TABLE `T_WC_WIKIDATA_MEDIA_RESOURCE`
-  MODIFY `ID_MEDIA_RESOURCE` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK`
---
-ALTER TABLE `T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK`
-  MODIFY `ID_MEDIA_RESOURCE_CHECK` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_WIKIDATA_MEDIA_RESOURCE_URL`
---
-ALTER TABLE `T_WC_WIKIDATA_MEDIA_RESOURCE_URL`
-  MODIFY `ID_MEDIA_RESOURCE_URL` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_WIKIDATA_MOVIE`
---
-ALTER TABLE `T_WC_WIKIDATA_MOVIE`
-  MODIFY `ID_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_WIKIDATA_PERSON`
---
-ALTER TABLE `T_WC_WIKIDATA_PERSON`
-  MODIFY `ID_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_WIKIDATA_PROPERTY_METADATA`
---
-ALTER TABLE `T_WC_WIKIDATA_PROPERTY_METADATA`
-  MODIFY `ID_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_WIKIDATA_SERIE`
---
-ALTER TABLE `T_WC_WIKIDATA_SERIE`
-  MODIFY `ID_ROW` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_WIKIDATA_STATEMENT`
---
-ALTER TABLE `T_WC_WIKIDATA_STATEMENT`
-  MODIFY `ID_STATEMENT` bigint(20) NOT NULL AUTO_INCREMENT;
-
---
--- Contraintes pour les tables déchargées
---
-
---
--- Contraintes pour la table `T_WC_WIKIDATA_EXTERNAL_ID_VALUE`
---
-ALTER TABLE `T_WC_WIKIDATA_EXTERNAL_ID_VALUE`
-  ADD CONSTRAINT `FK_T_WC_WIKIDATA_EXTERNAL_ID_VALUE_STATEMENT` FOREIGN KEY (`ID_STATEMENT`) REFERENCES `T_WC_WIKIDATA_STATEMENT` (`ID_STATEMENT`) ON DELETE CASCADE ON UPDATE CASCADE;
-
---
--- Contraintes pour la table `T_WC_WIKIDATA_ITEM_VALUE`
---
-ALTER TABLE `T_WC_WIKIDATA_ITEM_VALUE`
-  ADD CONSTRAINT `FK_T_WC_WIKIDATA_ITEM_VALUE_STATEMENT` FOREIGN KEY (`ID_STATEMENT`) REFERENCES `T_WC_WIKIDATA_STATEMENT` (`ID_STATEMENT`) ON DELETE CASCADE ON UPDATE CASCADE;
-
---
--- Contraintes pour la table `T_WC_WIKIDATA_MEDIA_RESOURCE`
---
-ALTER TABLE `T_WC_WIKIDATA_MEDIA_RESOURCE`
-  ADD CONSTRAINT `FK_T_WC_WIKIDATA_MEDIA_RESOURCE_STATEMENT` FOREIGN KEY (`ID_STATEMENT`) REFERENCES `T_WC_WIKIDATA_STATEMENT` (`ID_STATEMENT`) ON DELETE CASCADE ON UPDATE CASCADE;
-
---
--- Contraintes pour la table `T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK`
---
-ALTER TABLE `T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK`
-  ADD CONSTRAINT `FK_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_RESOURCE` FOREIGN KEY (`ID_MEDIA_RESOURCE`) REFERENCES `T_WC_WIKIDATA_MEDIA_RESOURCE` (`ID_MEDIA_RESOURCE`) ON DELETE CASCADE ON UPDATE CASCADE,
-  ADD CONSTRAINT `FK_T_WC_WIKIDATA_MEDIA_RESOURCE_CHECK_RESOURCE_URL` FOREIGN KEY (`ID_MEDIA_RESOURCE_URL`) REFERENCES `T_WC_WIKIDATA_MEDIA_RESOURCE_URL` (`ID_MEDIA_RESOURCE_URL`) ON DELETE SET NULL ON UPDATE CASCADE;
-
---
--- Contraintes pour la table `T_WC_WIKIDATA_MEDIA_RESOURCE_URL`
---
-ALTER TABLE `T_WC_WIKIDATA_MEDIA_RESOURCE_URL`
-  ADD CONSTRAINT `FK_T_WC_WIKIDATA_MEDIA_RESOURCE_URL_RESOURCE` FOREIGN KEY (`ID_MEDIA_RESOURCE`) REFERENCES `T_WC_WIKIDATA_MEDIA_RESOURCE` (`ID_MEDIA_RESOURCE`) ON DELETE CASCADE ON UPDATE CASCADE;
-
---
--- Contraintes pour la table `T_WC_WIKIDATA_MEDIA_VALUE`
---
-ALTER TABLE `T_WC_WIKIDATA_MEDIA_VALUE`
-  ADD CONSTRAINT `FK_T_WC_WIKIDATA_MEDIA_VALUE_STATEMENT` FOREIGN KEY (`ID_STATEMENT`) REFERENCES `T_WC_WIKIDATA_STATEMENT` (`ID_STATEMENT`) ON DELETE CASCADE ON UPDATE CASCADE;
-
---
--- Contraintes pour la table `T_WC_WIKIDATA_QUANTITY_VALUE`
---
-ALTER TABLE `T_WC_WIKIDATA_QUANTITY_VALUE`
-  ADD CONSTRAINT `FK_T_WC_WIKIDATA_QUANTITY_VALUE_STATEMENT` FOREIGN KEY (`ID_STATEMENT`) REFERENCES `T_WC_WIKIDATA_STATEMENT` (`ID_STATEMENT`) ON DELETE CASCADE ON UPDATE CASCADE;
-
---
--- Contraintes pour la table `T_WC_WIKIDATA_STATEMENT`
---
-ALTER TABLE `T_WC_WIKIDATA_STATEMENT`
-  ADD CONSTRAINT `FK_T_WC_WIKIDATA_STATEMENT_PROPERTY_METADATA` FOREIGN KEY (`ID_PROPERTY`) REFERENCES `T_WC_WIKIDATA_PROPERTY_METADATA` (`ID_PROPERTY`) ON UPDATE CASCADE;
-
---
--- Contraintes pour la table `T_WC_WIKIDATA_STRING_VALUE`
---
-ALTER TABLE `T_WC_WIKIDATA_STRING_VALUE`
-  ADD CONSTRAINT `FK_T_WC_WIKIDATA_STRING_VALUE_STATEMENT` FOREIGN KEY (`ID_STATEMENT`) REFERENCES `T_WC_WIKIDATA_STATEMENT` (`ID_STATEMENT`) ON DELETE CASCADE ON UPDATE CASCADE;
-
---
--- Contraintes pour la table `T_WC_WIKIDATA_TIME_VALUE`
---
-ALTER TABLE `T_WC_WIKIDATA_TIME_VALUE`
-  ADD CONSTRAINT `FK_T_WC_WIKIDATA_TIME_VALUE_STATEMENT` FOREIGN KEY (`ID_STATEMENT`) REFERENCES `T_WC_WIKIDATA_STATEMENT` (`ID_STATEMENT`) ON DELETE CASCADE ON UPDATE CASCADE;
-COMMIT;
-
-/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
-/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
-/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;

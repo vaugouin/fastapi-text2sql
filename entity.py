@@ -342,15 +342,20 @@ def resolve_entities(
                     add_message(f"Entity resolution: {placeholder} -> {raw_value} ({kind})")
                     continue
 
-                if isinstance(key, str) and key.startswith("Genre_name"):
+                if isinstance(key, str) and (key.startswith("Movie_genre") or key.startswith("Serie_genre")):
                     raw_value = "" if value is None else str(value).strip()
                     placeholder = "{{" + key + "}}"
                     if raw_value == "":
                         continue
 
-                    genre_id = closed_vocab.resolve_genre(raw_value)
+                    if key.startswith("Movie_genre"):
+                        genre_id = closed_vocab.resolve_movie_genre(raw_value)
+                        side = "movie genre"
+                    else:
+                        genre_id = closed_vocab.resolve_serie_genre(raw_value)
+                        side = "serie genre"
                     if genre_id is None:
-                        add_message(f"Entity resolution: {placeholder} -> unknown genre name '{raw_value}'; leaving placeholder unresolved")
+                        add_message(f"Entity resolution: {placeholder} -> unknown {side} '{raw_value}'; leaving placeholder unresolved")
                         continue
 
                     genre_id_str = str(genre_id)
@@ -358,7 +363,7 @@ def resolve_entities(
                     sql_query = re.sub(rf"{re.escape(placeholder)}", genre_id_str, sql_query, flags=re.IGNORECASE)
                     justification = justification.replace(placeholder, raw_value)
                     answer = answer.replace(placeholder, raw_value)
-                    add_message(f"Entity resolution: {placeholder} -> {genre_id_str} ({raw_value}) (genre)")
+                    add_message(f"Entity resolution: {placeholder} -> {genre_id_str} ({raw_value}) ({side})")
                     continue
 
                 if isinstance(key, str) and key.startswith("Technical_format"):

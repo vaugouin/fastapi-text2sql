@@ -23,7 +23,7 @@ Never include a semicolon at the end of the SQL query.
 
 ## ? Placeholders / Anonymization
 
-The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}, {{Genre_name1}}, {{Technical_format1}}, {{Department_name1}}, {{Aspect_ratio1}}.
+The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}, {{Movie_genre1}}, {{Serie_genre1}}, {{Technical_format1}}, {{Department_name1}}, {{Aspect_ratio1}}.
 These placeholders represent real entity values that were intentionally replaced earlier.
 
 Rules:
@@ -33,13 +33,15 @@ Rules:
 - The placeholders will be substituted with real values AFTER you generate the SQL.
 
 Genre and Technical_format placeholder special case (integer-ID columns):
-- `{{Genre_nameN}}` represents a movie or TV series genre name. Do NOT convert it yourself into the numeric ID.
+- `{{Movie_genreN}}` represents a movie genre name (TMDb /genre/movie/list). Do NOT convert it yourself into the numeric ID. Use it ONLY against the movie genre junction.
+- `{{Serie_genreN}}` represents a TV series genre name (TMDb /genre/tv/list). Do NOT convert it yourself into the numeric ID. Use it ONLY against the series genre junction.
 - `{{Technical_formatN}}` represents a movie technical format / technology / process. Do NOT convert it yourself into the numeric ID.
 - Emit each placeholder exactly as a quoted string literal against the corresponding INT column, for example:
-  - Movies genre: `T_WC_T2S_MOVIE_GENRE.ID_GENRE = '{{Genre_name1}}'`
-  - Series genre: `T_WC_T2S_SERIE_GENRE.ID_GENRE = '{{Genre_name1}}'`
+  - Movies genre: `T_WC_T2S_MOVIE_GENRE.ID_GENRE = '{{Movie_genre1}}'`
+  - Series genre: `T_WC_T2S_SERIE_GENRE.ID_GENRE = '{{Serie_genre1}}'`
   - Movie technical: `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL = '{{Technical_format1}}'`
-- The resolver will substitute each placeholder with the correct integer ID at runtime (the surrounding quotes are stripped). The full canonical name → ID mapping lives in the database (`T_WC_TMDB_GENRE` for genres, `T_WC_T2S_TECHNICAL` for technical formats) and is loaded into memory at startup, with multilingual aliases / format variants on top — you do not need to know the IDs.
+- The resolver will substitute each placeholder with the correct integer ID at runtime (the surrounding quotes are stripped). The full canonical name → ID mapping lives in the database (`T_WC_TMDB_GENRE`, filtered by `APPLIES_TO_MOVIE` / `APPLIES_TO_SERIE` flags; `T_WC_T2S_TECHNICAL` for technical formats) and is loaded into memory at startup, with multilingual aliases / format variants on top — you do not need to know the IDs.
+- Never use `{{Movie_genreN}}` against `T_WC_T2S_SERIE_GENRE` or `{{Serie_genreN}}` against `T_WC_T2S_MOVIE_GENRE`: the resolver restricts each placeholder to its side's vocabulary, so a cross-use will leave the placeholder unresolved.
 
 Example:
 Question:
@@ -210,7 +212,11 @@ CREATE TABLE T_WC_T2S_COMPANY (
   ID_PARENT INT,
   TIM_CREDITS_DOWNLOADED DATETIME,
   DAT_CREAT DATE,
-  TIM_UPDATED DATETIME
+  TIM_UPDATED DATETIME,
+  MOVIE_COUNT INT,
+  SERIE_COUNT INT,
+  IMDB_RATING_WEIGHTED DOUBLE,
+  POPULARITY DOUBLE
 );
 
 ### Networks (TV series)
@@ -323,9 +329,13 @@ CREATE TABLE T_WC_T2S_TOPIC (
   TOPIC_SOURCE VARCHAR(20),
   LANG VARCHAR(2),
   ID_RECORD INT,
+  MOVIE_COUNT INT,
+  SERIE_COUNT INT,
   POSTER_PATH VARCHAR(200),
+  WIKIPEDIA_IMAGE_PATH VARCHAR(200),
   IMDB_RATING DOUBLE,
-  IMDB_RATING_WEIGHTED DOUBLE
+  IMDB_RATING_WEIGHTED DOUBLE,
+  POPULARITY DOUBLE
 );
 
 ### Lists
@@ -345,7 +355,8 @@ CREATE TABLE T_WC_T2S_LIST (
   POSTER_PATH VARCHAR(200),
   WIKIPEDIA_IMAGE_PATH VARCHAR(200),
   IMDB_RATING DOUBLE,
-  IMDB_RATING_WEIGHTED DOUBLE
+  IMDB_RATING_WEIGHTED DOUBLE,
+  POPULARITY DOUBLE
 );
 
 ### Collections
@@ -367,7 +378,8 @@ CREATE TABLE T_WC_T2S_COLLECTION (
   POSTER_PATH VARCHAR(200),
   WIKIPEDIA_IMAGE_PATH VARCHAR(200),
   IMDB_RATING DOUBLE,
-  IMDB_RATING_WEIGHTED DOUBLE
+  IMDB_RATING_WEIGHTED DOUBLE,
+  POPULARITY DOUBLE
 );
 
 CREATE TABLE T_WC_T2S_MOVIE_COLLECTION (
@@ -401,7 +413,8 @@ CREATE TABLE T_WC_T2S_MOVEMENT (
   POSTER_PATH VARCHAR(200),
   WIKIPEDIA_IMAGE_PATH VARCHAR(200),
   IMDB_RATING DOUBLE,
-  IMDB_RATING_WEIGHTED DOUBLE
+  IMDB_RATING_WEIGHTED DOUBLE,
+  POPULARITY DOUBLE
 );
 
 CREATE TABLE T_WC_T2S_MOVIE_MOVEMENT (
@@ -939,9 +952,9 @@ Do NOT confuse these with quality terms:
 - Person images → ORDER BY VOTE_AVERAGE DESC
 
 ### Genre filtering
-- Movies: filter on `T_WC_T2S_MOVIE_GENRE.ID_GENRE` (integer FK to `T_WC_TMDB_GENRE.id`).
-- Series: filter on `T_WC_T2S_SERIE_GENRE.ID_GENRE` (same `T_WC_TMDB_GENRE` ID space — no separate series-genre table).
-- Always reference a genre via the `{{Genre_nameN}}` placeholder; the resolver substitutes the correct integer ID at runtime (see the Genre placeholder special case at the top of this prompt).
+- Movies: filter on `T_WC_T2S_MOVIE_GENRE.ID_GENRE` (integer FK to `T_WC_TMDB_GENRE.id`, restricted to rows with `APPLIES_TO_MOVIE = 1`). Always reference the genre via the `{{Movie_genreN}}` placeholder.
+- Series: filter on `T_WC_T2S_SERIE_GENRE.ID_GENRE` (same `T_WC_TMDB_GENRE` ID space, restricted to rows with `APPLIES_TO_SERIE = 1` — no separate series-genre table). Always reference the genre via the `{{Serie_genreN}}` placeholder.
+- The two placeholders draw from disjoint-but-overlapping ID sets (8 IDs are shared: Animation, Comedy, Crime, Documentary, Drama, Family, Mystery, Western; 11 are movie-only and 8 are TV-only). The resolver will refuse to substitute a placeholder for a genre that does not apply to its side, so always pick the placeholder that matches the junction table you are filtering against (see the Genre placeholder special case at the top of this prompt).
 
 ### Join Conditions
 - T_WC_T2S_PERSON_MOVIE.ID_PERSON = T_WC_T2S_PERSON.ID_PERSON

@@ -122,7 +122,8 @@ Inside `entity.resolve_entities()`, the dispatch order is fixed and matters:
    - `TMDb_ID`, `Criterion_spine_ID` — `\d+`, numeric
    - **Malformed values are rejected** → placeholder left unresolved → question marked ambiguous.
 2. **Closed-vocabulary branches** — handled by name-prefix `if/elif`:
-   - `Genre_name*` → `closed_vocab.resolve_genre()` → integer `ID_GENRE` (no quotes in SQL).
+   - `Movie_genre*` → `closed_vocab.resolve_movie_genre()` → integer `ID_GENRE` (no quotes in SQL); restricted to genres with `APPLIES_TO_MOVIE = 1` in `T_WC_TMDB_GENRE`.
+   - `Serie_genre*` → `closed_vocab.resolve_serie_genre()` → integer `ID_GENRE` (no quotes in SQL); restricted to genres with `APPLIES_TO_SERIE = 1` in `T_WC_TMDB_GENRE`.
    - `Technical_format*` → `closed_vocab.resolve_technical()` → integer `ID_TECHNICAL` (no quotes in SQL).
    - `Status_name*` / `Serie_type*` / `Department_name*` / `Aspect_ratio*` → `closed_vocab.resolve(entity, raw)` → canonical string (single-quoted in SQL).
 3. **Embeddings / RapidFuzz** — driven by `data/entity_resolution.json` `search_list` strategies; per-strategy language-family gating is supported.
@@ -292,7 +293,7 @@ Open once per request, pass the connection around, close in a `finally`. Do NOT 
 The pipeline can retry via the stronger model, but only when `complex_question_already_resolved = False`. The recursive call sets it to `True` to prevent runaway retries.
 
 ### Gotcha #9 — Closed-Vocabulary Resolution
-`Genre_name`, `Technical_format`, `Status_name`, `Serie_type`, `Department_name`, and `Aspect_ratio` are resolved via [closed_vocab.py](closed_vocab.py): canonicals from the database at startup, aliases from [data/closed_vocabularies.json](data/closed_vocabularies.json) (hot-reloaded). Typo tolerance is uniform via RapidFuzz with `score_cutoff=85` and `margin=5`. `Genre_name` and `Technical_format` substitute integers (no quotes); `Status_name`, `Serie_type`, `Department_name`, and `Aspect_ratio` substitute single-quoted canonical strings.
+`Movie_genre`, `Serie_genre`, `Technical_format`, `Status_name`, `Serie_type`, `Department_name`, and `Aspect_ratio` are resolved via [closed_vocab.py](closed_vocab.py): canonicals from the database at startup, aliases from [data/closed_vocabularies.json](data/closed_vocabularies.json) (hot-reloaded). Typo tolerance is uniform via RapidFuzz with `score_cutoff=85` and `margin=5`. Genre placeholders and `Technical_format` substitute integers (no quotes); `Status_name`, `Serie_type`, `Department_name`, and `Aspect_ratio` substitute single-quoted canonical strings. `Movie_genre` and `Serie_genre` draw from the same `T_WC_TMDB_GENRE` table but each loader query filters by the `APPLIES_TO_MOVIE` / `APPLIES_TO_SERIE` flag, so a question filtering movies cannot resolve to a TV-only genre (e.g. `Reality`, `Sci-Fi & Fantasy`) and vice versa.
 
 **Resolver order matters**: in `_resolve_closed_vocab`, canonical exact match runs **before** alias match. If a user-typed value happens to be a literal canonical (e.g. the DB stores both `'4:3'` and `'1,33'` for the same ratio), the canonical wins and the alias never fires. To remap noisy DB variants to a single dominant form, exclude them from canonicals via the loader query (see `Aspect_ratio` below).
 
@@ -300,7 +301,7 @@ The pipeline can retry via the stronger model, but only when `complex_question_a
 
 `Aspect_ratio` canonicals are **comma-decimal only** (French notation: `1,33`, `1,85`, `2,35`, `2,39`). The loader query filters with `ASPECT_RATIO REGEXP '^[0-9]+,[0-9]+$'` so noisy DB variants (`'4:3'`, `'4/3'`, `'16:9'`, `'1:33'`, `'235:1'`, etc.) drop out of canonical and fall through to the alias layer, which remaps every common surface form (dot decimals like `1.33`, width:height like `4:3`/`16:9`, slash forms like `4/3`/`16/9`, named conventions like `Academy`/`widescreen`/`flat`) to its dominant comma-decimal canonical. `'anamorphic'` / `'scope'` / `'cinemascope'` deliberately live under `Technical_format`, not `Aspect_ratio`, to avoid cross-entity collision.
 
-Only `Genre_name` has a `_LANG` companion table today; for the others, multilingual aliases live in JSON only.
+Only the two genre placeholders (`Movie_genre`, `Serie_genre`) have a `_LANG` companion table today (`T_WC_TMDB_GENRE_LANG`, joined against the side-applicability flag at load time); for the others, multilingual aliases live in JSON only.
 
 ### Gotcha #10 — Regex Placeholders Reject Malformed Values
 The 9 regex-validated placeholders validate against a fixed pattern in `_REGEX_PLACEHOLDER_RULES`. Failed matches are **rejected** — the placeholder is left in place and the trailing unresolved-placeholder check marks the question ambiguous. Order in the rule list matters because dispatch uses `startswith()`: `IMDb_person_ID` precedes `IMDb_ID`, `Wikidata_property_ID` precedes `Wikidata_ID`. Numeric rules substitute as bare integers (and strip surrounding quotes via two regex passes); string rules substitute as quoted SQL string literals — choose `is_numeric` based on the target column's SQL type.

@@ -171,7 +171,7 @@
       "2:55": "2,55"
     }
   },
-  "Genre_name": {
+  "Movie_genre": {
     "aliases": {
       "scifi": "Science Fiction",
       "sci fi": "Science Fiction",
@@ -182,6 +182,23 @@
       "romcom": "Romance",
       "biopic": "History",
       "western movie": "Western",
+      "westerns": "Western"
+    }
+  },
+  "Serie_genre": {
+    "aliases": {
+      "scifi": "Sci-Fi & Fantasy",
+      "sci fi": "Sci-Fi & Fantasy",
+      "sci-fi": "Sci-Fi & Fantasy",
+      "sf": "Sci-Fi & Fantasy",
+      "science fiction": "Sci-Fi & Fantasy",
+      "science-fiction": "Sci-Fi & Fantasy",
+      "fantasy": "Sci-Fi & Fantasy",
+      "action": "Action & Adventure",
+      "action and adventure": "Action & Adventure",
+      "war": "War & Politics",
+      "politics": "War & Politics",
+      "war and politics": "War & Politics",
       "westerns": "Western"
     }
   },
