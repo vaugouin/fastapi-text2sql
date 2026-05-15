@@ -21,8 +21,8 @@ Edit at the right layer; the architecture is intentionally split.
 - `strapiversion` lives at [main.py:105](main.py#L105) (also drives Blue/Green port parity and `MCP_INTERNAL_BASE_URL`)
 - `Text2SQLRequest` / `Text2SQLResponse` Pydantic models around [main.py:214-269](main.py#L214-L269)
 - `POST /search/text2sql` — main pipeline endpoint
-- 14 entity detail endpoints (movies, series, persons, companies, networks, collections, topics, lists, movements, groups, deaths, awards, nominations, locations)
-- FastMCP instance + 15 MCP tools (`sql_search` + 14 entity tools), 1 resource (`context://database-scope`), bearer-token middleware, `app.mount("", mcp_app)` at root
+- 15 entity detail endpoints (movies, series, persons, companies, networks, collections, topics, lists, movements, technicals, groups, deaths, awards, nominations, locations)
+- FastMCP instance + 16 MCP tools (`sql_search` + 15 entity tools), 1 resource (`context://database-scope`), bearer-token middleware, `app.mount("", mcp_app)` at root
 
 **[text2sql.py](text2sql.py)** — core LLM logic.
 - `_call_chat_llm()` — unified multi-provider dispatcher (OpenAI / Anthropic / Google). Routes on prefix: `gpt-*`/`o1*`/`o3*` → OpenAI; `claude-*` → Anthropic; `gemini-*` → Google.
@@ -181,7 +181,7 @@ Always also:
 
 ## Text-to-SQL ↔ entity endpoint coherence
 
-[data/text_to_sql.md](data/text_to_sql.md) (drives LLM-generated SQL for `/search/text2sql`) and the 14 entity detail endpoints in [main.py](main.py) (hand-written SQL for `/movies/{id}`, `/persons/{id}`, etc., plus their MCP `get_*` proxies) are two independent SQL surfaces over the same data. They are kept in sync by hand, not enforced by code.
+[data/text_to_sql.md](data/text_to_sql.md) (drives LLM-generated SQL for `/search/text2sql`) and the 15 entity detail endpoints in [main.py](main.py) (hand-written SQL for `/movies/{id}`, `/persons/{id}`, etc., plus their MCP `get_*` proxies) are two independent SQL surfaces over the same data. They are kept in sync by hand, not enforced by code.
 
 When working on either side, scan the other for divergence and **surface any discrepancy to the user** — do not silently patch one to match the other, and do not treat this as an automatic refactor target. Default expectation: `data/text_to_sql.md` is the spec; the endpoints should match unless the user says otherwise. Categories of drift to watch for:
 
