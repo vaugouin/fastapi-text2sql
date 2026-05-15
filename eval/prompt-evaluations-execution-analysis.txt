@@ -1,0 +1,50 @@
+Evaluations were just ran on text-to-SQL API 1.1.15
+Purpose of these evaluations are:
+- Make sure there are no regression on the API features 
+- Test new features 
+- Identify weak spots and possible improvements 
+- Check where the basic pure text-to-SQL workflow is unable to answer and so where the complex model takes relay provide an answer
+- Compute a global score in a benchmark-like manner 
+- Test differents LLM 
+There are hundreds of evaluations that are automated and they produce text output so it is quite easy to analyze 
+You must analyze the evaluations executions in the following run of API 1.1.15: 
+- eval\data\evaluation_execution\001.001.015_en_gpt-4o_gpt-4o_gpt-4o
+- eval\data\evaluation_execution\001.001.015_fr_gpt-4o_gpt-4o_gpt-4o
+You may also use (read-only) the source code of the text-to-SQL API (version 1.1.15) which is located at the root of this project 
+You must produce a global analysis of the evaluation executions.
+You will use the eval/README.md file as a documentation of the evaluator located in the eval folder 
+For this analysis, you will probably create some python scripts or other files. Keep all artifacts created by the analysis!
+Mostly, this analysis should focus on evaluation executions that failed so you can give clues on enhancements of the fastapi-text2sql API 
+About failure, here are possible locations in the workflow and/or failure categories:  
+- entity extraction task 
+- Text-to-sql task 
+- Entity resolution task 
+- Complex model for unresoved questions 
+- caching system (mostly in SQL)
+- workflow optimizations
+- Missing data in the database to answer the question 
+- Other categories if some failures are systemic
+For what reason did it fail? 
+What can be improved and how? 
+You can also suggest enhancements in the text-to-SQL API or in the evaluator, for instance: 
+- New categories 
+- New evaluations (new questions that are different from the existing questions)
+- New samples for categories with too few or no samples 
+- New comments/descriptions on categories and/or evaluations 
+- New assertions (multi language compatible) on existing evaluations 
+- New assertion types 
+- New/updated messages for the messages collection in api result 
+- New features in the evaluation process 
+- New features in the workflow 
+- New structure of the workflow 
+- New ways to trigger the complex model for unresolved questions 
+- New data in the SQL database
+- Other models than gpt-4o 
+- Other useful suggestions 
+- You can also suggest updates to the documentation 
+All the analysis and suggestions you make must be stored in files with the best format according to the content
+Analysis could be in markdown file 
+You can also create graphics if you think that could well render information using the PNG output format 
+You can also create SQL files for new content (like new evaluations with INSERT INTO commands) 
+If you are Claude Code, organize these files in the eval/clause sub-folder
+If you are OpenAI Codex, organize these files in the eval/codex sub-folder

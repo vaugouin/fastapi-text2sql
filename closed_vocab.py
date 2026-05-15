@@ -6,9 +6,12 @@ multilingual DB table, and exposes a typo-tolerant matcher built on RapidFuzz.
 
 Design:
 - Canonical values come from the database (Status, Serie_type, Genre) so the
-  source code never hard-codes a list. Genre id<->name uses T_WC_TMDB_GENRE.
+  source code never hard-codes a list. Genre id<->name uses T_WC_TMDB_GENRE,
+  split into Movie_genre / Serie_genre via APPLIES_TO_MOVIE / APPLIES_TO_SERIE
+  flags so a query against the movie junction cannot resolve to a TV-only
+  genre and vice versa.
 - Multilingual genre aliases come from T_WC_TMDB_GENRE_LANG (currently French;
-  extensible to any LANG code by adding rows).
+  extensible to any LANG code by adding rows), filtered by the same flags.
 - Additional English colloquialisms and per-entity synonyms come from a JSON
   file watched by ``data_watcher`` so editors can add aliases ("annule" ->
   "Canceled", "rom-com" -> "Romance") without restarting the API.
@@ -167,11 +170,23 @@ _ASPECT_RATIO_QUERY = (
     "WHERE ASPECT_RATIO IS NOT NULL "
     "AND ASPECT_RATIO REGEXP '^[0-9]+,[0-9]+$'"
 )
-_GENRE_CANONICALS_QUERY = (
-    "SELECT id, name FROM T_WC_TMDB_GENRE WHERE name IS NOT NULL"
+_MOVIE_GENRE_CANONICALS_QUERY = (
+    "SELECT id, name FROM T_WC_TMDB_GENRE "
+    "WHERE name IS NOT NULL AND APPLIES_TO_MOVIE = 1"
 )
-_GENRE_DB_ALIASES_QUERY = (
-    "SELECT id, name FROM T_WC_TMDB_GENRE_LANG WHERE name IS NOT NULL"
+_SERIE_GENRE_CANONICALS_QUERY = (
+    "SELECT id, name FROM T_WC_TMDB_GENRE "
+    "WHERE name IS NOT NULL AND APPLIES_TO_SERIE = 1"
+)
+_MOVIE_GENRE_DB_ALIASES_QUERY = (
+    "SELECT l.id, l.name FROM T_WC_TMDB_GENRE_LANG l "
+    "JOIN T_WC_TMDB_GENRE g ON g.id = l.id "
+    "WHERE l.name IS NOT NULL AND g.APPLIES_TO_MOVIE = 1"
+)
+_SERIE_GENRE_DB_ALIASES_QUERY = (
+    "SELECT l.id, l.name FROM T_WC_TMDB_GENRE_LANG l "
+    "JOIN T_WC_TMDB_GENRE g ON g.id = l.id "
+    "WHERE l.name IS NOT NULL AND g.APPLIES_TO_SERIE = 1"
 )
 _TECHNICAL_CANONICALS_QUERY = (
     "SELECT ID_TECHNICAL AS id, DESCRIPTION AS name FROM T_WC_T2S_TECHNICAL "
@@ -209,16 +224,28 @@ def init(connection) -> None:
         loaded["Aspect_ratio"] = {}
 
     try:
-        loaded["Genre_name"] = _load_genre_id_map(connection, _GENRE_CANONICALS_QUERY)
+        loaded["Movie_genre"] = _load_genre_id_map(connection, _MOVIE_GENRE_CANONICALS_QUERY)
     except Exception as e:
-        print(f"[closed_vocab] Failed to load Genre_name canonicals: {e}")
-        loaded["Genre_name"] = {}
+        print(f"[closed_vocab] Failed to load Movie_genre canonicals: {e}")
+        loaded["Movie_genre"] = {}
 
     try:
-        loaded["Genre_name_db_aliases"] = _load_genre_id_map(connection, _GENRE_DB_ALIASES_QUERY)
+        loaded["Movie_genre_db_aliases"] = _load_genre_id_map(connection, _MOVIE_GENRE_DB_ALIASES_QUERY)
     except Exception as e:
-        print(f"[closed_vocab] Failed to load Genre_name DB aliases: {e}")
-        loaded["Genre_name_db_aliases"] = {}
+        print(f"[closed_vocab] Failed to load Movie_genre DB aliases: {e}")
+        loaded["Movie_genre_db_aliases"] = {}
+
+    try:
+        loaded["Serie_genre"] = _load_genre_id_map(connection, _SERIE_GENRE_CANONICALS_QUERY)
+    except Exception as e:
+        print(f"[closed_vocab] Failed to load Serie_genre canonicals: {e}")
+        loaded["Serie_genre"] = {}
+
+    try:
+        loaded["Serie_genre_db_aliases"] = _load_genre_id_map(connection, _SERIE_GENRE_DB_ALIASES_QUERY)
+    except Exception as e:
+        print(f"[closed_vocab] Failed to load Serie_genre DB aliases: {e}")
+        loaded["Serie_genre_db_aliases"] = {}
 
     try:
         loaded["Technical_format"] = _load_genre_id_map(connection, _TECHNICAL_CANONICALS_QUERY)
@@ -271,23 +298,43 @@ def resolve(entity: str, raw_value: Any) -> Any:
     return _resolve_closed_vocab(raw_value, canonical, aliases)
 
 
-def resolve_genre(raw_value: Any) -> int | None:
-    """Resolve a genre name to its integer ID.
-
-    Canonicals come from T_WC_TMDB_GENRE (English names). Multilingual aliases
-    come from T_WC_TMDB_GENRE_LANG (currently French; extensible by adding rows
-    with new LANG values). Additional English colloquialisms ("scifi", "biopic",
-    "rom-com", ...) live in data/closed_vocabularies.json. The matcher merges
-    DB aliases with JSON aliases (JSON wins on conflict) so all sources go
-    through the same RapidFuzz-backed resolver.
+def _resolve_genre_for(entity: str, raw_value: Any) -> int | None:
+    """Resolve a genre name to its integer ID for a given side ("Movie_genre"
+    or "Serie_genre"). The canonical map is filtered to the genres that apply
+    to that side via APPLIES_TO_MOVIE / APPLIES_TO_SERIE on T_WC_TMDB_GENRE,
+    so a query against the movie junction cannot resolve to a TV-only genre
+    and vice versa.
     """
-    canonical = _CANONICAL.get("Genre_name", {})
+    canonical = _CANONICAL.get(entity, {})
     if not canonical:
         return None
-    db_aliases = _CANONICAL.get("Genre_name_db_aliases", {}) or {}
-    json_aliases = _aliases_for("Genre_name", target_canonical=canonical)
+    db_aliases = _CANONICAL.get(f"{entity}_db_aliases", {}) or {}
+    json_aliases = _aliases_for(entity, target_canonical=canonical)
     aliases = {**db_aliases, **json_aliases}
     return _resolve_closed_vocab(raw_value, canonical, aliases)
+
+
+def resolve_movie_genre(raw_value: Any) -> int | None:
+    """Resolve a genre name to its integer ID, restricted to movie-applicable
+    genres (TMDb /genre/movie/list). Multilingual aliases come from
+    T_WC_TMDB_GENRE_LANG joined against APPLIES_TO_MOVIE; English colloquialisms
+    ("scifi", "biopic", "rom-com", ...) live under "Movie_genre" in
+    data/closed_vocabularies.json. DB and JSON aliases are merged (JSON wins on
+    conflict) and run through the same RapidFuzz-backed resolver as the other
+    closed vocabularies.
+    """
+    return _resolve_genre_for("Movie_genre", raw_value)
+
+
+def resolve_serie_genre(raw_value: Any) -> int | None:
+    """Resolve a genre name to its integer ID, restricted to series-applicable
+    genres (TMDb /genre/tv/list). Same alias machinery as
+    ``resolve_movie_genre`` but reads from "Serie_genre" canonicals, the
+    APPLIES_TO_SERIE-filtered multilingual aliases, and the "Serie_genre" block
+    in data/closed_vocabularies.json. This is what lets "scifi series" resolve
+    to "Sci-Fi & Fantasy" (10765) instead of "Science Fiction" (878).
+    """
+    return _resolve_genre_for("Serie_genre", raw_value)
 
 
 def resolve_technical(raw_value: Any) -> int | None:
@@ -299,7 +346,7 @@ def resolve_technical(raw_value: Any) -> int | None:
     "dolby digital", "todd-ao") live in data/closed_vocabularies.json under
     the Technical_format key. The matcher merges JSON aliases with the
     canonical map and goes through the same RapidFuzz-backed resolver as
-    Status_name / Serie_type / Genre_name.
+    Status_name / Serie_type / Movie_genre / Serie_genre.
     """
     canonical = _CANONICAL.get("Technical_format", {})
     if not canonical:

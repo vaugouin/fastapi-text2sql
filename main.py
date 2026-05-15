@@ -238,6 +238,16 @@ Which is wrong
 #similarity_threshold = 0.2  
 similarity_threshold = 0.15
 
+CAST_CHARACTER_EXCLUSIONS = {
+    "Self",
+    "Himself",
+    "Herself",
+    "(archive footage)",
+    "Self (archive footage)",
+    "Self (archive footage) (uncredited)",
+    "Self (uncredited)",
+}
+
 mcp = FastMCP("text2sql")
 mcp_app = mcp.http_app(stateless_http=True)
 # FastMCP lifespan: Pass mcp_app.lifespan to the FastAPI constructor
@@ -287,7 +297,7 @@ if intcleanupenabled:
     cleanup.cleanup_sql_cache(connection, strapiversion)
     print(f"[startup] SQL cache cleanup done in {time.perf_counter() - _t0:.2f}s.", flush=True)
 
-print("[startup] Loading closed-vocabulary canonicals from DB (Status_name, Serie_type, Department_name, Aspect_ratio, Genre_name, Technical_format)...", flush=True)
+print("[startup] Loading closed-vocabulary canonicals from DB (Status_name, Serie_type, Department_name, Aspect_ratio, Movie_genre, Serie_genre, Technical_format)...", flush=True)
 _t0 = time.perf_counter()
 closed_vocab.init(connection)
 print(f"[startup] Closed-vocabulary canonicals loaded in {time.perf_counter() - _t0:.2f}s.", flush=True)
@@ -1609,9 +1619,22 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
 
 @app.get("/movies/{id}", summary="Movie full detail")
 async def get_movie(id: int, api_key: str = Depends(get_api_key)):
-    """Return all fields for a movie plus embedded relations: cast, crew, genres,
-    production companies, production countries, spoken languages, topics, collections,
-    movements, awards, and nominations. The id is the TMDb movie ID (ID_MOVIE)."""
+    """Return all fields for a movie plus embedded relations: genres, production
+    companies, production countries, spoken languages, topics, lists, collections,
+    movements, awards, nominations, cast, and crew. The id is the TMDb movie ID
+    (ID_MOVIE).
+
+    Each nested list element carries the canonical image path of its related entity:
+    PROFILE_PATH for cast/crew (persons); LOGO_PATH for companies; POSTER_PATH for
+    topics, lists, collections, movements, awards, and nominations. Topics, lists,
+    collections, movements, awards, and nominations also include WIKIPEDIA_IMAGE_PATH.
+    Companies, topics, lists, collections, and movements also include
+    IMDB_RATING_WEIGHTED and POPULARITY for the related entity.
+
+    The posters list contains every poster image available for this movie from
+    T_WC_T2S_MOVIE_IMAGE (TYPE_IMAGE = 'poster'), ordered by DISPLAY_ORDER; each
+    element exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+    VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1621,8 +1644,8 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Movie {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, pm.CREDIT_TYPE, pm.CAST_CHARACTER,
-                       pm.CREW_DEPARTMENT, pm.DISPLAY_ORDER
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, pm.CREDIT_TYPE,
+                       pm.CAST_CHARACTER, pm.CREW_DEPARTMENT, pm.DISPLAY_ORDER
                 FROM T_WC_T2S_PERSON_MOVIE pm
                 JOIN T_WC_T2S_PERSON p ON pm.ID_PERSON = p.ID_PERSON
                 WHERE pm.ID_MOVIE = %s ORDER BY pm.DISPLAY_ORDER ASC
@@ -1631,9 +1654,10 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
             cursor.execute("SELECT ID_GENRE FROM T_WC_T2S_MOVIE_GENRE WHERE ID_MOVIE = %s", (id,))
             genres = [r["ID_GENRE"] for r in cursor.fetchall()]
             cursor.execute("""
-                SELECT c.ID_COMPANY, c.COMPANY_NAME FROM T_WC_T2S_MOVIE_COMPANY mc
+                SELECT c.ID_COMPANY, c.COMPANY_NAME, c.LOGO_PATH, c.IMDB_RATING_WEIGHTED, c.POPULARITY
+                FROM T_WC_T2S_MOVIE_COMPANY mc
                 JOIN T_WC_T2S_COMPANY c ON mc.ID_COMPANY = c.ID_COMPANY
-                WHERE mc.ID_MOVIE = %s
+                WHERE mc.ID_MOVIE = %s ORDER BY c.ID_COMPANY ASC
             """, (id,))
             companies = cursor.fetchall()
             cursor.execute("SELECT COUNTRY_CODE FROM T_WC_T2S_MOVIE_PRODUCTION_COUNTRY WHERE ID_MOVIE = %s", (id,))
@@ -1641,48 +1665,77 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
             cursor.execute("SELECT SPOKEN_LANGUAGE FROM T_WC_T2S_MOVIE_SPOKEN_LANGUAGE WHERE ID_MOVIE = %s", (id,))
             spoken_languages = [r["SPOKEN_LANGUAGE"] for r in cursor.fetchall()]
             cursor.execute("""
-                SELECT t.ID_TOPIC, t.TOPIC_NAME, t.TOPIC_TYPE FROM T_WC_T2S_MOVIE_TOPIC mt
+                SELECT t.ID_TOPIC, t.TOPIC_NAME, t.TOPIC_TYPE, t.POSTER_PATH, t.WIKIPEDIA_IMAGE_PATH,
+                       t.IMDB_RATING_WEIGHTED, t.POPULARITY
+                FROM T_WC_T2S_MOVIE_TOPIC mt
                 JOIN T_WC_T2S_TOPIC t ON mt.ID_TOPIC = t.ID_TOPIC
                 WHERE mt.ID_MOVIE = %s ORDER BY mt.DISPLAY_ORDER ASC
             """, (id,))
             topics = cursor.fetchall()
             cursor.execute("""
-                SELECT c.ID_T2S_COLLECTION, c.COLLECTION_NAME FROM T_WC_T2S_MOVIE_COLLECTION mc
+                SELECT l.ID_T2S_LIST, l.LIST_NAME, l.LIST_TYPE, l.POSTER_PATH, l.WIKIPEDIA_IMAGE_PATH,
+                       l.IMDB_RATING_WEIGHTED, l.POPULARITY
+                FROM T_WC_T2S_MOVIE_LIST ml
+                JOIN T_WC_T2S_LIST l ON ml.ID_T2S_LIST = l.ID_T2S_LIST
+                WHERE ml.ID_MOVIE = %s ORDER BY ml.DISPLAY_ORDER ASC
+            """, (id,))
+            lists = cursor.fetchall()
+            cursor.execute("""
+                SELECT c.ID_T2S_COLLECTION, c.COLLECTION_NAME, c.POSTER_PATH, c.WIKIPEDIA_IMAGE_PATH,
+                       c.IMDB_RATING_WEIGHTED, c.POPULARITY
+                FROM T_WC_T2S_MOVIE_COLLECTION mc
                 JOIN T_WC_T2S_COLLECTION c ON mc.ID_T2S_COLLECTION = c.ID_T2S_COLLECTION
                 WHERE mc.ID_MOVIE = %s ORDER BY mc.DISPLAY_ORDER ASC
             """, (id,))
             collections = cursor.fetchall()
             cursor.execute("""
-                SELECT m.ID_MOVEMENT, m.MOVEMENT_NAME FROM T_WC_T2S_MOVIE_MOVEMENT mm
+                SELECT m.ID_MOVEMENT, m.MOVEMENT_NAME, m.POSTER_PATH, m.WIKIPEDIA_IMAGE_PATH,
+                       m.IMDB_RATING_WEIGHTED, m.POPULARITY
+                FROM T_WC_T2S_MOVIE_MOVEMENT mm
                 JOIN T_WC_T2S_MOVEMENT m ON mm.ID_MOVEMENT = m.ID_MOVEMENT
                 WHERE mm.ID_MOVIE = %s ORDER BY mm.DISPLAY_ORDER ASC
             """, (id,))
             movements = cursor.fetchall()
             cursor.execute("""
-                SELECT a.ID_AWARD, a.AWARD_NAME FROM T_WC_T2S_MOVIE_AWARD ma
+                SELECT a.ID_AWARD, a.AWARD_NAME, a.POSTER_PATH, a.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_MOVIE_AWARD ma
                 JOIN T_WC_T2S_AWARD a ON ma.ID_AWARD = a.ID_AWARD
                 WHERE ma.ID_MOVIE = %s ORDER BY ma.DISPLAY_ORDER ASC
             """, (id,))
             awards = cursor.fetchall()
             cursor.execute("""
-                SELECT n.ID_NOMINATION, n.NOMINATION_NAME FROM T_WC_T2S_MOVIE_NOMINATION mn
+                SELECT n.ID_NOMINATION, n.NOMINATION_NAME, n.POSTER_PATH, n.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_MOVIE_NOMINATION mn
                 JOIN T_WC_T2S_NOMINATION n ON mn.ID_NOMINATION = n.ID_NOMINATION
                 WHERE mn.ID_MOVIE = %s ORDER BY mn.DISPLAY_ORDER ASC
             """, (id,))
             nominations = cursor.fetchall()
+            cursor.execute("""
+                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                FROM T_WC_T2S_MOVIE_IMAGE
+                WHERE ID_MOVIE = %s AND TYPE_IMAGE = 'poster'
+                ORDER BY DISPLAY_ORDER ASC
+            """, (id,))
+            posters = cursor.fetchall()
+        exclude_self_credits = movie.get("IS_DOCUMENTARY") != 1
         result = {
             **movie,
-            "cast": [c for c in credits if c["CREDIT_TYPE"] == "cast"],
-            "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
             "genres": genres,
             "companies": list(companies),
             "production_countries": production_countries,
             "spoken_languages": spoken_languages,
             "topics": list(topics),
+            "lists": list(lists),
             "collections": list(collections),
             "movements": list(movements),
             "awards": list(awards),
             "nominations": list(nominations),
+            "cast": [
+                c for c in credits
+                if c["CREDIT_TYPE"] == "cast"
+                and not (exclude_self_credits and c["CAST_CHARACTER"] in CAST_CHARACTER_EXCLUSIONS)
+            ],
+            "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
+            "posters": list(posters),
         }
         logs.log_usage("movies", {"id": id, "response": result}, strapiversion)
         return result
@@ -1692,9 +1745,22 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
 
 @app.get("/series/{id}", summary="TV series full detail")
 async def get_series(id: int, api_key: str = Depends(get_api_key)):
-    """Return all fields for a TV series plus embedded relations: cast, crew, genres,
-    production companies, networks, production countries, spoken languages, topics,
-    collections, movements, awards, and nominations. The id is the TMDb series ID (ID_SERIE)."""
+    """Return all fields for a TV series plus embedded relations: genres, production
+    companies, networks, production countries, spoken languages, topics, lists,
+    collections, movements, awards, nominations, cast, and crew. The id is the TMDb
+    series ID (ID_SERIE).
+
+    Each nested list element carries the canonical image path of its related entity:
+    PROFILE_PATH for cast/crew (persons); LOGO_PATH for companies and networks;
+    POSTER_PATH for topics, lists, collections, movements, awards, and nominations.
+    Topics, lists, collections, movements, awards, and nominations also include
+    WIKIPEDIA_IMAGE_PATH. Companies, topics, lists, collections, and movements also
+    include IMDB_RATING_WEIGHTED and POPULARITY for the related entity.
+
+    The posters list contains every poster image available for this series from
+    T_WC_T2S_SERIE_IMAGE (TYPE_IMAGE = 'poster'), ordered by DISPLAY_ORDER; each
+    element exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+    VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1704,8 +1770,8 @@ async def get_series(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Series {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, ps.CREDIT_TYPE, ps.CAST_CHARACTER,
-                       ps.CREW_DEPARTMENT, ps.DISPLAY_ORDER
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, ps.CREDIT_TYPE,
+                       ps.CAST_CHARACTER, ps.CREW_DEPARTMENT, ps.DISPLAY_ORDER
                 FROM T_WC_T2S_PERSON_SERIE ps
                 JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON
                 WHERE ps.ID_SERIE = %s ORDER BY ps.DISPLAY_ORDER ASC
@@ -1714,15 +1780,16 @@ async def get_series(id: int, api_key: str = Depends(get_api_key)):
             cursor.execute("SELECT ID_GENRE FROM T_WC_T2S_SERIE_GENRE WHERE ID_SERIE = %s", (id,))
             genres = [r["ID_GENRE"] for r in cursor.fetchall()]
             cursor.execute("""
-                SELECT c.ID_COMPANY, c.COMPANY_NAME FROM T_WC_T2S_SERIE_COMPANY sc
+                SELECT c.ID_COMPANY, c.COMPANY_NAME, c.LOGO_PATH, c.IMDB_RATING_WEIGHTED, c.POPULARITY
+                FROM T_WC_T2S_SERIE_COMPANY sc
                 JOIN T_WC_T2S_COMPANY c ON sc.ID_COMPANY = c.ID_COMPANY
-                WHERE sc.ID_SERIE = %s
+                WHERE sc.ID_SERIE = %s ORDER BY c.ID_COMPANY ASC
             """, (id,))
             companies = cursor.fetchall()
             cursor.execute("""
-                SELECT n.ID_NETWORK, n.NETWORK_NAME FROM T_WC_T2S_SERIE_NETWORK sn
+                SELECT n.ID_NETWORK, n.NETWORK_NAME, n.LOGO_PATH FROM T_WC_T2S_SERIE_NETWORK sn
                 JOIN T_WC_T2S_NETWORK n ON sn.ID_NETWORK = n.ID_NETWORK
-                WHERE sn.ID_SERIE = %s
+                WHERE sn.ID_SERIE = %s ORDER BY n.ID_NETWORK ASC
             """, (id,))
             networks = cursor.fetchall()
             cursor.execute("SELECT COUNTRY_CODE FROM T_WC_T2S_SERIE_PRODUCTION_COUNTRY WHERE ID_SERIE = %s", (id,))
@@ -1730,49 +1797,73 @@ async def get_series(id: int, api_key: str = Depends(get_api_key)):
             cursor.execute("SELECT SPOKEN_LANGUAGE FROM T_WC_T2S_SERIE_SPOKEN_LANGUAGE WHERE ID_SERIE = %s", (id,))
             spoken_languages = [r["SPOKEN_LANGUAGE"] for r in cursor.fetchall()]
             cursor.execute("""
-                SELECT t.ID_TOPIC, t.TOPIC_NAME, t.TOPIC_TYPE FROM T_WC_T2S_SERIE_TOPIC st
+                SELECT t.ID_TOPIC, t.TOPIC_NAME, t.TOPIC_TYPE, t.POSTER_PATH, t.WIKIPEDIA_IMAGE_PATH,
+                       t.IMDB_RATING_WEIGHTED, t.POPULARITY
+                FROM T_WC_T2S_SERIE_TOPIC st
                 JOIN T_WC_T2S_TOPIC t ON st.ID_TOPIC = t.ID_TOPIC
                 WHERE st.ID_SERIE = %s ORDER BY st.DISPLAY_ORDER ASC
             """, (id,))
             topics = cursor.fetchall()
             cursor.execute("""
-                SELECT c.ID_T2S_COLLECTION, c.COLLECTION_NAME FROM T_WC_T2S_SERIE_COLLECTION sc
+                SELECT l.ID_T2S_LIST, l.LIST_NAME, l.LIST_TYPE, l.POSTER_PATH, l.WIKIPEDIA_IMAGE_PATH,
+                       l.IMDB_RATING_WEIGHTED, l.POPULARITY
+                FROM T_WC_T2S_SERIE_LIST sl
+                JOIN T_WC_T2S_LIST l ON sl.ID_T2S_LIST = l.ID_T2S_LIST
+                WHERE sl.ID_SERIE = %s ORDER BY sl.DISPLAY_ORDER ASC
+            """, (id,))
+            lists = cursor.fetchall()
+            cursor.execute("""
+                SELECT c.ID_T2S_COLLECTION, c.COLLECTION_NAME, c.POSTER_PATH, c.WIKIPEDIA_IMAGE_PATH,
+                       c.IMDB_RATING_WEIGHTED, c.POPULARITY
+                FROM T_WC_T2S_SERIE_COLLECTION sc
                 JOIN T_WC_T2S_COLLECTION c ON sc.ID_T2S_COLLECTION = c.ID_T2S_COLLECTION
                 WHERE sc.ID_SERIE = %s ORDER BY sc.DISPLAY_ORDER ASC
             """, (id,))
             collections = cursor.fetchall()
             cursor.execute("""
-                SELECT m.ID_MOVEMENT, m.MOVEMENT_NAME FROM T_WC_T2S_SERIE_MOVEMENT sm
+                SELECT m.ID_MOVEMENT, m.MOVEMENT_NAME, m.POSTER_PATH, m.WIKIPEDIA_IMAGE_PATH,
+                       m.IMDB_RATING_WEIGHTED, m.POPULARITY
+                FROM T_WC_T2S_SERIE_MOVEMENT sm
                 JOIN T_WC_T2S_MOVEMENT m ON sm.ID_MOVEMENT = m.ID_MOVEMENT
                 WHERE sm.ID_SERIE = %s ORDER BY sm.DISPLAY_ORDER ASC
             """, (id,))
             movements = cursor.fetchall()
             cursor.execute("""
-                SELECT a.ID_AWARD, a.AWARD_NAME FROM T_WC_T2S_SERIE_AWARD sa
+                SELECT a.ID_AWARD, a.AWARD_NAME, a.POSTER_PATH, a.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_SERIE_AWARD sa
                 JOIN T_WC_T2S_AWARD a ON sa.ID_AWARD = a.ID_AWARD
                 WHERE sa.ID_SERIE = %s ORDER BY sa.DISPLAY_ORDER ASC
             """, (id,))
             awards = cursor.fetchall()
             cursor.execute("""
-                SELECT n.ID_NOMINATION, n.NOMINATION_NAME FROM T_WC_T2S_SERIE_NOMINATION sn
+                SELECT n.ID_NOMINATION, n.NOMINATION_NAME, n.POSTER_PATH, n.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_SERIE_NOMINATION sn
                 JOIN T_WC_T2S_NOMINATION n ON sn.ID_NOMINATION = n.ID_NOMINATION
                 WHERE sn.ID_SERIE = %s ORDER BY sn.DISPLAY_ORDER ASC
             """, (id,))
             nominations = cursor.fetchall()
+            cursor.execute("""
+                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                FROM T_WC_T2S_SERIE_IMAGE
+                WHERE ID_SERIE = %s AND TYPE_IMAGE = 'poster'
+                ORDER BY DISPLAY_ORDER ASC
+            """, (id,))
+            posters = cursor.fetchall()
         result = {
             **serie,
-            "cast": [c for c in credits if c["CREDIT_TYPE"] == "cast"],
-            "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
             "genres": genres,
             "companies": list(companies),
             "networks": list(networks),
             "production_countries": production_countries,
             "spoken_languages": spoken_languages,
             "topics": list(topics),
+            "lists": list(lists),
             "collections": list(collections),
             "movements": list(movements),
             "awards": list(awards),
             "nominations": list(nominations),
+            "cast": [c for c in credits if c["CREDIT_TYPE"] == "cast"],
+            "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
+            "posters": list(posters),
         }
         logs.log_usage("series", {"id": id, "response": result}, strapiversion)
         return result
@@ -1788,7 +1879,17 @@ async def get_person(id: int, api_key: str = Depends(get_api_key)):
     Fields: ID_PERSON, PERSON_NAME, ID_IMDB, ID_WIKIDATA, BIOGRAPHY, BIRTH_YEAR,
     BIRTH_MONTH, BIRTH_DAY, DEATH_YEAR, DEATH_MONTH, DEATH_DAY, GENDER (1=female 2=male),
     PROFILE_PATH, COUNTRY_OF_BIRTH, POPULARITY, KNOWN_FOR_DEPARTMENT, WIKIDATA_NAME,
-    ALIASES, INSTANCE_OF."""
+    ALIASES, INSTANCE_OF.
+
+    Each nested list element carries the canonical image path of its related entity:
+    POSTER_PATH for movie_cast/movie_crew (movies) and series_cast/series_crew (series);
+    PROFILE_PATH for groups and deaths; POSTER_PATH for awards and nominations.
+    Groups, deaths, awards, and nominations also include WIKIPEDIA_IMAGE_PATH.
+
+    The portraits list contains every profile picture available for this person from
+    T_WC_T2S_PERSON_IMAGE (TYPE_IMAGE = 'profile'), ordered by DISPLAY_ORDER; each
+    element exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+    VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1799,47 +1900,61 @@ async def get_person(id: int, api_key: str = Depends(get_api_key)):
         with conn.cursor() as cursor:
             cursor.execute("""
                 SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED,
-                       pm.CREDIT_TYPE, pm.CAST_CHARACTER, pm.CREW_DEPARTMENT, pm.DISPLAY_ORDER
+                       m.POSTER_PATH, m.IS_DOCUMENTARY, pm.CREDIT_TYPE, pm.CAST_CHARACTER,
+                       pm.CREW_DEPARTMENT, pm.DISPLAY_ORDER
                 FROM T_WC_T2S_PERSON_MOVIE pm
                 JOIN T_WC_T2S_MOVIE m ON pm.ID_MOVIE = m.ID_MOVIE
-                WHERE pm.ID_PERSON = %s ORDER BY m.DAT_RELEASE DESC
+                WHERE pm.ID_PERSON = %s ORDER BY m.IMDB_RATING_WEIGHTED DESC
             """, (id,))
             movie_credits = cursor.fetchall()
             cursor.execute("""
                 SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED,
-                       ps.CREDIT_TYPE, ps.CAST_CHARACTER, ps.CREW_DEPARTMENT, ps.DISPLAY_ORDER
+                       s.POSTER_PATH, ps.CREDIT_TYPE, ps.CAST_CHARACTER, ps.CREW_DEPARTMENT,
+                       ps.DISPLAY_ORDER
                 FROM T_WC_T2S_PERSON_SERIE ps
                 JOIN T_WC_T2S_SERIE s ON ps.ID_SERIE = s.ID_SERIE
-                WHERE ps.ID_PERSON = %s ORDER BY s.DAT_FIRST_AIR DESC
+                WHERE ps.ID_PERSON = %s ORDER BY s.IMDB_RATING_WEIGHTED DESC
             """, (id,))
             serie_credits = cursor.fetchall()
             cursor.execute("""
-                SELECT g.ID_GROUP, g.GROUP_NAME, g.GROUP_TYPE FROM T_WC_T2S_PERSON_GROUP pg
+                SELECT g.ID_GROUP, g.GROUP_NAME, g.GROUP_TYPE, g.PROFILE_PATH, g.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_PERSON_GROUP pg
                 JOIN T_WC_T2S_GROUP g ON pg.ID_GROUP = g.ID_GROUP
                 WHERE pg.ID_PERSON = %s ORDER BY pg.DISPLAY_ORDER ASC
             """, (id,))
             groups = cursor.fetchall()
             cursor.execute("""
-                SELECT d.ID_DEATH, d.DEATH_NAME, d.DEATH_TYPE FROM T_WC_T2S_PERSON_DEATH pd
+                SELECT d.ID_DEATH, d.DEATH_NAME, d.DEATH_TYPE, d.PROFILE_PATH, d.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_PERSON_DEATH pd
                 JOIN T_WC_T2S_DEATH d ON pd.ID_DEATH = d.ID_DEATH
                 WHERE pd.ID_PERSON = %s ORDER BY pd.DISPLAY_ORDER ASC
             """, (id,))
             deaths = cursor.fetchall()
             cursor.execute("""
-                SELECT a.ID_AWARD, a.AWARD_NAME FROM T_WC_T2S_PERSON_AWARD pa
+                SELECT a.ID_AWARD, a.AWARD_NAME, a.POSTER_PATH, a.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_PERSON_AWARD pa
                 JOIN T_WC_T2S_AWARD a ON pa.ID_AWARD = a.ID_AWARD
                 WHERE pa.ID_PERSON = %s ORDER BY pa.DISPLAY_ORDER ASC
             """, (id,))
             awards = cursor.fetchall()
             cursor.execute("""
-                SELECT n.ID_NOMINATION, n.NOMINATION_NAME FROM T_WC_T2S_PERSON_NOMINATION pn
+                SELECT n.ID_NOMINATION, n.NOMINATION_NAME, n.POSTER_PATH, n.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_PERSON_NOMINATION pn
                 JOIN T_WC_T2S_NOMINATION n ON pn.ID_NOMINATION = n.ID_NOMINATION
                 WHERE pn.ID_PERSON = %s ORDER BY pn.DISPLAY_ORDER ASC
             """, (id,))
             nominations = cursor.fetchall()
+            cursor.execute("""
+                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                FROM T_WC_T2S_PERSON_IMAGE
+                WHERE ID_PERSON = %s AND TYPE_IMAGE = 'profile'
+                ORDER BY DISPLAY_ORDER ASC
+            """, (id,))
+            portraits = cursor.fetchall()
         result = {
             **person,
-            "movie_cast": [c for c in movie_credits if c["CREDIT_TYPE"] == "cast"],
+            "movie_cast": [
+                c for c in movie_credits
+                if c["CREDIT_TYPE"] == "cast"
+                and not (c.get("IS_DOCUMENTARY") != 1 and c["CAST_CHARACTER"] in CAST_CHARACTER_EXCLUSIONS)
+            ],
             "movie_crew": [c for c in movie_credits if c["CREDIT_TYPE"] == "crew"],
             "series_cast": [c for c in serie_credits if c["CREDIT_TYPE"] == "cast"],
             "series_crew": [c for c in serie_credits if c["CREDIT_TYPE"] == "crew"],
@@ -1847,6 +1962,7 @@ async def get_person(id: int, api_key: str = Depends(get_api_key)):
             "deaths": list(deaths),
             "awards": list(awards),
             "nominations": list(nominations),
+            "portraits": list(portraits),
         }
         logs.log_usage("persons", {"id": id, "response": result}, strapiversion)
         return result
@@ -1857,7 +1973,11 @@ async def get_person(id: int, api_key: str = Depends(get_api_key)):
 @app.get("/companies/{id}", summary="Production company full detail")
 async def get_company(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for a production company plus associated movies and TV series,
-    ordered by adjusted IMDb rating. The id is ID_COMPANY."""
+    ordered by adjusted IMDb rating. The id is ID_COMPANY.
+
+    The company itself includes LOGO_PATH, MOVIE_COUNT, SERIE_COUNT,
+    IMDB_RATING_WEIGHTED, and POPULARITY. Each nested list element carries
+    POSTER_PATH for the related movie or TV series."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1867,14 +1987,14 @@ async def get_company(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Company {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH
                 FROM T_WC_T2S_MOVIE_COMPANY mc
                 JOIN T_WC_T2S_MOVIE m ON mc.ID_MOVIE = m.ID_MOVIE
                 WHERE mc.ID_COMPANY = %s ORDER BY m.IMDB_RATING_WEIGHTED DESC
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH
                 FROM T_WC_T2S_SERIE_COMPANY sc
                 JOIN T_WC_T2S_SERIE s ON sc.ID_SERIE = s.ID_SERIE
                 WHERE sc.ID_COMPANY = %s ORDER BY s.IMDB_RATING_WEIGHTED DESC
@@ -1890,7 +2010,9 @@ async def get_company(id: int, api_key: str = Depends(get_api_key)):
 @app.get("/networks/{id}", summary="TV network full detail")
 async def get_network(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for a TV network plus associated TV series, ordered by
-    adjusted IMDb rating. The id is ID_NETWORK."""
+    adjusted IMDb rating. The id is ID_NETWORK.
+
+    Each nested series carries POSTER_PATH."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1900,7 +2022,7 @@ async def get_network(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Network {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH
                 FROM T_WC_T2S_SERIE_NETWORK sn
                 JOIN T_WC_T2S_SERIE s ON sn.ID_SERIE = s.ID_SERIE
                 WHERE sn.ID_NETWORK = %s ORDER BY s.IMDB_RATING_WEIGHTED DESC
@@ -1916,7 +2038,11 @@ async def get_network(id: int, api_key: str = Depends(get_api_key)):
 @app.get("/collections/{id}", summary="Film/series collection full detail")
 async def get_collection(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for a named collection (trilogy, saga, universe, franchise) plus
-    member movies and TV series ordered by DISPLAY_ORDER. The id is ID_T2S_COLLECTION."""
+    member movies and TV series ordered by DISPLAY_ORDER. The id is ID_T2S_COLLECTION.
+
+    The collection itself includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH,
+    IMDB_RATING_WEIGHTED, and POPULARITY. Each nested list element carries
+    POSTER_PATH for the related movie or TV series."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1926,14 +2052,14 @@ async def get_collection(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Collection {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, mc.DISPLAY_ORDER
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mc.DISPLAY_ORDER
                 FROM T_WC_T2S_MOVIE_COLLECTION mc
                 JOIN T_WC_T2S_MOVIE m ON mc.ID_MOVIE = m.ID_MOVIE
                 WHERE mc.ID_T2S_COLLECTION = %s ORDER BY mc.DISPLAY_ORDER ASC
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, sc.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sc.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_COLLECTION sc
                 JOIN T_WC_T2S_SERIE s ON sc.ID_SERIE = s.ID_SERIE
                 WHERE sc.ID_T2S_COLLECTION = %s ORDER BY sc.DISPLAY_ORDER ASC
@@ -1949,7 +2075,11 @@ async def get_collection(id: int, api_key: str = Depends(get_api_key)):
 @app.get("/topics/{id}", summary="Topic full detail")
 async def get_topic(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for a topic (theme, keyword, recurring-character collection) plus linked
-    movies and TV series ordered by DISPLAY_ORDER. The id is ID_TOPIC."""
+    movies and TV series ordered by DISPLAY_ORDER. The id is ID_TOPIC.
+
+    The topic itself includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH,
+    IMDB_RATING_WEIGHTED, and POPULARITY. Each nested list element carries
+    POSTER_PATH for the related movie or TV series."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1959,14 +2089,14 @@ async def get_topic(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Topic {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, mt.DISPLAY_ORDER
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mt.DISPLAY_ORDER
                 FROM T_WC_T2S_MOVIE_TOPIC mt
                 JOIN T_WC_T2S_MOVIE m ON mt.ID_MOVIE = m.ID_MOVIE
                 WHERE mt.ID_TOPIC = %s ORDER BY mt.DISPLAY_ORDER ASC
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, st.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, st.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_TOPIC st
                 JOIN T_WC_T2S_SERIE s ON st.ID_SERIE = s.ID_SERIE
                 WHERE st.ID_TOPIC = %s ORDER BY st.DISPLAY_ORDER ASC
@@ -1982,7 +2112,11 @@ async def get_topic(id: int, api_key: str = Depends(get_api_key)):
 @app.get("/lists/{id}", summary="Curated list full detail")
 async def get_list(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for a named curated list plus member movies and TV series
-    ordered by DISPLAY_ORDER. The id is ID_T2S_LIST."""
+    ordered by DISPLAY_ORDER. The id is ID_T2S_LIST.
+
+    The list itself includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH,
+    IMDB_RATING_WEIGHTED, and POPULARITY. Each nested list element carries
+    POSTER_PATH for the related movie or TV series."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1992,14 +2126,14 @@ async def get_list(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"List {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, ml.DISPLAY_ORDER
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, ml.DISPLAY_ORDER
                 FROM T_WC_T2S_MOVIE_LIST ml
                 JOIN T_WC_T2S_MOVIE m ON ml.ID_MOVIE = m.ID_MOVIE
                 WHERE ml.ID_T2S_LIST = %s ORDER BY ml.DISPLAY_ORDER ASC
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, sl.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sl.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_LIST sl
                 JOIN T_WC_T2S_SERIE s ON sl.ID_SERIE = s.ID_SERIE
                 WHERE sl.ID_T2S_LIST = %s ORDER BY sl.DISPLAY_ORDER ASC
@@ -2015,7 +2149,11 @@ async def get_list(id: int, api_key: str = Depends(get_api_key)):
 @app.get("/movements/{id}", summary="Film movement or style full detail")
 async def get_movement(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for a film movement or style plus associated movies and TV series
-    ordered by DISPLAY_ORDER. The id is ID_MOVEMENT."""
+    ordered by DISPLAY_ORDER. The id is ID_MOVEMENT.
+
+    The movement itself includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH,
+    IMDB_RATING_WEIGHTED, and POPULARITY. Each nested list element carries
+    POSTER_PATH for the related movie or TV series."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2025,14 +2163,14 @@ async def get_movement(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Movement {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, mm.DISPLAY_ORDER
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mm.DISPLAY_ORDER
                 FROM T_WC_T2S_MOVIE_MOVEMENT mm
                 JOIN T_WC_T2S_MOVIE m ON mm.ID_MOVIE = m.ID_MOVIE
                 WHERE mm.ID_MOVEMENT = %s ORDER BY mm.DISPLAY_ORDER ASC
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, sm.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sm.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_MOVEMENT sm
                 JOIN T_WC_T2S_SERIE s ON sm.ID_SERIE = s.ID_SERIE
                 WHERE sm.ID_MOVEMENT = %s ORDER BY sm.DISPLAY_ORDER ASC
@@ -2048,7 +2186,10 @@ async def get_movement(id: int, api_key: str = Depends(get_api_key)):
 @app.get("/groups/{id}", summary="Person group full detail")
 async def get_group(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for a group (organization, club, musical group) plus associated
-    persons ordered by DISPLAY_ORDER. The id is ID_GROUP."""
+    persons ordered by DISPLAY_ORDER. The id is ID_GROUP.
+
+    The group itself includes PROFILE_PATH and WIKIPEDIA_IMAGE_PATH. Each nested person
+    carries PROFILE_PATH."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2058,7 +2199,7 @@ async def get_group(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Group {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, pg.DISPLAY_ORDER
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, p.PROFILE_PATH, pg.DISPLAY_ORDER
                 FROM T_WC_T2S_PERSON_GROUP pg
                 JOIN T_WC_T2S_PERSON p ON pg.ID_PERSON = p.ID_PERSON
                 WHERE pg.ID_GROUP = %s ORDER BY pg.DISPLAY_ORDER ASC
@@ -2074,7 +2215,10 @@ async def get_group(id: int, api_key: str = Depends(get_api_key)):
 @app.get("/deaths/{id}", summary="Cause of death full detail")
 async def get_death(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for a cause or circumstance of death plus associated persons
-    ordered by DISPLAY_ORDER. The id is ID_DEATH."""
+    ordered by DISPLAY_ORDER. The id is ID_DEATH.
+
+    The death itself includes PROFILE_PATH and WIKIPEDIA_IMAGE_PATH. Each nested person
+    carries PROFILE_PATH."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2084,7 +2228,7 @@ async def get_death(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Death {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, pd.DISPLAY_ORDER
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, p.PROFILE_PATH, pd.DISPLAY_ORDER
                 FROM T_WC_T2S_PERSON_DEATH pd
                 JOIN T_WC_T2S_PERSON p ON pd.ID_PERSON = p.ID_PERSON
                 WHERE pd.ID_DEATH = %s ORDER BY pd.DISPLAY_ORDER ASC
@@ -2100,7 +2244,11 @@ async def get_death(id: int, api_key: str = Depends(get_api_key)):
 @app.get("/awards/{id}", summary="Award full detail")
 async def get_award(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for an award plus associated movies, TV series, and persons,
-    all ordered by DISPLAY_ORDER. The id is ID_AWARD."""
+    all ordered by DISPLAY_ORDER. The id is ID_AWARD.
+
+    The award itself includes POSTER_PATH and WIKIPEDIA_IMAGE_PATH. Each nested list
+    element carries the canonical image path of its related entity: POSTER_PATH for
+    movies and series; PROFILE_PATH for persons."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2110,21 +2258,21 @@ async def get_award(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Award {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, ma.DISPLAY_ORDER
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, ma.DISPLAY_ORDER
                 FROM T_WC_T2S_MOVIE_AWARD ma
                 JOIN T_WC_T2S_MOVIE m ON ma.ID_MOVIE = m.ID_MOVIE
                 WHERE ma.ID_AWARD = %s ORDER BY ma.DISPLAY_ORDER ASC
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, sa.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sa.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_AWARD sa
                 JOIN T_WC_T2S_SERIE s ON sa.ID_SERIE = s.ID_SERIE
                 WHERE sa.ID_AWARD = %s ORDER BY sa.DISPLAY_ORDER ASC
             """, (id,))
             series = cursor.fetchall()
             cursor.execute("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, pa.DISPLAY_ORDER
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, p.PROFILE_PATH, pa.DISPLAY_ORDER
                 FROM T_WC_T2S_PERSON_AWARD pa
                 JOIN T_WC_T2S_PERSON p ON pa.ID_PERSON = p.ID_PERSON
                 WHERE pa.ID_AWARD = %s ORDER BY pa.DISPLAY_ORDER ASC
@@ -2140,7 +2288,11 @@ async def get_award(id: int, api_key: str = Depends(get_api_key)):
 @app.get("/nominations/{id}", summary="Award nomination full detail")
 async def get_nomination(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for an award nomination plus associated movies, TV series, and
-    persons, all ordered by DISPLAY_ORDER. The id is ID_NOMINATION."""
+    persons, all ordered by DISPLAY_ORDER. The id is ID_NOMINATION.
+
+    The nomination itself includes POSTER_PATH and WIKIPEDIA_IMAGE_PATH. Each nested
+    list element carries the canonical image path of its related entity: POSTER_PATH
+    for movies and series; PROFILE_PATH for persons."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2150,21 +2302,21 @@ async def get_nomination(id: int, api_key: str = Depends(get_api_key)):
             raise HTTPException(status_code=404, detail=f"Nomination {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, mn.DISPLAY_ORDER
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mn.DISPLAY_ORDER
                 FROM T_WC_T2S_MOVIE_NOMINATION mn
                 JOIN T_WC_T2S_MOVIE m ON mn.ID_MOVIE = m.ID_MOVIE
                 WHERE mn.ID_NOMINATION = %s ORDER BY mn.DISPLAY_ORDER ASC
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, sn.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sn.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_NOMINATION sn
                 JOIN T_WC_T2S_SERIE s ON sn.ID_SERIE = s.ID_SERIE
                 WHERE sn.ID_NOMINATION = %s ORDER BY sn.DISPLAY_ORDER ASC
             """, (id,))
             series = cursor.fetchall()
             cursor.execute("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, pn.DISPLAY_ORDER
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, p.PROFILE_PATH, pn.DISPLAY_ORDER
                 FROM T_WC_T2S_PERSON_NOMINATION pn
                 JOIN T_WC_T2S_PERSON p ON pn.ID_PERSON = p.ID_PERSON
                 WHERE pn.ID_NOMINATION = %s ORDER BY pn.DISPLAY_ORDER ASC
@@ -2181,7 +2333,10 @@ async def get_nomination(id: int, api_key: str = Depends(get_api_key)):
 async def get_location(wikidata_id: str, api_key: str = Depends(get_api_key)):
     """Return all fields for a location identified by its Wikidata ID (e.g. Q90 for Paris)
     plus movies and series linked as narrative location (ID_PROPERTY=P840) or filming
-    location (ID_PROPERTY=P915), ordered by adjusted IMDb rating."""
+    location (ID_PROPERTY=P915), ordered by adjusted IMDb rating.
+
+    The location itself includes WIKIPEDIA_IMAGE_PATH. Each nested list element carries
+    POSTER_PATH for the related movie or TV series."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2192,7 +2347,7 @@ async def get_location(wikidata_id: str, api_key: str = Depends(get_api_key)):
         with conn.cursor() as cursor:
             cursor.execute("""
                 SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED,
-                       wp.ID_PROPERTY
+                       m.POSTER_PATH, wp.ID_PROPERTY
                 FROM T_WC_WIKIDATA_ITEM_PROPERTY wp
                 JOIN T_WC_T2S_MOVIE m ON wp.ID_WIKIDATA = m.ID_WIKIDATA
                 WHERE wp.ID_ITEM = %s AND wp.ID_PROPERTY IN ('P840', 'P915')
@@ -2201,7 +2356,7 @@ async def get_location(wikidata_id: str, api_key: str = Depends(get_api_key)):
             movies = cursor.fetchall()
             cursor.execute("""
                 SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED,
-                       wp.ID_PROPERTY
+                       s.POSTER_PATH, wp.ID_PROPERTY
                 FROM T_WC_WIKIDATA_ITEM_PROPERTY wp
                 JOIN T_WC_T2S_SERIE s ON wp.ID_WIKIDATA = s.ID_WIKIDATA
                 WHERE wp.ID_ITEM = %s AND wp.ID_PROPERTY IN ('P840', 'P915')
@@ -2271,7 +2426,10 @@ async def _mcp_get_movie(id: int) -> str:
     """Get all fields for a movie (title, release date, runtime, budget, revenue, ratings,
     plot, IMDb/Wikidata IDs, aspect ratio, color/B&W/silent flags) plus embedded relations:
     cast, crew, genre codes, production companies, production countries, spoken languages,
-    topics, collections, movements, awards, and nominations. id = TMDb ID_MOVIE."""
+    topics, collections, movements, awards, and nominations. Each related company, topic,
+    list, collection, and movement carries its own POSTER_PATH (LOGO_PATH for companies),
+    WIKIPEDIA_IMAGE_PATH (when applicable), IMDB_RATING_WEIGHTED, and POPULARITY.
+    id = TMDb ID_MOVIE."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2289,7 +2447,10 @@ async def _mcp_get_series(id: int) -> str:
     """Get all fields for a TV series (title, first/last air date, number of seasons and
     episodes, ratings, status, Wikidata/IMDb IDs) plus embedded relations: cast, crew,
     genre codes, companies, networks, production countries, spoken languages, topics,
-    collections, movements, awards, and nominations. id = TMDb ID_SERIE."""
+    collections, movements, awards, and nominations. Each related company, topic, list,
+    collection, and movement carries its own POSTER_PATH (LOGO_PATH for companies and
+    networks), WIKIPEDIA_IMAGE_PATH (when applicable), IMDB_RATING_WEIGHTED, and
+    POPULARITY. id = TMDb ID_SERIE."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2323,7 +2484,9 @@ async def _mcp_get_person(id: int) -> str:
 @mcp.tool(name="get_collection")
 async def _mcp_get_collection(id: int) -> str:
     """Get all fields for a named collection (trilogy, saga, universe, franchise) plus member
-    movies and TV series ordered by their position in the collection. id = ID_T2S_COLLECTION."""
+    movies and TV series ordered by their position in the collection. The collection itself
+    includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
+    id = ID_T2S_COLLECTION."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2339,7 +2502,9 @@ async def _mcp_get_collection(id: int) -> str:
 @mcp.tool(name="get_topic")
 async def _mcp_get_topic(id: int) -> str:
     """Get all fields for a topic (theme, keyword, recurring-character collection) plus linked
-    movies and TV series ordered by their position in the topic. id = ID_TOPIC."""
+    movies and TV series ordered by their position in the topic. The topic itself includes
+    POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
+    id = ID_TOPIC."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2355,7 +2520,9 @@ async def _mcp_get_topic(id: int) -> str:
 @mcp.tool(name="get_list")
 async def _mcp_get_list(id: int) -> str:
     """Get all fields for a named curated list (e.g. AFI Top 100, Criterion Collection)
-    plus member movies and TV series ordered by their position. id = ID_T2S_LIST."""
+    plus member movies and TV series ordered by their position. The list itself includes
+    POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
+    id = ID_T2S_LIST."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2371,7 +2538,9 @@ async def _mcp_get_list(id: int) -> str:
 @mcp.tool(name="get_movement")
 async def _mcp_get_movement(id: int) -> str:
     """Get all fields for a film movement or style (e.g. French New Wave, Neo-Noir) plus
-    associated movies and TV series ordered by their position. id = ID_MOVEMENT."""
+    associated movies and TV series ordered by their position. The movement itself includes
+    POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
+    id = ID_MOVEMENT."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2450,8 +2619,9 @@ async def _mcp_get_nomination(id: int) -> str:
 
 @mcp.tool(name="get_company")
 async def _mcp_get_company(id: int) -> str:
-    """Get all fields for a production company plus associated movies and TV series.
-    id = ID_COMPANY."""
+    """Get all fields for a production company plus associated movies and TV series. The
+    company itself includes LOGO_PATH, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING_WEIGHTED,
+    and POPULARITY. id = ID_COMPANY."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2567,30 +2737,31 @@ async def _mcp_database_scope() -> str:
 
     ## Other Entities
     - T_WC_T2S_COLLECTION: COLLECTION_NAME, OVERVIEW, MOVIE_COUNT, SERIE_COUNT,
-        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
+        POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
         Holds trilogies and named series of works (e.g., Dollars Trilogy, James Bond
         Collection, Kill Bill - Saga) AND universes/franchises (e.g., Star Wars, Marvel
         Cinematic Universe, DC Extended Universe, Batman universe, Middle-Earth, Harry
         Potter movies, James Bond films).
-    - T_WC_T2S_TOPIC: TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG,
-        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
+    - T_WC_T2S_TOPIC: TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG, MOVIE_COUNT, SERIE_COUNT,
+        POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
         Holds themes (e.g., World War II, Christmas) and recurring-character collections
         (e.g., Philip Marlowe, Sherlock Holmes). Universes and franchises are NOT here —
         they live in T_WC_T2S_COLLECTION.
     - T_WC_T2S_LIST: LIST_NAME, OVERVIEW, LIST_TYPE, MOVIE_COUNT, SERIE_COUNT,
-        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
+        POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
         Holds curated rankings/canons/registries (e.g., Sight and Sound, IMDb Top 250,
         AFI Top 100). Universes and franchises are NOT here — they live in
         T_WC_T2S_COLLECTION.
     - T_WC_T2S_MOVEMENT: MOVEMENT_NAME, OVERVIEW, MOVIE_COUNT, SERIE_COUNT,
-        IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
+        POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
     - T_WC_T2S_GROUP: GROUP_NAME, GROUP_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
     - T_WC_T2S_DEATH: DEATH_NAME, DEATH_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
     - T_WC_T2S_AWARD: AWARD_NAME, AWARD_TYPE, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT,
         IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
     - T_WC_T2S_NOMINATION: NOMINATION_NAME, NOMINATION_TYPE, MOVIE_COUNT, SERIE_COUNT,
         PERSON_COUNT, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
-    - T_WC_T2S_COMPANY: COMPANY_NAME, HEADQUARTERS, ORIGIN_COUNTRY, LOGO_PATH
+    - T_WC_T2S_COMPANY: COMPANY_NAME, HEADQUARTERS, ORIGIN_COUNTRY, LOGO_PATH,
+        MOVIE_COUNT, SERIE_COUNT, IMDB_RATING_WEIGHTED, POPULARITY
     - T_WC_T2S_NETWORK: NETWORK_NAME, ORIGIN_COUNTRY, LOGO_PATH
     - T_WC_T2S_ITEM: ID_WIKIDATA, ITEM_LABEL, DESCRIPTION, INSTANCE_OF
 

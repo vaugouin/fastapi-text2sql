@@ -1,35 +1,9 @@
--- phpMyAdmin SQL Dump
--- version 5.2.1
--- https://www.phpmyadmin.net/
---
--- Hôte : mariadb
--- Généré le : mer. 06 mai 2026 à 04:54
--- Version du serveur : 11.2.3-MariaDB
--- Version de PHP : 8.2.16
-
-SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
-START TRANSACTION;
-SET time_zone = "+00:00";
-
-
-/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
-/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
-/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
-/*!40101 SET NAMES utf8mb4 */;
-
---
--- Base de données : `vaugouindb`
---
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_CHARACTER`
---
-
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_CHARACTER` (
-  `ID_CHARACTER` int(11) NOT NULL,
+  `ID_CHARACTER` int(11) NOT NULL AUTO_INCREMENT,
   `CAST_CHARACTER` varchar(600) DEFAULT NULL,
+  `CLASSIFIER_CATEGORY` varchar(50) DEFAULT NULL,
   `ID_WIKIDATA` varchar(50) DEFAULT NULL,
   `WIKIDATA_NAME` varchar(250) DEFAULT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -45,19 +19,44 @@ CREATE TABLE `T_WC_TMDB_CHARACTER` (
   `MOVIE_COUNT` int(11) DEFAULT NULL,
   `SERIE_COUNT` int(11) DEFAULT NULL,
   `PERSON_COUNT` int(11) DEFAULT NULL,
+  `IS_EMPTY` int(5) DEFAULT NULL,
+  `WORD_COUNT` int(5) DEFAULT NULL,
   `IMDB_RATING` double DEFAULT NULL,
   `IMDB_RATING_WEIGHTED` double DEFAULT NULL,
   `POPULARITY` double DEFAULT NULL,
   `CAST_CHARACTER_NORM` varchar(600) GENERATED ALWAYS AS (trim(regexp_replace(lcase(regexp_replace(`CAST_CHARACTER`,'[^[:alnum:] ]',' ')),' +',' '))) STORED,
-  `CAST_CHARACTER_KEY` varchar(600) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_COLLECTION`
---
-
+  `CAST_CHARACTER_KEY` varchar(600) NOT NULL,
+  PRIMARY KEY (`ID_CHARACTER`),
+  UNIQUE KEY `uq_t2s_character_cast_character_key` (`CAST_CHARACTER_KEY`),
+  KEY `CAST_CHARACTER` (`CAST_CHARACTER`),
+  KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
+  KEY `PROFILE_PATH` (`PROFILE_PATH`),
+  KEY `POPULARITY` (`POPULARITY`),
+  KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `WIKIDATA_NAME` (`WIKIDATA_NAME`),
+  KEY `DELETED` (`DELETED`),
+  KEY `MOVIE_COUNT` (`MOVIE_COUNT`),
+  KEY `SERIE_COUNT` (`SERIE_COUNT`),
+  KEY `PERSON_COUNT` (`PERSON_COUNT`),
+  KEY `IDX_TMDB_CAST_CHARACTER_KEY` (`CAST_CHARACTER_KEY`),
+  KEY `IDX_TMDB_CAST_CHARACTER_NORM` (`CAST_CHARACTER_NORM`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `WIKIPEDIA_IMAGE_PATH` (`WIKIPEDIA_IMAGE_PATH`),
+  KEY `IMDB_RATING` (`IMDB_RATING`),
+  KEY `IMDB_RATING_WEIGHTED` (`IMDB_RATING_WEIGHTED`),
+  KEY `CLASSIFIER_CATEGORY` (`CLASSIFIER_CATEGORY`),
+  KEY `IS_EMPTY` (`IS_EMPTY`),
+  KEY `WORD_COUNT` (`WORD_COUNT`),
+  FULLTEXT KEY `ft_cast_character_norm` (`CAST_CHARACTER_NORM`)
+) ENGINE=InnoDB AUTO_INCREMENT=1515498 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_COLLECTION` (
   `ID_COLLECTION` int(11) NOT NULL,
   `NAME` varchar(250) DEFAULT NULL,
@@ -75,28 +74,38 @@ CREATE TABLE `T_WC_TMDB_COLLECTION` (
   `TIM_CREDITS_DOWNLOADED` datetime DEFAULT NULL,
   `TIM_IMAGES_COMPLETED` datetime DEFAULT NULL,
   `USED_FOR_SIMILARITY` int(5) DEFAULT NULL,
-  `ID_WIKIDATA` varchar(50) DEFAULT NULL
+  `ID_WIKIDATA` varchar(50) DEFAULT NULL,
+  PRIMARY KEY (`ID_COLLECTION`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `NAME` (`NAME`),
+  KEY `POSTER_PATH` (`POSTER_PATH`),
+  KEY `BACKDROP_PATH` (`BACKDROP_PATH`),
+  KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
+  KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
+  KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`),
+  KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
+  KEY `ID_WIKIDATA` (`ID_WIKIDATA`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_COLLECTION_ID_IMPORT`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_COLLECTION_ID_IMPORT` (
   `id` int(11) NOT NULL,
-  `name` varchar(250) DEFAULT NULL
+  `name` varchar(250) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_COLLECTION_IMAGE`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_COLLECTION_IMAGE` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_COLLECTION` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
   `DISPLAY_ORDER` int(5) DEFAULT NULL,
@@ -112,15 +121,28 @@ CREATE TABLE `T_WC_TMDB_COLLECTION_IMAGE` (
   `WIDTH` int(5) DEFAULT NULL,
   `HEIGHT` int(5) DEFAULT NULL,
   `VOTE_AVERAGE` double DEFAULT NULL,
-  `VOTE_COUNT` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_COLLECTION_LANG`
---
-
+  `VOTE_COUNT` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_COLLECTION` (`ID_COLLECTION`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
+  KEY `LANG` (`LANG`),
+  KEY `IMAGE_PATH` (`IMAGE_PATH`),
+  KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
+  KEY `WIDTH` (`WIDTH`),
+  KEY `HEIGHT` (`HEIGHT`),
+  KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  KEY `VOTE_COUNT` (`VOTE_COUNT`)
+) ENGINE=InnoDB AUTO_INCREMENT=35370 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_COLLECTION_LANG` (
   `ID_COLLECTION` int(11) NOT NULL,
   `LANG` varchar(10) DEFAULT NULL,
@@ -134,15 +156,23 @@ CREATE TABLE `T_WC_TMDB_COLLECTION_LANG` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  KEY `ID_COLLECTION` (`ID_COLLECTION`),
+  KEY `LANG` (`LANG`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `NAME` (`NAME`),
+  KEY `POSTER_PATH` (`POSTER_PATH`),
+  KEY `BACKDROP_PATH` (`BACKDROP_PATH`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_COMPANY`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_COMPANY` (
   `ID_COMPANY` int(11) NOT NULL,
   `NAME` varchar(250) DEFAULT NULL,
@@ -164,17 +194,32 @@ CREATE TABLE `T_WC_TMDB_COMPANY` (
   `TIM_IMAGES_COMPLETED` datetime DEFAULT NULL,
   `USED_FOR_SIMILARITY` int(5) DEFAULT NULL,
   `MOVIE_COUNT` int(11) DEFAULT NULL,
-  `SERIE_COUNT` int(11) DEFAULT NULL
+  `SERIE_COUNT` int(11) DEFAULT NULL,
+  PRIMARY KEY (`ID_COMPANY`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `NAME` (`NAME`),
+  KEY `LOGO_PATH` (`LOGO_PATH`),
+  KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
+  KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
+  KEY `ID_PARENT` (`ID_PARENT`),
+  KEY `ORIGIN_COUNTRY` (`ORIGIN_COUNTRY`),
+  KEY `HEADQUARTERS` (`HEADQUARTERS`),
+  KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
+  KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`),
+  KEY `MOVIE_COUNT` (`MOVIE_COUNT`),
+  KEY `SERIE_COUNT` (`SERIE_COUNT`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_COMPANY_IMAGE`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_COMPANY_IMAGE` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_COMPANY` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
   `DISPLAY_ORDER` int(5) DEFAULT NULL,
@@ -190,15 +235,28 @@ CREATE TABLE `T_WC_TMDB_COMPANY_IMAGE` (
   `WIDTH` int(5) DEFAULT NULL,
   `HEIGHT` int(5) DEFAULT NULL,
   `VOTE_AVERAGE` double DEFAULT NULL,
-  `VOTE_COUNT` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_EPISODE`
---
-
+  `VOTE_COUNT` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_COMPANY` (`ID_COMPANY`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
+  KEY `LANG` (`LANG`),
+  KEY `IMAGE_PATH` (`IMAGE_PATH`),
+  KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
+  KEY `WIDTH` (`WIDTH`),
+  KEY `HEIGHT` (`HEIGHT`),
+  KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  KEY `VOTE_COUNT` (`VOTE_COUNT`)
+) ENGINE=InnoDB AUTO_INCREMENT=27128 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_EPISODE` (
   `ID_EPISODE` int(11) NOT NULL,
   `ID_SERIE` int(11) NOT NULL,
@@ -230,17 +288,43 @@ CREATE TABLE `T_WC_TMDB_EPISODE` (
   `TIM_CREDITS_COMPLETED` datetime DEFAULT NULL,
   `TIM_IMAGES_COMPLETED` datetime DEFAULT NULL,
   `TIM_VIDEOS_COMPLETED` datetime DEFAULT NULL,
-  `TIM_TRANSLATIONS_COMPLETED` datetime DEFAULT NULL
+  `TIM_TRANSLATIONS_COMPLETED` datetime DEFAULT NULL,
+  PRIMARY KEY (`ID_EPISODE`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `ID_SEASON` (`ID_SEASON`),
+  KEY `SEASON_NUMBER` (`SEASON_NUMBER`),
+  KEY `EPISODE_NUMBER` (`EPISODE_NUMBER`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TITLE` (`TITLE`),
+  KEY `DAT_AIR` (`DAT_AIR`),
+  KEY `AIR_YEAR` (`AIR_YEAR`),
+  KEY `RUNTIME` (`RUNTIME`),
+  KEY `EPISODE_TYPE` (`EPISODE_TYPE`),
+  KEY `STILL_PATH` (`STILL_PATH`),
+  KEY `ID_IMDB` (`ID_IMDB`),
+  KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
+  KEY `ID_TVDB` (`ID_TVDB`),
+  KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
+  KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
+  KEY `TIM_VIDEOS_COMPLETED` (`TIM_VIDEOS_COMPLETED`),
+  KEY `TIM_TRANSLATIONS_COMPLETED` (`TIM_TRANSLATIONS_COMPLETED`),
+  KEY `AIR_MONTH` (`AIR_MONTH`),
+  KEY `AIR_DAY` (`AIR_DAY`),
+  KEY `PRODUCTION_CODE` (`PRODUCTION_CODE`),
+  KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  KEY `VOTE_COUNT` (`VOTE_COUNT`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_EPISODE_IMAGE`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_EPISODE_IMAGE` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_EPISODE` int(11) NOT NULL,
   `ID_SEASON` int(11) NOT NULL,
   `ID_SERIE` int(11) NOT NULL,
@@ -258,17 +342,27 @@ CREATE TABLE `T_WC_TMDB_EPISODE_IMAGE` (
   `WIDTH` int(5) DEFAULT NULL,
   `HEIGHT` int(5) DEFAULT NULL,
   `VOTE_AVERAGE` double DEFAULT NULL,
-  `VOTE_COUNT` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_EPISODE_LANG`
---
-
+  `VOTE_COUNT` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_EPISODE` (`ID_EPISODE`),
+  KEY `ID_SEASON` (`ID_SEASON`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
+  KEY `LANG` (`LANG`),
+  KEY `IMAGE_PATH` (`IMAGE_PATH`)
+) ENGINE=InnoDB AUTO_INCREMENT=46741 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_EPISODE_LANG` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_EPISODE` int(11) NOT NULL,
   `ID_SEASON` int(11) NOT NULL,
   `ID_SERIE` int(11) NOT NULL,
@@ -281,17 +375,26 @@ CREATE TABLE `T_WC_TMDB_EPISODE_LANG` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_EPISODE_VIDEO`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_EPISODE` (`ID_EPISODE`),
+  KEY `ID_SEASON` (`ID_SEASON`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `LANG` (`LANG`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `TITLE` (`TITLE`)
+) ENGINE=InnoDB AUTO_INCREMENT=55756 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_EPISODE_VIDEO` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_EPISODE` int(11) NOT NULL,
   `ID_SEASON` int(11) NOT NULL,
   `ID_SERIE` int(11) NOT NULL,
@@ -312,39 +415,49 @@ CREATE TABLE `T_WC_TMDB_EPISODE_VIDEO` (
   `QUALITY_TEXT` varchar(20) DEFAULT NULL,
   `DAT_PUBLISHED` datetime DEFAULT NULL,
   `ID_CREDIT` varchar(50) DEFAULT NULL,
-  `OFFICIAL` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_GENRE`
---
-
+  `OFFICIAL` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_EPISODE` (`ID_EPISODE`),
+  KEY `ID_SEASON` (`ID_SEASON`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `LANG` (`LANG`),
+  KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
+  KEY `VIDEO_KEY` (`VIDEO_KEY`),
+  KEY `VIDEO_TYPE` (`VIDEO_TYPE`),
+  KEY `OFFICIAL` (`OFFICIAL`)
+) ENGINE=InnoDB AUTO_INCREMENT=761 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_GENRE` (
   `id` int(11) NOT NULL,
-  `name` varchar(250) DEFAULT NULL
+  `name` varchar(250) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_GENRE_LANG`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_GENRE_LANG` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `id` int(11) NOT NULL,
   `LANG` varchar(10) DEFAULT NULL,
-  `name` varchar(250) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_KEYWORD`
---
-
+  `name` varchar(250) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `id` (`id`),
+  KEY `LANG` (`LANG`),
+  KEY `name` (`name`)
+) ENGINE=InnoDB AUTO_INCREMENT=20 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_KEYWORD` (
   `ID_KEYWORD` int(11) NOT NULL,
   `NAME` varchar(250) DEFAULT NULL,
@@ -369,44 +482,65 @@ CREATE TABLE `T_WC_TMDB_KEYWORD` (
   `ID_WIKIDATA` varchar(50) DEFAULT NULL,
   `WIKIDATA_LABEL` varchar(300) DEFAULT NULL,
   `CONFIDENCE` double DEFAULT NULL,
-  `TIM_WIKIPEDIA_SEARCH` datetime DEFAULT NULL
+  `TIM_WIKIPEDIA_SEARCH` datetime DEFAULT NULL,
+  PRIMARY KEY (`ID_KEYWORD`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `NAME` (`NAME`),
+  KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
+  KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
+  KEY `USE_FOR_TAGGING` (`USE_FOR_TAGGING`),
+  KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`),
+  KEY `MOVIE_COUNT` (`MOVIE_COUNT`),
+  KEY `SERIE_COUNT` (`SERIE_COUNT`),
+  KEY `IS_EMPTY` (`IS_EMPTY`),
+  KEY `IS_PERSON` (`IS_PERSON`),
+  KEY `NAME_WORD_COUNT` (`NAME_WORD_COUNT`),
+  KEY `CLASSIFIER_CATEGORY` (`CLASSIFIER_CATEGORY`),
+  KEY `USED_FOR_T2S_TOPIC` (`USED_FOR_T2S_TOPIC`),
+  KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
+  KEY `WIKIDATA_LABEL` (`WIKIDATA_LABEL`),
+  KEY `CONFIDENCE` (`CONFIDENCE`),
+  KEY `TIM_WIKIPEDIA_SEARCH` (`TIM_WIKIPEDIA_SEARCH`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_KEYWORD_ID_IMPORT`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_KEYWORD_ID_IMPORT` (
   `id` int(11) NOT NULL,
   `name` varchar(250) DEFAULT NULL,
-  `USED_FOR_SIMILARITY` int(5) DEFAULT NULL
+  `USED_FOR_SIMILARITY` int(5) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `name` (`name`),
+  KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_KEYWORD_ID_IMPORT_LANG`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_KEYWORD_ID_IMPORT_LANG` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `id` int(11) DEFAULT NULL,
   `LANG` varchar(10) DEFAULT NULL,
   `name` varchar(250) DEFAULT NULL,
   `USE_FOR_TAGGING` int(5) DEFAULT NULL,
-  `USED_FOR_SIMILARITY` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_KEYWORD_LANG`
---
-
+  `USED_FOR_SIMILARITY` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `id` (`id`),
+  KEY `LANG` (`LANG`),
+  KEY `name` (`name`),
+  KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`),
+  KEY `USE_FOR_TAGGING` (`USE_FOR_TAGGING`)
+) ENGINE=InnoDB AUTO_INCREMENT=83056 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_KEYWORD_LANG` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_KEYWORD` int(11) DEFAULT NULL,
   `LANG` varchar(10) DEFAULT NULL,
   `NAME` varchar(250) DEFAULT NULL,
@@ -418,15 +552,24 @@ CREATE TABLE `T_WC_TMDB_KEYWORD_LANG` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` int(5) DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_LANG_LANG`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_KEYWORD` (`ID_KEYWORD`),
+  KEY `LANG` (`LANG`),
+  KEY `NAME` (`NAME`),
+  KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`),
+  KEY `USE_FOR_TAGGING` (`USE_FOR_TAGGING`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`)
+) ENGINE=InnoDB AUTO_INCREMENT=83056 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_LANG_LANG` (
   `LANG` varchar(10) DEFAULT NULL,
   `LANG_DISPLAY` varchar(10) DEFAULT NULL,
@@ -437,15 +580,21 @@ CREATE TABLE `T_WC_TMDB_LANG_LANG` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  KEY `LANG_DISPLAY` (`LANG_DISPLAY`),
+  KEY `LANG` (`LANG`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `DESCRIPTION` (`DESCRIPTION`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_LIST`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_LIST` (
   `ID_LIST` int(11) NOT NULL,
   `NAME` varchar(500) DEFAULT NULL,
@@ -468,17 +617,34 @@ CREATE TABLE `T_WC_TMDB_LIST` (
   `CREATED_BY` varchar(200) DEFAULT NULL,
   `ID_LIST_TYPE` int(5) DEFAULT NULL,
   `ID_PROPERTY` varchar(50) DEFAULT NULL,
-  `ID_ITEM` varchar(50) DEFAULT NULL
+  `ID_ITEM` varchar(50) DEFAULT NULL,
+  PRIMARY KEY (`ID_LIST`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `NAME` (`NAME`),
+  KEY `POSTER_PATH` (`POSTER_PATH`),
+  KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
+  KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
+  KEY `USE_FOR_TAGGING` (`USE_FOR_TAGGING`),
+  KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`),
+  KEY `SHORT_NAME` (`SHORT_NAME`),
+  KEY `CREATED_BY` (`CREATED_BY`),
+  KEY `ID_LIST_TYPE` (`ID_LIST_TYPE`),
+  KEY `ID_PROPERTY` (`ID_PROPERTY`),
+  KEY `ID_ITEM` (`ID_ITEM`),
+  KEY `USED_FOR_T2S_COLLECTION` (`USED_FOR_T2S_COLLECTION`),
+  KEY `USED_FOR_T2S_LIST` (`USED_FOR_T2S_LIST`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_LIST_LANG`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_LIST_LANG` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_LIST` int(11) DEFAULT NULL,
   `LANG` varchar(10) DEFAULT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -488,17 +654,24 @@ CREATE TABLE `T_WC_TMDB_LIST_LANG` (
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
   `ID_USER_UPDATED` int(5) DEFAULT NULL,
-  `SHORT_NAME` varchar(100) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_LIST_TYPE`
---
-
+  `SHORT_NAME` varchar(100) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_LIST` (`ID_LIST`),
+  KEY `LANG` (`LANG`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `SHORT_NAME` (`SHORT_NAME`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`)
+) ENGINE=InnoDB AUTO_INCREMENT=27 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_LIST_TYPE` (
-  `ID_LIST_TYPE` int(5) NOT NULL,
+  `ID_LIST_TYPE` int(5) NOT NULL AUTO_INCREMENT,
   `DESCRIPTION` varchar(50) DEFAULT NULL,
   `AUTO_UPDATE` int(5) DEFAULT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -510,15 +683,21 @@ CREATE TABLE `T_WC_TMDB_LIST_TYPE` (
   `LONG_DESC` mediumtext DEFAULT NULL,
   `MOT_CLE` mediumtext DEFAULT NULL,
   `MOT_CLE_AUTO` mediumtext DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_LIST_TYPE`),
+  KEY `AUTO_UPDATE` (`AUTO_UPDATE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `DESCRIPTION` (`DESCRIPTION`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`)
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE` (
   `ID_MOVIE` int(11) NOT NULL,
   `TITLE` varchar(250) DEFAULT NULL,
@@ -577,17 +756,66 @@ CREATE TABLE `T_WC_TMDB_MOVIE` (
   `IS_MOVIE` int(5) DEFAULT NULL,
   `IS_DOCUMENTARY` int(5) DEFAULT NULL,
   `IS_SHORT_FILM` int(5) DEFAULT NULL,
-  `SOUND_TECHNOLOGY` varchar(200) DEFAULT NULL
+  `SOUND_TECHNOLOGY` varchar(200) DEFAULT NULL,
+  PRIMARY KEY (`ID_MOVIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_IMDB` (`ID_IMDB`),
+  KEY `TITLE` (`TITLE`),
+  KEY `POPULARITY` (`POPULARITY`),
+  KEY `ADULT` (`ADULT`),
+  KEY `POSTER_PATH` (`POSTER_PATH`),
+  KEY `ORIGINAL_LANGUAGE` (`ORIGINAL_LANGUAGE`),
+  KEY `STATUS` (`STATUS`),
+  KEY `GENRES` (`GENRES`),
+  KEY `ID_COLLECTION` (`ID_COLLECTION`),
+  KEY `BUDGET` (`BUDGET`),
+  KEY `DAT_RELEASE` (`DAT_RELEASE`),
+  KEY `RUNTIME` (`RUNTIME`),
+  KEY `BACKDROP_PATH` (`BACKDROP_PATH`),
+  KEY `REVENUE` (`REVENUE`),
+  KEY `VIDEO` (`VIDEO`),
+  KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  KEY `VOTE_COUNT` (`VOTE_COUNT`),
+  KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
+  KEY `ORIGINAL_TITLE` (`ORIGINAL_TITLE`),
+  KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
+  KEY `TIM_KEYWORDS_COMPLETED` (`TIM_KEYWORDS_COMPLETED`),
+  KEY `TIM_WIKIDATA_COMPLETED` (`TIM_WIKIDATA_COMPLETED`),
+  KEY `TIM_WIKIPEDIA_COMPLETED` (`TIM_WIKIPEDIA_COMPLETED`),
+  KEY `WIKIPEDIA_FORMAT_LINE` (`WIKIPEDIA_FORMAT_LINE`(768)),
+  KEY `IS_COLOR` (`IS_COLOR`),
+  KEY `IS_BLACK_AND_WHITE` (`IS_BLACK_AND_WHITE`),
+  KEY `IS_SILENT` (`IS_SILENT`),
+  KEY `IS_3D` (`IS_3D`),
+  KEY `COLOR_TECHNOLOGY` (`COLOR_TECHNOLOGY`),
+  KEY `FILM_TECHNOLOGY` (`FILM_TECHNOLOGY`(768)),
+  KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
+  KEY `FILM_FORMAT` (`FILM_FORMAT`),
+  KEY `SOUND_SYSTEM` (`SOUND_SYSTEM`(768)),
+  KEY `NUM_AUDIO_TRACKS` (`NUM_AUDIO_TRACKS`),
+  KEY `IS_VALID_FORMAT` (`IS_VALID_FORMAT`),
+  KEY `IS_MOVIE` (`IS_MOVIE`),
+  KEY `IS_DOCUMENTARY` (`IS_DOCUMENTARY`),
+  KEY `RELEASE_YEAR` (`RELEASE_YEAR`),
+  KEY `RELEASE_MONTH` (`RELEASE_MONTH`),
+  KEY `RELEASE_DAY` (`RELEASE_DAY`),
+  KEY `IS_SHORT_FILM` (`IS_SHORT_FILM`),
+  KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
+  KEY `SOUND_TECHNOLOGY` (`SOUND_TECHNOLOGY`),
+  KEY `DAT_WIKIPEDIA_FORMAT_LINE` (`DAT_WIKIPEDIA_FORMAT_LINE`),
+  KEY `TIM_VIDEOS_COMPLETED` (`TIM_VIDEOS_COMPLETED`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE_CHARACTER`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE_CHARACTER` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_MOVIE` int(11) NOT NULL,
   `ID_CHARACTER` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -596,17 +824,24 @@ CREATE TABLE `T_WC_TMDB_MOVIE_CHARACTER` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE_COMPANY`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  UNIQUE KEY `UQ_TMDB_MOVIE_CHARACTER_MOVIE_CHARACTER` (`ID_MOVIE`,`ID_CHARACTER`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `ID_CHARACTER` (`ID_CHARACTER`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=2557913 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE_COMPANY` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_MOVIE` int(11) NOT NULL,
   `ID_COMPANY` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -615,17 +850,23 @@ CREATE TABLE `T_WC_TMDB_MOVIE_COMPANY` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE_GENRE`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `ID_COMPANY` (`ID_COMPANY`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=1071996 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE_GENRE` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_MOVIE` int(11) NOT NULL,
   `ID_GENRE` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -634,31 +875,35 @@ CREATE TABLE `T_WC_TMDB_MOVIE_GENRE` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE_ID_IMPORT`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `ID_GENRE` (`ID_GENRE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=1446788 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE_ID_IMPORT` (
   `adult` tinyint(1) DEFAULT NULL,
   `id` int(11) NOT NULL,
   `original_title` varchar(250) DEFAULT NULL,
   `popularity` double DEFAULT NULL,
-  `video` tinyint(1) DEFAULT NULL
+  `video` tinyint(1) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `popularity` (`popularity`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE_IMAGE`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE_IMAGE` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_MOVIE` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
   `DISPLAY_ORDER` int(5) DEFAULT NULL,
@@ -674,17 +919,30 @@ CREATE TABLE `T_WC_TMDB_MOVIE_IMAGE` (
   `WIDTH` int(5) DEFAULT NULL,
   `HEIGHT` int(5) DEFAULT NULL,
   `VOTE_AVERAGE` double DEFAULT NULL,
-  `VOTE_COUNT` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE_KEYWORD`
---
-
+  `VOTE_COUNT` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
+  KEY `LANG` (`LANG`),
+  KEY `IMAGE_PATH` (`IMAGE_PATH`),
+  KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
+  KEY `WIDTH` (`WIDTH`),
+  KEY `HEIGHT` (`HEIGHT`),
+  KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  KEY `VOTE_COUNT` (`VOTE_COUNT`)
+) ENGINE=InnoDB AUTO_INCREMENT=4599795 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE_KEYWORD` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_MOVIE` int(11) NOT NULL,
   `ID_KEYWORD` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -693,17 +951,23 @@ CREATE TABLE `T_WC_TMDB_MOVIE_KEYWORD` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE_LANG`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `ID_KEYWORD` (`ID_KEYWORD`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=1496083 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE_LANG` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_MOVIE` int(11) NOT NULL,
   `LANG` varchar(10) DEFAULT NULL,
   `TITLE` varchar(250) DEFAULT NULL,
@@ -717,17 +981,26 @@ CREATE TABLE `T_WC_TMDB_MOVIE_LANG` (
   `TIM_UPDATED` datetime DEFAULT NULL,
   `ID_USER_UPDATED` int(5) DEFAULT NULL,
   `BACKDROP_PATH` varchar(200) DEFAULT NULL,
-  `TAGLINE` mediumtext DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE_LANG_META`
---
-
+  `TAGLINE` mediumtext DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `LANG` (`LANG`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `TITLE` (`TITLE`),
+  KEY `POSTER_PATH` (`POSTER_PATH`),
+  KEY `BACKDROP_PATH` (`BACKDROP_PATH`)
+) ENGINE=InnoDB AUTO_INCREMENT=1377099 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE_LANG_META` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_MOVIE` int(11) NOT NULL,
   `LANG` varchar(10) DEFAULT NULL,
   `YEAR_RELEASE` varchar(4) DEFAULT NULL,
@@ -761,17 +1034,26 @@ CREATE TABLE `T_WC_TMDB_MOVIE_LANG_META` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE_LEMME`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `LANG` (`LANG`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `YEAR_RELEASE` (`YEAR_RELEASE`),
+  KEY `ORIGINAL_LANGUAGE` (`ORIGINAL_LANGUAGE`),
+  KEY `IMDB_RATING` (`IMDB_RATING`)
+) ENGINE=InnoDB AUTO_INCREMENT=1379321 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE_LEMME` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_MOVIE` int(11) NOT NULL,
   `ID_LEMME` int(11) NOT NULL,
   `START_CHAR` int(11) NOT NULL,
@@ -781,17 +1063,24 @@ CREATE TABLE `T_WC_TMDB_MOVIE_LEMME` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE_LIST`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `ID_LEMME` (`ID_LEMME`),
+  KEY `START_CHAR` (`START_CHAR`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=7658755 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE_LIST` (
-  `ID_TMDB_MOVIE_LIST` int(11) NOT NULL,
+  `ID_TMDB_MOVIE_LIST` int(11) NOT NULL AUTO_INCREMENT,
   `ID_LIST` int(11) NOT NULL,
   `ID_MOVIE` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -800,17 +1089,23 @@ CREATE TABLE `T_WC_TMDB_MOVIE_LIST` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE_PRODUCTION_COUNTRY`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_TMDB_MOVIE_LIST`),
+  KEY `ID_LIST` (`ID_LIST`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`)
+) ENGINE=InnoDB AUTO_INCREMENT=112178 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE_PRODUCTION_COUNTRY` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_MOVIE` int(11) NOT NULL,
   `COUNTRY_CODE` varchar(2) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -819,17 +1114,23 @@ CREATE TABLE `T_WC_TMDB_MOVIE_PRODUCTION_COUNTRY` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE_SPOKEN_LANGUAGE`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=923376 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE_SPOKEN_LANGUAGE` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_MOVIE` int(11) NOT NULL,
   `SPOKEN_LANGUAGE` varchar(2) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -838,17 +1139,23 @@ CREATE TABLE `T_WC_TMDB_MOVIE_SPOKEN_LANGUAGE` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE_TITLE`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `SPOKEN_LANGUAGE` (`SPOKEN_LANGUAGE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=961320 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE_TITLE` (
-  `ID_MOVIE_TITLE` int(11) NOT NULL,
+  `ID_MOVIE_TITLE` int(11) NOT NULL AUTO_INCREMENT,
   `ID_MOVIE` int(11) NOT NULL,
   `ISO_3166_1` varchar(3) DEFAULT NULL,
   `TITLE_TYPE` varchar(100) DEFAULT NULL,
@@ -859,15 +1166,23 @@ CREATE TABLE `T_WC_TMDB_MOVIE_TITLE` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_MOVIE_TITLE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `TITLE` (`TITLE`),
+  KEY `ISO_3166_1` (`ISO_3166_1`),
+  KEY `TITLE_TYPE` (`TITLE_TYPE`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE_UPDATE`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE_UPDATE` (
   `ID_MOVIE` int(11) NOT NULL,
   `ID_WIKIDATA` varchar(50) DEFAULT NULL,
@@ -877,17 +1192,22 @@ CREATE TABLE `T_WC_TMDB_MOVIE_UPDATE` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_MOVIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_WIKIDATA` (`ID_WIKIDATA`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_MOVIE_VIDEO`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_MOVIE_VIDEO` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_MOVIE` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
   `DISPLAY_ORDER` int(5) DEFAULT NULL,
@@ -906,15 +1226,31 @@ CREATE TABLE `T_WC_TMDB_MOVIE_VIDEO` (
   `QUALITY_TEXT` varchar(20) DEFAULT NULL,
   `DAT_PUBLISHED` datetime DEFAULT NULL,
   `ID_CREDIT` varchar(50) DEFAULT NULL,
-  `OFFICIAL` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_NETWORK`
---
-
+  `OFFICIAL` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `LANG` (`LANG`),
+  KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
+  KEY `VIDEO_KEY` (`VIDEO_KEY`),
+  KEY `VIDEO_SITE` (`VIDEO_SITE`),
+  KEY `VIDEO_TYPE` (`VIDEO_TYPE`),
+  KEY `QUALITY` (`QUALITY`),
+  KEY `VIDEO_NAME` (`VIDEO_NAME`),
+  KEY `QUALITY_TEXT` (`QUALITY_TEXT`),
+  KEY `DAT_PUBLISHED` (`DAT_PUBLISHED`),
+  KEY `ID_CREDIT` (`ID_CREDIT`),
+  KEY `OFFICIAL` (`OFFICIAL`)
+) ENGINE=InnoDB AUTO_INCREMENT=323032 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_NETWORK` (
   `ID_NETWORK` int(11) NOT NULL,
   `NAME` varchar(250) DEFAULT NULL,
@@ -933,17 +1269,31 @@ CREATE TABLE `T_WC_TMDB_NETWORK` (
   `TIM_CREDITS_COMPLETED` datetime DEFAULT NULL,
   `TIM_CREDITS_DOWNLOADED` datetime DEFAULT NULL,
   `TIM_IMAGES_COMPLETED` datetime DEFAULT NULL,
-  `SERIE_COUNT` int(11) DEFAULT NULL
+  `SERIE_COUNT` int(11) DEFAULT NULL,
+  PRIMARY KEY (`ID_NETWORK`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `NAME` (`NAME`),
+  KEY `LOGO_PATH` (`LOGO_PATH`),
+  KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
+  KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
+  KEY `ID_PARENT` (`ID_PARENT`),
+  KEY `ORIGIN_COUNTRY` (`ORIGIN_COUNTRY`),
+  KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
+  KEY `HOMEPAGE_URL` (`HOMEPAGE_URL`),
+  KEY `HEADQUARTERS` (`HEADQUARTERS`),
+  KEY `SERIE_COUNT` (`SERIE_COUNT`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_NETWORK_IMAGE`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_NETWORK_IMAGE` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_NETWORK` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
   `DISPLAY_ORDER` int(5) DEFAULT NULL,
@@ -959,15 +1309,28 @@ CREATE TABLE `T_WC_TMDB_NETWORK_IMAGE` (
   `WIDTH` int(5) DEFAULT NULL,
   `HEIGHT` int(5) DEFAULT NULL,
   `VOTE_AVERAGE` double DEFAULT NULL,
-  `VOTE_COUNT` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_PERSON`
---
-
+  `VOTE_COUNT` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_NETWORK` (`ID_NETWORK`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
+  KEY `LANG` (`LANG`),
+  KEY `IMAGE_PATH` (`IMAGE_PATH`),
+  KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
+  KEY `WIDTH` (`WIDTH`),
+  KEY `HEIGHT` (`HEIGHT`),
+  KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  KEY `VOTE_COUNT` (`VOTE_COUNT`)
+) ENGINE=InnoDB AUTO_INCREMENT=5417 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_PERSON` (
   `ID_PERSON` int(11) NOT NULL,
   `NAME` varchar(200) DEFAULT NULL,
@@ -1003,17 +1366,46 @@ CREATE TABLE `T_WC_TMDB_PERSON` (
   `TIM_CREDITS_DOWNLOADED` datetime DEFAULT NULL,
   `TIM_WIKIDATA_COMPLETED` datetime DEFAULT NULL,
   `TIM_IMAGES_COMPLETED` datetime DEFAULT NULL,
-  `USED_FOR_SIMILARITY` int(5) DEFAULT NULL
+  `USED_FOR_SIMILARITY` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_PERSON`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_IMDB` (`ID_IMDB`),
+  KEY `BIRTHDAY` (`BIRTHDAY`),
+  KEY `DEATHDAY` (`DEATHDAY`),
+  KEY `GENDER` (`GENDER`),
+  KEY `NAME` (`NAME`),
+  KEY `POPULARITY` (`POPULARITY`),
+  KEY `ADULT` (`ADULT`),
+  KEY `TIM_COMPLETED` (`TIM_CREDITS_COMPLETED`),
+  KEY `PROFILE_PATH` (`PROFILE_PATH`),
+  KEY `KNOWN_FOR_DEPARTMENT` (`KNOWN_FOR_DEPARTMENT`),
+  KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
+  KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
+  KEY `PLACE_OF_BIRTH` (`PLACE_OF_BIRTH`),
+  KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
+  KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`),
+  KEY `BIRTH_DAY` (`BIRTH_DAY`),
+  KEY `BIRTH_MONTH` (`BIRTH_MONTH`),
+  KEY `BIRTH_YEAR` (`BIRTH_YEAR`),
+  KEY `DEATH_DAY` (`DEATH_DAY`),
+  KEY `DEATH_MONTH` (`DEATH_MONTH`),
+  KEY `DEATH_YEAR` (`DEATH_YEAR`),
+  KEY `COUNTRY_OF_BIRTH` (`COUNTRY_OF_BIRTH`),
+  KEY `COUNTRY_OF_BIRTH_LONG` (`COUNTRY_OF_BIRTH_LONG`),
+  KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
+  KEY `TIM_WIKIDATA_COMPLETED` (`TIM_WIKIDATA_COMPLETED`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_PERSON` int(11) NOT NULL,
   `PERSON_NAME` varchar(200) DEFAULT NULL,
   `LANGUAGE_FAMILY` varchar(10) DEFAULT NULL,
@@ -1025,17 +1417,26 @@ CREATE TABLE `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` (
   `TIM_UPDATED` datetime DEFAULT NULL,
   `ID_USER_UPDATED` int(5) DEFAULT NULL,
   `PERSON_NAME_NORM` varchar(255) GENERATED ALWAYS AS (lcase(regexp_replace(regexp_replace(`PERSON_NAME`,'[^\\p{L}\\p{N} ]+',' '),' +',' '))) STORED,
-  `PERSON_NAME_KEY` varchar(255) GENERATED ALWAYS AS (replace(`PERSON_NAME_NORM`,' ','')) STORED
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_PERSON_CHARACTER`
---
-
+  `PERSON_NAME_KEY` varchar(255) GENERATED ALWAYS AS (replace(`PERSON_NAME_NORM`,' ','')) STORED,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `DELETED` (`DELETED`),
+  KEY `ID_PERSON` (`ID_PERSON`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `PERSON_NAME` (`PERSON_NAME`),
+  KEY `IDX_T2S_PERSON_NAME_NORM` (`PERSON_NAME_NORM`),
+  KEY `IDX_T2S_PERSON_NAME_KEY` (`PERSON_NAME_KEY`),
+  FULLTEXT KEY `ft_person_name_norm` (`PERSON_NAME_NORM`)
+) ENGINE=InnoDB AUTO_INCREMENT=3607687 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_PERSON_CHARACTER` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_PERSON` int(11) NOT NULL,
   `ID_CHARACTER` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -1044,17 +1445,24 @@ CREATE TABLE `T_WC_TMDB_PERSON_CHARACTER` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_PERSON_EPISODE`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  UNIQUE KEY `UQ_TMDB_PERSON_CHARACTER_PERSON_CHARACTER` (`ID_PERSON`,`ID_CHARACTER`),
+  KEY `ID_PERSON` (`ID_PERSON`),
+  KEY `ID_CHARACTER` (`ID_CHARACTER`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=2826197 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_PERSON_EPISODE` (
-  `ID_TMDB_PERSON_EPISODE` int(11) NOT NULL,
+  `ID_TMDB_PERSON_EPISODE` int(11) NOT NULL AUTO_INCREMENT,
   `ID_PERSON` int(11) NOT NULL,
   `ID_SERIE` int(11) NOT NULL,
   `ID_SEASON` int(11) NOT NULL,
@@ -1072,30 +1480,44 @@ CREATE TABLE `T_WC_TMDB_PERSON_EPISODE` (
   `ID_USER_UPDATED` int(5) DEFAULT NULL,
   `CREDIT_TYPE` varchar(10) DEFAULT NULL,
   `CREW_DEPARTMENT` varchar(200) DEFAULT NULL,
-  `CREW_JOB` varchar(200) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_PERSON_ID_IMPORT`
---
-
+  `CREW_JOB` varchar(200) DEFAULT NULL,
+  PRIMARY KEY (`ID_TMDB_PERSON_EPISODE`),
+  KEY `ID_PERSON` (`ID_PERSON`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `ID_SEASON` (`ID_SEASON`),
+  KEY `ID_EPISODE` (`ID_EPISODE`),
+  KEY `SEASON_NUMBER` (`SEASON_NUMBER`),
+  KEY `EPISODE_NUMBER` (`EPISODE_NUMBER`),
+  KEY `ID_CREDIT` (`ID_CREDIT`),
+  KEY `CAST_CHARACTER` (`CAST_CHARACTER`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `CREDIT_TYPE` (`CREDIT_TYPE`),
+  KEY `CREW_DEPARTMENT` (`CREW_DEPARTMENT`),
+  KEY `CREW_JOB` (`CREW_JOB`)
+) ENGINE=InnoDB AUTO_INCREMENT=76122 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_PERSON_ID_IMPORT` (
   `id` int(11) NOT NULL,
   `name` varchar(200) DEFAULT NULL,
   `popularity` double DEFAULT NULL,
-  `adult` tinyint(1) DEFAULT NULL
+  `adult` tinyint(1) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `popularity` (`popularity`),
+  KEY `popularity_2` (`popularity`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_PERSON_IMAGE`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_PERSON_IMAGE` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_PERSON` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
   `DISPLAY_ORDER` int(5) DEFAULT NULL,
@@ -1111,17 +1533,30 @@ CREATE TABLE `T_WC_TMDB_PERSON_IMAGE` (
   `WIDTH` int(5) DEFAULT NULL,
   `HEIGHT` int(5) DEFAULT NULL,
   `VOTE_AVERAGE` double DEFAULT NULL,
-  `VOTE_COUNT` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_PERSON_MOVIE`
---
-
+  `VOTE_COUNT` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_PERSON` (`ID_PERSON`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
+  KEY `LANG` (`LANG`),
+  KEY `IMAGE_PATH` (`IMAGE_PATH`),
+  KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
+  KEY `WIDTH` (`WIDTH`),
+  KEY `HEIGHT` (`HEIGHT`),
+  KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  KEY `VOTE_COUNT` (`VOTE_COUNT`)
+) ENGINE=InnoDB AUTO_INCREMENT=821923 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_PERSON_MOVIE` (
-  `ID_TMDB_PERSON_MOVIE` int(11) NOT NULL,
+  `ID_TMDB_PERSON_MOVIE` int(11) NOT NULL AUTO_INCREMENT,
   `ID_PERSON` int(11) NOT NULL,
   `ID_MOVIE` int(11) NOT NULL,
   `ID_CREDIT` varchar(50) DEFAULT NULL,
@@ -1135,17 +1570,28 @@ CREATE TABLE `T_WC_TMDB_PERSON_MOVIE` (
   `ID_USER_UPDATED` int(5) DEFAULT NULL,
   `CREDIT_TYPE` varchar(10) DEFAULT NULL,
   `CREW_DEPARTMENT` varchar(200) DEFAULT NULL,
-  `CREW_JOB` varchar(200) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_PERSON_SEARCH`
---
-
+  `CREW_JOB` varchar(200) DEFAULT NULL,
+  PRIMARY KEY (`ID_TMDB_PERSON_MOVIE`),
+  KEY `ID_PERSON` (`ID_PERSON`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `ID_CREDIT` (`ID_CREDIT`),
+  KEY `CAST_CHARACTER` (`CAST_CHARACTER`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `CREDIT_TYPE` (`CREDIT_TYPE`),
+  KEY `CREW_DEPARTMENT` (`CREW_DEPARTMENT`),
+  KEY `CREW_JOB` (`CREW_JOB`)
+) ENGINE=InnoDB AUTO_INCREMENT=20666573 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_PERSON_SEARCH` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_PERSON` int(11) DEFAULT NULL,
   `NAME` varchar(200) DEFAULT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -1154,17 +1600,23 @@ CREATE TABLE `T_WC_TMDB_PERSON_SEARCH` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_PERSON_SEASON`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_PERSON` (`ID_PERSON`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `NAME` (`NAME`)
+) ENGINE=InnoDB AUTO_INCREMENT=3609 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_PERSON_SEASON` (
-  `ID_TMDB_PERSON_SEASON` int(11) NOT NULL,
+  `ID_TMDB_PERSON_SEASON` int(11) NOT NULL AUTO_INCREMENT,
   `ID_PERSON` int(11) NOT NULL,
   `ID_SERIE` int(11) NOT NULL,
   `ID_SEASON` int(11) NOT NULL,
@@ -1181,17 +1633,31 @@ CREATE TABLE `T_WC_TMDB_PERSON_SEASON` (
   `CREDIT_TYPE` varchar(10) DEFAULT NULL,
   `CREW_DEPARTMENT` varchar(200) DEFAULT NULL,
   `CREW_JOB` varchar(200) DEFAULT NULL,
-  `TOTAL_EPISODE_COUNT` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_PERSON_SERIE`
---
-
+  `TOTAL_EPISODE_COUNT` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_TMDB_PERSON_SEASON`),
+  KEY `ID_PERSON` (`ID_PERSON`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `ID_SEASON` (`ID_SEASON`),
+  KEY `SEASON_NUMBER` (`SEASON_NUMBER`),
+  KEY `ID_CREDIT` (`ID_CREDIT`),
+  KEY `CAST_CHARACTER` (`CAST_CHARACTER`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `CREDIT_TYPE` (`CREDIT_TYPE`),
+  KEY `CREW_DEPARTMENT` (`CREW_DEPARTMENT`),
+  KEY `CREW_JOB` (`CREW_JOB`),
+  KEY `TOTAL_EPISODE_COUNT` (`TOTAL_EPISODE_COUNT`)
+) ENGINE=InnoDB AUTO_INCREMENT=80452 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_PERSON_SERIE` (
-  `ID_TMDB_PERSON_SERIE` int(11) NOT NULL,
+  `ID_TMDB_PERSON_SERIE` int(11) NOT NULL AUTO_INCREMENT,
   `ID_PERSON` int(11) NOT NULL,
   `ID_SERIE` int(11) NOT NULL,
   `ID_CREDIT` varchar(50) DEFAULT NULL,
@@ -1205,15 +1671,26 @@ CREATE TABLE `T_WC_TMDB_PERSON_SERIE` (
   `ID_USER_UPDATED` int(5) DEFAULT NULL,
   `CREDIT_TYPE` varchar(10) DEFAULT NULL,
   `CREW_DEPARTMENT` varchar(200) DEFAULT NULL,
-  `CREW_JOB` varchar(200) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_PERSON_UPDATE`
---
-
+  `CREW_JOB` varchar(200) DEFAULT NULL,
+  PRIMARY KEY (`ID_TMDB_PERSON_SERIE`),
+  KEY `ID_PERSON` (`ID_PERSON`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `ID_CREDIT` (`ID_CREDIT`),
+  KEY `CAST_CHARACTER` (`CAST_CHARACTER`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `CREDIT_TYPE` (`CREDIT_TYPE`),
+  KEY `CREW_DEPARTMENT` (`CREW_DEPARTMENT`),
+  KEY `CREW_JOB` (`CREW_JOB`)
+) ENGINE=InnoDB AUTO_INCREMENT=6568523 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_PERSON_UPDATE` (
   `ID_PERSON` int(11) NOT NULL,
   `ID_WIKIDATA` varchar(50) DEFAULT NULL,
@@ -1223,15 +1700,20 @@ CREATE TABLE `T_WC_TMDB_PERSON_UPDATE` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_PERSON`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_WIKIDATA` (`ID_WIKIDATA`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_PLEX_MEDIA`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_PLEX_MEDIA` (
   `ID_PLEX_MEDIA` int(11) NOT NULL,
   `ID_PLEX_MOVIE` int(11) DEFAULT NULL,
@@ -1259,15 +1741,33 @@ CREATE TABLE `T_WC_TMDB_PLEX_MEDIA` (
   `PIXEL_COUNT` bigint(15) DEFAULT NULL,
   `QUALITY` int(5) DEFAULT NULL,
   `QUALITY_TEXT` varchar(20) DEFAULT NULL,
-  `RESOLUTION_TEXT` varchar(20) DEFAULT NULL
+  `RESOLUTION_TEXT` varchar(20) DEFAULT NULL,
+  PRIMARY KEY (`ID_PLEX_MEDIA`),
+  KEY `ID_PLEX_MOVIE` (`ID_PLEX_MOVIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `MEDIA_WIDTH` (`MEDIA_WIDTH`),
+  KEY `MEDIA_HEIGHT` (`MEDIA_HEIGHT`),
+  KEY `MEDIA_SIZE` (`MEDIA_SIZE`),
+  KEY `MEDIA_DURATION` (`MEDIA_DURATION`),
+  KEY `MEDIA_BITRATE` (`MEDIA_BITRATE`),
+  KEY `MEDIA_CONTAINER` (`MEDIA_CONTAINER`),
+  KEY `MEDIA_VIDEO_CODEC` (`MEDIA_VIDEO_CODEC`),
+  KEY `MEDIA_AUDIO_CODEC` (`MEDIA_AUDIO_CODEC`),
+  KEY `MEDIA_ASPECT_RATIO` (`MEDIA_ASPECT_RATIO`),
+  KEY `MEDIA_FPS` (`MEDIA_FPS`),
+  KEY `MEDIA_AUDIO_CHANNELS` (`MEDIA_AUDIO_CHANNELS`),
+  KEY `ID_PLEX_LIBRARY_SECTION` (`ID_PLEX_LIBRARY_SECTION`),
+  KEY `ID_PLEX_SECTION_LOCATION` (`ID_PLEX_SECTION_LOCATION`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_PLEX_MEDIA_PART`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_PLEX_MEDIA_PART` (
   `ID_PLEX_MEDIA_PART` int(11) NOT NULL,
   `ID_PLEX_MEDIA` int(11) DEFAULT NULL,
@@ -1288,15 +1788,27 @@ CREATE TABLE `T_WC_TMDB_PLEX_MEDIA_PART` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_PLEX_MEDIA_PART`),
+  KEY `ID_PLEX_MEDIA` (`ID_PLEX_MEDIA`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `HASH` (`HASH`),
+  KEY `OPENSUBTITLE_HASH` (`OPENSUBTITLE_HASH`),
+  KEY `MEDIA_FILE` (`MEDIA_FILE`),
+  KEY `ID_PLEX_DIRECTORY` (`ID_PLEX_DIRECTORY`),
+  KEY `PART_SIZE` (`PART_SIZE`),
+  KEY `PART_DURATION` (`PART_DURATION`),
+  KEY `EXTRA_DATA` (`EXTRA_DATA`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_PLEX_MOVIE`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_PLEX_MOVIE` (
   `ID_PLEX_MOVIE` int(11) NOT NULL,
   `ID_MOVIE` int(11) DEFAULT NULL,
@@ -1327,26 +1839,47 @@ CREATE TABLE `T_WC_TMDB_PLEX_MOVIE` (
   `ID_USER_UPDATED` int(5) DEFAULT NULL,
   `PLEX_SLUG` varchar(255) DEFAULT NULL,
   `DATA_TYPE` int(5) DEFAULT NULL,
-  `QUALITY_MAX` int(5) DEFAULT NULL
+  `QUALITY_MAX` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_PLEX_MOVIE`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `TITLE` (`PLEX_TITLE`),
+  KEY `YEAR_RELEASE` (`PLEX_YEAR_RELEASE`),
+  KEY `API_RESULT_COUNT` (`API_RESULT_COUNT`),
+  KEY `YEAR_RELEASE_2` (`YEAR_RELEASE`),
+  KEY `ID_MOVIE_V1` (`ID_MOVIE_V1`),
+  KEY `PLEX_YEAR_RELEASE_FROM_FILE` (`FILE_YEAR_RELEASE`),
+  KEY `ID_IMDB` (`ID_IMDB`),
+  KEY `FILE_TITLE` (`FILE_TITLE`),
+  KEY `TITLE_2` (`TITLE`),
+  KEY `ORIGINAL_TITLE` (`ORIGINAL_TITLE`),
+  KEY `PLEX_TITLE_EQ_TITLE` (`PLEX_TITLE_EQ_TITLE`),
+  KEY `PLEX_TITLE_EQ_ORIGINAL_TITLE` (`PLEX_TITLE_EQ_ORIGINAL_TITLE`),
+  KEY `FILE_TITLE_EQ_TITLE` (`FILE_TITLE_EQ_TITLE`),
+  KEY `FILE_TITLE_EQ_ORIGINAL_TITLE` (`FILE_TITLE_EQ_ORIGINAL_TITLE`),
+  KEY `PLEX_GUID` (`PLEX_GUID`),
+  KEY `PLEX_SLUG` (`PLEX_SLUG`),
+  KEY `DATA_TYPE` (`DATA_TYPE`),
+  KEY `QUALITY_MAX` (`QUALITY_MAX`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_PRODUCTION_COMPANY_ID_IMPORT`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_PRODUCTION_COMPANY_ID_IMPORT` (
   `id` int(11) NOT NULL,
-  `name` varchar(250) DEFAULT NULL
+  `name` varchar(250) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SEASON`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SEASON` (
   `ID_SEASON` int(11) NOT NULL,
   `ID_SERIE` int(11) NOT NULL,
@@ -1373,17 +1906,38 @@ CREATE TABLE `T_WC_TMDB_SEASON` (
   `TIM_CREDITS_COMPLETED` datetime DEFAULT NULL,
   `TIM_IMAGES_COMPLETED` datetime DEFAULT NULL,
   `TIM_VIDEOS_COMPLETED` datetime DEFAULT NULL,
-  `TIM_TRANSLATIONS_COMPLETED` datetime DEFAULT NULL
+  `TIM_TRANSLATIONS_COMPLETED` datetime DEFAULT NULL,
+  PRIMARY KEY (`ID_SEASON`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `SEASON_NUMBER` (`SEASON_NUMBER`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TITLE` (`TITLE`),
+  KEY `DAT_AIR` (`DAT_AIR`),
+  KEY `AIR_YEAR` (`AIR_YEAR`),
+  KEY `POSTER_PATH` (`POSTER_PATH`),
+  KEY `ID_IMDB` (`ID_IMDB`),
+  KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
+  KEY `ID_TVDB` (`ID_TVDB`),
+  KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
+  KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
+  KEY `TIM_VIDEOS_COMPLETED` (`TIM_VIDEOS_COMPLETED`),
+  KEY `TIM_TRANSLATIONS_COMPLETED` (`TIM_TRANSLATIONS_COMPLETED`),
+  KEY `AIR_MONTH` (`AIR_MONTH`),
+  KEY `AIR_DAY` (`AIR_DAY`),
+  KEY `EPISODE_COUNT` (`EPISODE_COUNT`),
+  KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SEASON_IMAGE`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SEASON_IMAGE` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_SEASON` int(11) NOT NULL,
   `ID_SERIE` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -1400,17 +1954,26 @@ CREATE TABLE `T_WC_TMDB_SEASON_IMAGE` (
   `WIDTH` int(5) DEFAULT NULL,
   `HEIGHT` int(5) DEFAULT NULL,
   `VOTE_AVERAGE` double DEFAULT NULL,
-  `VOTE_COUNT` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SEASON_LANG`
---
-
+  `VOTE_COUNT` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_SEASON` (`ID_SEASON`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
+  KEY `LANG` (`LANG`),
+  KEY `IMAGE_PATH` (`IMAGE_PATH`)
+) ENGINE=InnoDB AUTO_INCREMENT=8528 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SEASON_LANG` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_SEASON` int(11) NOT NULL,
   `ID_SERIE` int(11) NOT NULL,
   `LANG` varchar(10) DEFAULT NULL,
@@ -1422,17 +1985,25 @@ CREATE TABLE `T_WC_TMDB_SEASON_LANG` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SEASON_VIDEO`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_SEASON` (`ID_SEASON`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `LANG` (`LANG`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `TITLE` (`TITLE`)
+) ENGINE=InnoDB AUTO_INCREMENT=1972 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SEASON_VIDEO` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_SEASON` int(11) NOT NULL,
   `ID_SERIE` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -1452,15 +2023,26 @@ CREATE TABLE `T_WC_TMDB_SEASON_VIDEO` (
   `QUALITY_TEXT` varchar(20) DEFAULT NULL,
   `DAT_PUBLISHED` datetime DEFAULT NULL,
   `ID_CREDIT` varchar(50) DEFAULT NULL,
-  `OFFICIAL` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SERIE`
---
-
+  `OFFICIAL` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_SEASON` (`ID_SEASON`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `LANG` (`LANG`),
+  KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
+  KEY `VIDEO_KEY` (`VIDEO_KEY`),
+  KEY `VIDEO_TYPE` (`VIDEO_TYPE`),
+  KEY `OFFICIAL` (`OFFICIAL`)
+) ENGINE=InnoDB AUTO_INCREMENT=628 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SERIE` (
   `ID_SERIE` int(11) NOT NULL,
   `TITLE` varchar(250) DEFAULT NULL,
@@ -1504,17 +2086,51 @@ CREATE TABLE `T_WC_TMDB_SERIE` (
   `SPOKEN_LANGUAGES` varchar(200) DEFAULT NULL,
   `NUMBER_OF_EPISODES` int(5) DEFAULT NULL,
   `NUMBER_OF_SEASONS` int(5) DEFAULT NULL,
-  `SERIE_TYPE` varchar(50) DEFAULT NULL
+  `SERIE_TYPE` varchar(50) DEFAULT NULL,
+  PRIMARY KEY (`ID_SERIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_IMDB` (`ID_IMDB`),
+  KEY `TITLE` (`TITLE`),
+  KEY `POPULARITY` (`POPULARITY`),
+  KEY `ADULT` (`ADULT`),
+  KEY `POSTER_PATH` (`POSTER_PATH`),
+  KEY `ORIGINAL_LANGUAGE` (`ORIGINAL_LANGUAGE`),
+  KEY `STATUS` (`STATUS`),
+  KEY `GENRES` (`GENRES`),
+  KEY `DAT_RELEASE` (`DAT_FIRST_AIR`),
+  KEY `BACKDROP_PATH` (`BACKDROP_PATH`),
+  KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  KEY `VOTE_COUNT` (`VOTE_COUNT`),
+  KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
+  KEY `ORIGINAL_TITLE` (`ORIGINAL_TITLE`),
+  KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
+  KEY `TIM_KEYWORDS_COMPLETED` (`TIM_KEYWORDS_COMPLETED`),
+  KEY `TIM_WIKIDATA_COMPLETED` (`TIM_WIKIDATA_COMPLETED`),
+  KEY `TIM_WIKIPEDIA_COMPLETED` (`TIM_WIKIPEDIA_COMPLETED`),
+  KEY `DAT_LAST_AIR` (`DAT_LAST_AIR`),
+  KEY `FIRST_AIR_YEAR` (`FIRST_AIR_YEAR`),
+  KEY `FIRST_AIR_MONTH` (`FIRST_AIR_MONTH`),
+  KEY `FIRST_AIR_DAY` (`FIRST_AIR_DAY`),
+  KEY `LAST_AIR_YEAR` (`LAST_AIR_YEAR`),
+  KEY `LAST_AIR_MONTH` (`LAST_AIR_MONTH`),
+  KEY `LAST_AIR_DAY` (`LAST_AIR_DAY`),
+  KEY `NUMBER_OF_EPISODES` (`NUMBER_OF_EPISODES`),
+  KEY `NUMBER_OF_SEASONS` (`NUMBER_OF_SEASONS`),
+  KEY `SERIE_TYPE` (`SERIE_TYPE`),
+  KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
+  KEY `TIM_VIDEOS_COMPLETED` (`TIM_VIDEOS_COMPLETED`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SERIE_CHARACTER`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SERIE_CHARACTER` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_SERIE` int(11) NOT NULL,
   `ID_CHARACTER` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -1523,17 +2139,24 @@ CREATE TABLE `T_WC_TMDB_SERIE_CHARACTER` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SERIE_COMPANY`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  UNIQUE KEY `UQ_TMDB_SERIE_CHARACTER_SERIE_CHARACTER` (`ID_SERIE`,`ID_CHARACTER`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `ID_CHARACTER` (`ID_CHARACTER`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=401402 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SERIE_COMPANY` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_SERIE` int(11) NOT NULL,
   `ID_COMPANY` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -1542,17 +2165,23 @@ CREATE TABLE `T_WC_TMDB_SERIE_COMPANY` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SERIE_GENRE`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `ID_COMPANY` (`ID_COMPANY`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=148397 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SERIE_GENRE` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_SERIE` int(11) NOT NULL,
   `ID_GENRE` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -1561,17 +2190,23 @@ CREATE TABLE `T_WC_TMDB_SERIE_GENRE` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SERIE_IMAGE`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `ID_GENRE` (`ID_GENRE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=220390 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SERIE_IMAGE` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_SERIE` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
   `DISPLAY_ORDER` int(5) DEFAULT NULL,
@@ -1587,17 +2222,30 @@ CREATE TABLE `T_WC_TMDB_SERIE_IMAGE` (
   `WIDTH` int(5) DEFAULT NULL,
   `HEIGHT` int(5) DEFAULT NULL,
   `VOTE_AVERAGE` double DEFAULT NULL,
-  `VOTE_COUNT` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SERIE_KEYWORD`
---
-
+  `VOTE_COUNT` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
+  KEY `LANG` (`LANG`),
+  KEY `IMAGE_PATH` (`IMAGE_PATH`),
+  KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
+  KEY `WIDTH` (`WIDTH`),
+  KEY `HEIGHT` (`HEIGHT`),
+  KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
+  KEY `VOTE_COUNT` (`VOTE_COUNT`)
+) ENGINE=InnoDB AUTO_INCREMENT=1102868 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SERIE_KEYWORD` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_SERIE` int(11) NOT NULL,
   `ID_KEYWORD` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -1606,17 +2254,23 @@ CREATE TABLE `T_WC_TMDB_SERIE_KEYWORD` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SERIE_LANG`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `ID_KEYWORD` (`ID_KEYWORD`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=260912 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SERIE_LANG` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_SERIE` int(11) NOT NULL,
   `LANG` varchar(10) DEFAULT NULL,
   `TITLE` varchar(250) DEFAULT NULL,
@@ -1630,17 +2284,26 @@ CREATE TABLE `T_WC_TMDB_SERIE_LANG` (
   `TIM_UPDATED` datetime DEFAULT NULL,
   `ID_USER_UPDATED` int(5) DEFAULT NULL,
   `BACKDROP_PATH` varchar(200) DEFAULT NULL,
-  `TAGLINE` mediumtext DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SERIE_LIST`
---
-
+  `TAGLINE` mediumtext DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `LANG` (`LANG`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `TITLE` (`TITLE`),
+  KEY `POSTER_PATH` (`POSTER_PATH`),
+  KEY `BACKDROP_PATH` (`BACKDROP_PATH`)
+) ENGINE=InnoDB AUTO_INCREMENT=228354 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SERIE_LIST` (
-  `ID_TMDB_SERIE_LIST` int(11) NOT NULL,
+  `ID_TMDB_SERIE_LIST` int(11) NOT NULL AUTO_INCREMENT,
   `ID_LIST` int(11) NOT NULL,
   `ID_SERIE` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -1649,17 +2312,23 @@ CREATE TABLE `T_WC_TMDB_SERIE_LIST` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SERIE_NETWORK`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_TMDB_SERIE_LIST`),
+  KEY `ID_LIST` (`ID_LIST`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`)
+) ENGINE=InnoDB AUTO_INCREMENT=2519 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SERIE_NETWORK` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_SERIE` int(11) NOT NULL,
   `ID_NETWORK` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -1668,17 +2337,23 @@ CREATE TABLE `T_WC_TMDB_SERIE_NETWORK` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SERIE_PRODUCTION_COUNTRY`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `ID_NETWORK` (`ID_NETWORK`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=158048 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SERIE_PRODUCTION_COUNTRY` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_SERIE` int(11) NOT NULL,
   `COUNTRY_CODE` varchar(2) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -1687,17 +2362,23 @@ CREATE TABLE `T_WC_TMDB_SERIE_PRODUCTION_COUNTRY` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SERIE_SPOKEN_LANGUAGE`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=125089 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SERIE_SPOKEN_LANGUAGE` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_SERIE` int(11) NOT NULL,
   `SPOKEN_LANGUAGE` varchar(2) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
@@ -1706,17 +2387,23 @@ CREATE TABLE `T_WC_TMDB_SERIE_SPOKEN_LANGUAGE` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SERIE_VIDEO`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `SPOKEN_LANGUAGE` (`SPOKEN_LANGUAGE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=167036 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SERIE_VIDEO` (
-  `ID_ROW` int(11) NOT NULL,
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `ID_SERIE` int(11) NOT NULL,
   `DELETED` int(5) DEFAULT NULL,
   `DISPLAY_ORDER` int(5) DEFAULT NULL,
@@ -1735,17 +2422,33 @@ CREATE TABLE `T_WC_TMDB_SERIE_VIDEO` (
   `QUALITY_TEXT` varchar(20) DEFAULT NULL,
   `DAT_PUBLISHED` datetime DEFAULT NULL,
   `ID_CREDIT` varchar(50) DEFAULT NULL,
-  `OFFICIAL` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_SPACY_LEMME`
---
-
+  `OFFICIAL` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`),
+  KEY `LANG` (`LANG`),
+  KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
+  KEY `VIDEO_KEY` (`VIDEO_KEY`),
+  KEY `VIDEO_SITE` (`VIDEO_SITE`),
+  KEY `VIDEO_TYPE` (`VIDEO_TYPE`),
+  KEY `QUALITY` (`QUALITY`),
+  KEY `VIDEO_NAME` (`VIDEO_NAME`),
+  KEY `QUALITY_TEXT` (`QUALITY_TEXT`),
+  KEY `DAT_PUBLISHED` (`DAT_PUBLISHED`),
+  KEY `ID_CREDIT` (`ID_CREDIT`),
+  KEY `OFFICIAL` (`OFFICIAL`)
+) ENGINE=InnoDB AUTO_INCREMENT=47528 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_SPACY_LEMME` (
-  `ID_LEMME` int(11) NOT NULL,
+  `ID_LEMME` int(11) NOT NULL AUTO_INCREMENT,
   `LANG` varchar(10) DEFAULT NULL,
   `NAME` varchar(250) DEFAULT NULL,
   `LABEL` varchar(10) DEFAULT NULL,
@@ -1755,1710 +2458,36 @@ CREATE TABLE `T_WC_TMDB_SPACY_LEMME` (
   `DAT_CREAT` date DEFAULT NULL,
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_TV_NETWORK_ID_IMPORT`
---
-
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_LEMME`),
+  KEY `LANG` (`LANG`),
+  KEY `NAME` (`NAME`),
+  KEY `LABEL` (`LABEL`),
+  KEY `DELETED` (`DELETED`),
+  KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
+  KEY `ID_OWNER` (`ID_OWNER`),
+  KEY `ID_CREATOR` (`ID_CREATOR`),
+  KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
+  KEY `TIM_UPDATED` (`TIM_UPDATED`),
+  KEY `DAT_CREAT` (`DAT_CREAT`)
+) ENGINE=InnoDB AUTO_INCREMENT=730609 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_TV_NETWORK_ID_IMPORT` (
   `id` int(11) NOT NULL,
-  `name` varchar(250) DEFAULT NULL
+  `name` varchar(250) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Structure de la table `T_WC_TMDB_TV_SERIE_ID_IMPORT`
---
-
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_TMDB_TV_SERIE_ID_IMPORT` (
   `id` int(11) NOT NULL,
   `original_name` varchar(250) DEFAULT NULL,
-  `popularity` double DEFAULT NULL
+  `popularity` double DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `popularity` (`popularity`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Index pour les tables déchargées
---
-
---
--- Index pour la table `T_WC_TMDB_CHARACTER`
---
-ALTER TABLE `T_WC_TMDB_CHARACTER`
-  ADD PRIMARY KEY (`ID_CHARACTER`),
-  ADD UNIQUE KEY `uq_t2s_character_cast_character_key` (`CAST_CHARACTER_KEY`),
-  ADD KEY `CAST_CHARACTER` (`CAST_CHARACTER`),
-  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `PROFILE_PATH` (`PROFILE_PATH`),
-  ADD KEY `POPULARITY` (`POPULARITY`),
-  ADD KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `WIKIDATA_NAME` (`WIKIDATA_NAME`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `MOVIE_COUNT` (`MOVIE_COUNT`),
-  ADD KEY `SERIE_COUNT` (`SERIE_COUNT`),
-  ADD KEY `PERSON_COUNT` (`PERSON_COUNT`),
-  ADD KEY `IDX_TMDB_CAST_CHARACTER_KEY` (`CAST_CHARACTER_KEY`),
-  ADD KEY `IDX_TMDB_CAST_CHARACTER_NORM` (`CAST_CHARACTER_NORM`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `WIKIPEDIA_IMAGE_PATH` (`WIKIPEDIA_IMAGE_PATH`),
-  ADD KEY `IMDB_RATING` (`IMDB_RATING`),
-  ADD KEY `IMDB_RATING_WEIGHTED` (`IMDB_RATING_WEIGHTED`);
-ALTER TABLE `T_WC_TMDB_CHARACTER` ADD FULLTEXT KEY `ft_cast_character_norm` (`CAST_CHARACTER_NORM`);
-
---
--- Index pour la table `T_WC_TMDB_COLLECTION`
---
-ALTER TABLE `T_WC_TMDB_COLLECTION`
-  ADD PRIMARY KEY (`ID_COLLECTION`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `NAME` (`NAME`),
-  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
-  ADD KEY `BACKDROP_PATH` (`BACKDROP_PATH`),
-  ADD KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
-  ADD KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
-  ADD KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`),
-  ADD KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
-  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`);
-
---
--- Index pour la table `T_WC_TMDB_COLLECTION_ID_IMPORT`
---
-ALTER TABLE `T_WC_TMDB_COLLECTION_ID_IMPORT`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `name` (`name`);
-
---
--- Index pour la table `T_WC_TMDB_COLLECTION_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_COLLECTION_IMAGE`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_COLLECTION` (`ID_COLLECTION`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `IMAGE_PATH` (`IMAGE_PATH`),
-  ADD KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
-  ADD KEY `WIDTH` (`WIDTH`),
-  ADD KEY `HEIGHT` (`HEIGHT`),
-  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
-  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`);
-
---
--- Index pour la table `T_WC_TMDB_COLLECTION_LANG`
---
-ALTER TABLE `T_WC_TMDB_COLLECTION_LANG`
-  ADD KEY `ID_COLLECTION` (`ID_COLLECTION`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `NAME` (`NAME`),
-  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
-  ADD KEY `BACKDROP_PATH` (`BACKDROP_PATH`);
-
---
--- Index pour la table `T_WC_TMDB_COMPANY`
---
-ALTER TABLE `T_WC_TMDB_COMPANY`
-  ADD PRIMARY KEY (`ID_COMPANY`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `NAME` (`NAME`),
-  ADD KEY `LOGO_PATH` (`LOGO_PATH`),
-  ADD KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
-  ADD KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
-  ADD KEY `ID_PARENT` (`ID_PARENT`),
-  ADD KEY `ORIGIN_COUNTRY` (`ORIGIN_COUNTRY`),
-  ADD KEY `HEADQUARTERS` (`HEADQUARTERS`),
-  ADD KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
-  ADD KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`),
-  ADD KEY `MOVIE_COUNT` (`MOVIE_COUNT`),
-  ADD KEY `SERIE_COUNT` (`SERIE_COUNT`);
-
---
--- Index pour la table `T_WC_TMDB_COMPANY_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_COMPANY_IMAGE`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_COMPANY` (`ID_COMPANY`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `IMAGE_PATH` (`IMAGE_PATH`),
-  ADD KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
-  ADD KEY `WIDTH` (`WIDTH`),
-  ADD KEY `HEIGHT` (`HEIGHT`),
-  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
-  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`);
-
---
--- Index pour la table `T_WC_TMDB_EPISODE`
---
-ALTER TABLE `T_WC_TMDB_EPISODE`
-  ADD PRIMARY KEY (`ID_EPISODE`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `ID_SEASON` (`ID_SEASON`),
-  ADD KEY `SEASON_NUMBER` (`SEASON_NUMBER`),
-  ADD KEY `EPISODE_NUMBER` (`EPISODE_NUMBER`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TITLE` (`TITLE`),
-  ADD KEY `DAT_AIR` (`DAT_AIR`),
-  ADD KEY `AIR_YEAR` (`AIR_YEAR`),
-  ADD KEY `RUNTIME` (`RUNTIME`),
-  ADD KEY `EPISODE_TYPE` (`EPISODE_TYPE`),
-  ADD KEY `STILL_PATH` (`STILL_PATH`),
-  ADD KEY `ID_IMDB` (`ID_IMDB`),
-  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `ID_TVDB` (`ID_TVDB`),
-  ADD KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
-  ADD KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
-  ADD KEY `TIM_VIDEOS_COMPLETED` (`TIM_VIDEOS_COMPLETED`),
-  ADD KEY `TIM_TRANSLATIONS_COMPLETED` (`TIM_TRANSLATIONS_COMPLETED`),
-  ADD KEY `AIR_MONTH` (`AIR_MONTH`),
-  ADD KEY `AIR_DAY` (`AIR_DAY`),
-  ADD KEY `PRODUCTION_CODE` (`PRODUCTION_CODE`),
-  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
-  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`);
-
---
--- Index pour la table `T_WC_TMDB_EPISODE_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_EPISODE_IMAGE`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_EPISODE` (`ID_EPISODE`),
-  ADD KEY `ID_SEASON` (`ID_SEASON`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `IMAGE_PATH` (`IMAGE_PATH`);
-
---
--- Index pour la table `T_WC_TMDB_EPISODE_LANG`
---
-ALTER TABLE `T_WC_TMDB_EPISODE_LANG`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_EPISODE` (`ID_EPISODE`),
-  ADD KEY `ID_SEASON` (`ID_SEASON`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `TITLE` (`TITLE`);
-
---
--- Index pour la table `T_WC_TMDB_EPISODE_VIDEO`
---
-ALTER TABLE `T_WC_TMDB_EPISODE_VIDEO`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_EPISODE` (`ID_EPISODE`),
-  ADD KEY `ID_SEASON` (`ID_SEASON`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
-  ADD KEY `VIDEO_KEY` (`VIDEO_KEY`),
-  ADD KEY `VIDEO_TYPE` (`VIDEO_TYPE`),
-  ADD KEY `OFFICIAL` (`OFFICIAL`);
-
---
--- Index pour la table `T_WC_TMDB_GENRE`
---
-ALTER TABLE `T_WC_TMDB_GENRE`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `name` (`name`);
-
---
--- Index pour la table `T_WC_TMDB_GENRE_LANG`
---
-ALTER TABLE `T_WC_TMDB_GENRE_LANG`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `id` (`id`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `name` (`name`);
-
---
--- Index pour la table `T_WC_TMDB_KEYWORD`
---
-ALTER TABLE `T_WC_TMDB_KEYWORD`
-  ADD PRIMARY KEY (`ID_KEYWORD`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `NAME` (`NAME`),
-  ADD KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
-  ADD KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
-  ADD KEY `USE_FOR_TAGGING` (`USE_FOR_TAGGING`),
-  ADD KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`),
-  ADD KEY `MOVIE_COUNT` (`MOVIE_COUNT`),
-  ADD KEY `SERIE_COUNT` (`SERIE_COUNT`),
-  ADD KEY `IS_EMPTY` (`IS_EMPTY`),
-  ADD KEY `IS_PERSON` (`IS_PERSON`),
-  ADD KEY `NAME_WORD_COUNT` (`NAME_WORD_COUNT`),
-  ADD KEY `CLASSIFIER_CATEGORY` (`CLASSIFIER_CATEGORY`),
-  ADD KEY `USED_FOR_T2S_TOPIC` (`USED_FOR_T2S_TOPIC`),
-  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `WIKIDATA_LABEL` (`WIKIDATA_LABEL`),
-  ADD KEY `CONFIDENCE` (`CONFIDENCE`),
-  ADD KEY `TIM_WIKIPEDIA_SEARCH` (`TIM_WIKIPEDIA_SEARCH`);
-
---
--- Index pour la table `T_WC_TMDB_KEYWORD_ID_IMPORT`
---
-ALTER TABLE `T_WC_TMDB_KEYWORD_ID_IMPORT`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `name` (`name`),
-  ADD KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`);
-
---
--- Index pour la table `T_WC_TMDB_KEYWORD_ID_IMPORT_LANG`
---
-ALTER TABLE `T_WC_TMDB_KEYWORD_ID_IMPORT_LANG`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `id` (`id`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `name` (`name`),
-  ADD KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`),
-  ADD KEY `USE_FOR_TAGGING` (`USE_FOR_TAGGING`);
-
---
--- Index pour la table `T_WC_TMDB_KEYWORD_LANG`
---
-ALTER TABLE `T_WC_TMDB_KEYWORD_LANG`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_KEYWORD` (`ID_KEYWORD`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `NAME` (`NAME`),
-  ADD KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`),
-  ADD KEY `USE_FOR_TAGGING` (`USE_FOR_TAGGING`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`);
-
---
--- Index pour la table `T_WC_TMDB_LANG_LANG`
---
-ALTER TABLE `T_WC_TMDB_LANG_LANG`
-  ADD KEY `LANG_DISPLAY` (`LANG_DISPLAY`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `DESCRIPTION` (`DESCRIPTION`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`);
-
---
--- Index pour la table `T_WC_TMDB_LIST`
---
-ALTER TABLE `T_WC_TMDB_LIST`
-  ADD PRIMARY KEY (`ID_LIST`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `NAME` (`NAME`),
-  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
-  ADD KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
-  ADD KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
-  ADD KEY `USE_FOR_TAGGING` (`USE_FOR_TAGGING`),
-  ADD KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`),
-  ADD KEY `SHORT_NAME` (`SHORT_NAME`),
-  ADD KEY `CREATED_BY` (`CREATED_BY`),
-  ADD KEY `ID_LIST_TYPE` (`ID_LIST_TYPE`),
-  ADD KEY `ID_PROPERTY` (`ID_PROPERTY`),
-  ADD KEY `ID_ITEM` (`ID_ITEM`),
-  ADD KEY `USED_FOR_T2S_COLLECTION` (`USED_FOR_T2S_COLLECTION`),
-  ADD KEY `USED_FOR_T2S_LIST` (`USED_FOR_T2S_LIST`);
-
---
--- Index pour la table `T_WC_TMDB_LIST_LANG`
---
-ALTER TABLE `T_WC_TMDB_LIST_LANG`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_LIST` (`ID_LIST`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `SHORT_NAME` (`SHORT_NAME`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`);
-
---
--- Index pour la table `T_WC_TMDB_LIST_TYPE`
---
-ALTER TABLE `T_WC_TMDB_LIST_TYPE`
-  ADD PRIMARY KEY (`ID_LIST_TYPE`),
-  ADD KEY `AUTO_UPDATE` (`AUTO_UPDATE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `DESCRIPTION` (`DESCRIPTION`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE`
---
-ALTER TABLE `T_WC_TMDB_MOVIE`
-  ADD PRIMARY KEY (`ID_MOVIE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_IMDB` (`ID_IMDB`),
-  ADD KEY `TITLE` (`TITLE`),
-  ADD KEY `POPULARITY` (`POPULARITY`),
-  ADD KEY `ADULT` (`ADULT`),
-  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
-  ADD KEY `ORIGINAL_LANGUAGE` (`ORIGINAL_LANGUAGE`),
-  ADD KEY `STATUS` (`STATUS`),
-  ADD KEY `GENRES` (`GENRES`),
-  ADD KEY `ID_COLLECTION` (`ID_COLLECTION`),
-  ADD KEY `BUDGET` (`BUDGET`),
-  ADD KEY `DAT_RELEASE` (`DAT_RELEASE`),
-  ADD KEY `RUNTIME` (`RUNTIME`),
-  ADD KEY `BACKDROP_PATH` (`BACKDROP_PATH`),
-  ADD KEY `REVENUE` (`REVENUE`),
-  ADD KEY `VIDEO` (`VIDEO`),
-  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
-  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`),
-  ADD KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
-  ADD KEY `ORIGINAL_TITLE` (`ORIGINAL_TITLE`),
-  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `TIM_KEYWORDS_COMPLETED` (`TIM_KEYWORDS_COMPLETED`),
-  ADD KEY `TIM_WIKIDATA_COMPLETED` (`TIM_WIKIDATA_COMPLETED`),
-  ADD KEY `TIM_WIKIPEDIA_COMPLETED` (`TIM_WIKIPEDIA_COMPLETED`),
-  ADD KEY `WIKIPEDIA_FORMAT_LINE` (`WIKIPEDIA_FORMAT_LINE`(768)),
-  ADD KEY `IS_COLOR` (`IS_COLOR`),
-  ADD KEY `IS_BLACK_AND_WHITE` (`IS_BLACK_AND_WHITE`),
-  ADD KEY `IS_SILENT` (`IS_SILENT`),
-  ADD KEY `IS_3D` (`IS_3D`),
-  ADD KEY `COLOR_TECHNOLOGY` (`COLOR_TECHNOLOGY`),
-  ADD KEY `FILM_TECHNOLOGY` (`FILM_TECHNOLOGY`(768)),
-  ADD KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
-  ADD KEY `FILM_FORMAT` (`FILM_FORMAT`),
-  ADD KEY `SOUND_SYSTEM` (`SOUND_SYSTEM`(768)),
-  ADD KEY `NUM_AUDIO_TRACKS` (`NUM_AUDIO_TRACKS`),
-  ADD KEY `IS_VALID_FORMAT` (`IS_VALID_FORMAT`),
-  ADD KEY `IS_MOVIE` (`IS_MOVIE`),
-  ADD KEY `IS_DOCUMENTARY` (`IS_DOCUMENTARY`),
-  ADD KEY `RELEASE_YEAR` (`RELEASE_YEAR`),
-  ADD KEY `RELEASE_MONTH` (`RELEASE_MONTH`),
-  ADD KEY `RELEASE_DAY` (`RELEASE_DAY`),
-  ADD KEY `IS_SHORT_FILM` (`IS_SHORT_FILM`),
-  ADD KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
-  ADD KEY `SOUND_TECHNOLOGY` (`SOUND_TECHNOLOGY`),
-  ADD KEY `DAT_WIKIPEDIA_FORMAT_LINE` (`DAT_WIKIPEDIA_FORMAT_LINE`),
-  ADD KEY `TIM_VIDEOS_COMPLETED` (`TIM_VIDEOS_COMPLETED`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE_CHARACTER`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_CHARACTER`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `ID_CHARACTER` (`ID_CHARACTER`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE_COMPANY`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_COMPANY`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `ID_COMPANY` (`ID_COMPANY`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE_GENRE`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_GENRE`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `ID_GENRE` (`ID_GENRE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE_ID_IMPORT`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_ID_IMPORT`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `popularity` (`popularity`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_IMAGE`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `IMAGE_PATH` (`IMAGE_PATH`),
-  ADD KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
-  ADD KEY `WIDTH` (`WIDTH`),
-  ADD KEY `HEIGHT` (`HEIGHT`),
-  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
-  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE_KEYWORD`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_KEYWORD`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `ID_KEYWORD` (`ID_KEYWORD`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE_LANG`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_LANG`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `TITLE` (`TITLE`),
-  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
-  ADD KEY `BACKDROP_PATH` (`BACKDROP_PATH`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE_LANG_META`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_LANG_META`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `YEAR_RELEASE` (`YEAR_RELEASE`),
-  ADD KEY `ORIGINAL_LANGUAGE` (`ORIGINAL_LANGUAGE`),
-  ADD KEY `IMDB_RATING` (`IMDB_RATING`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE_LEMME`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_LEMME`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `ID_LEMME` (`ID_LEMME`),
-  ADD KEY `START_CHAR` (`START_CHAR`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE_LIST`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_LIST`
-  ADD PRIMARY KEY (`ID_TMDB_MOVIE_LIST`),
-  ADD KEY `ID_LIST` (`ID_LIST`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE_PRODUCTION_COUNTRY`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_PRODUCTION_COUNTRY`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE_SPOKEN_LANGUAGE`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_SPOKEN_LANGUAGE`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `SPOKEN_LANGUAGE` (`SPOKEN_LANGUAGE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE_TITLE`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_TITLE`
-  ADD PRIMARY KEY (`ID_MOVIE_TITLE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `TITLE` (`TITLE`),
-  ADD KEY `ISO_3166_1` (`ISO_3166_1`),
-  ADD KEY `TITLE_TYPE` (`TITLE_TYPE`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE_UPDATE`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_UPDATE`
-  ADD PRIMARY KEY (`ID_MOVIE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`);
-
---
--- Index pour la table `T_WC_TMDB_MOVIE_VIDEO`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_VIDEO`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
-  ADD KEY `VIDEO_KEY` (`VIDEO_KEY`),
-  ADD KEY `VIDEO_SITE` (`VIDEO_SITE`),
-  ADD KEY `VIDEO_TYPE` (`VIDEO_TYPE`),
-  ADD KEY `QUALITY` (`QUALITY`),
-  ADD KEY `VIDEO_NAME` (`VIDEO_NAME`),
-  ADD KEY `QUALITY_TEXT` (`QUALITY_TEXT`),
-  ADD KEY `DAT_PUBLISHED` (`DAT_PUBLISHED`),
-  ADD KEY `ID_CREDIT` (`ID_CREDIT`),
-  ADD KEY `OFFICIAL` (`OFFICIAL`);
-
---
--- Index pour la table `T_WC_TMDB_NETWORK`
---
-ALTER TABLE `T_WC_TMDB_NETWORK`
-  ADD PRIMARY KEY (`ID_NETWORK`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `NAME` (`NAME`),
-  ADD KEY `LOGO_PATH` (`LOGO_PATH`),
-  ADD KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
-  ADD KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
-  ADD KEY `ID_PARENT` (`ID_PARENT`),
-  ADD KEY `ORIGIN_COUNTRY` (`ORIGIN_COUNTRY`),
-  ADD KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
-  ADD KEY `HOMEPAGE_URL` (`HOMEPAGE_URL`),
-  ADD KEY `HEADQUARTERS` (`HEADQUARTERS`),
-  ADD KEY `SERIE_COUNT` (`SERIE_COUNT`);
-
---
--- Index pour la table `T_WC_TMDB_NETWORK_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_NETWORK_IMAGE`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_NETWORK` (`ID_NETWORK`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `IMAGE_PATH` (`IMAGE_PATH`),
-  ADD KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
-  ADD KEY `WIDTH` (`WIDTH`),
-  ADD KEY `HEIGHT` (`HEIGHT`),
-  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
-  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`);
-
---
--- Index pour la table `T_WC_TMDB_PERSON`
---
-ALTER TABLE `T_WC_TMDB_PERSON`
-  ADD PRIMARY KEY (`ID_PERSON`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_IMDB` (`ID_IMDB`),
-  ADD KEY `BIRTHDAY` (`BIRTHDAY`),
-  ADD KEY `DEATHDAY` (`DEATHDAY`),
-  ADD KEY `GENDER` (`GENDER`),
-  ADD KEY `NAME` (`NAME`),
-  ADD KEY `POPULARITY` (`POPULARITY`),
-  ADD KEY `ADULT` (`ADULT`),
-  ADD KEY `TIM_COMPLETED` (`TIM_CREDITS_COMPLETED`),
-  ADD KEY `PROFILE_PATH` (`PROFILE_PATH`),
-  ADD KEY `KNOWN_FOR_DEPARTMENT` (`KNOWN_FOR_DEPARTMENT`),
-  ADD KEY `TIM_CREDITS_DOWNLOADED` (`TIM_CREDITS_DOWNLOADED`),
-  ADD KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
-  ADD KEY `PLACE_OF_BIRTH` (`PLACE_OF_BIRTH`),
-  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `USED_FOR_SIMILARITY` (`USED_FOR_SIMILARITY`),
-  ADD KEY `BIRTH_DAY` (`BIRTH_DAY`),
-  ADD KEY `BIRTH_MONTH` (`BIRTH_MONTH`),
-  ADD KEY `BIRTH_YEAR` (`BIRTH_YEAR`),
-  ADD KEY `DEATH_DAY` (`DEATH_DAY`),
-  ADD KEY `DEATH_MONTH` (`DEATH_MONTH`),
-  ADD KEY `DEATH_YEAR` (`DEATH_YEAR`),
-  ADD KEY `COUNTRY_OF_BIRTH` (`COUNTRY_OF_BIRTH`),
-  ADD KEY `COUNTRY_OF_BIRTH_LONG` (`COUNTRY_OF_BIRTH_LONG`),
-  ADD KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
-  ADD KEY `TIM_WIKIDATA_COMPLETED` (`TIM_WIKIDATA_COMPLETED`);
-
---
--- Index pour la table `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`
---
-ALTER TABLE `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `ID_PERSON` (`ID_PERSON`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `PERSON_NAME` (`PERSON_NAME`),
-  ADD KEY `IDX_T2S_PERSON_NAME_NORM` (`PERSON_NAME_NORM`),
-  ADD KEY `IDX_T2S_PERSON_NAME_KEY` (`PERSON_NAME_KEY`);
-ALTER TABLE `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` ADD FULLTEXT KEY `ft_person_name_norm` (`PERSON_NAME_NORM`);
-
---
--- Index pour la table `T_WC_TMDB_PERSON_CHARACTER`
---
-ALTER TABLE `T_WC_TMDB_PERSON_CHARACTER`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_PERSON` (`ID_PERSON`),
-  ADD KEY `ID_CHARACTER` (`ID_CHARACTER`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_PERSON_EPISODE`
---
-ALTER TABLE `T_WC_TMDB_PERSON_EPISODE`
-  ADD PRIMARY KEY (`ID_TMDB_PERSON_EPISODE`),
-  ADD KEY `ID_PERSON` (`ID_PERSON`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `ID_SEASON` (`ID_SEASON`),
-  ADD KEY `ID_EPISODE` (`ID_EPISODE`),
-  ADD KEY `SEASON_NUMBER` (`SEASON_NUMBER`),
-  ADD KEY `EPISODE_NUMBER` (`EPISODE_NUMBER`),
-  ADD KEY `ID_CREDIT` (`ID_CREDIT`),
-  ADD KEY `CAST_CHARACTER` (`CAST_CHARACTER`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `CREDIT_TYPE` (`CREDIT_TYPE`),
-  ADD KEY `CREW_DEPARTMENT` (`CREW_DEPARTMENT`),
-  ADD KEY `CREW_JOB` (`CREW_JOB`);
-
---
--- Index pour la table `T_WC_TMDB_PERSON_ID_IMPORT`
---
-ALTER TABLE `T_WC_TMDB_PERSON_ID_IMPORT`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `popularity` (`popularity`),
-  ADD KEY `popularity_2` (`popularity`);
-
---
--- Index pour la table `T_WC_TMDB_PERSON_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_PERSON_IMAGE`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_PERSON` (`ID_PERSON`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `IMAGE_PATH` (`IMAGE_PATH`),
-  ADD KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
-  ADD KEY `WIDTH` (`WIDTH`),
-  ADD KEY `HEIGHT` (`HEIGHT`),
-  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
-  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`);
-
---
--- Index pour la table `T_WC_TMDB_PERSON_MOVIE`
---
-ALTER TABLE `T_WC_TMDB_PERSON_MOVIE`
-  ADD PRIMARY KEY (`ID_TMDB_PERSON_MOVIE`),
-  ADD KEY `ID_PERSON` (`ID_PERSON`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `ID_CREDIT` (`ID_CREDIT`),
-  ADD KEY `CAST_CHARACTER` (`CAST_CHARACTER`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `CREDIT_TYPE` (`CREDIT_TYPE`),
-  ADD KEY `CREW_DEPARTMENT` (`CREW_DEPARTMENT`),
-  ADD KEY `CREW_JOB` (`CREW_JOB`);
-
---
--- Index pour la table `T_WC_TMDB_PERSON_SEARCH`
---
-ALTER TABLE `T_WC_TMDB_PERSON_SEARCH`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_PERSON` (`ID_PERSON`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `NAME` (`NAME`);
-
---
--- Index pour la table `T_WC_TMDB_PERSON_SEASON`
---
-ALTER TABLE `T_WC_TMDB_PERSON_SEASON`
-  ADD PRIMARY KEY (`ID_TMDB_PERSON_SEASON`),
-  ADD KEY `ID_PERSON` (`ID_PERSON`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `ID_SEASON` (`ID_SEASON`),
-  ADD KEY `SEASON_NUMBER` (`SEASON_NUMBER`),
-  ADD KEY `ID_CREDIT` (`ID_CREDIT`),
-  ADD KEY `CAST_CHARACTER` (`CAST_CHARACTER`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `CREDIT_TYPE` (`CREDIT_TYPE`),
-  ADD KEY `CREW_DEPARTMENT` (`CREW_DEPARTMENT`),
-  ADD KEY `CREW_JOB` (`CREW_JOB`),
-  ADD KEY `TOTAL_EPISODE_COUNT` (`TOTAL_EPISODE_COUNT`);
-
---
--- Index pour la table `T_WC_TMDB_PERSON_SERIE`
---
-ALTER TABLE `T_WC_TMDB_PERSON_SERIE`
-  ADD PRIMARY KEY (`ID_TMDB_PERSON_SERIE`),
-  ADD KEY `ID_PERSON` (`ID_PERSON`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `ID_CREDIT` (`ID_CREDIT`),
-  ADD KEY `CAST_CHARACTER` (`CAST_CHARACTER`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `CREDIT_TYPE` (`CREDIT_TYPE`),
-  ADD KEY `CREW_DEPARTMENT` (`CREW_DEPARTMENT`),
-  ADD KEY `CREW_JOB` (`CREW_JOB`);
-
---
--- Index pour la table `T_WC_TMDB_PERSON_UPDATE`
---
-ALTER TABLE `T_WC_TMDB_PERSON_UPDATE`
-  ADD PRIMARY KEY (`ID_PERSON`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`);
-
---
--- Index pour la table `T_WC_TMDB_PLEX_MEDIA`
---
-ALTER TABLE `T_WC_TMDB_PLEX_MEDIA`
-  ADD PRIMARY KEY (`ID_PLEX_MEDIA`),
-  ADD KEY `ID_PLEX_MOVIE` (`ID_PLEX_MOVIE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `MEDIA_WIDTH` (`MEDIA_WIDTH`),
-  ADD KEY `MEDIA_HEIGHT` (`MEDIA_HEIGHT`),
-  ADD KEY `MEDIA_SIZE` (`MEDIA_SIZE`),
-  ADD KEY `MEDIA_DURATION` (`MEDIA_DURATION`),
-  ADD KEY `MEDIA_BITRATE` (`MEDIA_BITRATE`),
-  ADD KEY `MEDIA_CONTAINER` (`MEDIA_CONTAINER`),
-  ADD KEY `MEDIA_VIDEO_CODEC` (`MEDIA_VIDEO_CODEC`),
-  ADD KEY `MEDIA_AUDIO_CODEC` (`MEDIA_AUDIO_CODEC`),
-  ADD KEY `MEDIA_ASPECT_RATIO` (`MEDIA_ASPECT_RATIO`),
-  ADD KEY `MEDIA_FPS` (`MEDIA_FPS`),
-  ADD KEY `MEDIA_AUDIO_CHANNELS` (`MEDIA_AUDIO_CHANNELS`),
-  ADD KEY `ID_PLEX_LIBRARY_SECTION` (`ID_PLEX_LIBRARY_SECTION`),
-  ADD KEY `ID_PLEX_SECTION_LOCATION` (`ID_PLEX_SECTION_LOCATION`);
-
---
--- Index pour la table `T_WC_TMDB_PLEX_MEDIA_PART`
---
-ALTER TABLE `T_WC_TMDB_PLEX_MEDIA_PART`
-  ADD PRIMARY KEY (`ID_PLEX_MEDIA_PART`),
-  ADD KEY `ID_PLEX_MEDIA` (`ID_PLEX_MEDIA`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `HASH` (`HASH`),
-  ADD KEY `OPENSUBTITLE_HASH` (`OPENSUBTITLE_HASH`),
-  ADD KEY `MEDIA_FILE` (`MEDIA_FILE`),
-  ADD KEY `ID_PLEX_DIRECTORY` (`ID_PLEX_DIRECTORY`),
-  ADD KEY `PART_SIZE` (`PART_SIZE`),
-  ADD KEY `PART_DURATION` (`PART_DURATION`),
-  ADD KEY `EXTRA_DATA` (`EXTRA_DATA`);
-
---
--- Index pour la table `T_WC_TMDB_PLEX_MOVIE`
---
-ALTER TABLE `T_WC_TMDB_PLEX_MOVIE`
-  ADD PRIMARY KEY (`ID_PLEX_MOVIE`),
-  ADD KEY `ID_MOVIE` (`ID_MOVIE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `TITLE` (`PLEX_TITLE`),
-  ADD KEY `YEAR_RELEASE` (`PLEX_YEAR_RELEASE`),
-  ADD KEY `API_RESULT_COUNT` (`API_RESULT_COUNT`),
-  ADD KEY `YEAR_RELEASE_2` (`YEAR_RELEASE`),
-  ADD KEY `ID_MOVIE_V1` (`ID_MOVIE_V1`),
-  ADD KEY `PLEX_YEAR_RELEASE_FROM_FILE` (`FILE_YEAR_RELEASE`),
-  ADD KEY `ID_IMDB` (`ID_IMDB`),
-  ADD KEY `FILE_TITLE` (`FILE_TITLE`),
-  ADD KEY `TITLE_2` (`TITLE`),
-  ADD KEY `ORIGINAL_TITLE` (`ORIGINAL_TITLE`),
-  ADD KEY `PLEX_TITLE_EQ_TITLE` (`PLEX_TITLE_EQ_TITLE`),
-  ADD KEY `PLEX_TITLE_EQ_ORIGINAL_TITLE` (`PLEX_TITLE_EQ_ORIGINAL_TITLE`),
-  ADD KEY `FILE_TITLE_EQ_TITLE` (`FILE_TITLE_EQ_TITLE`),
-  ADD KEY `FILE_TITLE_EQ_ORIGINAL_TITLE` (`FILE_TITLE_EQ_ORIGINAL_TITLE`),
-  ADD KEY `PLEX_GUID` (`PLEX_GUID`),
-  ADD KEY `PLEX_SLUG` (`PLEX_SLUG`),
-  ADD KEY `DATA_TYPE` (`DATA_TYPE`),
-  ADD KEY `QUALITY_MAX` (`QUALITY_MAX`);
-
---
--- Index pour la table `T_WC_TMDB_PRODUCTION_COMPANY_ID_IMPORT`
---
-ALTER TABLE `T_WC_TMDB_PRODUCTION_COMPANY_ID_IMPORT`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `name` (`name`);
-
---
--- Index pour la table `T_WC_TMDB_SEASON`
---
-ALTER TABLE `T_WC_TMDB_SEASON`
-  ADD PRIMARY KEY (`ID_SEASON`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `SEASON_NUMBER` (`SEASON_NUMBER`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TITLE` (`TITLE`),
-  ADD KEY `DAT_AIR` (`DAT_AIR`),
-  ADD KEY `AIR_YEAR` (`AIR_YEAR`),
-  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
-  ADD KEY `ID_IMDB` (`ID_IMDB`),
-  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `ID_TVDB` (`ID_TVDB`),
-  ADD KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
-  ADD KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
-  ADD KEY `TIM_VIDEOS_COMPLETED` (`TIM_VIDEOS_COMPLETED`),
-  ADD KEY `TIM_TRANSLATIONS_COMPLETED` (`TIM_TRANSLATIONS_COMPLETED`),
-  ADD KEY `AIR_MONTH` (`AIR_MONTH`),
-  ADD KEY `AIR_DAY` (`AIR_DAY`),
-  ADD KEY `EPISODE_COUNT` (`EPISODE_COUNT`),
-  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`);
-
---
--- Index pour la table `T_WC_TMDB_SEASON_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_SEASON_IMAGE`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_SEASON` (`ID_SEASON`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `IMAGE_PATH` (`IMAGE_PATH`);
-
---
--- Index pour la table `T_WC_TMDB_SEASON_LANG`
---
-ALTER TABLE `T_WC_TMDB_SEASON_LANG`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_SEASON` (`ID_SEASON`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `TITLE` (`TITLE`);
-
---
--- Index pour la table `T_WC_TMDB_SEASON_VIDEO`
---
-ALTER TABLE `T_WC_TMDB_SEASON_VIDEO`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_SEASON` (`ID_SEASON`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
-  ADD KEY `VIDEO_KEY` (`VIDEO_KEY`),
-  ADD KEY `VIDEO_TYPE` (`VIDEO_TYPE`),
-  ADD KEY `OFFICIAL` (`OFFICIAL`);
-
---
--- Index pour la table `T_WC_TMDB_SERIE`
---
-ALTER TABLE `T_WC_TMDB_SERIE`
-  ADD PRIMARY KEY (`ID_SERIE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_IMDB` (`ID_IMDB`),
-  ADD KEY `TITLE` (`TITLE`),
-  ADD KEY `POPULARITY` (`POPULARITY`),
-  ADD KEY `ADULT` (`ADULT`),
-  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
-  ADD KEY `ORIGINAL_LANGUAGE` (`ORIGINAL_LANGUAGE`),
-  ADD KEY `STATUS` (`STATUS`),
-  ADD KEY `GENRES` (`GENRES`),
-  ADD KEY `DAT_RELEASE` (`DAT_FIRST_AIR`),
-  ADD KEY `BACKDROP_PATH` (`BACKDROP_PATH`),
-  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
-  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`),
-  ADD KEY `TIM_CREDITS_COMPLETED` (`TIM_CREDITS_COMPLETED`),
-  ADD KEY `ORIGINAL_TITLE` (`ORIGINAL_TITLE`),
-  ADD KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
-  ADD KEY `TIM_KEYWORDS_COMPLETED` (`TIM_KEYWORDS_COMPLETED`),
-  ADD KEY `TIM_WIKIDATA_COMPLETED` (`TIM_WIKIDATA_COMPLETED`),
-  ADD KEY `TIM_WIKIPEDIA_COMPLETED` (`TIM_WIKIPEDIA_COMPLETED`),
-  ADD KEY `DAT_LAST_AIR` (`DAT_LAST_AIR`),
-  ADD KEY `FIRST_AIR_YEAR` (`FIRST_AIR_YEAR`),
-  ADD KEY `FIRST_AIR_MONTH` (`FIRST_AIR_MONTH`),
-  ADD KEY `FIRST_AIR_DAY` (`FIRST_AIR_DAY`),
-  ADD KEY `LAST_AIR_YEAR` (`LAST_AIR_YEAR`),
-  ADD KEY `LAST_AIR_MONTH` (`LAST_AIR_MONTH`),
-  ADD KEY `LAST_AIR_DAY` (`LAST_AIR_DAY`),
-  ADD KEY `NUMBER_OF_EPISODES` (`NUMBER_OF_EPISODES`),
-  ADD KEY `NUMBER_OF_SEASONS` (`NUMBER_OF_SEASONS`),
-  ADD KEY `SERIE_TYPE` (`SERIE_TYPE`),
-  ADD KEY `TIM_IMAGES_COMPLETED` (`TIM_IMAGES_COMPLETED`),
-  ADD KEY `TIM_VIDEOS_COMPLETED` (`TIM_VIDEOS_COMPLETED`);
-
---
--- Index pour la table `T_WC_TMDB_SERIE_CHARACTER`
---
-ALTER TABLE `T_WC_TMDB_SERIE_CHARACTER`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `ID_CHARACTER` (`ID_CHARACTER`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_SERIE_COMPANY`
---
-ALTER TABLE `T_WC_TMDB_SERIE_COMPANY`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `ID_COMPANY` (`ID_COMPANY`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_SERIE_GENRE`
---
-ALTER TABLE `T_WC_TMDB_SERIE_GENRE`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `ID_GENRE` (`ID_GENRE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_SERIE_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_SERIE_IMAGE`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `IMAGE_PATH` (`IMAGE_PATH`),
-  ADD KEY `ASPECT_RATIO` (`ASPECT_RATIO`),
-  ADD KEY `WIDTH` (`WIDTH`),
-  ADD KEY `HEIGHT` (`HEIGHT`),
-  ADD KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
-  ADD KEY `VOTE_COUNT` (`VOTE_COUNT`);
-
---
--- Index pour la table `T_WC_TMDB_SERIE_KEYWORD`
---
-ALTER TABLE `T_WC_TMDB_SERIE_KEYWORD`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `ID_KEYWORD` (`ID_KEYWORD`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_SERIE_LANG`
---
-ALTER TABLE `T_WC_TMDB_SERIE_LANG`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `TITLE` (`TITLE`),
-  ADD KEY `POSTER_PATH` (`POSTER_PATH`),
-  ADD KEY `BACKDROP_PATH` (`BACKDROP_PATH`);
-
---
--- Index pour la table `T_WC_TMDB_SERIE_LIST`
---
-ALTER TABLE `T_WC_TMDB_SERIE_LIST`
-  ADD PRIMARY KEY (`ID_TMDB_SERIE_LIST`),
-  ADD KEY `ID_LIST` (`ID_LIST`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`);
-
---
--- Index pour la table `T_WC_TMDB_SERIE_NETWORK`
---
-ALTER TABLE `T_WC_TMDB_SERIE_NETWORK`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `ID_NETWORK` (`ID_NETWORK`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_SERIE_PRODUCTION_COUNTRY`
---
-ALTER TABLE `T_WC_TMDB_SERIE_PRODUCTION_COUNTRY`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_SERIE_SPOKEN_LANGUAGE`
---
-ALTER TABLE `T_WC_TMDB_SERIE_SPOKEN_LANGUAGE`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `SPOKEN_LANGUAGE` (`SPOKEN_LANGUAGE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_SERIE_VIDEO`
---
-ALTER TABLE `T_WC_TMDB_SERIE_VIDEO`
-  ADD PRIMARY KEY (`ID_ROW`),
-  ADD KEY `ID_SERIE` (`ID_SERIE`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `COUNTRY_CODE` (`COUNTRY_CODE`),
-  ADD KEY `VIDEO_KEY` (`VIDEO_KEY`),
-  ADD KEY `VIDEO_SITE` (`VIDEO_SITE`),
-  ADD KEY `VIDEO_TYPE` (`VIDEO_TYPE`),
-  ADD KEY `QUALITY` (`QUALITY`),
-  ADD KEY `VIDEO_NAME` (`VIDEO_NAME`),
-  ADD KEY `QUALITY_TEXT` (`QUALITY_TEXT`),
-  ADD KEY `DAT_PUBLISHED` (`DAT_PUBLISHED`),
-  ADD KEY `ID_CREDIT` (`ID_CREDIT`),
-  ADD KEY `OFFICIAL` (`OFFICIAL`);
-
---
--- Index pour la table `T_WC_TMDB_SPACY_LEMME`
---
-ALTER TABLE `T_WC_TMDB_SPACY_LEMME`
-  ADD PRIMARY KEY (`ID_LEMME`),
-  ADD KEY `LANG` (`LANG`),
-  ADD KEY `NAME` (`NAME`),
-  ADD KEY `LABEL` (`LABEL`),
-  ADD KEY `DELETED` (`DELETED`),
-  ADD KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
-  ADD KEY `ID_OWNER` (`ID_OWNER`),
-  ADD KEY `ID_CREATOR` (`ID_CREATOR`),
-  ADD KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
-  ADD KEY `TIM_UPDATED` (`TIM_UPDATED`),
-  ADD KEY `DAT_CREAT` (`DAT_CREAT`);
-
---
--- Index pour la table `T_WC_TMDB_TV_NETWORK_ID_IMPORT`
---
-ALTER TABLE `T_WC_TMDB_TV_NETWORK_ID_IMPORT`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `name` (`name`);
-
---
--- Index pour la table `T_WC_TMDB_TV_SERIE_ID_IMPORT`
---
-ALTER TABLE `T_WC_TMDB_TV_SERIE_ID_IMPORT`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `popularity` (`popularity`);
-
---
--- AUTO_INCREMENT pour les tables déchargées
---
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_CHARACTER`
---
-ALTER TABLE `T_WC_TMDB_CHARACTER`
-  MODIFY `ID_CHARACTER` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_COLLECTION_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_COLLECTION_IMAGE`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_COMPANY_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_COMPANY_IMAGE`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_EPISODE_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_EPISODE_IMAGE`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_EPISODE_LANG`
---
-ALTER TABLE `T_WC_TMDB_EPISODE_LANG`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_EPISODE_VIDEO`
---
-ALTER TABLE `T_WC_TMDB_EPISODE_VIDEO`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_GENRE_LANG`
---
-ALTER TABLE `T_WC_TMDB_GENRE_LANG`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_KEYWORD_ID_IMPORT_LANG`
---
-ALTER TABLE `T_WC_TMDB_KEYWORD_ID_IMPORT_LANG`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_KEYWORD_LANG`
---
-ALTER TABLE `T_WC_TMDB_KEYWORD_LANG`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_LIST_LANG`
---
-ALTER TABLE `T_WC_TMDB_LIST_LANG`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_LIST_TYPE`
---
-ALTER TABLE `T_WC_TMDB_LIST_TYPE`
-  MODIFY `ID_LIST_TYPE` int(5) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_MOVIE_CHARACTER`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_CHARACTER`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_MOVIE_COMPANY`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_COMPANY`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_MOVIE_GENRE`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_GENRE`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_MOVIE_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_IMAGE`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_MOVIE_KEYWORD`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_KEYWORD`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_MOVIE_LANG`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_LANG`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_MOVIE_LANG_META`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_LANG_META`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_MOVIE_LEMME`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_LEMME`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_MOVIE_LIST`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_LIST`
-  MODIFY `ID_TMDB_MOVIE_LIST` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_MOVIE_PRODUCTION_COUNTRY`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_PRODUCTION_COUNTRY`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_MOVIE_SPOKEN_LANGUAGE`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_SPOKEN_LANGUAGE`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_MOVIE_TITLE`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_TITLE`
-  MODIFY `ID_MOVIE_TITLE` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_MOVIE_VIDEO`
---
-ALTER TABLE `T_WC_TMDB_MOVIE_VIDEO`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_NETWORK_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_NETWORK_IMAGE`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`
---
-ALTER TABLE `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_PERSON_CHARACTER`
---
-ALTER TABLE `T_WC_TMDB_PERSON_CHARACTER`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_PERSON_EPISODE`
---
-ALTER TABLE `T_WC_TMDB_PERSON_EPISODE`
-  MODIFY `ID_TMDB_PERSON_EPISODE` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_PERSON_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_PERSON_IMAGE`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_PERSON_MOVIE`
---
-ALTER TABLE `T_WC_TMDB_PERSON_MOVIE`
-  MODIFY `ID_TMDB_PERSON_MOVIE` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_PERSON_SEARCH`
---
-ALTER TABLE `T_WC_TMDB_PERSON_SEARCH`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_PERSON_SEASON`
---
-ALTER TABLE `T_WC_TMDB_PERSON_SEASON`
-  MODIFY `ID_TMDB_PERSON_SEASON` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_PERSON_SERIE`
---
-ALTER TABLE `T_WC_TMDB_PERSON_SERIE`
-  MODIFY `ID_TMDB_PERSON_SERIE` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_SEASON_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_SEASON_IMAGE`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_SEASON_LANG`
---
-ALTER TABLE `T_WC_TMDB_SEASON_LANG`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_SEASON_VIDEO`
---
-ALTER TABLE `T_WC_TMDB_SEASON_VIDEO`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_SERIE_CHARACTER`
---
-ALTER TABLE `T_WC_TMDB_SERIE_CHARACTER`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_SERIE_COMPANY`
---
-ALTER TABLE `T_WC_TMDB_SERIE_COMPANY`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_SERIE_GENRE`
---
-ALTER TABLE `T_WC_TMDB_SERIE_GENRE`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_SERIE_IMAGE`
---
-ALTER TABLE `T_WC_TMDB_SERIE_IMAGE`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_SERIE_KEYWORD`
---
-ALTER TABLE `T_WC_TMDB_SERIE_KEYWORD`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_SERIE_LANG`
---
-ALTER TABLE `T_WC_TMDB_SERIE_LANG`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_SERIE_LIST`
---
-ALTER TABLE `T_WC_TMDB_SERIE_LIST`
-  MODIFY `ID_TMDB_SERIE_LIST` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_SERIE_NETWORK`
---
-ALTER TABLE `T_WC_TMDB_SERIE_NETWORK`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_SERIE_PRODUCTION_COUNTRY`
---
-ALTER TABLE `T_WC_TMDB_SERIE_PRODUCTION_COUNTRY`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_SERIE_SPOKEN_LANGUAGE`
---
-ALTER TABLE `T_WC_TMDB_SERIE_SPOKEN_LANGUAGE`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_SERIE_VIDEO`
---
-ALTER TABLE `T_WC_TMDB_SERIE_VIDEO`
-  MODIFY `ID_ROW` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT pour la table `T_WC_TMDB_SPACY_LEMME`
---
-ALTER TABLE `T_WC_TMDB_SPACY_LEMME`
-  MODIFY `ID_LEMME` int(11) NOT NULL AUTO_INCREMENT;
-COMMIT;
-
-/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
-/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
-/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+/*!40101 SET character_set_client = @saved_cs_client */;
