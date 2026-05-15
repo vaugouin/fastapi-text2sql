@@ -1617,24 +1617,53 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
 # Entity detail endpoints
 # ---------------------------------------------------------------------------
 
+def _fetch_wikipedia_images(cursor, id_wikidata):
+    """Return Wikipedia images linked to an entity's Wikidata ID (en + fr only).
+
+    Returns [] when id_wikidata is missing. Excludes soft-deleted rows and dead images
+    (non-200 HTTP status); NULL HTTP_STATUS is kept as a grace state for unverified rows.
+    """
+    if not id_wikidata:
+        return []
+    cursor.execute("""
+        SELECT ID_ROW, LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL,
+               MEDIA_TYPE, FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER
+        FROM T_WC_WIKIPEDIA_PAGE_LANG_IMAGE
+        WHERE ID_WIKIDATA = %s
+          AND LANG IN ('en', 'fr')
+          AND DELETED = 0
+          AND (HTTP_STATUS = 200 OR HTTP_STATUS IS NULL)
+        ORDER BY IS_MAIN_IMAGE DESC, LANG ASC, DISPLAY_ORDER ASC
+    """, (id_wikidata,))
+    return list(cursor.fetchall())
+
+
 @app.get("/movies/{id}", summary="Movie full detail")
 async def get_movie(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for a movie plus embedded relations: genres, production
     companies, production countries, spoken languages, topics, lists, collections,
-    movements, awards, nominations, cast, and crew. The id is the TMDb movie ID
-    (ID_MOVIE).
+    movements, technicals, awards, nominations, cast, and crew. The id is the TMDb
+    movie ID (ID_MOVIE).
 
     Each nested list element carries the canonical image path of its related entity:
     PROFILE_PATH for cast/crew (persons); LOGO_PATH for companies; POSTER_PATH for
     topics, lists, collections, movements, awards, and nominations. Topics, lists,
-    collections, movements, awards, and nominations also include WIKIPEDIA_IMAGE_PATH.
-    Companies, topics, lists, collections, and movements also include
-    IMDB_RATING_WEIGHTED and POPULARITY for the related entity.
+    collections, movements, awards, nominations, and technicals also include
+    WIKIPEDIA_IMAGE_PATH. Companies, topics, lists, collections, movements, and
+    technicals also include IMDB_RATING_WEIGHTED and POPULARITY for the related
+    entity. Technicals additionally expose DESCRIPTION_FR and TECHNICAL_TYPE
+    (sound_system, color_technology, film_technology, sound_technology, film_format).
 
-    The posters list contains every poster image available for this movie from
-    T_WC_T2S_MOVIE_IMAGE (TYPE_IMAGE = 'poster'), ordered by DISPLAY_ORDER; each
-    element exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
-    VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER."""
+    The posters and backdrops lists each contain every image of the matching type
+    available for this movie from T_WC_T2S_MOVIE_IMAGE (TYPE_IMAGE = 'poster' for
+    posters, 'backdrop' for backdrops), ordered by DISPLAY_ORDER; each element
+    exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE,
+    VOTE_COUNT, DISPLAY_ORDER.
+
+    The wikipedia_images list contains the English and French Wikipedia images linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
+    LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1697,6 +1726,14 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
             """, (id,))
             movements = cursor.fetchall()
             cursor.execute("""
+                SELECT t.ID_TECHNICAL, t.DESCRIPTION, t.DESCRIPTION_FR, t.TECHNICAL_TYPE,
+                       t.WIKIPEDIA_IMAGE_PATH, t.IMDB_RATING_WEIGHTED, t.POPULARITY
+                FROM T_WC_T2S_MOVIE_TECHNICAL mt
+                JOIN T_WC_T2S_TECHNICAL t ON mt.ID_TECHNICAL = t.ID_TECHNICAL
+                WHERE mt.ID_MOVIE = %s ORDER BY mt.DISPLAY_ORDER ASC
+            """, (id,))
+            technicals = cursor.fetchall()
+            cursor.execute("""
                 SELECT a.ID_AWARD, a.AWARD_NAME, a.POSTER_PATH, a.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_MOVIE_AWARD ma
                 JOIN T_WC_T2S_AWARD a ON ma.ID_AWARD = a.ID_AWARD
                 WHERE ma.ID_MOVIE = %s ORDER BY ma.DISPLAY_ORDER ASC
@@ -1716,6 +1753,15 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
                 ORDER BY DISPLAY_ORDER ASC
             """, (id,))
             posters = cursor.fetchall()
+            cursor.execute("""
+                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                FROM T_WC_T2S_MOVIE_IMAGE
+                WHERE ID_MOVIE = %s AND TYPE_IMAGE = 'backdrop'
+                ORDER BY DISPLAY_ORDER ASC
+            """, (id,))
+            backdrops = cursor.fetchall()
+            wikipedia_images = _fetch_wikipedia_images(cursor, movie.get("ID_WIKIDATA"))
         exclude_self_credits = movie.get("IS_DOCUMENTARY") != 1
         result = {
             **movie,
@@ -1727,6 +1773,7 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
             "lists": list(lists),
             "collections": list(collections),
             "movements": list(movements),
+            "technicals": list(technicals),
             "awards": list(awards),
             "nominations": list(nominations),
             "cast": [
@@ -1736,6 +1783,8 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
             ],
             "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
             "posters": list(posters),
+            "backdrops": list(backdrops),
+            "wikipedia_images": wikipedia_images,
         }
         logs.log_usage("movies", {"id": id, "response": result}, strapiversion)
         return result
@@ -1757,10 +1806,16 @@ async def get_series(id: int, api_key: str = Depends(get_api_key)):
     WIKIPEDIA_IMAGE_PATH. Companies, topics, lists, collections, and movements also
     include IMDB_RATING_WEIGHTED and POPULARITY for the related entity.
 
-    The posters list contains every poster image available for this series from
-    T_WC_T2S_SERIE_IMAGE (TYPE_IMAGE = 'poster'), ordered by DISPLAY_ORDER; each
-    element exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
-    VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER."""
+    The posters and backdrops lists each contain every image of the matching type
+    available for this series from T_WC_T2S_SERIE_IMAGE (TYPE_IMAGE = 'poster' for
+    posters, 'backdrop' for backdrops), ordered by DISPLAY_ORDER; each element
+    exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE,
+    VOTE_COUNT, DISPLAY_ORDER.
+
+    The wikipedia_images list contains the English and French Wikipedia images linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
+    LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1848,6 +1903,15 @@ async def get_series(id: int, api_key: str = Depends(get_api_key)):
                 ORDER BY DISPLAY_ORDER ASC
             """, (id,))
             posters = cursor.fetchall()
+            cursor.execute("""
+                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                FROM T_WC_T2S_SERIE_IMAGE
+                WHERE ID_SERIE = %s AND TYPE_IMAGE = 'backdrop'
+                ORDER BY DISPLAY_ORDER ASC
+            """, (id,))
+            backdrops = cursor.fetchall()
+            wikipedia_images = _fetch_wikipedia_images(cursor, serie.get("ID_WIKIDATA"))
         result = {
             **serie,
             "genres": genres,
@@ -1864,6 +1928,8 @@ async def get_series(id: int, api_key: str = Depends(get_api_key)):
             "cast": [c for c in credits if c["CREDIT_TYPE"] == "cast"],
             "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
             "posters": list(posters),
+            "backdrops": list(backdrops),
+            "wikipedia_images": wikipedia_images,
         }
         logs.log_usage("series", {"id": id, "response": result}, strapiversion)
         return result
@@ -1889,7 +1955,12 @@ async def get_person(id: int, api_key: str = Depends(get_api_key)):
     The portraits list contains every profile picture available for this person from
     T_WC_T2S_PERSON_IMAGE (TYPE_IMAGE = 'profile'), ordered by DISPLAY_ORDER; each
     element exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
-    VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER."""
+    VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER.
+
+    The wikipedia_images list contains the English and French Wikipedia images linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
+    LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1948,6 +2019,7 @@ async def get_person(id: int, api_key: str = Depends(get_api_key)):
                 ORDER BY DISPLAY_ORDER ASC
             """, (id,))
             portraits = cursor.fetchall()
+            wikipedia_images = _fetch_wikipedia_images(cursor, person.get("ID_WIKIDATA"))
         result = {
             **person,
             "movie_cast": [
@@ -1963,6 +2035,7 @@ async def get_person(id: int, api_key: str = Depends(get_api_key)):
             "awards": list(awards),
             "nominations": list(nominations),
             "portraits": list(portraits),
+            "wikipedia_images": wikipedia_images,
         }
         logs.log_usage("persons", {"id": id, "response": result}, strapiversion)
         return result
@@ -2042,7 +2115,12 @@ async def get_collection(id: int, api_key: str = Depends(get_api_key)):
 
     The collection itself includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH,
     IMDB_RATING_WEIGHTED, and POPULARITY. Each nested list element carries
-    POSTER_PATH for the related movie or TV series."""
+    POSTER_PATH for the related movie or TV series.
+
+    The wikipedia_images list contains the English and French Wikipedia images linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
+    LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2065,7 +2143,8 @@ async def get_collection(id: int, api_key: str = Depends(get_api_key)):
                 WHERE sc.ID_T2S_COLLECTION = %s ORDER BY sc.DISPLAY_ORDER ASC
             """, (id,))
             series = cursor.fetchall()
-        result = {**collection, "movies": list(movies), "series": list(series)}
+            wikipedia_images = _fetch_wikipedia_images(cursor, collection.get("ID_WIKIDATA"))
+        result = {**collection, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images}
         logs.log_usage("collections", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2079,7 +2158,12 @@ async def get_topic(id: int, api_key: str = Depends(get_api_key)):
 
     The topic itself includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH,
     IMDB_RATING_WEIGHTED, and POPULARITY. Each nested list element carries
-    POSTER_PATH for the related movie or TV series."""
+    POSTER_PATH for the related movie or TV series.
+
+    The wikipedia_images list contains the English and French Wikipedia images linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
+    LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2102,7 +2186,8 @@ async def get_topic(id: int, api_key: str = Depends(get_api_key)):
                 WHERE st.ID_TOPIC = %s ORDER BY st.DISPLAY_ORDER ASC
             """, (id,))
             series = cursor.fetchall()
-        result = {**topic, "movies": list(movies), "series": list(series)}
+            wikipedia_images = _fetch_wikipedia_images(cursor, topic.get("ID_WIKIDATA"))
+        result = {**topic, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images}
         logs.log_usage("topics", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2116,7 +2201,12 @@ async def get_list(id: int, api_key: str = Depends(get_api_key)):
 
     The list itself includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH,
     IMDB_RATING_WEIGHTED, and POPULARITY. Each nested list element carries
-    POSTER_PATH for the related movie or TV series."""
+    POSTER_PATH for the related movie or TV series.
+
+    The wikipedia_images list contains the English and French Wikipedia images linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
+    LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2139,7 +2229,8 @@ async def get_list(id: int, api_key: str = Depends(get_api_key)):
                 WHERE sl.ID_T2S_LIST = %s ORDER BY sl.DISPLAY_ORDER ASC
             """, (id,))
             series = cursor.fetchall()
-        result = {**lst, "movies": list(movies), "series": list(series)}
+            wikipedia_images = _fetch_wikipedia_images(cursor, lst.get("ID_WIKIDATA"))
+        result = {**lst, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images}
         logs.log_usage("lists", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2153,7 +2244,12 @@ async def get_movement(id: int, api_key: str = Depends(get_api_key)):
 
     The movement itself includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH,
     IMDB_RATING_WEIGHTED, and POPULARITY. Each nested list element carries
-    POSTER_PATH for the related movie or TV series."""
+    POSTER_PATH for the related movie or TV series.
+
+    The wikipedia_images list contains the English and French Wikipedia images linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
+    LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2176,8 +2272,58 @@ async def get_movement(id: int, api_key: str = Depends(get_api_key)):
                 WHERE sm.ID_MOVEMENT = %s ORDER BY sm.DISPLAY_ORDER ASC
             """, (id,))
             series = cursor.fetchall()
-        result = {**movement, "movies": list(movies), "series": list(series)}
+            wikipedia_images = _fetch_wikipedia_images(cursor, movement.get("ID_WIKIDATA"))
+        result = {**movement, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images}
         logs.log_usage("movements", {"id": id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/technicals/{id}", summary="Technical format full detail")
+async def get_technical(id: int, api_key: str = Depends(get_api_key)):
+    """Return all fields for a technical format (sound system, color/film/sound technology,
+    or film format) plus associated movies and sibling technicals sharing the same
+    TECHNICAL_TYPE. The id is ID_TECHNICAL.
+
+    The technical itself includes WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and
+    POPULARITY. Each nested movie carries POSTER_PATH; each sibling carries
+    DESCRIPTION_FR, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, POPULARITY, and
+    MOVIE_COUNT for navigation between related technical formats.
+
+    No `series` array is returned because T_WC_T2S_SERIE_TECHNICAL does not exist yet.
+
+    The wikipedia_images list contains the English and French Wikipedia images linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
+    LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM T_WC_T2S_TECHNICAL WHERE ID_TECHNICAL = %s", (id,))
+            technical = cursor.fetchone()
+        if not technical:
+            raise HTTPException(status_code=404, detail=f"Technical {id} not found")
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mt.DISPLAY_ORDER
+                FROM T_WC_T2S_MOVIE_TECHNICAL mt
+                JOIN T_WC_T2S_MOVIE m ON mt.ID_MOVIE = m.ID_MOVIE
+                WHERE mt.ID_TECHNICAL = %s
+                ORDER BY mt.DISPLAY_ORDER ASC, m.IMDB_RATING_WEIGHTED DESC
+            """, (id,))
+            movies = cursor.fetchall()
+            cursor.execute("""
+                SELECT ID_TECHNICAL, DESCRIPTION, DESCRIPTION_FR, WIKIPEDIA_IMAGE_PATH,
+                       IMDB_RATING_WEIGHTED, POPULARITY, MOVIE_COUNT
+                FROM T_WC_T2S_TECHNICAL
+                WHERE TECHNICAL_TYPE = %s AND ID_TECHNICAL <> %s
+                ORDER BY MOVIE_COUNT DESC
+            """, (technical["TECHNICAL_TYPE"], id))
+            siblings = cursor.fetchall()
+            wikipedia_images = _fetch_wikipedia_images(cursor, technical.get("ID_WIKIDATA"))
+        result = {**technical, "movies": list(movies), "siblings": list(siblings), "wikipedia_images": wikipedia_images}
+        logs.log_usage("technicals", {"id": id, "response": result}, strapiversion)
         return result
     finally:
         conn.close()
@@ -2189,7 +2335,12 @@ async def get_group(id: int, api_key: str = Depends(get_api_key)):
     persons ordered by DISPLAY_ORDER. The id is ID_GROUP.
 
     The group itself includes PROFILE_PATH and WIKIPEDIA_IMAGE_PATH. Each nested person
-    carries PROFILE_PATH."""
+    carries PROFILE_PATH.
+
+    The wikipedia_images list contains the English and French Wikipedia images linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
+    LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2205,7 +2356,8 @@ async def get_group(id: int, api_key: str = Depends(get_api_key)):
                 WHERE pg.ID_GROUP = %s ORDER BY pg.DISPLAY_ORDER ASC
             """, (id,))
             persons = cursor.fetchall()
-        result = {**group, "persons": list(persons)}
+            wikipedia_images = _fetch_wikipedia_images(cursor, group.get("ID_WIKIDATA"))
+        result = {**group, "persons": list(persons), "wikipedia_images": wikipedia_images}
         logs.log_usage("groups", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2218,7 +2370,12 @@ async def get_death(id: int, api_key: str = Depends(get_api_key)):
     ordered by DISPLAY_ORDER. The id is ID_DEATH.
 
     The death itself includes PROFILE_PATH and WIKIPEDIA_IMAGE_PATH. Each nested person
-    carries PROFILE_PATH."""
+    carries PROFILE_PATH.
+
+    The wikipedia_images list contains the English and French Wikipedia images linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
+    LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2234,7 +2391,8 @@ async def get_death(id: int, api_key: str = Depends(get_api_key)):
                 WHERE pd.ID_DEATH = %s ORDER BY pd.DISPLAY_ORDER ASC
             """, (id,))
             persons = cursor.fetchall()
-        result = {**death, "persons": list(persons)}
+            wikipedia_images = _fetch_wikipedia_images(cursor, death.get("ID_WIKIDATA"))
+        result = {**death, "persons": list(persons), "wikipedia_images": wikipedia_images}
         logs.log_usage("deaths", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2248,7 +2406,12 @@ async def get_award(id: int, api_key: str = Depends(get_api_key)):
 
     The award itself includes POSTER_PATH and WIKIPEDIA_IMAGE_PATH. Each nested list
     element carries the canonical image path of its related entity: POSTER_PATH for
-    movies and series; PROFILE_PATH for persons."""
+    movies and series; PROFILE_PATH for persons.
+
+    The wikipedia_images list contains the English and French Wikipedia images linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
+    LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2278,7 +2441,8 @@ async def get_award(id: int, api_key: str = Depends(get_api_key)):
                 WHERE pa.ID_AWARD = %s ORDER BY pa.DISPLAY_ORDER ASC
             """, (id,))
             persons = cursor.fetchall()
-        result = {**award, "movies": list(movies), "series": list(series), "persons": list(persons)}
+            wikipedia_images = _fetch_wikipedia_images(cursor, award.get("ID_WIKIDATA"))
+        result = {**award, "movies": list(movies), "series": list(series), "persons": list(persons), "wikipedia_images": wikipedia_images}
         logs.log_usage("awards", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2292,7 +2456,12 @@ async def get_nomination(id: int, api_key: str = Depends(get_api_key)):
 
     The nomination itself includes POSTER_PATH and WIKIPEDIA_IMAGE_PATH. Each nested
     list element carries the canonical image path of its related entity: POSTER_PATH
-    for movies and series; PROFILE_PATH for persons."""
+    for movies and series; PROFILE_PATH for persons.
+
+    The wikipedia_images list contains the English and French Wikipedia images linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
+    LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2322,7 +2491,8 @@ async def get_nomination(id: int, api_key: str = Depends(get_api_key)):
                 WHERE pn.ID_NOMINATION = %s ORDER BY pn.DISPLAY_ORDER ASC
             """, (id,))
             persons = cursor.fetchall()
-        result = {**nomination, "movies": list(movies), "series": list(series), "persons": list(persons)}
+            wikipedia_images = _fetch_wikipedia_images(cursor, nomination.get("ID_WIKIDATA"))
+        result = {**nomination, "movies": list(movies), "series": list(series), "persons": list(persons), "wikipedia_images": wikipedia_images}
         logs.log_usage("nominations", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2336,7 +2506,12 @@ async def get_location(wikidata_id: str, api_key: str = Depends(get_api_key)):
     location (ID_PROPERTY=P915), ordered by adjusted IMDb rating.
 
     The location itself includes WIKIPEDIA_IMAGE_PATH. Each nested list element carries
-    POSTER_PATH for the related movie or TV series."""
+    POSTER_PATH for the related movie or TV series.
+
+    The wikipedia_images list contains the English and French Wikipedia images linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
+    LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2363,7 +2538,8 @@ async def get_location(wikidata_id: str, api_key: str = Depends(get_api_key)):
                 ORDER BY s.IMDB_RATING_WEIGHTED DESC
             """, (wikidata_id,))
             series = cursor.fetchall()
-        result = {**location, "movies": list(movies), "series": list(series)}
+            wikipedia_images = _fetch_wikipedia_images(cursor, wikidata_id)
+        result = {**location, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images}
         logs.log_usage("locations", {"wikidata_id": wikidata_id, "response": result}, strapiversion)
         return result
     finally:
@@ -2426,10 +2602,13 @@ async def _mcp_get_movie(id: int) -> str:
     """Get all fields for a movie (title, release date, runtime, budget, revenue, ratings,
     plot, IMDb/Wikidata IDs, aspect ratio, color/B&W/silent flags) plus embedded relations:
     cast, crew, genre codes, production companies, production countries, spoken languages,
-    topics, collections, movements, awards, and nominations. Each related company, topic,
-    list, collection, and movement carries its own POSTER_PATH (LOGO_PATH for companies),
-    WIKIPEDIA_IMAGE_PATH (when applicable), IMDB_RATING_WEIGHTED, and POPULARITY.
-    id = TMDb ID_MOVIE."""
+    topics, collections, movements, technicals, awards, and nominations. Each related
+    company, topic, list, collection, and movement carries its own POSTER_PATH
+    (LOGO_PATH for companies), WIKIPEDIA_IMAGE_PATH (when applicable),
+    IMDB_RATING_WEIGHTED, and POPULARITY. Technicals (sound systems, color/film/sound
+    technologies, film formats from T_WC_T2S_TECHNICAL) expose ID_TECHNICAL,
+    DESCRIPTION, DESCRIPTION_FR, TECHNICAL_TYPE, WIKIPEDIA_IMAGE_PATH,
+    IMDB_RATING_WEIGHTED, and POPULARITY. id = TMDb ID_MOVIE."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2545,6 +2724,25 @@ async def _mcp_get_movement(id: int) -> str:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
                 f"{MCP_INTERNAL_BASE_URL}/movements/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool(name="get_technical")
+async def _mcp_get_technical(id: int) -> str:
+    """Get all fields for a technical format (sound system, color/film/sound technology,
+    or film format — e.g. Dolby, Technicolor, 70mm, IMAX, Cinemascope) plus associated
+    movies and sibling technicals sharing the same TECHNICAL_TYPE. The technical itself
+    includes WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY. Each sibling
+    carries MOVIE_COUNT for ranking. id = ID_TECHNICAL."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/technicals/{id}",
                 headers={"X-API-Key": MCP_INTERNAL_API_KEY},
             )
             r.raise_for_status()

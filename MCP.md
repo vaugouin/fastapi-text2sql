@@ -64,7 +64,8 @@ async def _mcp_sql_search(question: str, ui_language: str = "en") -> str:
     Covers movies, TV series, persons (actors, directors, writers, crew),
     production companies, TV networks, topics (themes, recurring-character collections),
     curated lists (rankings, canons), collections (trilogies, sagas, universes, franchises),
-    film movements, person groups, causes of death, awards, nominations, and locations
+    film movements, technical formats (sound systems, color/film/sound technologies,
+    film formats), person groups, causes of death, awards, nominations, and locations
     (narrative or filming).
 
     The result returns rows with entity IDs and key fields (title, release date,
@@ -82,6 +83,7 @@ async def _mcp_sql_search(question: str, ui_language: str = "en") -> str:
     Topic IDs      → https://myapp.com/topics/{ID_TOPIC}
     List IDs       → https://myapp.com/lists/{ID_T2S_LIST}
     Movement IDs   → https://myapp.com/movements/{ID_MOVEMENT}
+    Technical IDs  → https://myapp.com/technicals/{ID_TECHNICAL}
     Group IDs      → https://myapp.com/groups/{ID_GROUP}
     Death IDs      → https://myapp.com/deaths/{ID_DEATH}
     Award IDs      → https://myapp.com/awards/{ID_AWARD}
@@ -107,7 +109,7 @@ async def _mcp_get_movie(id: int) -> str:
     """Get all fields for a movie (title, release date, runtime, budget, revenue, ratings,
     plot, IMDb/Wikidata IDs, aspect ratio, color/B&W/silent flags) plus embedded relations:
     cast, crew, genre codes, production companies, production countries, spoken languages,
-    topics, collections, movements, awards, and nominations. id = TMDb ID_MOVIE."""
+    topics, collections, movements, technicals, awards, and nominations. id = TMDb ID_MOVIE."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -206,6 +208,22 @@ async def _mcp_get_movement(id: int) -> str:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
                 f"{MCP_INTERNAL_BASE_URL}/movements/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+@mcp.tool(name="get_technical")
+async def _mcp_get_technical(id: int) -> str:
+    """Get all fields for a technical format (sound system, color/film/sound technology,
+    or film format — e.g. Dolby, Technicolor, 70mm, IMAX, Cinemascope) plus associated
+    movies and sibling technicals sharing the same TECHNICAL_TYPE. id = ID_TECHNICAL."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/technicals/{id}",
                 headers={"X-API-Key": MCP_INTERNAL_API_KEY},
             )
             r.raise_for_status()
@@ -350,13 +368,14 @@ Each entity endpoint returns all properties for a given entity ID, including emb
 
 | Endpoint | Returns |
 |---|---|
-| `GET /movies/{id}` | All movie fields + cast, crew, genres, companies, topics, collections, movements, awards, nominations |
+| `GET /movies/{id}` | All movie fields + cast, crew, genres, companies, topics, collections, movements, technicals, awards, nominations |
 | `GET /series/{id}` | All series fields + cast, crew, genres, companies, networks, topics, collections, movements, awards, nominations |
 | `GET /persons/{id}` | All person fields + movie_cast, movie_crew, series_cast, series_crew, groups, deaths, awards, nominations |
 | `GET /collections/{id}` | Collection fields + member movies and series ordered by position |
 | `GET /topics/{id}` | Topic fields + linked movies and series ordered by position |
 | `GET /lists/{id}` | List fields + member movies and series ordered by position |
 | `GET /movements/{id}` | Movement fields + associated movies and series |
+| `GET /technicals/{id}` | Technical-format fields + associated movies and sibling technicals sharing the same TECHNICAL_TYPE |
 | `GET /groups/{id}` | Group fields + associated persons |
 | `GET /deaths/{id}` | Death/cause fields + associated persons |
 | `GET /awards/{id}` | Award fields + associated movies, series, and persons |
@@ -480,6 +499,9 @@ The response from `POST /search/text2sql` contains the full pipeline trace along
   "topics": [],
   "collections": [],
   "movements": [],
+  "technicals": [
+    { "ID_TECHNICAL": 29, "DESCRIPTION": "imax", "DESCRIPTION_FR": null, "TECHNICAL_TYPE": "sound_system", "WIKIPEDIA_IMAGE_PATH": null, "IMDB_RATING_WEIGHTED": null, "POPULARITY": null }
+  ],
   "awards": [],
   "nominations": []
 }
@@ -624,6 +646,10 @@ async def _mcp_database_scope() -> str:
         IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
     - T_WC_T2S_MOVEMENT: MOVEMENT_NAME, OVERVIEW, MOVIE_COUNT, SERIE_COUNT,
         IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH
+    - T_WC_T2S_TECHNICAL: DESCRIPTION, DESCRIPTION_FR, TECHNICAL_TYPE, OVERVIEW,
+        MOVIE_COUNT, WIKIPEDIA_IMAGE_PATH, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
+        TECHNICAL_TYPE values: sound_system, color_technology, film_technology,
+        sound_technology, film_format
     - T_WC_T2S_GROUP: GROUP_NAME, GROUP_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
     - T_WC_T2S_DEATH: DEATH_NAME, DEATH_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
     - T_WC_T2S_AWARD: AWARD_NAME, AWARD_TYPE, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT,

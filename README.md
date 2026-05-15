@@ -556,6 +556,7 @@ Each endpoint returns `404` when the requested entity is not found. Successful r
 | `GET` | `/topics/{id}` | `ID_TOPIC` | `T_WC_T2S_TOPIC` | Topic detail |
 | `GET` | `/lists/{id}` | `ID_T2S_LIST` | `T_WC_T2S_LIST` | Curated list detail |
 | `GET` | `/movements/{id}` | `ID_MOVEMENT` | `T_WC_T2S_MOVEMENT` | Film movement or style detail |
+| `GET` | `/technicals/{id}` | `ID_TECHNICAL` | `T_WC_T2S_TECHNICAL` | Technical format detail (sound system, color/film/sound technology, film format) |
 | `GET` | `/groups/{id}` | `ID_GROUP` | `T_WC_T2S_GROUP` | Person group detail |
 | `GET` | `/deaths/{id}` | `ID_DEATH` | `T_WC_T2S_DEATH` | Cause or circumstance of death detail |
 | `GET` | `/awards/{id}` | `ID_AWARD` | `T_WC_T2S_AWARD` | Award detail |
@@ -576,11 +577,14 @@ Returns all `T_WC_T2S_MOVIE` fields for the TMDb movie ID `ID_MOVIE`, plus the e
 | `lists` | Array of `{ ID_T2S_LIST, LIST_NAME, LIST_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, POPULARITY }`, ordered by `DISPLAY_ORDER` |
 | `collections` | Array of `{ ID_T2S_COLLECTION, COLLECTION_NAME, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, POPULARITY }`, ordered by `DISPLAY_ORDER` |
 | `movements` | Array of `{ ID_MOVEMENT, MOVEMENT_NAME, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, POPULARITY }`, ordered by `DISPLAY_ORDER` |
+| `technicals` | Array of `{ ID_TECHNICAL, DESCRIPTION, DESCRIPTION_FR, TECHNICAL_TYPE, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, POPULARITY }` from `T_WC_T2S_MOVIE_TECHNICAL` joined to `T_WC_T2S_TECHNICAL`, ordered by `DISPLAY_ORDER`. `TECHNICAL_TYPE` is one of `sound_system`, `color_technology`, `film_technology`, `sound_technology`, `film_format` |
 | `awards` | Array of `{ ID_AWARD, AWARD_NAME, POSTER_PATH, WIKIPEDIA_IMAGE_PATH }`, ordered by `DISPLAY_ORDER` |
 | `nominations` | Array of `{ ID_NOMINATION, NOMINATION_NAME, POSTER_PATH, WIKIPEDIA_IMAGE_PATH }`, ordered by `DISPLAY_ORDER` |
 | `cast` | Array of `{ ID_PERSON, PERSON_NAME, PROFILE_PATH, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, DISPLAY_ORDER }` where `CREDIT_TYPE = 'cast'`, ordered by `DISPLAY_ORDER`. For non-documentary movies (`IS_DOCUMENTARY != 1`), rows whose `CAST_CHARACTER` is one of `Self`, `Himself`, `Herself`, `(archive footage)`, `Self (archive footage)`, `Self (archive footage) (uncredited)`, or `Self (uncredited)` are excluded |
 | `crew` | Array of `{ ID_PERSON, PERSON_NAME, PROFILE_PATH, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, DISPLAY_ORDER }` where `CREDIT_TYPE = 'crew'`, ordered by `DISPLAY_ORDER` |
 | `posters` | Array of `{ ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER }` from `T_WC_T2S_MOVIE_IMAGE` where `TYPE_IMAGE = 'poster'`, ordered by `DISPLAY_ORDER` |
+| `backdrops` | Array of `{ ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER }` from `T_WC_T2S_MOVIE_IMAGE` where `TYPE_IMAGE = 'backdrop'`, ordered by `DISPLAY_ORDER` |
+| `wikipedia_images` | Array of `{ ID_ROW, LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE, FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER }` from `T_WC_WIKIPEDIA_PAGE_LANG_IMAGE` joined on the movie's `ID_WIKIDATA`, filtered to `LANG IN ('en','fr')`, `DELETED = 0`, and `HTTP_STATUS = 200 OR HTTP_STATUS IS NULL`. Ordered by `IS_MAIN_IMAGE DESC, LANG ASC, DISPLAY_ORDER ASC`. Empty when `ID_WIKIDATA` is NULL |
 
 Base movie fields currently include `ID_MOVIE`, `MOVIE_TITLE`, `DAT_RELEASE`, `RELEASE_YEAR`, `RELEASE_MONTH`, `RELEASE_DAY`, `ID_IMDB`, `ID_WIKIDATA`, `POSTER_PATH`, `POPULARITY`, `ORIGINAL_LANGUAGE`, `STATUS`, `BUDGET`, `RUNTIME`, `BACKDROP_PATH`, `REVENUE`, `TAGLINE`, `VIDEO`, `VOTE_AVERAGE`, `VOTE_COUNT`, `IS_COLOR`, `IS_BLACK_AND_WHITE`, `IS_SILENT`, `ASPECT_RATIO`, `IS_MOVIE`, `IS_DOCUMENTARY`, `IS_SHORT_FILM`, `DAT_CREAT`, `TIM_UPDATED`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `WIKIDATA_TITLE`, `ALIASES`, `PLEX_MEDIA_KEY`, `ID_CRITERION`, `ID_CRITERION_SPINE`, `INSTANCE_OF`, `PLOT`, `CAST`, `PRODUCTION`, `RECEPTION`, and `SOUNDTRACK`.
 
@@ -604,6 +608,8 @@ Returns all `T_WC_T2S_SERIE` fields for the TMDb series ID `ID_SERIE`, plus the 
 | `cast` | Array of `{ ID_PERSON, PERSON_NAME, PROFILE_PATH, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, DISPLAY_ORDER }` where `CREDIT_TYPE = 'cast'`, ordered by `DISPLAY_ORDER`. No self-appearance filter is applied on the series side (text-to-SQL behavior is symmetric) |
 | `crew` | Array of `{ ID_PERSON, PERSON_NAME, PROFILE_PATH, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, DISPLAY_ORDER }` where `CREDIT_TYPE = 'crew'`, ordered by `DISPLAY_ORDER` |
 | `posters` | Array of `{ ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER }` from `T_WC_T2S_SERIE_IMAGE` where `TYPE_IMAGE = 'poster'`, ordered by `DISPLAY_ORDER` |
+| `backdrops` | Array of `{ ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER }` from `T_WC_T2S_SERIE_IMAGE` where `TYPE_IMAGE = 'backdrop'`, ordered by `DISPLAY_ORDER` |
+| `wikipedia_images` | Array of `{ ID_ROW, LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE, FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER }` from `T_WC_WIKIPEDIA_PAGE_LANG_IMAGE` joined on the series's `ID_WIKIDATA`, filtered to `LANG IN ('en','fr')`, `DELETED = 0`, and `HTTP_STATUS = 200 OR HTTP_STATUS IS NULL`. Ordered by `IS_MAIN_IMAGE DESC, LANG ASC, DISPLAY_ORDER ASC`. Empty when `ID_WIKIDATA` is NULL |
 
 Base series fields currently include `ID_SERIE`, `SERIE_TITLE`, `DAT_FIRST_AIR`, `FIRST_AIR_YEAR`, `FIRST_AIR_MONTH`, `FIRST_AIR_DAY`, `DAT_LAST_AIR`, `LAST_AIR_YEAR`, `LAST_AIR_MONTH`, `LAST_AIR_DAY`, `ID_IMDB`, `ID_WIKIDATA`, `POSTER_PATH`, `POPULARITY`, `ORIGINAL_LANGUAGE`, `STATUS`, `BACKDROP_PATH`, `TAGLINE`, `VOTE_AVERAGE`, `VOTE_COUNT`, `NUMBER_OF_EPISODES`, `NUMBER_OF_SEASONS`, `SERIE_TYPE`, `DAT_CREAT`, `TIM_UPDATED`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `WIKIDATA_TITLE`, `ALIASES`, `PLEX_MEDIA_KEY`, and `INSTANCE_OF`.
 
@@ -622,6 +628,7 @@ Returns all `T_WC_T2S_PERSON` fields for the TMDb person ID `ID_PERSON`, plus:
 | `awards` | Array of `{ ID_AWARD, AWARD_NAME, POSTER_PATH, WIKIPEDIA_IMAGE_PATH }`, ordered by `DISPLAY_ORDER` |
 | `nominations` | Array of `{ ID_NOMINATION, NOMINATION_NAME, POSTER_PATH, WIKIPEDIA_IMAGE_PATH }`, ordered by `DISPLAY_ORDER` |
 | `portraits` | Array of `{ ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER }` from `T_WC_T2S_PERSON_IMAGE` where `TYPE_IMAGE = 'profile'`, ordered by `DISPLAY_ORDER` |
+| `wikipedia_images` | Array of `{ ID_ROW, LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE, FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER }` from `T_WC_WIKIPEDIA_PAGE_LANG_IMAGE` joined on the person's `ID_WIKIDATA`, filtered to `LANG IN ('en','fr')`, `DELETED = 0`, and `HTTP_STATUS = 200 OR HTTP_STATUS IS NULL`. Ordered by `IS_MAIN_IMAGE DESC, LANG ASC, DISPLAY_ORDER ASC`. Empty when `ID_WIKIDATA` is NULL |
 
 Base person fields currently include `ID_PERSON`, `PERSON_NAME`, `ID_IMDB`, `ID_WIKIDATA`, `BIOGRAPHY`, `BIRTH_YEAR`, `BIRTH_MONTH`, `BIRTH_DAY`, `DEATH_YEAR`, `DEATH_MONTH`, `DEATH_DAY`, `GENDER`, `PROFILE_PATH`, `COUNTRY_OF_BIRTH`, `POPULARITY`, `KNOWN_FOR_DEPARTMENT`, `TIM_CREDITS_DOWNLOADED`, `DAT_CREAT`, `TIM_UPDATED`, `WIKIDATA_NAME`, `ALIASES`, and `INSTANCE_OF`.
 
@@ -657,6 +664,20 @@ These endpoints return all fields from their primary entity table, plus member m
 | `/lists/{id}` | `ID_T2S_LIST`, `ID_RECORD`, `LIST_NAME`, `LIST_NAME_FR`, `OVERVIEW`, `LIST_SOURCE`, `LIST_TYPE`, `MOVIE_COUNT`, `SERIE_COUNT`, `POSTER_PATH`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `POPULARITY` | `movies` and `series` arrays of `{ ID_MOVIE/ID_SERIE, MOVIE_TITLE/SERIE_TITLE, DAT_RELEASE/DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
 | `/movements/{id}` | `ID_MOVEMENT`, `ID_RECORD`, `MOVEMENT_NAME`, `MOVEMENT_NAME_FR`, `OVERVIEW`, `MOVEMENT_SOURCE`, `MOVEMENT_TYPE`, `MOVIE_COUNT`, `SERIE_COUNT`, `POSTER_PATH`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `POPULARITY` | `movies` and `series` arrays of `{ ID_MOVIE/ID_SERIE, MOVIE_TITLE/SERIE_TITLE, DAT_RELEASE/DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
 
+All four endpoints also return a `wikipedia_images` array — see the `/movies/{id}` table for its full row shape.
+
+##### `GET /technicals/{id}`
+
+Returns all `T_WC_T2S_TECHNICAL` fields for `ID_TECHNICAL`, plus:
+
+| Field | Shape |
+|---|---|
+| `movies` | Array of `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH, DISPLAY_ORDER }` from `T_WC_T2S_MOVIE_TECHNICAL` joined to `T_WC_T2S_MOVIE`, ordered by `DISPLAY_ORDER ASC, IMDB_RATING_WEIGHTED DESC` (junction `DISPLAY_ORDER` is mostly NULL for auto-ingested technical attributes, so the rating tiebreaker effectively rules — best-rated movies surface first) |
+| `siblings` | Array of `{ ID_TECHNICAL, DESCRIPTION, DESCRIPTION_FR, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, POPULARITY, MOVIE_COUNT }` of other technicals sharing the same `TECHNICAL_TYPE`, ordered by `MOVIE_COUNT DESC`. Enables navigation between related technical formats (e.g. from `technicolor` to the other `color_technology` rows like `deluxe`, `eastmancolor`, `metrocolor`) |
+| `wikipedia_images` | Array of `{ ID_ROW, LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE, FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER }` from `T_WC_WIKIPEDIA_PAGE_LANG_IMAGE` joined on the technical's `ID_WIKIDATA`, filtered to `LANG IN ('en','fr')`, `DELETED = 0`, and `HTTP_STATUS = 200 OR HTTP_STATUS IS NULL`. Ordered by `IS_MAIN_IMAGE DESC, LANG ASC, DISPLAY_ORDER ASC`. Empty when `ID_WIKIDATA` is NULL |
+
+Base technical fields currently include `ID_TECHNICAL`, `ID_RECORD`, `ID_WIKIDATA`, `DESCRIPTION`, `DESCRIPTION_FR`, `OVERVIEW`, `TECHNICAL_TYPE` (one of `sound_system`, `color_technology`, `film_technology`, `sound_technology`, `film_format`), `MOVIE_COUNT`, `SERIE_COUNT`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, and `POPULARITY`. No `series` array is returned because `T_WC_T2S_SERIE_TECHNICAL` does not exist yet.
+
 ##### `GET /groups/{id}` and `/deaths/{id}`
 
 These endpoints return all fields from their primary entity table, plus associated persons:
@@ -665,6 +686,8 @@ These endpoints return all fields from their primary entity table, plus associat
 |---|---|---|
 | `/groups/{id}` | `ID_GROUP`, `ID_WIKIDATA`, `GROUP_NAME`, `GROUP_NAME_FR`, `OVERVIEW`, `GROUP_SOURCE`, `GROUP_TYPE`, `PERSON_COUNT`, `PROFILE_PATH`, `WIKIPEDIA_IMAGE_PATH`, `POPULARITY` | `persons`: array of `{ ID_PERSON, PERSON_NAME, POPULARITY, PROFILE_PATH, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
 | `/deaths/{id}` | `ID_DEATH`, `ID_WIKIDATA`, `DEATH_NAME`, `DEATH_NAME_FR`, `OVERVIEW`, `DEATH_SOURCE`, `DEATH_TYPE`, `PERSON_COUNT`, `PROFILE_PATH`, `WIKIPEDIA_IMAGE_PATH`, `POPULARITY` | `persons`: array of `{ ID_PERSON, PERSON_NAME, POPULARITY, PROFILE_PATH, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
+
+Both endpoints also return a `wikipedia_images` array — see the `/movies/{id}` table for its full row shape.
 
 ##### `GET /awards/{id}` and `/nominations/{id}`
 
@@ -675,6 +698,8 @@ These endpoints return all fields from their primary entity table, plus associat
 | `/awards/{id}` | `ID_AWARD`, `ID_WIKIDATA`, `AWARD_NAME`, `AWARD_NAME_FR`, `OVERVIEW`, `AWARD_SOURCE`, `AWARD_TYPE`, `MOVIE_COUNT`, `SERIE_COUNT`, `PERSON_COUNT`, `POSTER_PATH`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `POPULARITY` | `movies`: `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH, DISPLAY_ORDER }`; `series`: `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH, DISPLAY_ORDER }`; `persons`: `{ ID_PERSON, PERSON_NAME, POPULARITY, PROFILE_PATH, DISPLAY_ORDER }`; all ordered by `DISPLAY_ORDER` |
 | `/nominations/{id}` | `ID_NOMINATION`, `ID_WIKIDATA`, `NOMINATION_NAME`, `NOMINATION_NAME_FR`, `OVERVIEW`, `NOMINATION_SOURCE`, `NOMINATION_TYPE`, `MOVIE_COUNT`, `SERIE_COUNT`, `PERSON_COUNT`, `POSTER_PATH`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `POPULARITY` | `movies`: `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH, DISPLAY_ORDER }`; `series`: `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH, DISPLAY_ORDER }`; `persons`: `{ ID_PERSON, PERSON_NAME, POPULARITY, PROFILE_PATH, DISPLAY_ORDER }`; all ordered by `DISPLAY_ORDER` |
 
+Both endpoints also return a `wikipedia_images` array — see the `/movies/{id}` table for its full row shape.
+
 ##### `GET /locations/{wikidata_id}`
 
 Returns all `T_WC_T2S_ITEM` fields for the location `ID_WIKIDATA`, for example `Q90`, plus movies and series where the location is linked through Wikidata property `P840` (narrative location) or `P915` (filming location).
@@ -683,6 +708,7 @@ Returns all `T_WC_T2S_ITEM` fields for the location `ID_WIKIDATA`, for example `
 |---|---|
 | `movies` | Array of `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH, ID_PROPERTY }`, ordered by `IMDB_RATING_WEIGHTED DESC` |
 | `series` | Array of `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH, ID_PROPERTY }`, ordered by `IMDB_RATING_WEIGHTED DESC` |
+| `wikipedia_images` | Array of `{ ID_ROW, LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE, FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER }` from `T_WC_WIKIPEDIA_PAGE_LANG_IMAGE` joined on `ID_WIKIDATA` (the route parameter), filtered to `LANG IN ('en','fr')`, `DELETED = 0`, and `HTTP_STATUS = 200 OR HTTP_STATUS IS NULL`. Ordered by `IS_MAIN_IMAGE DESC, LANG ASC, DISPLAY_ORDER ASC` |
 
 Base location fields currently include `ID_WIKIDATA`, `ITEM_LABEL`, `DESCRIPTION`, `INSTANCE_OF`, and `WIKIPEDIA_IMAGE_PATH`.
 
@@ -1098,7 +1124,7 @@ Log files are created in the `logs/` folder (via `logs.py`) for the following ev
 - API startup (`start` event)
 - Health check requests to `GET /` (`hello` event)
 - Each processed `POST /search/text2sql` request (`text2sql_post` event)
-- Each entity detail endpoint request (`movies`, `series`, `persons`, `companies`, `networks`, `collections`, `topics`, `lists`, `movements`, `groups`, `deaths`, `awards`, `nominations`, `locations`)
+- Each entity detail endpoint request (`movies`, `series`, `persons`, `companies`, `networks`, `collections`, `topics`, `lists`, `movements`, `technicals`, `groups`, `deaths`, `awards`, `nominations`, `locations`)
 - Each successful hot-reload of a file in the `data/` folder (`data_hot_reload` event)
 
 API request/response log files include:
