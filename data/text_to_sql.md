@@ -930,6 +930,7 @@ Do NOT confuse these with quality terms:
 - When display movies for a given nomination, ORDER BY T_WC_T2S_MOVIE_NOMINATION.DISPLAY_ORDER ASC
 - When display series for a given nomination, ORDER BY T_WC_T2S_SERIE_NOMINATION.DISPLAY_ORDER ASC
 - When display persons for a given nomination, ORDER BY T_WC_T2S_PERSON_NOMINATION.DISPLAY_ORDER ASC
+- When listing movies AND series together (UNION) for a given collection, movement, topic, list, award, or nomination: the junction-specific DISPLAY_ORDER columns are not part of the 13-column UNION SELECT shape, so they cannot be referenced in the outer ORDER BY. Fall back to `ORDER BY IMDB_RATING_WEIGHTED DESC` on the UNION result. Never emit an unqualified `ORDER BY DISPLAY_ORDER` after a UNION.
 - Persons → POPULARITY DESC
 - When display persons for a given movie (cast or crew), ORDER BY T_WC_T2S_PERSON_MOVIE.DISPLAY_ORDER ASC
 - When display persons for a given serie (cast or crew), ORDER BY T_WC_T2S_PERSON_SERIE.DISPLAY_ORDER ASC
