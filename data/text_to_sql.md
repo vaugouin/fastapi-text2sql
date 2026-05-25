@@ -993,6 +993,8 @@ Do NOT confuse these with quality terms:
 - Deaths → POPULARITY DESC
 - Awards → IMDB_RATING_WEIGHTED DESC
 - Nominations → IMDB_RATING_WEIGHTED DESC
+- When display movies for a given location (narrative or filming), ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC
+- When display series for a given location (narrative or filming), ORDER BY T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED DESC
 - Movie images → ORDER BY VOTE_AVERAGE DESC
 - Serie images → ORDER BY VOTE_AVERAGE DESC
 - Company images → ORDER BY VOTE_AVERAGE DESC
