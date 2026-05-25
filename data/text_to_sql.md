@@ -23,7 +23,7 @@ Never include a semicolon at the end of the SQL query.
 
 ## ? Placeholders / Anonymization
 
-The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}, {{Movie_genre1}}, {{Serie_genre1}}, {{Technical_format1}}, {{Department_name1}}, {{Aspect_ratio1}}.
+The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}, {{Movie_genre1}}, {{Serie_genre1}}, {{Technical_format1}}, {{Department_name1}}.
 These placeholders represent real entity values that were intentionally replaced earlier.
 
 Rules:
@@ -39,7 +39,8 @@ Genre and Technical_format placeholder special case (integer-ID columns):
 - Emit each placeholder exactly as a quoted string literal against the corresponding INT column, for example:
   - Movies genre: `T_WC_T2S_MOVIE_GENRE.ID_GENRE = '{{Movie_genre1}}'`
   - Series genre: `T_WC_T2S_SERIE_GENRE.ID_GENRE = '{{Serie_genre1}}'`
-  - Movie technical: `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL = '{{Technical_format1}}'`
+  - Movie technical (filter — movies that used this technical): `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL = '{{Technical_format1}}'`
+  - Movie technical (detail — the technical record itself, for "What is X?" / "Tell me about X" questions): `T_WC_T2S_TECHNICAL.ID_TECHNICAL = '{{Technical_format1}}'`
 - The resolver will substitute each placeholder with the correct integer ID at runtime (the surrounding quotes are stripped). The full canonical name → ID mapping lives in the database (`T_WC_TMDB_GENRE`, filtered by `APPLIES_TO_MOVIE` / `APPLIES_TO_SERIE` flags; `T_WC_T2S_TECHNICAL` for technical formats) and is loaded into memory at startup, with multilingual aliases / format variants on top — you do not need to know the IDs.
 - Never use `{{Movie_genreN}}` against `T_WC_T2S_SERIE_GENRE` or `{{Serie_genreN}}` against `T_WC_T2S_MOVIE_GENRE`: the resolver restricts each placeholder to its side's vocabulary, so a cross-use will leave the placeholder unresolved.
 
@@ -81,7 +82,6 @@ CREATE TABLE T_WC_T2S_MOVIE (
   IS_COLOR INT,
   IS_BLACK_AND_WHITE INT,
   IS_SILENT INT,
-  ASPECT_RATIO VARCHAR(20),
   IS_MOVIE INT,
   IS_DOCUMENTARY INT,
   IS_SHORT_FILM INT,
@@ -94,12 +94,7 @@ CREATE TABLE T_WC_T2S_MOVIE (
   PLEX_MEDIA_KEY VARCHAR(50),
   ID_CRITERION INT,
   ID_CRITERION_SPINE INT,
-  INSTANCE_OF VARCHAR(50),
-  PLOT MEDIUMTEXT,
-  CAST MEDIUMTEXT,
-  PRODUCTION MEDIUMTEXT, 
-  RECEPTION MEDIUMTEXT, 
-  SOUNDTRACK MEDIUMTEXT
+  INSTANCE_OF VARCHAR(50)
 );
 
 ### TV Series
@@ -431,6 +426,34 @@ CREATE TABLE T_WC_T2S_SERIE_MOVEMENT (
   DISPLAY_ORDER INT
 );
 
+### Technicals
+Movie technical formats, technologies, processes, and movie classifications (sound systems, color technologies, film technologies, sound technologies, film formats, aspect ratios, and color/B&W/silent/3D classification rows) are first-class entities stored in `T_WC_T2S_TECHNICAL`. The same table is used for **filtering** (movies that used a given technical, via the `T_WC_T2S_MOVIE_TECHNICAL` junction defined earlier) and for **entity detail** (the technical format itself, when the user asks "What is Technicolor?" / "Qu'est-ce que CinemaScope?" / "What is 1.85?" / "What does black and white mean?"). See the dedicated "Technical format filtering and detail" section further down for the two SQL patterns.
+
+`TECHNICAL_TYPE` partitions the table into:
+- `sound_system` (e.g. `dolby`, `dts`, `5.1`, `7.1`, `mono`, `stereo`, `imax`, `auro`, `sdds`)
+- `color_technology` (e.g. `technicolor`, `eastmancolor`, `metrocolor`, `deluxe`, `kodachrome`, `cinecolor`, `fujicolor`)
+- `film_technology` (e.g. `cinemascope`, `panavision`, `vistavision`, `super_35`, `super_16`, `techniscope`, `cinerama`, `todd_ao`, `ultra_panavision`)
+- `sound_technology` (e.g. `western_electric`, `westrex`, `photophone`, `tobis_klangfilm`, `vitaphone`, `movietone`, `perspecta`)
+- `film_format` (e.g. `35 mm`, `16 mm`, `65 mm`, `70 mm`, `digital`, `dcp`, `franscope`)
+- `medium_format` — movie classifications: `color_movie`, `black_and_white_movie`, `silent_movie`, `3d_movie`
+- `aspect_ratio` — dot-decimal canonicals: `1.33`, `1.37`, `1.43`, `1.66`, `1.78`, `1.85`, `2.00`, `2.20`, `2.35`, `2.39`, `2.40`, `2.55`, `2.76`
+
+CREATE TABLE T_WC_T2S_TECHNICAL (
+  ID_TECHNICAL INT NOT NULL,
+  ID_RECORD INT,
+  ID_WIKIDATA VARCHAR(20),
+  DESCRIPTION VARCHAR(50),
+  DESCRIPTION_FR VARCHAR(50),
+  OVERVIEW MEDIUMTEXT,
+  TECHNICAL_TYPE VARCHAR(20),
+  MOVIE_COUNT INT,
+  SERIE_COUNT INT,
+  WIKIPEDIA_IMAGE_PATH VARCHAR(200),
+  IMDB_RATING DOUBLE,
+  IMDB_RATING_WEIGHTED DOUBLE,
+  POPULARITY DOUBLE
+);
+
 ### Groups
 Organizations, clubs, or musical groups associated with people are stored in `T_WC_T2S_GROUP`.
 When the user asks about a specific group, use the `GROUP_NAME` field and the `{{Group_nameN}}` placeholder when present.
@@ -753,12 +776,7 @@ CREATE TABLE T_WC_T2S_SERIE_VIDEO (
 - ID_WIKIDATA is the Wikidata ID of the movie, serie or person: starts with Q followed by digits
 - POSTER_PATH is the poster path of the movie or serie
 - POPULARITY is the popularity of the movie, serie or person
-- PLOT is the Wikipedia detailed story summary but it must not be used in a WHERE clause
-- CAST is the Wikipedia section about main actors and their roles but it must not be used in a WHERE clause. You should rather search in dedicated tables 
-- PRODUCTION: Development, filming, and behind-the-scenes information but it must not be used in a WHERE clause
-- RECEPTION: Critical reviews and audience response but it must not be used in a WHERE clause
 - BIOGRAPHY: Personal and professional background of a person but it must not be used in a WHERE clause
-- ASPECT_RATIO is the aspect ratio of the movie (VARCHAR; canonical decimal form, e.g. `1.37`, `1.85`, `2.35`, `2.39`, `1.33`, `1.66`, `1.78`). When the question carries an `{{Aspect_ratioN}}` placeholder, emit it as a quoted string literal against `T_WC_T2S_MOVIE.ASPECT_RATIO` (e.g. `T_WC_T2S_MOVIE.ASPECT_RATIO = '{{Aspect_ratio1}}'`). The resolver substitutes the canonical decimal value at runtime, accepting common surface variants (`Academy`, `widescreen`, `anamorphic`, `scope`, `4:3`, `16:9`, `2.35:1`, `2,35`).
 - ID_TECHNICAL is the technical information of the movie, possible values are listed below and do not use a value outside of the list provided.
 - When searching for a documentary, search in T_WC_T2S_MOVIE table if no more information provided about the content type
 - If user asks for a "movie" or "film" → add IS_MOVIE = 1
@@ -772,11 +790,33 @@ CREATE TABLE T_WC_T2S_SERIE_VIDEO (
 - Before returning the final SQL, perform a self-check to ensure every predicate, join condition, comparison, sort expression, grouping expression, and function argument is compatible with the schema and the declared field types.
 - If a requested filter requires a label-to-code or text-to-ID conversion, only use a mapping explicitly defined in this prompt/schema. Otherwise, do not invent one.
 
-### Technical format filtering
+### Technical format filtering and detail
+
+`T_WC_T2S_TECHNICAL` is a first-class entity (like Collections, Movements, Topics). The same placeholder `{{Technical_formatN}}` drives **two different SQL patterns** — pick by question intent.
+
+#### Filter — movies that *used* this technical format
+Use when the user is searching for movies *with / in / shot in / featuring / using* a given technical format (the technical is the filter, the movies are the result).
 - Filter on `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL` (integer FK to `T_WC_T2S_TECHNICAL.ID_TECHNICAL`).
-- Covers sound systems, color technologies, film technologies, sound technologies, and film formats — see `T_WC_T2S_TECHNICAL.TECHNICAL_TYPE` if you need to disambiguate.
+- Covers sound systems, color technologies, film technologies, sound technologies, film formats, movie classifications (color/B&W/silent/3D), and aspect ratios — see `T_WC_T2S_TECHNICAL.TECHNICAL_TYPE` if you need to disambiguate.
 - Always reference a technical format via the `{{Technical_formatN}}` placeholder; the resolver substitutes the correct integer ID at runtime (see the placeholder special case at the top of this prompt).
 - Example: "Les films tournés en franscope" → `WHERE T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL = '{{Technical_format1}}'`
+- Example: "Movies in Technicolor" → `... JOIN T_WC_T2S_MOVIE_TECHNICAL mt ON mt.ID_MOVIE = m.ID_MOVIE WHERE mt.ID_TECHNICAL = '{{Technical_format1}}'`
+- Example (aspect ratio): "Movies in 1.85" / "Films au format 4:3" / "Widescreen movies" → `... JOIN T_WC_T2S_MOVIE_TECHNICAL mt ON mt.ID_MOVIE = m.ID_MOVIE WHERE mt.ID_TECHNICAL = '{{Technical_format1}}'`. A movie can have several aspect ratios; always go through the junction, never filter on a column of `T_WC_T2S_MOVIE` for aspect ratio.
+
+#### Detail — the technical format *itself*
+Use when the user asks *about* the technical format (the technical IS the result; do not join through the movie junction).
+- SELECT directly from `T_WC_T2S_TECHNICAL` using `{{Technical_formatN}}` against `ID_TECHNICAL`.
+- Return the columns listed in "Technicals – return:" above.
+- Example: "What is Technicolor?" → `SELECT ID_TECHNICAL, DESCRIPTION, DESCRIPTION_FR, TECHNICAL_TYPE, OVERVIEW, WIKIPEDIA_IMAGE_PATH, MOVIE_COUNT, IMDB_RATING_WEIGHTED, POPULARITY FROM T_WC_T2S_TECHNICAL WHERE ID_TECHNICAL = '{{Technical_format1}}'`
+- Example: "Qu'est-ce que CinemaScope ?" → same shape, `WHERE ID_TECHNICAL = '{{Technical_format1}}'`
+- Example: "Tell me about Dolby Atmos" → same shape.
+- Example: "What does black and white mean?" → same shape (the alias `black and white` resolves to the `black_and_white_movie` row in `T_WC_T2S_TECHNICAL`).
+- Example (aspect ratio): "What is 1.85?" / "Qu'est-ce que l'Academy ratio?" / "Tell me about 4:3" → same shape; `{{Technical_format1}}` resolves to the `ID_TECHNICAL` of the matching `TECHNICAL_TYPE='aspect_ratio'` row.
+
+#### Disambiguation
+- Filter phrasings ("movies in/with/featuring/shot in/using X", "films tournés en X", "X films", "X movies") → **filter path**.
+- Detail phrasings ("what is X", "tell me about X", "describe X", "qu'est-ce que X", "définition de X", "X explained", "what does X mean") → **detail path**.
+- When the same question mixes both ("Tell me about Technicolor and list its movies"), prefer two separate queries or a UNION — never collapse them into a single `JOIN` that loses the technical's own columns.
 
 ### Result Columns
 
@@ -805,6 +845,9 @@ ID_T2S_COLLECTION, COLLECTION_NAME, COLLECTION_SOURCE, COLLECTION_TYPE, POSTER_P
 
 #### Movements – return:
 ID_MOVEMENT, MOVEMENT_NAME, MOVEMENT_SOURCE, MOVEMENT_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING
+
+#### Technicals – return:
+ID_TECHNICAL, DESCRIPTION, DESCRIPTION_FR, TECHNICAL_TYPE, OVERVIEW, WIKIPEDIA_IMAGE_PATH, MOVIE_COUNT, IMDB_RATING_WEIGHTED, POPULARITY
 
 #### Groups – return:
 ID_GROUP, GROUP_NAME, GROUP_SOURCE, GROUP_TYPE, PROFILE_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, PERSON_COUNT, POPULARITY
@@ -916,6 +959,9 @@ Do NOT confuse these with quality terms:
 - Movements → IMDB_RATING_WEIGHTED DESC
 - When display movies for a given collection, ORDER BY T_WC_T2S_MOVIE_MOVEMENT.DISPLAY_ORDER ASC
 - When display series for a given collection, ORDER BY T_WC_T2S_SERIE_MOVEMENT.DISPLAY_ORDER ASC
+- Technicals → MOVIE_COUNT DESC
+- When display movies for a given technical, ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC
+- When listing technicals as siblings of a given technical (same `TECHNICAL_TYPE`), ORDER BY MOVIE_COUNT DESC
 - Groups for a person → POPULARITY DESC
 - When display persons for a given group, ORDER BY T_WC_T2S_PERSON_GROUP.DISPLAY_ORDER ASC
 - Deaths for a person → POPULARITY DESC
@@ -942,6 +988,7 @@ Do NOT confuse these with quality terms:
 - Lists → IMDB_RATING_WEIGHTED DESC
 - Collections → IMDB_RATING_WEIGHTED DESC
 - Movements → IMDB_RATING_WEIGHTED DESC
+- Technicals → MOVIE_COUNT DESC
 - Groups → POPULARITY DESC
 - Deaths → POPULARITY DESC
 - Awards → IMDB_RATING_WEIGHTED DESC

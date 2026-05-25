@@ -10,6 +10,11 @@ Deeper specs live in their own files:
 - @eval/README.md — evaluation harness
 - @doc/sql/*.sql — reference DDL for the database schema; treat these files as read-only unless the user explicitly asks you to edit schema documentation
 
+- For any project update, keep documentation aligned:
+  - Update `README.md` for user-facing behavior, configuration, setup, deployment, troubleshooting, or verification changes.
+  - Update also docstrings for API endpoints documentation when there are changes in the API. 
+  - Update this file only when agent workflow or safety context changes.
+
 ---
 
 ## Where things live (file → role)
@@ -21,8 +26,8 @@ Edit at the right layer; the architecture is intentionally split.
 - `strapiversion` lives at [main.py:105](main.py#L105) (also drives Blue/Green port parity and `MCP_INTERNAL_BASE_URL`)
 - `Text2SQLRequest` / `Text2SQLResponse` Pydantic models around [main.py:214-269](main.py#L214-L269)
 - `POST /search/text2sql` — main pipeline endpoint
-- 15 entity detail endpoints (movies, series, persons, companies, networks, collections, topics, lists, movements, technicals, groups, deaths, awards, nominations, locations)
-- FastMCP instance + 16 MCP tools (`sql_search` + 15 entity tools), 1 resource (`context://database-scope`), bearer-token middleware, `app.mount("", mcp_app)` at root
+- 17 entity detail endpoints (movies, series, seasons, episodes, persons, companies, networks, collections, topics, lists, movements, technicals, groups, deaths, awards, nominations, locations). `seasons` and `episodes` are keyed on composite paths (`/seasons/{id_serie}/{season_number}`, `/episodes/{id_serie}/{season_number}/{episode_number}`) and currently read from `T_WC_TMDB_*` source tables — see [SEASONS_AND_EPISODES.md](SEASONS_AND_EPISODES.md) §6.1.
+- FastMCP instance + 16 MCP tools (`sql_search` + 15 entity tools), 1 resource (`context://database-scope`), bearer-token middleware, `app.mount("", mcp_app)` at root. The `seasons` and `episodes` HTTP endpoints do not yet have MCP wrappers (tracked in [SEASONS_AND_EPISODES.md](SEASONS_AND_EPISODES.md) §3 "MCP coverage")
 
 **[text2sql.py](text2sql.py)** — core LLM logic.
 - `_call_chat_llm()` — unified multi-provider dispatcher (OpenAI / Anthropic / Google). Routes on prefix: `gpt-*`/`o1*`/`o3*` → OpenAI; `claude-*` → Anthropic; `gemini-*` → Google.
@@ -41,7 +46,7 @@ Edit at the right layer; the architecture is intentionally split.
 
 **[closed_vocab.py](closed_vocab.py)** — closed-vocabulary lookups (DB canonicals + JSON aliases + RapidFuzz typo tolerance).
 - `init(connection)` — loads canonicals at startup. Called once from `main.py` startup.
-- `resolve(entity, raw_value)` — string-canonical lookup (`Status_name`, `Serie_type`, `Department_name`, `Aspect_ratio`).
+- `resolve(entity, raw_value)` — string-canonical lookup (`Status_name`, `Serie_type`, `Department_name`).
 - `resolve_genre(raw)` / `resolve_technical(raw)` — integer-ID lookups (`ID_GENRE`, `ID_TECHNICAL`).
 - Aliases hot-reload from [data/closed_vocabularies.json](data/closed_vocabularies.json).
 
@@ -125,7 +130,7 @@ Inside `entity.resolve_entities()`, the dispatch order is fixed and matters:
    - `Movie_genre*` → `closed_vocab.resolve_movie_genre()` → integer `ID_GENRE` (no quotes in SQL); restricted to genres with `APPLIES_TO_MOVIE = 1` in `T_WC_TMDB_GENRE`.
    - `Serie_genre*` → `closed_vocab.resolve_serie_genre()` → integer `ID_GENRE` (no quotes in SQL); restricted to genres with `APPLIES_TO_SERIE = 1` in `T_WC_TMDB_GENRE`.
    - `Technical_format*` → `closed_vocab.resolve_technical()` → integer `ID_TECHNICAL` (no quotes in SQL).
-   - `Status_name*` / `Serie_type*` / `Department_name*` / `Aspect_ratio*` → `closed_vocab.resolve(entity, raw)` → canonical string (single-quoted in SQL).
+   - `Status_name*` / `Serie_type*` / `Department_name*` → `closed_vocab.resolve(entity, raw)` → canonical string (single-quoted in SQL).
 3. **Embeddings / RapidFuzz** — driven by `data/entity_resolution.json` `search_list` strategies; per-strategy language-family gating is supported.
 4. **Raw fallback** — any unmatched placeholder gets the raw extracted value SQL-escaped and substituted directly. If anything is still left after the loop, `ambiguous_question_for_text2sql = 1` is set.
 
@@ -181,7 +186,7 @@ Always also:
 
 ## Text-to-SQL ↔ entity endpoint coherence
 
-[data/text_to_sql.md](data/text_to_sql.md) (drives LLM-generated SQL for `/search/text2sql`) and the 15 entity detail endpoints in [main.py](main.py) (hand-written SQL for `/movies/{id}`, `/persons/{id}`, etc., plus their MCP `get_*` proxies) are two independent SQL surfaces over the same data. They are kept in sync by hand, not enforced by code.
+[data/text_to_sql.md](data/text_to_sql.md) (drives LLM-generated SQL for `/search/text2sql`) and the 17 entity detail endpoints in [main.py](main.py) (hand-written SQL for `/movies/{id}`, `/persons/{id}`, `/seasons/{id_serie}/{season_number}`, etc., plus their MCP `get_*` proxies where they exist) are two independent SQL surfaces over the same data. They are kept in sync by hand, not enforced by code.
 
 When working on either side, scan the other for divergence and **surface any discrepancy to the user** — do not silently patch one to match the other, and do not treat this as an automatic refactor target. Default expectation: `data/text_to_sql.md` is the spec; the endpoints should match unless the user says otherwise. Categories of drift to watch for:
 
@@ -293,13 +298,13 @@ Open once per request, pass the connection around, close in a `finally`. Do NOT 
 The pipeline can retry via the stronger model, but only when `complex_question_already_resolved = False`. The recursive call sets it to `True` to prevent runaway retries.
 
 ### Gotcha #9 — Closed-Vocabulary Resolution
-`Movie_genre`, `Serie_genre`, `Technical_format`, `Status_name`, `Serie_type`, `Department_name`, and `Aspect_ratio` are resolved via [closed_vocab.py](closed_vocab.py): canonicals from the database at startup, aliases from [data/closed_vocabularies.json](data/closed_vocabularies.json) (hot-reloaded). Typo tolerance is uniform via RapidFuzz with `score_cutoff=85` and `margin=5`. Genre placeholders and `Technical_format` substitute integers (no quotes); `Status_name`, `Serie_type`, `Department_name`, and `Aspect_ratio` substitute single-quoted canonical strings. `Movie_genre` and `Serie_genre` draw from the same `T_WC_TMDB_GENRE` table but each loader query filters by the `APPLIES_TO_MOVIE` / `APPLIES_TO_SERIE` flag, so a question filtering movies cannot resolve to a TV-only genre (e.g. `Reality`, `Sci-Fi & Fantasy`) and vice versa.
+`Movie_genre`, `Serie_genre`, `Technical_format`, `Status_name`, `Serie_type`, and `Department_name` are resolved via [closed_vocab.py](closed_vocab.py): canonicals from the database at startup, aliases from [data/closed_vocabularies.json](data/closed_vocabularies.json) (hot-reloaded). Typo tolerance is uniform via RapidFuzz with `score_cutoff=85` and `margin=5`. Genre placeholders and `Technical_format` substitute integers (no quotes); `Status_name`, `Serie_type`, and `Department_name` substitute single-quoted canonical strings. `Movie_genre` and `Serie_genre` draw from the same `T_WC_TMDB_GENRE` table but each loader query filters by the `APPLIES_TO_MOVIE` / `APPLIES_TO_SERIE` flag, so a question filtering movies cannot resolve to a TV-only genre (e.g. `Reality`, `Sci-Fi & Fantasy`) and vice versa.
 
-**Resolver order matters**: in `_resolve_closed_vocab`, canonical exact match runs **before** alias match. If a user-typed value happens to be a literal canonical (e.g. the DB stores both `'4:3'` and `'1,33'` for the same ratio), the canonical wins and the alias never fires. To remap noisy DB variants to a single dominant form, exclude them from canonicals via the loader query (see `Aspect_ratio` below).
+**Resolver order matters**: in `_resolve_closed_vocab`, canonical exact match runs **before** alias match. If a user-typed value happens to be a literal canonical, the canonical wins and the alias never fires. To remap noisy DB variants to a single dominant form, exclude them from canonicals via the loader query.
 
 `Department_name` is **crew-only** — its canonical loader explicitly excludes `'Actors'` and `'Acting'` from all three UNIONed source columns (`CREW_DEPARTMENT` × movie + serie, plus `KNOWN_FOR_DEPARTMENT` from `T_WC_T2S_PERSON`). The text-to-SQL prompt picks the column based on question intent (person-search → `KNOWN_FOR_DEPARTMENT`, crew-of-content → `CREW_DEPARTMENT`); whenever `CREW_DEPARTMENT` is filtered via `{{Department_nameN}}`, the prompt also enforces `CREDIT_TYPE = 'crew'` on the same join. Cast / actor queries never produce a `Department_name` placeholder; the LLM emits `CREDIT_TYPE = 'cast'` (film context) or `KNOWN_FOR_DEPARTMENT = 'Acting'` (person-search) inline.
 
-`Aspect_ratio` canonicals are **comma-decimal only** (French notation: `1,33`, `1,85`, `2,35`, `2,39`). The loader query filters with `ASPECT_RATIO REGEXP '^[0-9]+,[0-9]+$'` so noisy DB variants (`'4:3'`, `'4/3'`, `'16:9'`, `'1:33'`, `'235:1'`, etc.) drop out of canonical and fall through to the alias layer, which remaps every common surface form (dot decimals like `1.33`, width:height like `4:3`/`16:9`, slash forms like `4/3`/`16/9`, named conventions like `Academy`/`widescreen`/`flat`) to its dominant comma-decimal canonical. `'anamorphic'` / `'scope'` / `'cinemascope'` deliberately live under `Technical_format`, not `Aspect_ratio`, to avoid cross-entity collision.
+Aspect ratios are **part of `Technical_format`** (rows in `T_WC_T2S_TECHNICAL` with `TECHNICAL_TYPE='aspect_ratio'` and dot-decimal `DESCRIPTION` values like `'1.85'`, `'2.35'`). Surface variants (`Academy`, `widescreen`, `flat`, `4:3`, `16:9`, `2.35:1`, `2,35` with French comma) live as aliases under `Technical_format` in [data/closed_vocabularies.json](data/closed_vocabularies.json) and resolve to the matching aspect-ratio `ID_TECHNICAL`. Filtering and detail both go through the same `{{Technical_formatN}}` pattern as every other technical (junction `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL` for filter; direct `T_WC_T2S_TECHNICAL.ID_TECHNICAL` for detail), so a movie that ships in several aspect ratios is correctly matched on any of them.
 
 Only the two genre placeholders (`Movie_genre`, `Serie_genre`) have a `_LANG` companion table today (`T_WC_TMDB_GENRE_LANG`, joined against the side-applicability flag at load time); for the others, multilingual aliases live in JSON only.
 
@@ -328,6 +333,7 @@ Full prompt-visible schema rules live in [data/text_to_sql.md](data/text_to_sql.
 
 Full DDL lives under [doc/sql/](doc/sql/); do not duplicate table definitions here. Treat these files as reference-only unless the user explicitly asks for schema-doc edits.
 
+- [doc/sql/T2S\_Evaluation-tables.sql](doc/sql/T2S-tables.sql) — tables used by the evaluation process.
 - [doc/sql/T2S-tables.sql](doc/sql/T2S-tables.sql) — canonical Text2SQL read-model tables used by prompts, API detail endpoints, cache, and evaluation tables.
 - [doc/sql/TMDb-tables.sql](doc/sql/TMDb-tables.sql) — upstream/source TMDb tables and reference tables.
 - [doc/sql/Wikidata-tables.sql](doc/sql/Wikidata-tables.sql) — Wikidata staging and canonical tables.

@@ -10,8 +10,8 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **API Key Authentication**: Secure access with API key validation using constant-time comparison
 - **ChromaDB Vector Search**: Advanced similarity search for entity matching and query optimization
 - **Entity Extraction & Anonymization**: Intelligent extraction of entities (persons, movies, series, companies, networks, characters, locations, topics, lists, awards, nominations, collections, movements, groups, deaths, genres, technical formats, statuses, series types, release/birth/death years, IMDb / Wikidata / TMDb / Criterion identifiers) with placeholder replacement
-- **Config-driven Entity Resolution**: Entity resolution is configured via `data/entity_resolution.json` (embeddings and RapidFuzz strategies), plus a closed-vocabulary layer (`closed_vocab.py` + `data/closed_vocabularies.json`) for `Movie_genre`, `Serie_genre`, `Technical_format`, `Status_name`, `Serie_type`, `Department_name`, and `Aspect_ratio`, and a regex-validated layer in `entity.py` for years and ID-style placeholders
-- **DB-driven Canonicals with Hot-Reloaded Aliases**: `Movie_genre`, `Serie_genre`, and `Technical_format` canonicals load at startup from reference tables (`T_WC_TMDB_GENRE` + `T_WC_TMDB_GENRE_LANG`, filtered by `APPLIES_TO_MOVIE` / `APPLIES_TO_SERIE` flags; `T_WC_T2S_TECHNICAL`); `Status_name`, `Serie_type`, `Department_name`, and `Aspect_ratio` load via DISTINCT queries; format / typo / multilingual aliases live in `data/closed_vocabularies.json` and hot-reload within ~5 seconds
+- **Config-driven Entity Resolution**: Entity resolution is configured via `data/entity_resolution.json` (embeddings and RapidFuzz strategies), plus a closed-vocabulary layer (`closed_vocab.py` + `data/closed_vocabularies.json`) for `Movie_genre`, `Serie_genre`, `Technical_format` (including aspect ratios), `Status_name`, `Serie_type`, and `Department_name`, and a regex-validated layer in `entity.py` for years and ID-style placeholders
+- **DB-driven Canonicals with Hot-Reloaded Aliases**: `Movie_genre`, `Serie_genre`, and `Technical_format` canonicals load at startup from reference tables (`T_WC_TMDB_GENRE` + `T_WC_TMDB_GENRE_LANG`, filtered by `APPLIES_TO_MOVIE` / `APPLIES_TO_SERIE` flags; `T_WC_T2S_TECHNICAL`); `Status_name`, `Serie_type`, and `Department_name` load via DISTINCT queries; format / typo / multilingual aliases live in `data/closed_vocabularies.json` and hot-reload within ~5 seconds
 - **Hot-Reloaded `data/` Files**: Prompt templates and entity-resolution configuration under `data/` are reloaded automatically when they change
 - **RapidFuzz Person Matching (language-family aware)**: Person resolution uses `guess_language_family()` to route Latin names to `T_WC_T2S_PERSON` and non-Latin names to `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`, while keeping SQL replacement canonical when needed
 - **Multi-Level Caching**: Sophisticated three-tier caching system (exact questions, anonymized questions, vector embeddings)
@@ -83,11 +83,10 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Death names** (medical or legal cause/circumstance of a person's death, e.g., "liver cirrhosis", "car collision", "homicide") — placeholder `{{Death_nameN}}`
      - **Movie genres** (closed vocabulary backed by `T_WC_TMDB_GENRE` filtered by `APPLIES_TO_MOVIE = 1` + matching multilingual aliases in `T_WC_TMDB_GENRE_LANG`) — placeholder `{{Movie_genreN}}`
      - **Series genres** (closed vocabulary backed by `T_WC_TMDB_GENRE` filtered by `APPLIES_TO_SERIE = 1` + matching multilingual aliases in `T_WC_TMDB_GENRE_LANG`) — placeholder `{{Serie_genreN}}`
-     - **Technical formats** (sound systems, color/film/sound technologies, film formats — closed vocabulary backed by `T_WC_T2S_TECHNICAL`, e.g. `IMAX`, `Technicolor`, `35mm`, `Dolby`) — placeholder `{{Technical_formatN}}`
+     - **Technical formats** (sound systems, color/film/sound technologies, film formats, movie classifications, and **aspect ratios** — closed vocabulary backed by `T_WC_T2S_TECHNICAL`, e.g. `IMAX`, `Technicolor`, `35mm`, `Dolby`, `1.85`, `Academy ratio`, `widescreen`, `4:3`, `16:9`) — placeholder `{{Technical_formatN}}`
      - **Status name** (`Canceled`, `In Production`, `Planned`, `Post Production`, `Released`, `Rumored` — closed vocabulary loaded from `T_WC_T2S_MOVIE.STATUS` ∪ `T_WC_T2S_SERIE.STATUS`) — placeholder `{{Status_nameN}}`
      - **Serie type** (`Documentary`, `Miniseries`, `News`, `Reality`, `Scripted`, `Talk Show`, `Video` — closed vocabulary loaded from `T_WC_T2S_SERIE.SERIE_TYPE`, only with explicit series context) — placeholder `{{Serie_typeN}}`
      - **Department name** (`Art`, `Camera`, `Costume & Make-Up`, `Creator`, `Crew`, `Directing`, `Editing`, `Lighting`, `Production`, `Sound`, `Visual Effects`, `Writing` — **crew-only** closed vocabulary loaded from `CREW_DEPARTMENT` ∪ `KNOWN_FOR_DEPARTMENT` over `T_WC_T2S_PERSON_MOVIE`, `T_WC_T2S_PERSON_SERIE`, `T_WC_T2S_PERSON`, with `'Actors'` / `'Acting'` excluded; cast / actor queries never produce this placeholder — they route via `CREDIT_TYPE = 'cast'` directly) — placeholder `{{Department_nameN}}`
-     - **Aspect ratio** (comma-decimal aspect ratios such as `1,37`, `1,85`, `2,35`, `2,39` — French decimal notation as stored in `T_WC_T2S_MOVIE.ASPECT_RATIO` — plus named conventions `Academy`, `widescreen`, `flat`, `fullscreen`, and `width:height` / slash forms `4:3`, `4/3`, `16:9`, `16/9`, `2.35:1` accepted via aliases — closed vocabulary loaded from `T_WC_T2S_MOVIE` filtered to comma-decimal form via `REGEXP '^[0-9]+,[0-9]+$'`) — placeholder `{{Aspect_ratioN}}`
      - **Release year** (extracted alongside a movie title when the user writes `Title (YYYY)`) — placeholder `{{Release_yearN}}`
      - **Birth year / Death year** (4-digit years for person filtering, e.g. "actors born in 1962", "directors who died in 1980") — placeholders `{{Birth_yearN}}` / `{{Death_yearN}}`
      - **Identifiers** (regex-validated, with malformed values rejected): `IMDb_ID` (`tt\d+`), `IMDb_person_ID` (`nm\d+`), `Wikidata_ID` (`Q\d+`), `Wikidata_property_ID` (`P\d+`), `TMDb_ID` (`\d+`), `Criterion_spine_ID` (`\d+`)
@@ -132,11 +131,10 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Location names** (`{{Location_nameN}}`): embeddings on `locations` collection, `T_WC_T2S_ITEM.ITEM_LABEL` / `ITEM_LABEL_FR` (Wikidata-backed; locations are linked to movies/series via `T_WC_WIKIDATA_ITEM_PROPERTY` with `ID_PROPERTY IN ('P840', 'P915')`).
      - **Character names** (`{{Character_nameN}}`): currently extracted by the LLM but **not yet wired in `entity_resolution.json`** — the value falls through to the SQL-escaped raw fallback. The `characters` ChromaDB collection is provisioned in [main.py:135](main.py#L135) for upcoming use.
      - **Movie genres** (`{{Movie_genreN}}`) and **Series genres** (`{{Serie_genreN}}`): closed-vocabulary lookup mapping name → integer `ID_GENRE`. Canonicals from `T_WC_TMDB_GENRE`, with each loader filtered by `APPLIES_TO_MOVIE = 1` or `APPLIES_TO_SERIE = 1` so the movie placeholder cannot resolve to a TV-only genre (`Reality`, `Sci-Fi & Fantasy`, `Talk`, …) and the series placeholder cannot resolve to a movie-only genre (`Action`, `Thriller`, `TV Movie`, …); 8 IDs overlap on both sides (Animation, Comedy, Crime, Documentary, Drama, Family, Mystery, Western). Multilingual aliases from `T_WC_TMDB_GENRE_LANG` (currently French; auto-extends to any LANG inserted) joined against the same flag, layered with JSON aliases keyed under `Movie_genre` / `Serie_genre`.
-     - **Technical formats** (`{{Technical_formatN}}`): closed-vocabulary lookup mapping name → integer `ID_TECHNICAL`. Canonicals from `T_WC_T2S_TECHNICAL` (56 active rows: sound systems, color/film/sound technologies, film formats); aliases from `data/closed_vocabularies.json` only (no `_LANG` companion table yet).
+     - **Technical formats** (`{{Technical_formatN}}`): closed-vocabulary lookup mapping name → integer `ID_TECHNICAL`. Canonicals from `T_WC_T2S_TECHNICAL` (sound systems, color/film/sound technologies, film formats, movie classifications, aspect ratios — grouped by `TECHNICAL_TYPE`); aliases from `data/closed_vocabularies.json` only (no `_LANG` companion table yet). Aspect-ratio surface forms (`Academy`, `widescreen`, `flat`, `fullscreen`, `4:3`, `16:9`, `2.35:1`, `2,35` with French comma decimal, dot-decimals like `1.85`) all resolve through this placeholder to the matching aspect-ratio `ID_TECHNICAL`.
      - **Status name** (`{{Status_nameN}}`): closed-vocabulary string substitution for `STATUS` (e.g. `Released`, `Canceled`). Canonicals from `DISTINCT STATUS` over `T_WC_T2S_MOVIE` ∪ `T_WC_T2S_SERIE`.
      - **Serie type** (`{{Serie_typeN}}`): closed-vocabulary string substitution for `SERIE_TYPE` (e.g. `Documentary`, `Miniseries`). Canonicals from `DISTINCT SERIE_TYPE` over `T_WC_T2S_SERIE`.
      - **Department name** (`{{Department_nameN}}`): **crew-only** closed-vocabulary string substitution for `CREW_DEPARTMENT` / `KNOWN_FOR_DEPARTMENT` (e.g. `Directing`, `Camera`, `Visual Effects`). Canonicals from a UNION over `T_WC_T2S_PERSON_MOVIE.CREW_DEPARTMENT`, `T_WC_T2S_PERSON_SERIE.CREW_DEPARTMENT`, and `T_WC_T2S_PERSON.KNOWN_FOR_DEPARTMENT`, with `'Actors'` / `'Acting'` explicitly excluded. The text-to-SQL prompt picks the column based on question intent (person-search → `KNOWN_FOR_DEPARTMENT`, crew-of-content → `CREW_DEPARTMENT`); when `CREW_DEPARTMENT` is filtered via the placeholder, the prompt also enforces `CREDIT_TYPE = 'crew'`. Cast / actor queries (`actors in X`, `actresses born in 1962`) never produce this placeholder — they route via `CREDIT_TYPE = 'cast'` (film context) or `KNOWN_FOR_DEPARTMENT = 'Acting'` (person-search) inline.
-     - **Aspect ratio** (`{{Aspect_ratioN}}`): closed-vocabulary string substitution for `T_WC_T2S_MOVIE.ASPECT_RATIO` (canonical comma-decimal form: `1,37`, `1,85`, `2,35`, `2,39`, etc. — French notation as stored in the column). The loader filters DB values with `REGEXP '^[0-9]+,[0-9]+$'` so noisy DB variants (`'4:3'`, `'4/3'`, `'16:9'`, `'1:33'`, `'235:1'`) drop out of canonical and fall through to JSON aliases that remap every common surface form to its dominant comma-decimal canonical. Aliases cover named conventions (`Academy` → `1,37`, `widescreen` / `flat` → `1,85`, `fullscreen` → `1,33`), `width:height` and slash notations (`4:3` / `4/3` → `1,33`, `16:9` / `16/9` → `1,78`, `2.35:1` → `2,35`, `21:9` → `2,39`), and dot-decimal user input (`1.33`, `1.85`, `2.35` → comma equivalents). `anamorphic` / `scope` / `cinemascope` are intentionally not here — they belong to `Technical_format`.
      - **Release / Birth / Death years** (`{{Release_yearN}}`, `{{Birth_yearN}}`, `{{Death_yearN}}`): regex `\d{4}`, bare numeric substitution into INT columns.
      - **TMDb / Criterion identifiers** (`{{TMDb_IDN}}`, `{{Criterion_spine_IDN}}`): regex `\d+`, bare numeric substitution into INT primary keys.
      - **IMDb identifiers** (`{{IMDb_IDN}}`, `{{IMDb_person_IDN}}`): regex `tt\d+` / `nm\d+`, quoted SQL string substitution into VARCHAR `ID_IMDB` columns.
@@ -549,6 +547,8 @@ Each endpoint returns `404` when the requested entity is not found. Successful r
 |---|---|---|---|---|
 | `GET` | `/movies/{id}` | `ID_MOVIE` | `T_WC_T2S_MOVIE` | Movie detail |
 | `GET` | `/series/{id}` | `ID_SERIE` | `T_WC_T2S_SERIE` | TV series detail |
+| `GET` | `/seasons/{id_serie}/{season_number}` | `(ID_SERIE, SEASON_NUMBER)` | `T_WC_TMDB_SEASON` (TMDb source — no T2S equivalent yet) | TV series season detail |
+| `GET` | `/episodes/{id_serie}/{season_number}/{episode_number}` | `(ID_SERIE, SEASON_NUMBER, EPISODE_NUMBER)` | `T_WC_TMDB_EPISODE` (TMDb source — no T2S equivalent yet) | TV series episode detail |
 | `GET` | `/persons/{id}` | `ID_PERSON` | `T_WC_T2S_PERSON` | Person detail |
 | `GET` | `/companies/{id}` | `ID_COMPANY` | `T_WC_T2S_COMPANY` | Production company detail |
 | `GET` | `/networks/{id}` | `ID_NETWORK` | `T_WC_T2S_NETWORK` | TV network detail |
@@ -585,8 +585,10 @@ Returns all `T_WC_T2S_MOVIE` fields for the TMDb movie ID `ID_MOVIE`, plus the e
 | `posters` | Array of `{ ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER }` from `T_WC_T2S_MOVIE_IMAGE` where `TYPE_IMAGE = 'poster'`, ordered by `DISPLAY_ORDER` |
 | `backdrops` | Array of `{ ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER }` from `T_WC_T2S_MOVIE_IMAGE` where `TYPE_IMAGE = 'backdrop'`, ordered by `DISPLAY_ORDER` |
 | `wikipedia_images` | Array of `{ ID_ROW, LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE, FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER }` from `T_WC_WIKIPEDIA_PAGE_LANG_IMAGE` joined on the movie's `ID_WIKIDATA`, filtered to `LANG IN ('en','fr')`, `DELETED = 0`, and `HTTP_STATUS = 200 OR HTTP_STATUS IS NULL`. Ordered by `IS_MAIN_IMAGE DESC, LANG ASC, DISPLAY_ORDER ASC`. Empty when `ID_WIKIDATA` is NULL |
+| `wikipedia_content` | Array of `{ title, content }` from `T_WC_WIKIPEDIA_PAGE_LANG_SECTION` joined on the movie's `ID_WIKIDATA`, filtered to `LANG = 'en'` and `DELETED = 0`, ordered by `DISPLAY_ORDER ASC`. Each element exposes the section `TITLE` and `CONTENT`. Empty when `ID_WIKIDATA` is NULL |
+| `videos` | Array of `{ SOURCE, VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG, OFFICIAL, DAT_PUBLISHED, DURATION_SECONDS, WATCH_URL, EMBED_URL, FILE_URL, THUMBNAIL_URL, DISPLAY_ORDER }` merging TMDb-sourced videos (`T_WC_TMDB_MOVIE_VIDEO`, `SOURCE='tmdb'`) and Wikidata-sourced videos (`T_WC_WIKIDATA_MEDIA_RESOURCE` joined to `T_WC_WIKIDATA_MEDIA_RESOURCE_URL`, `SOURCE='wikidata'`, filtered to `RESOURCE_KIND='video'`, `IS_ACTIVE=1`, `DELETED=0`). TMDb rows are listed first (`OFFICIAL DESC, DISPLAY_ORDER ASC`), then Wikidata rows (`IS_PREFERRED_RESOURCE DESC, SOURCE_PRIORITY ASC`). For TMDb rows, `WATCH_URL`/`EMBED_URL`/`THUMBNAIL_URL` are synthesized from `VIDEO_SITE` + `VIDEO_KEY` (YouTube and Vimeo); `FILE_URL` is null. For Wikidata rows, URLs are pivoted from `T_WC_WIKIDATA_MEDIA_RESOURCE_URL` by `URL_TYPE` ('watch', 'embed', 'file', 'thumbnail'); `OFFICIAL` and `DAT_PUBLISHED` are null, `DISPLAY_ORDER` is null. Empty when neither source has video rows for the movie |
 
-Base movie fields currently include `ID_MOVIE`, `MOVIE_TITLE`, `DAT_RELEASE`, `RELEASE_YEAR`, `RELEASE_MONTH`, `RELEASE_DAY`, `ID_IMDB`, `ID_WIKIDATA`, `POSTER_PATH`, `POPULARITY`, `ORIGINAL_LANGUAGE`, `STATUS`, `BUDGET`, `RUNTIME`, `BACKDROP_PATH`, `REVENUE`, `TAGLINE`, `VIDEO`, `VOTE_AVERAGE`, `VOTE_COUNT`, `IS_COLOR`, `IS_BLACK_AND_WHITE`, `IS_SILENT`, `ASPECT_RATIO`, `IS_MOVIE`, `IS_DOCUMENTARY`, `IS_SHORT_FILM`, `DAT_CREAT`, `TIM_UPDATED`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `WIKIDATA_TITLE`, `ALIASES`, `PLEX_MEDIA_KEY`, `ID_CRITERION`, `ID_CRITERION_SPINE`, `INSTANCE_OF`, `PLOT`, `CAST`, `PRODUCTION`, `RECEPTION`, and `SOUNDTRACK`.
+Base movie fields currently include `ID_MOVIE`, `MOVIE_TITLE`, `DAT_RELEASE`, `RELEASE_YEAR`, `RELEASE_MONTH`, `RELEASE_DAY`, `ID_IMDB`, `ID_WIKIDATA`, `POSTER_PATH`, `POPULARITY`, `ORIGINAL_LANGUAGE`, `STATUS`, `BUDGET`, `RUNTIME`, `BACKDROP_PATH`, `REVENUE`, `TAGLINE`, `VIDEO`, `VOTE_AVERAGE`, `VOTE_COUNT`, `IS_COLOR`, `IS_BLACK_AND_WHITE`, `IS_SILENT`, `IS_MOVIE`, `IS_DOCUMENTARY`, `IS_SHORT_FILM`, `DAT_CREAT`, `TIM_UPDATED`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `WIKIDATA_TITLE`, `ALIASES`, `PLEX_MEDIA_KEY`, `ID_CRITERION`, `ID_CRITERION_SPINE` and `INSTANCE_OF`.
 
 ##### `GET /series/{id}`
 
@@ -609,9 +611,57 @@ Returns all `T_WC_T2S_SERIE` fields for the TMDb series ID `ID_SERIE`, plus the 
 | `crew` | Array of `{ ID_PERSON, PERSON_NAME, PROFILE_PATH, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, DISPLAY_ORDER }` where `CREDIT_TYPE = 'crew'`, ordered by `DISPLAY_ORDER` |
 | `posters` | Array of `{ ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER }` from `T_WC_T2S_SERIE_IMAGE` where `TYPE_IMAGE = 'poster'`, ordered by `DISPLAY_ORDER` |
 | `backdrops` | Array of `{ ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER }` from `T_WC_T2S_SERIE_IMAGE` where `TYPE_IMAGE = 'backdrop'`, ordered by `DISPLAY_ORDER` |
+| `seasons` | Array of `{ ID_SEASON, SEASON_NUMBER, TITLE, OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH, AIR_DAY, POSTER_PATH, EPISODE_COUNT, VOTE_AVERAGE, ID_IMDB, ID_WIKIDATA, ID_TVDB }` from `T_WC_TMDB_SEASON` (the TMDb source table — no `T_WC_T2S_SEASON` read-model table exists), ordered by `SEASON_NUMBER ASC`. Season 0 (specials) is included when present |
 | `wikipedia_images` | Array of `{ ID_ROW, LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE, FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER }` from `T_WC_WIKIPEDIA_PAGE_LANG_IMAGE` joined on the series's `ID_WIKIDATA`, filtered to `LANG IN ('en','fr')`, `DELETED = 0`, and `HTTP_STATUS = 200 OR HTTP_STATUS IS NULL`. Ordered by `IS_MAIN_IMAGE DESC, LANG ASC, DISPLAY_ORDER ASC`. Empty when `ID_WIKIDATA` is NULL |
+| `wikipedia_content` | Array of `{ title, content }` from `T_WC_WIKIPEDIA_PAGE_LANG_SECTION` joined on the series's `ID_WIKIDATA`, filtered to `LANG = 'en'` and `DELETED = 0`, ordered by `DISPLAY_ORDER ASC`. Each element exposes the section `TITLE` and `CONTENT`. Empty when `ID_WIKIDATA` is NULL |
+| `videos` | Array of `{ SOURCE, VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG, OFFICIAL, DAT_PUBLISHED, DURATION_SECONDS, WATCH_URL, EMBED_URL, FILE_URL, THUMBNAIL_URL, DISPLAY_ORDER }` merging TMDb-sourced videos (`T_WC_TMDB_SERIE_VIDEO`, `SOURCE='tmdb'`) and Wikidata-sourced videos (`T_WC_WIKIDATA_MEDIA_RESOURCE`, `SOURCE='wikidata'`, filtered to `RESOURCE_KIND='video'`). Ordering and field semantics match the `/movies/{id}` `videos` row |
 
 Base series fields currently include `ID_SERIE`, `SERIE_TITLE`, `DAT_FIRST_AIR`, `FIRST_AIR_YEAR`, `FIRST_AIR_MONTH`, `FIRST_AIR_DAY`, `DAT_LAST_AIR`, `LAST_AIR_YEAR`, `LAST_AIR_MONTH`, `LAST_AIR_DAY`, `ID_IMDB`, `ID_WIKIDATA`, `POSTER_PATH`, `POPULARITY`, `ORIGINAL_LANGUAGE`, `STATUS`, `BACKDROP_PATH`, `TAGLINE`, `VOTE_AVERAGE`, `VOTE_COUNT`, `NUMBER_OF_EPISODES`, `NUMBER_OF_SEASONS`, `SERIE_TYPE`, `DAT_CREAT`, `TIM_UPDATED`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `WIKIDATA_TITLE`, `ALIASES`, `PLEX_MEDIA_KEY`, and `INSTANCE_OF`.
+
+##### `GET /seasons/{id_serie}/{season_number}`
+
+Returns all `T_WC_TMDB_SEASON` fields for a single season of a TV series, identified by the composite key `(ID_SERIE, SEASON_NUMBER)`. Season `0` is the specials season when present. Returns `404` when the season does not exist for the given series.
+
+Example: `GET /seasons/1396/5` returns season 5 of *Breaking Bad* (ID_SERIE 1396).
+
+The endpoint currently reads from the TMDb source tables `T_WC_TMDB_SEASON`, `T_WC_TMDB_PERSON_SEASON`, and `T_WC_TMDB_SEASON_IMAGE` because the `T_WC_T2S_SEASON` read-model table does not yet exist. Field set will broaden (and field names may shift slightly) once the T2S equivalent is created — see [SEASONS_AND_EPISODES.md](SEASONS_AND_EPISODES.md) §6.1.
+
+| Field | Shape |
+|---|---|
+| `cast` | Array of `{ ID_PERSON, PERSON_NAME, PROFILE_PATH, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, CREW_JOB, TOTAL_EPISODE_COUNT, DISPLAY_ORDER }` where `CREDIT_TYPE = 'cast'`, ordered by `DISPLAY_ORDER`. `TOTAL_EPISODE_COUNT` is the number of episodes the person appeared in across the season |
+| `crew` | Array of `{ ID_PERSON, PERSON_NAME, PROFILE_PATH, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, CREW_JOB, TOTAL_EPISODE_COUNT, DISPLAY_ORDER }` where `CREDIT_TYPE = 'crew'`, ordered by `DISPLAY_ORDER` |
+| `posters` | Array of `{ ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER }` from `T_WC_TMDB_SEASON_IMAGE` where `TYPE_IMAGE = 'poster'`, ordered by `DISPLAY_ORDER` |
+| `backdrops` | Array of `{ ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER }` from `T_WC_TMDB_SEASON_IMAGE` where `TYPE_IMAGE = 'backdrop'`, ordered by `DISPLAY_ORDER`. Most TMDb seasons only have posters, so this list is frequently empty |
+| `series` | Object `{ ID_SERIE, SERIE_TITLE, POSTER_PATH }` for the parent series — navigation stub so the frontend can render breadcrumbs without a second `/series/{id}` round trip |
+| `episodes` | Array of `{ ID_EPISODE, EPISODE_NUMBER, TITLE, OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH, AIR_DAY, RUNTIME, EPISODE_TYPE, STILL_PATH, VOTE_AVERAGE, VOTE_COUNT, ID_IMDB, ID_WIKIDATA, ID_TVDB }` from `T_WC_TMDB_EPISODE`, ordered by `EPISODE_NUMBER ASC`. Length matches the season's `EPISODE_COUNT`. Each row is a **summary**: episode cast/crew, additional stills, and Wikipedia payloads live on `/episodes/{id_serie}/{season_number}/{episode_number}` and are not duplicated here to keep the season payload bounded. To open a specific episode, call `/episodes/{id_serie}/{season_number}/{EPISODE_NUMBER}` (the path key is `EPISODE_NUMBER`, not the surrogate `ID_EPISODE`) |
+| `wikipedia_images` | Array of `{ ID_ROW, LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE, FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER }` from `T_WC_WIKIPEDIA_PAGE_LANG_IMAGE` joined on the season's `ID_WIKIDATA`, filtered to `LANG IN ('en','fr')`, `DELETED = 0`, and `HTTP_STATUS = 200 OR HTTP_STATUS IS NULL`. Ordered by `IS_MAIN_IMAGE DESC, LANG ASC, DISPLAY_ORDER ASC`. Empty when `ID_WIKIDATA` is NULL — common for seasons |
+| `wikipedia_content` | Array of `{ title, content }` from `T_WC_WIKIPEDIA_PAGE_LANG_SECTION` joined on the season's `ID_WIKIDATA`, filtered to `LANG = 'en'` and `DELETED = 0`, ordered by `DISPLAY_ORDER ASC`. Empty when `ID_WIKIDATA` is NULL |
+| `videos` | Array of TMDb-sourced videos (`SOURCE='tmdb'`) for this season from `T_WC_TMDB_SEASON_VIDEO`, ordered by `OFFICIAL DESC, DISPLAY_ORDER ASC`. Wikidata media is not modeled at the season level. Field shape matches the `/movies/{id}` `videos` row (Wikidata-only fields like `DURATION_SECONDS` are always null here) |
+
+Base season fields currently include `ID_SEASON`, `ID_SERIE`, `SEASON_NUMBER`, `TITLE`, `OVERVIEW`, `AIR_YEAR`, `AIR_MONTH`, `AIR_DAY`, `DAT_AIR`, `POSTER_PATH`, `EPISODE_COUNT`, `VOTE_AVERAGE`, `ID_IMDB`, `ID_WIKIDATA`, `ID_TVDB`, `DELETED`, `DISPLAY_ORDER`, plus the standard TMDb provenance/timestamp columns (`DAT_CREAT`, `TIM_UPDATED`, `TIM_CREDITS_COMPLETED`, `TIM_IMAGES_COMPLETED`, `TIM_VIDEOS_COMPLETED`, `TIM_TRANSLATIONS_COMPLETED`, `TIM_EPISODES_COMPLETED`, `TIM_WIKIDATA_COMPLETED`).
+
+##### `GET /episodes/{id_serie}/{season_number}/{episode_number}`
+
+Returns all `T_WC_TMDB_EPISODE` fields for a single episode, identified by the composite key `(ID_SERIE, SEASON_NUMBER, EPISODE_NUMBER)`. Returns `404` when the episode does not exist for the given series and season.
+
+Example: `GET /episodes/1396/5/14` returns "Ozymandias" — *Breaking Bad* season 5, episode 14.
+
+The endpoint currently reads from the TMDb source tables `T_WC_TMDB_EPISODE`, `T_WC_TMDB_PERSON_EPISODE`, and `T_WC_TMDB_EPISODE_IMAGE` because the `T_WC_T2S_EPISODE` read-model table does not yet exist. Field set will broaden (and field names may shift slightly) once the T2S equivalent is created — see [SEASONS_AND_EPISODES.md](SEASONS_AND_EPISODES.md) §6.1.
+
+| Field | Shape |
+|---|---|
+| `cast` | Array of `{ ID_PERSON, PERSON_NAME, PROFILE_PATH, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, CREW_JOB, DISPLAY_ORDER }` where `CREDIT_TYPE = 'cast'`, ordered by `DISPLAY_ORDER` |
+| `crew` | Array of `{ ID_PERSON, PERSON_NAME, PROFILE_PATH, CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, CREW_JOB, DISPLAY_ORDER }` where `CREDIT_TYPE = 'crew'`, ordered by `DISPLAY_ORDER` |
+| `stills` | Array of `{ ID_ROW, TYPE_IMAGE, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER }` from `T_WC_TMDB_EPISODE_IMAGE`, ordered by `DISPLAY_ORDER`. TMDb episodes typically only carry still frames; any other `TYPE_IMAGE` rows stored upstream are surfaced as-is and can be filtered client-side. The episode's canonical frame is available directly on the base row as `STILL_PATH` |
+| `season` | Object `{ ID_SEASON, SEASON_NUMBER, TITLE, POSTER_PATH }` for the parent season — navigation stub so the frontend can render breadcrumbs without a second `/seasons/{id_serie}/{season_number}` round trip |
+| `series` | Object `{ ID_SERIE, SERIE_TITLE, POSTER_PATH }` for the parent series — second-level navigation stub |
+| `wikipedia_images` | Array of `{ ID_ROW, LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE, FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER }` from `T_WC_WIKIPEDIA_PAGE_LANG_IMAGE` joined on the episode's `ID_WIKIDATA`. Almost always empty — very few TMDb episodes have a Wikidata mapping |
+| `wikipedia_content` | Array of `{ title, content }` from `T_WC_WIKIPEDIA_PAGE_LANG_SECTION` joined on the episode's `ID_WIKIDATA`. Almost always empty for the same reason |
+| `videos` | Array of TMDb-sourced videos (`SOURCE='tmdb'`) for this episode from `T_WC_TMDB_EPISODE_VIDEO`, ordered by `OFFICIAL DESC, DISPLAY_ORDER ASC`. Wikidata media is not modeled at the episode level. Field shape matches the `/movies/{id}` `videos` row |
+
+Base episode fields currently include `ID_EPISODE`, `ID_SERIE`, `ID_SEASON`, `SEASON_NUMBER`, `EPISODE_NUMBER`, `TITLE`, `OVERVIEW`, `AIR_YEAR`, `AIR_MONTH`, `AIR_DAY`, `DAT_AIR`, `RUNTIME`, `PRODUCTION_CODE`, `EPISODE_TYPE` (e.g. `standard`, `pilot`, `finale`, `mid_season`), `STILL_PATH`, `VOTE_AVERAGE`, `VOTE_COUNT`, `ID_IMDB`, `ID_WIKIDATA`, `ID_TVDB`, `DELETED`, `DISPLAY_ORDER`, plus the standard TMDb provenance/timestamp columns (`DAT_CREAT`, `TIM_UPDATED`, `TIM_CREDITS_COMPLETED`, `TIM_IMAGES_COMPLETED`, `TIM_VIDEOS_COMPLETED`, `TIM_TRANSLATIONS_COMPLETED`, `TIM_WIKIDATA_COMPLETED`).
+
+**Drill-down pattern**: `/series/{id}` exposes a `seasons[]` summary (each row carries `ID_SEASON`, `SEASON_NUMBER`) → click into `/seasons/{id_serie}/{season_number}` for the full season cast/crew/posters → click into `/episodes/{id_serie}/{season_number}/{episode_number}` for the full episode payload with its own cast/crew/stills. Each level fetches only what it needs; long shows (400+ episodes) do not bloat the `/series` payload.
 
 ##### `GET /persons/{id}`
 
@@ -629,6 +679,8 @@ Returns all `T_WC_T2S_PERSON` fields for the TMDb person ID `ID_PERSON`, plus:
 | `nominations` | Array of `{ ID_NOMINATION, NOMINATION_NAME, POSTER_PATH, WIKIPEDIA_IMAGE_PATH }`, ordered by `DISPLAY_ORDER` |
 | `portraits` | Array of `{ ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER }` from `T_WC_T2S_PERSON_IMAGE` where `TYPE_IMAGE = 'profile'`, ordered by `DISPLAY_ORDER` |
 | `wikipedia_images` | Array of `{ ID_ROW, LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE, FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER }` from `T_WC_WIKIPEDIA_PAGE_LANG_IMAGE` joined on the person's `ID_WIKIDATA`, filtered to `LANG IN ('en','fr')`, `DELETED = 0`, and `HTTP_STATUS = 200 OR HTTP_STATUS IS NULL`. Ordered by `IS_MAIN_IMAGE DESC, LANG ASC, DISPLAY_ORDER ASC`. Empty when `ID_WIKIDATA` is NULL |
+| `wikipedia_content` | Array of `{ title, content }` from `T_WC_WIKIPEDIA_PAGE_LANG_SECTION` joined on the person's `ID_WIKIDATA`, filtered to `LANG = 'en'` and `DELETED = 0`, ordered by `DISPLAY_ORDER ASC`. Each element exposes the section `TITLE` and `CONTENT`. Empty when `ID_WIKIDATA` is NULL |
+| `videos` | Array of Wikidata-sourced videos (`SOURCE='wikidata'`) for this person from `T_WC_WIKIDATA_MEDIA_RESOURCE` joined to `T_WC_WIKIDATA_MEDIA_RESOURCE_URL`, filtered to `RESOURCE_KIND='video'`, `IS_ACTIVE=1`, `DELETED=0`. TMDb does not store person-level videos. Ordered by `IS_PREFERRED_RESOURCE DESC, SOURCE_PRIORITY ASC`. Field shape matches the `/movies/{id}` `videos` row (TMDb-only fields like `OFFICIAL` / `DAT_PUBLISHED` / `DISPLAY_ORDER` are always null here) |
 
 Base person fields currently include `ID_PERSON`, `PERSON_NAME`, `ID_IMDB`, `ID_WIKIDATA`, `BIOGRAPHY`, `BIRTH_YEAR`, `BIRTH_MONTH`, `BIRTH_DAY`, `DEATH_YEAR`, `DEATH_MONTH`, `DEATH_DAY`, `GENDER`, `PROFILE_PATH`, `COUNTRY_OF_BIRTH`, `POPULARITY`, `KNOWN_FOR_DEPARTMENT`, `TIM_CREDITS_DOWNLOADED`, `DAT_CREAT`, `TIM_UPDATED`, `WIKIDATA_NAME`, `ALIASES`, and `INSTANCE_OF`.
 
@@ -664,7 +716,7 @@ These endpoints return all fields from their primary entity table, plus member m
 | `/lists/{id}` | `ID_T2S_LIST`, `ID_RECORD`, `LIST_NAME`, `LIST_NAME_FR`, `OVERVIEW`, `LIST_SOURCE`, `LIST_TYPE`, `MOVIE_COUNT`, `SERIE_COUNT`, `POSTER_PATH`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `POPULARITY` | `movies` and `series` arrays of `{ ID_MOVIE/ID_SERIE, MOVIE_TITLE/SERIE_TITLE, DAT_RELEASE/DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
 | `/movements/{id}` | `ID_MOVEMENT`, `ID_RECORD`, `MOVEMENT_NAME`, `MOVEMENT_NAME_FR`, `OVERVIEW`, `MOVEMENT_SOURCE`, `MOVEMENT_TYPE`, `MOVIE_COUNT`, `SERIE_COUNT`, `POSTER_PATH`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `POPULARITY` | `movies` and `series` arrays of `{ ID_MOVIE/ID_SERIE, MOVIE_TITLE/SERIE_TITLE, DAT_RELEASE/DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
 
-All four endpoints also return a `wikipedia_images` array — see the `/movies/{id}` table for its full row shape.
+All four endpoints also return `wikipedia_images` and `wikipedia_content` arrays — see the `/movies/{id}` table for their full row shapes.
 
 ##### `GET /technicals/{id}`
 
@@ -675,6 +727,7 @@ Returns all `T_WC_T2S_TECHNICAL` fields for `ID_TECHNICAL`, plus:
 | `movies` | Array of `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH, DISPLAY_ORDER }` from `T_WC_T2S_MOVIE_TECHNICAL` joined to `T_WC_T2S_MOVIE`, ordered by `DISPLAY_ORDER ASC, IMDB_RATING_WEIGHTED DESC` (junction `DISPLAY_ORDER` is mostly NULL for auto-ingested technical attributes, so the rating tiebreaker effectively rules — best-rated movies surface first) |
 | `siblings` | Array of `{ ID_TECHNICAL, DESCRIPTION, DESCRIPTION_FR, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, POPULARITY, MOVIE_COUNT }` of other technicals sharing the same `TECHNICAL_TYPE`, ordered by `MOVIE_COUNT DESC`. Enables navigation between related technical formats (e.g. from `technicolor` to the other `color_technology` rows like `deluxe`, `eastmancolor`, `metrocolor`) |
 | `wikipedia_images` | Array of `{ ID_ROW, LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE, FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER }` from `T_WC_WIKIPEDIA_PAGE_LANG_IMAGE` joined on the technical's `ID_WIKIDATA`, filtered to `LANG IN ('en','fr')`, `DELETED = 0`, and `HTTP_STATUS = 200 OR HTTP_STATUS IS NULL`. Ordered by `IS_MAIN_IMAGE DESC, LANG ASC, DISPLAY_ORDER ASC`. Empty when `ID_WIKIDATA` is NULL |
+| `wikipedia_content` | Array of `{ title, content }` from `T_WC_WIKIPEDIA_PAGE_LANG_SECTION` joined on the technical's `ID_WIKIDATA`, filtered to `LANG = 'en'` and `DELETED = 0`, ordered by `DISPLAY_ORDER ASC`. Each element exposes the section `TITLE` and `CONTENT`. Empty when `ID_WIKIDATA` is NULL |
 
 Base technical fields currently include `ID_TECHNICAL`, `ID_RECORD`, `ID_WIKIDATA`, `DESCRIPTION`, `DESCRIPTION_FR`, `OVERVIEW`, `TECHNICAL_TYPE` (one of `sound_system`, `color_technology`, `film_technology`, `sound_technology`, `film_format`), `MOVIE_COUNT`, `SERIE_COUNT`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, and `POPULARITY`. No `series` array is returned because `T_WC_T2S_SERIE_TECHNICAL` does not exist yet.
 
@@ -687,7 +740,7 @@ These endpoints return all fields from their primary entity table, plus associat
 | `/groups/{id}` | `ID_GROUP`, `ID_WIKIDATA`, `GROUP_NAME`, `GROUP_NAME_FR`, `OVERVIEW`, `GROUP_SOURCE`, `GROUP_TYPE`, `PERSON_COUNT`, `PROFILE_PATH`, `WIKIPEDIA_IMAGE_PATH`, `POPULARITY` | `persons`: array of `{ ID_PERSON, PERSON_NAME, POPULARITY, PROFILE_PATH, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
 | `/deaths/{id}` | `ID_DEATH`, `ID_WIKIDATA`, `DEATH_NAME`, `DEATH_NAME_FR`, `OVERVIEW`, `DEATH_SOURCE`, `DEATH_TYPE`, `PERSON_COUNT`, `PROFILE_PATH`, `WIKIPEDIA_IMAGE_PATH`, `POPULARITY` | `persons`: array of `{ ID_PERSON, PERSON_NAME, POPULARITY, PROFILE_PATH, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
 
-Both endpoints also return a `wikipedia_images` array — see the `/movies/{id}` table for its full row shape.
+Both endpoints also return `wikipedia_images` and `wikipedia_content` arrays — see the `/movies/{id}` table for their full row shapes.
 
 ##### `GET /awards/{id}` and `/nominations/{id}`
 
@@ -698,7 +751,7 @@ These endpoints return all fields from their primary entity table, plus associat
 | `/awards/{id}` | `ID_AWARD`, `ID_WIKIDATA`, `AWARD_NAME`, `AWARD_NAME_FR`, `OVERVIEW`, `AWARD_SOURCE`, `AWARD_TYPE`, `MOVIE_COUNT`, `SERIE_COUNT`, `PERSON_COUNT`, `POSTER_PATH`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `POPULARITY` | `movies`: `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH, DISPLAY_ORDER }`; `series`: `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH, DISPLAY_ORDER }`; `persons`: `{ ID_PERSON, PERSON_NAME, POPULARITY, PROFILE_PATH, DISPLAY_ORDER }`; all ordered by `DISPLAY_ORDER` |
 | `/nominations/{id}` | `ID_NOMINATION`, `ID_WIKIDATA`, `NOMINATION_NAME`, `NOMINATION_NAME_FR`, `OVERVIEW`, `NOMINATION_SOURCE`, `NOMINATION_TYPE`, `MOVIE_COUNT`, `SERIE_COUNT`, `PERSON_COUNT`, `POSTER_PATH`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, `POPULARITY` | `movies`: `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH, DISPLAY_ORDER }`; `series`: `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH, DISPLAY_ORDER }`; `persons`: `{ ID_PERSON, PERSON_NAME, POPULARITY, PROFILE_PATH, DISPLAY_ORDER }`; all ordered by `DISPLAY_ORDER` |
 
-Both endpoints also return a `wikipedia_images` array — see the `/movies/{id}` table for its full row shape.
+Both endpoints also return `wikipedia_images` and `wikipedia_content` arrays — see the `/movies/{id}` table for their full row shapes.
 
 ##### `GET /locations/{wikidata_id}`
 
@@ -709,6 +762,7 @@ Returns all `T_WC_T2S_ITEM` fields for the location `ID_WIKIDATA`, for example `
 | `movies` | Array of `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH, ID_PROPERTY }`, ordered by `IMDB_RATING_WEIGHTED DESC` |
 | `series` | Array of `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH, ID_PROPERTY }`, ordered by `IMDB_RATING_WEIGHTED DESC` |
 | `wikipedia_images` | Array of `{ ID_ROW, LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE, FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER }` from `T_WC_WIKIPEDIA_PAGE_LANG_IMAGE` joined on `ID_WIKIDATA` (the route parameter), filtered to `LANG IN ('en','fr')`, `DELETED = 0`, and `HTTP_STATUS = 200 OR HTTP_STATUS IS NULL`. Ordered by `IS_MAIN_IMAGE DESC, LANG ASC, DISPLAY_ORDER ASC` |
+| `wikipedia_content` | Array of `{ title, content }` from `T_WC_WIKIPEDIA_PAGE_LANG_SECTION` joined on `ID_WIKIDATA` (the route parameter), filtered to `LANG = 'en'` and `DELETED = 0`, ordered by `DISPLAY_ORDER ASC`. Each element exposes the section `TITLE` and `CONTENT` |
 
 Base location fields currently include `ID_WIKIDATA`, `ITEM_LABEL`, `DESCRIPTION`, `INSTANCE_OF`, and `WIKIPEDIA_IMAGE_PATH`.
 
@@ -839,12 +893,35 @@ Practical notes:
 
 ## 🐳 Docker Deployment
 
-The project includes a `Dockerfile` for containerized deployment:
+The project includes a `Dockerfile` for containerized deployment. **Secrets are never baked into the image** — they are injected at runtime via `--env-file` from a host-managed env file kept outside the app source tree.
+
+### Build
 
 ```bash
 docker build -t fastapi-text2sql .
-docker run -p 8000:8000 fastapi-text2sql
 ```
+
+The build excludes `.env` from the build context (see `.dockerignore`), and the `Dockerfile` does not `COPY` it or declare it via `ENV`. Only non-sensitive defaults (e.g. `LD_LIBRARY_PATH`) live in the image.
+
+### Run with `--env-file`
+
+Keep the env file outside the app source tree, e.g. `/home/debian/docker/fastapi-text2sql-<color>/.env`, and pass it via `--env-file`:
+
+```bash
+docker run -d --rm --network="host" \
+  --env-file /home/debian/docker/fastapi-text2sql-blue/.env \
+  -v $(pwd):/app \
+  --name fastapi-text2sql-blue \
+  fastapi-text2sql-blue-app
+```
+
+The provided helper scripts ([restart-blue.sh](restart-blue.sh), [restart-green.sh](restart-green.sh)) already use this pattern — the host env files are expected at `/home/debian/docker/fastapi-text2sql-blue/.env` and `/home/debian/docker/fastapi-text2sql-green/.env` respectively.
+
+### Why
+
+- `.env` is listed in [.dockerignore](.dockerignore) so local environment files are excluded from the build context and cannot end up in image layers, build cache, or pushed registries.
+- The `Dockerfile` never `COPY`s `.env` and never sets secrets via `ENV`.
+- Runtime secrets flow only through `--env-file`, which sources from a path that is never part of any image.
 
 ## 📁 Project Structure
 
@@ -853,7 +930,7 @@ fastapi-text2sql/
 ├── main.py                  # FastAPI app, endpoint orchestration, entity detail endpoints, MCP server, DB/Chroma startup
 ├── text2sql.py              # Core text-to-SQL conversion, unified LLM dispatch (OpenAI/Anthropic/Gemini), retry helpers
 ├── entity.py                # Entity extraction, entity-resolution config loading, regex-validated placeholders, and placeholder resolution logic
-├── closed_vocab.py          # Closed-vocabulary resolver (Movie_genre, Serie_genre, Technical_format, Status_name, Serie_type, Department_name, Aspect_ratio) — DB-driven canonicals + JSON aliases + RapidFuzz typo tolerance
+├── closed_vocab.py          # Closed-vocabulary resolver (Movie_genre, Serie_genre, Technical_format, Status_name, Serie_type, Department_name) — DB-driven canonicals + JSON aliases + RapidFuzz typo tolerance
 ├── sql_cache.py             # SQL cache lookups and cache writes for exact/anonymized questions
 ├── auth.py                  # API key authentication middleware (multi-key support via API_KEYS)
 ├── logs.py                  # API usage logging (JSON log files in logs/ folder)
@@ -875,7 +952,7 @@ fastapi-text2sql/
 │   ├── text_to_sql.md                                                # Text2SQL prompt (hot-reloaded)
 │   ├── complex_question.md                                           # Stronger model prompt (complex question simplification, hot-reloaded)
 │   ├── entity_resolution.json                                        # Entity resolution configuration (embeddings + rapidfuzz, hot-reloaded)
-│   └── closed_vocabularies.json                                      # Closed-vocabulary aliases for Movie_genre, Serie_genre, Technical_format, Status_name, Serie_type, Department_name, Aspect_ratio (hot-reloaded)
+│   └── closed_vocabularies.json                                      # Closed-vocabulary aliases for Movie_genre, Serie_genre, Technical_format, Status_name, Serie_type, Department_name (hot-reloaded)
 ├── doc/
 │   └── sql/                 # Reference SQL dumps for canonical tables
 │       └── T_WC_T2S_TECHNICAL.sql                                    # 56-row Technical_format canonical table
@@ -1033,7 +1110,6 @@ The system intelligently extracts and replaces entities in natural language ques
 | `Status_name` | Production lifecycle status | `DISTINCT STATUS` over `T_WC_T2S_MOVIE` ∪ `T_WC_T2S_SERIE` | Canonical string (e.g. `Released`, `Canceled`) |
 | `Serie_type` | TV series type | `DISTINCT SERIE_TYPE` over `T_WC_T2S_SERIE` | Canonical string (e.g. `Documentary`, `Miniseries`) |
 | `Department_name` | Crew department / known-for crew job (cast / acting excluded) | `DISTINCT CREW_DEPARTMENT` over `T_WC_T2S_PERSON_MOVIE` ∪ `T_WC_T2S_PERSON_SERIE` ∪ `DISTINCT KNOWN_FOR_DEPARTMENT` over `T_WC_T2S_PERSON`, all filtered with `NOT IN ('Actors', 'Acting')` | Canonical string (e.g. `Directing`, `Camera`, `Writing`) |
-| `Aspect_ratio` | Movie aspect ratio (French comma-decimal notation as stored in DB) | `DISTINCT ASPECT_RATIO` over `T_WC_T2S_MOVIE`, filtered to comma-decimal form via `REGEXP '^[0-9]+,[0-9]+$'` so noisy variants (`'4:3'`, `'4/3'`, `'16:9'`, `'1:33'`, etc.) fall through to aliases | Canonical string (e.g. `1,33`, `1,85`, `2,35`, `2,39`) |
 
 **Regex-validated ([entity.py](entity.py) `_REGEX_PLACEHOLDER_RULES`; malformed values are rejected and the placeholder is left unresolved):**
 
@@ -1052,7 +1128,7 @@ The system intelligently extracts and replaces entities in natural language ques
 5. Resolve each placeholder to a real DB value using the per-prefix `search_list` in [data/entity_resolution.json](data/entity_resolution.json) (embeddings or RapidFuzz, with optional language-family gating)
 6. Substitute resolved values back into `sql_query`, `justification`, and `answer`, using SQL-safe `''` quote escaping
 
-The full pipeline is implemented in [entity.py](entity.py) (resolver dispatch, regex-validated placeholders, embeddings, RapidFuzz person resolution, generic fallback replacement) plus [closed_vocab.py](closed_vocab.py) (DB-driven closed-vocabulary lookups for `Movie_genre`, `Serie_genre`, `Technical_format`, `Status_name`, `Serie_type`, `Department_name`, `Aspect_ratio` with RapidFuzz typo tolerance and JSON-driven alias layering).
+The full pipeline is implemented in [entity.py](entity.py) (resolver dispatch, regex-validated placeholders, embeddings, RapidFuzz person resolution, generic fallback replacement) plus [closed_vocab.py](closed_vocab.py) (DB-driven closed-vocabulary lookups for `Movie_genre`, `Serie_genre`, `Technical_format`, `Status_name`, `Serie_type`, `Department_name` with RapidFuzz typo tolerance and JSON-driven alias layering).
 
 If the user provides a disambiguation pattern like `<movie_title> (YYYY)`, entity extraction returns a `{{Release_yearN}}` placeholder alongside the `{{Movie_titleN}}` placeholder so the SQL can disambiguate same-titled films by release year.
 

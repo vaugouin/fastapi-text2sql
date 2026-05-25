@@ -35,7 +35,7 @@ CREATE TABLE `T_WC_WIKIPEDIA_PAGE_LANG` (
   KEY `HTTP_STATUS` (`HTTP_STATUS`),
   KEY `LAST_CRAWLED_AT` (`LAST_CRAWLED_AT`),
   KEY `LAST_SUCCESS_AT` (`LAST_SUCCESS_AT`)
-) ENGINE=InnoDB AUTO_INCREMENT=36298 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=420867 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -81,7 +81,7 @@ CREATE TABLE `T_WC_WIKIPEDIA_PAGE_LANG_IMAGE` (
   KEY `HTTP_STATUS` (`HTTP_STATUS`),
   KEY `LAST_CRAWLED_AT` (`LAST_CRAWLED_AT`),
   KEY `LAST_SUCCESS_AT` (`LAST_SUCCESS_AT`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1686268 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -111,5 +111,5 @@ CREATE TABLE `T_WC_WIKIPEDIA_PAGE_LANG_SECTION` (
   KEY `LANG` (`LANG`),
   KEY `TITLE` (`TITLE`),
   KEY `ITEM_TYPE` (`ITEM_TYPE`)
-) ENGINE=InnoDB AUTO_INCREMENT=150490632 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=152565813 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;

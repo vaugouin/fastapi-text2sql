@@ -464,7 +464,6 @@ The response from `POST /search/text2sql` contains the full pipeline trace along
   "IS_COLOR": 1,
   "IS_BLACK_AND_WHITE": 0,
   "IS_SILENT": 0,
-  "ASPECT_RATIO": "2.35",
   "IS_MOVIE": 1,
   "IS_DOCUMENTARY": 0,
   "IS_SHORT_FILM": 0,
@@ -476,11 +475,6 @@ The response from `POST /search/text2sql` contains the full pipeline trace along
   "ID_CRITERION": null,
   "ID_CRITERION_SPINE": null,
   "INSTANCE_OF": "film",
-  "PLOT": "Dom Cobb is a skilled thief who specialises in stealing secrets from within dreams...",
-  "CAST": null,
-  "PRODUCTION": "Nolan began developing the screenplay in the early 2000s...",
-  "RECEPTION": "Inception received widespread critical acclaim upon release...",
-  "SOUNDTRACK": null,
   "cast": [
     { "ID_PERSON": 6193, "PERSON_NAME": "Leonardo DiCaprio", "CREDIT_TYPE": "cast", "CAST_CHARACTER": "Cobb", "CREW_DEPARTMENT": null, "DISPLAY_ORDER": 1 },
     { "ID_PERSON": 24045, "PERSON_NAME": "Joseph Gordon-Levitt", "CREDIT_TYPE": "cast", "CAST_CHARACTER": "Arthur", "CREW_DEPARTMENT": null, "DISPLAY_ORDER": 2 }
@@ -500,7 +494,8 @@ The response from `POST /search/text2sql` contains the full pipeline trace along
   "collections": [],
   "movements": [],
   "technicals": [
-    { "ID_TECHNICAL": 29, "DESCRIPTION": "imax", "DESCRIPTION_FR": null, "TECHNICAL_TYPE": "sound_system", "WIKIPEDIA_IMAGE_PATH": null, "IMDB_RATING_WEIGHTED": null, "POPULARITY": null }
+    { "ID_TECHNICAL": 29, "DESCRIPTION": "imax", "DESCRIPTION_FR": null, "TECHNICAL_TYPE": "sound_system", "WIKIPEDIA_IMAGE_PATH": null, "IMDB_RATING_WEIGHTED": null, "POPULARITY": null },
+    { "ID_TECHNICAL": 69, "DESCRIPTION": "2.35", "DESCRIPTION_FR": null, "TECHNICAL_TYPE": "aspect_ratio", "WIKIPEDIA_IMAGE_PATH": null, "IMDB_RATING_WEIGHTED": null, "POPULARITY": null }
   ],
   "awards": [],
   "nominations": []
@@ -579,10 +574,13 @@ async def _mcp_database_scope() -> str:
     STATUS (Released / Post Production / In Production / Planned / Rumored / Canceled),
     TAGLINE, POSTER_PATH, BACKDROP_PATH, VIDEO (1 if video release),
     IS_MOVIE (1/0), IS_DOCUMENTARY (1/0), IS_SHORT_FILM (1/0),
-    IS_COLOR (1/0), IS_BLACK_AND_WHITE (1/0), IS_SILENT (1/0), ASPECT_RATIO,
+    IS_COLOR (1/0), IS_BLACK_AND_WHITE (1/0), IS_SILENT (1/0),
     ID_IMDB (tt...), ID_WIKIDATA (Q...), ID_CRITERION, ID_CRITERION_SPINE,
-    ALIASES, PLOT, CAST (text, use dedicated tables for structured queries),
-    PRODUCTION, RECEPTION, SOUNDTRACK
+    ALIASES
+    (Aspect ratios are not filtered on the movie row; they live as rows in
+    T_WC_T2S_TECHNICAL with TECHNICAL_TYPE='aspect_ratio' and are linked
+    many-to-many through T_WC_T2S_MOVIE_TECHNICAL, matching how all other
+    technical attributes are modeled.)
 
     ## TV Series (T_WC_T2S_SERIE)
     ID_SERIE (TMDb ID), SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR,

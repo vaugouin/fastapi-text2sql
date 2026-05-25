@@ -1,5 +1,7 @@
 # New Entity Candidates for Entity Extraction Pipeline
 
+> **2026-05-24 update.** Section **B4 (Aspect_ratio)** below has been **retired**. Aspect-ratio resolution was merged into `Technical_format` on 2026-05-24: the `{{Aspect_ratioN}}` placeholder, the `_ASPECT_RATIO_QUERY` loader, the `Aspect_ratio` branch in `entity.py`, and the `Aspect_ratio` alias block all no longer exist. All aspect-ratio surface forms (`4:3`, `16:9`, `Academy`, `widescreen`, `2.35:1`, dot-decimals, comma-decimals) now extract as `{{Technical_formatN}}` and resolve to an `ID_TECHNICAL` integer via `closed_vocab.resolve_technical()`. Filtering goes through `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL` (the same junction every other technical uses), correctly matching movies that ship in multiple aspect ratios. The B4 section below describes the original "string-canonical lookup against `T_WC_T2S_MOVIE.ASPECT_RATIO`" design as initially shipped; it is preserved as design history. Authoritative current model: [AGENTS.md](AGENTS.md) Gotcha #9 and the `Technical_format` section in [data/entity_extraction.md](data/entity_extraction.md).
+
 ## Context
 
 Today the pipeline manages 16 entity types: 14 declared in [data/entity_resolution.json](data/entity_resolution.json) and 2 special placeholders (`Release_year`, `Genre_name`) handled in code at [entity.py:138-193](entity.py#L138).
@@ -64,7 +66,7 @@ These are columns whose allowed values are explicitly listed in [data/text_to_sq
 - Multilingual aliases: no `T_WC_T2S_TECHNICAL_LANG` table today; aliases live in [data/closed_vocabularies.json](data/closed_vocabularies.json) under a `Technical_format` key. A `_LANG` companion table can be added later mirroring `T_WC_TMDB_GENRE_LANG` if alias volume justifies it.
 - Note: prompt today says (line 229) "Do not extract these as entities… technical formats or technologies such as `Technicolor`, `Dolby`, `IMAX`, `35 mm`" — so adding this entity would require **removing or inverting that rule** in [data/entity_extraction.md:229](data/entity_extraction.md#L229).
 
-### B4. `Aspect_ratio` — closed vocabulary (~30 comma-decimal values) — **SHIPPED**
+### B4. `Aspect_ratio` — closed vocabulary (~30 comma-decimal values) — **SHIPPED 2026-05-13, RETIRED 2026-05-24** (merged into `Technical_format` — see banner at top of file)
 - Column: `T_WC_T2S_MOVIE.ASPECT_RATIO` (VARCHAR; **French comma-decimal notation** as stored in DB — e.g. `'1,33'` not `'1.33'`)
 - Canonical values (filtered to comma-decimal form): `1,33`, `1,37`, `1,66`, `1,78`, `1,85`, `2,35`, `2,39`, `2,40`, `2,55`, etc.
 - Implementation: DB-driven canonicals via `SELECT DISTINCT ASPECT_RATIO FROM T_WC_T2S_MOVIE WHERE ASPECT_RATIO IS NOT NULL AND ASPECT_RATIO REGEXP '^[0-9]+,[0-9]+$'`, loaded once at startup by `closed_vocab.init()`. The REGEXP filter excludes noisy DB variants (`'4:3'`, `'4/3'`, `'16:9'`, `'1:33'`, `'235:1'`, etc.) from the canonical map so they fall through to the alias layer instead of matching themselves canonically.
@@ -135,7 +137,7 @@ Following the `Release_year` precedent in [entity.py](entity.py):
 3. **`Department_name` (B2)** — high practical value (filtering directors / cinematographers), 12 values
 4. **`Birth_year` / `Death_year` (D1)** — copy of `Release_year`
 5. **`Technical_format` (B3)** — DB-driven via `T_WC_T2S_TECHNICAL` (56 active rows, name → integer ID, identical loader pattern to `Genre_name`); requires inverting the "do not extract technical formats" rule at [data/entity_extraction.md:229](data/entity_extraction.md#L229)
-6. **`Aspect_ratio` (B4)** — user's own example; small but tidy
+6. **`Aspect_ratio` (B4)** — user's own example; small but tidy *(historical recommended ordering; the placeholder itself was retired 2026-05-24 and folded into `Technical_format`)*
 7. **`Character_name` (A2/C1)** — needs decision on whether to use the existing `characters` collection or fuzzy on `CAST_CHARACTER`
 8. **`Country_name` / `Language_name` (B5)** — biggest scope (ISO + multilingual aliases) and conflicts with current extraction rule
 

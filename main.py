@@ -297,7 +297,7 @@ if intcleanupenabled:
     cleanup.cleanup_sql_cache(connection, strapiversion)
     print(f"[startup] SQL cache cleanup done in {time.perf_counter() - _t0:.2f}s.", flush=True)
 
-print("[startup] Loading closed-vocabulary canonicals from DB (Status_name, Serie_type, Department_name, Aspect_ratio, Movie_genre, Serie_genre, Technical_format)...", flush=True)
+print("[startup] Loading closed-vocabulary canonicals from DB (Status_name, Serie_type, Department_name, Movie_genre, Serie_genre, Technical_format)...", flush=True)
 _t0 = time.perf_counter()
 closed_vocab.init(connection)
 print(f"[startup] Closed-vocabulary canonicals loaded in {time.perf_counter() - _t0:.2f}s.", flush=True)
@@ -1638,6 +1638,169 @@ def _fetch_wikipedia_images(cursor, id_wikidata):
     return list(cursor.fetchall())
 
 
+def _fetch_wikipedia_content(cursor, id_wikidata):
+    """Return English Wikipedia section content linked to an entity's Wikidata ID.
+
+    Returns [] when id_wikidata is missing. Each element exposes the section TITLE
+    and CONTENT from T_WC_WIKIPEDIA_PAGE_LANG_SECTION (LANG='en' only). Excludes
+    soft-deleted rows and orders by DISPLAY_ORDER to preserve natural reading order.
+    """
+    if not id_wikidata:
+        return []
+    cursor.execute("""
+        SELECT TITLE AS title, CONTENT AS content
+        FROM T_WC_WIKIPEDIA_PAGE_LANG_SECTION
+        WHERE ID_WIKIDATA = %s
+          AND LANG = 'en'
+          AND DELETED = 0
+        ORDER BY DISPLAY_ORDER ASC
+    """, (id_wikidata,))
+    return list(cursor.fetchall())
+
+
+_TMDB_VIDEO_SOURCE_TABLES = {
+    "movie": ("T_WC_TMDB_MOVIE_VIDEO", "ID_MOVIE"),
+    "serie": ("T_WC_TMDB_SERIE_VIDEO", "ID_SERIE"),
+    "season": ("T_WC_TMDB_SEASON_VIDEO", "ID_SEASON"),
+    "episode": ("T_WC_TMDB_EPISODE_VIDEO", "ID_EPISODE"),
+}
+
+
+def _synthesize_tmdb_video_urls(video_site, video_key):
+    """Build (WATCH_URL, EMBED_URL, THUMBNAIL_URL) from VIDEO_SITE + VIDEO_KEY.
+
+    Supports YouTube and Vimeo, the only sites TMDb populates in practice. Returns
+    (None, None, None) when site or key is missing or unrecognized.
+    """
+    if not video_key:
+        return None, None, None
+    site = (video_site or "").strip().lower()
+    if site == "youtube":
+        return (
+            f"https://www.youtube.com/watch?v={video_key}",
+            f"https://www.youtube.com/embed/{video_key}",
+            f"https://img.youtube.com/vi/{video_key}/hqdefault.jpg",
+        )
+    if site == "vimeo":
+        return (
+            f"https://vimeo.com/{video_key}",
+            f"https://player.vimeo.com/video/{video_key}",
+            None,
+        )
+    return None, None, None
+
+
+def _fetch_tmdb_videos(cursor, entity_kind, fk_value):
+    """Return TMDb videos for an entity in the unified video schema.
+
+    `entity_kind` is one of 'movie', 'serie', 'season', 'episode'. `fk_value` is the
+    matching TMDb numeric ID (ID_MOVIE / ID_SERIE / ID_SEASON / ID_EPISODE). Skips
+    soft-deleted rows. URLs are synthesized from VIDEO_SITE + VIDEO_KEY. Sorted
+    OFFICIAL DESC then DISPLAY_ORDER ASC so curated trailers surface first.
+    """
+    if entity_kind not in _TMDB_VIDEO_SOURCE_TABLES or fk_value is None:
+        return []
+    table, fk_col = _TMDB_VIDEO_SOURCE_TABLES[entity_kind]
+    cursor.execute(
+        f"""
+        SELECT ID_ROW, VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE,
+               LANG, OFFICIAL, DAT_PUBLISHED, DISPLAY_ORDER
+        FROM {table}
+        WHERE {fk_col} = %s
+          AND (DELETED IS NULL OR DELETED = 0)
+        ORDER BY (OFFICIAL = 1) DESC, DISPLAY_ORDER ASC, ID_ROW ASC
+        """,
+        (fk_value,),
+    )
+    rows = cursor.fetchall()
+    videos = []
+    for r in rows:
+        watch_url, embed_url, thumbnail_url = _synthesize_tmdb_video_urls(
+            r.get("VIDEO_SITE"), r.get("VIDEO_KEY")
+        )
+        videos.append({
+            "SOURCE": "tmdb",
+            "VIDEO_KEY": r.get("VIDEO_KEY"),
+            "VIDEO_NAME": r.get("VIDEO_NAME"),
+            "VIDEO_SITE": r.get("VIDEO_SITE"),
+            "VIDEO_TYPE": r.get("VIDEO_TYPE"),
+            "LANG": r.get("LANG"),
+            "OFFICIAL": r.get("OFFICIAL"),
+            "DAT_PUBLISHED": r.get("DAT_PUBLISHED"),
+            "DURATION_SECONDS": None,
+            "WATCH_URL": watch_url,
+            "EMBED_URL": embed_url,
+            "FILE_URL": None,
+            "THUMBNAIL_URL": thumbnail_url,
+            "DISPLAY_ORDER": r.get("DISPLAY_ORDER"),
+        })
+    return videos
+
+
+def _fetch_wikidata_videos(cursor, id_wikidata):
+    """Return Wikidata media-resource videos for an entity in the unified video schema.
+
+    Filtered to RESOURCE_KIND='video', IS_ACTIVE=1, DELETED=0. Per-resource URL
+    variants are pivoted from T_WC_WIKIDATA_MEDIA_RESOURCE_URL by URL_TYPE (preferring
+    IS_PREFERRED then IS_CANONICAL). Sorted preferred-then-priority so the most
+    representative video surfaces first.
+    """
+    if not id_wikidata:
+        return []
+    cursor.execute("""
+        SELECT
+          mr.ID_MEDIA_RESOURCE,
+          mr.SOURCE_PLATFORM,
+          mr.SOURCE_IDENTIFIER,
+          mr.CONTENT_ROLE,
+          mr.RESOURCE_TITLE,
+          mr.LANG_CODE,
+          mr.DURATION_SECONDS,
+          mr.IS_PREFERRED_RESOURCE,
+          mr.SOURCE_PRIORITY,
+          mr.THUMBNAIL_URL_PRIMARY,
+          MAX(CASE WHEN mru.URL_TYPE = 'watch' THEN mru.URL END) AS WATCH_URL,
+          MAX(CASE WHEN mru.URL_TYPE = 'embed' THEN mru.URL END) AS EMBED_URL,
+          MAX(CASE WHEN mru.URL_TYPE = 'file' THEN mru.URL END) AS FILE_URL,
+          MAX(CASE WHEN mru.URL_TYPE = 'thumbnail' THEN mru.URL END) AS THUMBNAIL_URL_PIVOTED,
+          MAX(CASE WHEN mru.URL_TYPE = 'page' THEN mru.URL END) AS PAGE_URL
+        FROM T_WC_WIKIDATA_MEDIA_RESOURCE mr
+        LEFT JOIN T_WC_WIKIDATA_MEDIA_RESOURCE_URL mru
+          ON mru.ID_MEDIA_RESOURCE = mr.ID_MEDIA_RESOURCE
+          AND mru.IS_ACTIVE = 1
+        WHERE mr.ID_WIKIDATA = %s
+          AND mr.RESOURCE_KIND = 'video'
+          AND mr.DELETED = 0
+          AND mr.IS_ACTIVE = 1
+        GROUP BY mr.ID_MEDIA_RESOURCE
+        ORDER BY mr.IS_PREFERRED_RESOURCE DESC,
+                 (mr.SOURCE_PRIORITY IS NULL), mr.SOURCE_PRIORITY ASC,
+                 mr.ID_MEDIA_RESOURCE ASC
+    """, (id_wikidata,))
+    rows = cursor.fetchall()
+    videos = []
+    for r in rows:
+        watch_url = r.get("WATCH_URL") or r.get("PAGE_URL")
+        thumbnail_url = r.get("THUMBNAIL_URL_PIVOTED") or r.get("THUMBNAIL_URL_PRIMARY")
+        videos.append({
+            "SOURCE": "wikidata",
+            "VIDEO_KEY": r.get("SOURCE_IDENTIFIER"),
+            "VIDEO_NAME": r.get("RESOURCE_TITLE"),
+            "VIDEO_SITE": r.get("SOURCE_PLATFORM"),
+            "VIDEO_TYPE": r.get("CONTENT_ROLE"),
+            "LANG": r.get("LANG_CODE"),
+            "OFFICIAL": None,
+            "DAT_PUBLISHED": None,
+            "DURATION_SECONDS": r.get("DURATION_SECONDS"),
+            "WATCH_URL": watch_url,
+            "EMBED_URL": r.get("EMBED_URL"),
+            "FILE_URL": r.get("FILE_URL"),
+            "THUMBNAIL_URL": thumbnail_url,
+            "DISPLAY_ORDER": None,
+        })
+    return videos
+
+
 @app.get("/movies/{id}", summary="Movie full detail")
 async def get_movie(id: int, api_key: str = Depends(get_api_key)):
     """Return all fields for a movie plus embedded relations: genres, production
@@ -1663,7 +1826,22 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
     The wikipedia_images list contains the English and French Wikipedia images linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
     LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
-    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER.
+
+    The wikipedia_content list contains the English Wikipedia section content linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
+    section title and content, ordered by DISPLAY_ORDER.
+
+    The videos list merges TMDb-sourced videos (T_WC_TMDB_MOVIE_VIDEO) and
+    Wikidata-sourced videos (T_WC_WIKIDATA_MEDIA_RESOURCE with RESOURCE_KIND='video',
+    joined via ID_WIKIDATA). Each element exposes a unified shape: SOURCE
+    ('tmdb' / 'wikidata'), VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG,
+    OFFICIAL (tmdb only), DAT_PUBLISHED (tmdb only), DURATION_SECONDS (wikidata only),
+    WATCH_URL, EMBED_URL, FILE_URL, THUMBNAIL_URL, DISPLAY_ORDER. TMDb rows come
+    first (OFFICIAL DESC, DISPLAY_ORDER ASC), then Wikidata rows
+    (IS_PREFERRED_RESOURCE DESC, SOURCE_PRIORITY ASC); TMDb YouTube/Vimeo URLs are
+    synthesized from VIDEO_SITE + VIDEO_KEY, Wikidata URLs are pivoted from
+    T_WC_WIKIDATA_MEDIA_RESOURCE_URL by URL_TYPE."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1762,6 +1940,8 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
             """, (id,))
             backdrops = cursor.fetchall()
             wikipedia_images = _fetch_wikipedia_images(cursor, movie.get("ID_WIKIDATA"))
+            wikipedia_content = _fetch_wikipedia_content(cursor, movie.get("ID_WIKIDATA"))
+            videos = _fetch_tmdb_videos(cursor, "movie", id) + _fetch_wikidata_videos(cursor, movie.get("ID_WIKIDATA"))
         exclude_self_credits = movie.get("IS_DOCUMENTARY") != 1
         result = {
             **movie,
@@ -1785,6 +1965,8 @@ async def get_movie(id: int, api_key: str = Depends(get_api_key)):
             "posters": list(posters),
             "backdrops": list(backdrops),
             "wikipedia_images": wikipedia_images,
+            "wikipedia_content": wikipedia_content,
+            "videos": videos,
         }
         logs.log_usage("movies", {"id": id, "response": result}, strapiversion)
         return result
@@ -1815,7 +1997,27 @@ async def get_series(id: int, api_key: str = Depends(get_api_key)):
     The wikipedia_images list contains the English and French Wikipedia images linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
     LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
-    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER.
+
+    The wikipedia_content list contains the English Wikipedia section content linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
+    section title and content, ordered by DISPLAY_ORDER.
+
+    The seasons list contains every season of this series from T_WC_TMDB_SEASON,
+    ordered by SEASON_NUMBER ASC; each element carries ID_SEASON, SEASON_NUMBER, TITLE,
+    OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH, AIR_DAY, POSTER_PATH, EPISODE_COUNT,
+    VOTE_AVERAGE, ID_IMDB, ID_WIKIDATA, ID_TVDB.
+
+    The videos list merges TMDb-sourced videos (T_WC_TMDB_SERIE_VIDEO) and
+    Wikidata-sourced videos (T_WC_WIKIDATA_MEDIA_RESOURCE with RESOURCE_KIND='video',
+    joined via ID_WIKIDATA). Each element exposes a unified shape: SOURCE
+    ('tmdb' / 'wikidata'), VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG,
+    OFFICIAL (tmdb only), DAT_PUBLISHED (tmdb only), DURATION_SECONDS (wikidata only),
+    WATCH_URL, EMBED_URL, FILE_URL, THUMBNAIL_URL, DISPLAY_ORDER. TMDb rows come
+    first (OFFICIAL DESC, DISPLAY_ORDER ASC), then Wikidata rows
+    (IS_PREFERRED_RESOURCE DESC, SOURCE_PRIORITY ASC); TMDb YouTube/Vimeo URLs are
+    synthesized from VIDEO_SITE + VIDEO_KEY, Wikidata URLs are pivoted from
+    T_WC_WIKIDATA_MEDIA_RESOURCE_URL by URL_TYPE."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -1911,7 +2113,18 @@ async def get_series(id: int, api_key: str = Depends(get_api_key)):
                 ORDER BY DISPLAY_ORDER ASC
             """, (id,))
             backdrops = cursor.fetchall()
+            cursor.execute("""
+                SELECT ID_SEASON, SEASON_NUMBER, TITLE, OVERVIEW, DAT_AIR,
+                       AIR_YEAR, AIR_MONTH, AIR_DAY, POSTER_PATH, EPISODE_COUNT,
+                       VOTE_AVERAGE, ID_IMDB, ID_WIKIDATA, ID_TVDB
+                FROM T_WC_TMDB_SEASON
+                WHERE ID_SERIE = %s
+                ORDER BY SEASON_NUMBER ASC
+            """, (id,))
+            seasons = cursor.fetchall()
             wikipedia_images = _fetch_wikipedia_images(cursor, serie.get("ID_WIKIDATA"))
+            wikipedia_content = _fetch_wikipedia_content(cursor, serie.get("ID_WIKIDATA"))
+            videos = _fetch_tmdb_videos(cursor, "serie", id) + _fetch_wikidata_videos(cursor, serie.get("ID_WIKIDATA"))
         result = {
             **serie,
             "genres": genres,
@@ -1929,9 +2142,275 @@ async def get_series(id: int, api_key: str = Depends(get_api_key)):
             "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
             "posters": list(posters),
             "backdrops": list(backdrops),
+            "seasons": list(seasons),
             "wikipedia_images": wikipedia_images,
+            "wikipedia_content": wikipedia_content,
+            "videos": videos,
         }
         logs.log_usage("series", {"id": id, "response": result}, strapiversion)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/seasons/{id_serie}/{season_number}", summary="TV series season full detail")
+async def get_season(id_serie: int, season_number: int, api_key: str = Depends(get_api_key)):
+    """Return all fields for a TV series season plus embedded relations: cast, crew,
+    posters, backdrops, and a navigation stub for the parent series. The composite
+    key is (ID_SERIE, SEASON_NUMBER); season 0 is the specials season when present.
+
+    Each nested cast/crew element carries PROFILE_PATH for the person plus
+    CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, CREW_JOB, TOTAL_EPISODE_COUNT,
+    and DISPLAY_ORDER from T_WC_TMDB_PERSON_SEASON, ordered by DISPLAY_ORDER ASC.
+
+    The posters and backdrops lists each contain every image of the matching type
+    available for this season from T_WC_TMDB_SEASON_IMAGE (TYPE_IMAGE = 'poster' for
+    posters, 'backdrop' for backdrops), ordered by DISPLAY_ORDER; each element
+    exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE,
+    VOTE_COUNT, DISPLAY_ORDER.
+
+    The series object is a navigation stub with ID_SERIE, SERIE_TITLE, POSTER_PATH
+    so the frontend can render breadcrumbs without a second /series/{id} round trip.
+
+    The episodes list contains every episode of this season from T_WC_TMDB_EPISODE,
+    ordered by EPISODE_NUMBER ASC. Each element is a summary row that carries
+    ID_EPISODE, EPISODE_NUMBER, TITLE, OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH,
+    AIR_DAY, RUNTIME, EPISODE_TYPE, STILL_PATH, VOTE_AVERAGE, VOTE_COUNT, ID_IMDB,
+    ID_WIKIDATA, and ID_TVDB. Episode cast/crew, additional stills, and Wikipedia
+    payloads live on /episodes/{id_serie}/{season_number}/{episode_number} to keep
+    the season payload bounded.
+
+    The wikipedia_images list contains the English and French Wikipedia images linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
+    LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER.
+
+    The wikipedia_content list contains the English Wikipedia section content linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
+    section title and content, ordered by DISPLAY_ORDER.
+
+    The videos list contains TMDb-sourced videos for this season from
+    T_WC_TMDB_SEASON_VIDEO (no Wikidata media is modeled at the season level). Each
+    element exposes the unified shape: SOURCE='tmdb', VIDEO_KEY, VIDEO_NAME,
+    VIDEO_SITE, VIDEO_TYPE, LANG, OFFICIAL, DAT_PUBLISHED, WATCH_URL, EMBED_URL,
+    THUMBNAIL_URL, DISPLAY_ORDER. WATCH/EMBED/THUMBNAIL URLs are synthesized from
+    VIDEO_SITE + VIDEO_KEY (YouTube and Vimeo). Sorted OFFICIAL DESC then
+    DISPLAY_ORDER ASC.
+
+    Note: this endpoint reads from T_WC_TMDB_SEASON, T_WC_TMDB_PERSON_SEASON,
+    T_WC_TMDB_SEASON_IMAGE, and T_WC_TMDB_EPISODE because the T_WC_T2S_*
+    equivalents do not exist yet. Registered as migration sites in
+    SEASONS_AND_EPISODES.md section 6.1."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM T_WC_TMDB_SEASON WHERE ID_SERIE = %s AND SEASON_NUMBER = %s",
+                (id_serie, season_number),
+            )
+            season = cursor.fetchone()
+        if not season:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Season {season_number} of series {id_serie} not found",
+            )
+        id_season = season["ID_SEASON"]
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, ps.CREDIT_TYPE,
+                       ps.CAST_CHARACTER, ps.CREW_DEPARTMENT, ps.CREW_JOB,
+                       ps.TOTAL_EPISODE_COUNT, ps.DISPLAY_ORDER
+                FROM T_WC_TMDB_PERSON_SEASON ps
+                JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON
+                WHERE ps.ID_SEASON = %s ORDER BY ps.DISPLAY_ORDER ASC
+            """, (id_season,))
+            credits = cursor.fetchall()
+            cursor.execute("""
+                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                FROM T_WC_TMDB_SEASON_IMAGE
+                WHERE ID_SEASON = %s AND TYPE_IMAGE = 'poster'
+                ORDER BY DISPLAY_ORDER ASC
+            """, (id_season,))
+            posters = cursor.fetchall()
+            cursor.execute("""
+                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                FROM T_WC_TMDB_SEASON_IMAGE
+                WHERE ID_SEASON = %s AND TYPE_IMAGE = 'backdrop'
+                ORDER BY DISPLAY_ORDER ASC
+            """, (id_season,))
+            backdrops = cursor.fetchall()
+            cursor.execute("""
+                SELECT ID_SERIE, SERIE_TITLE, POSTER_PATH
+                FROM T_WC_T2S_SERIE WHERE ID_SERIE = %s
+            """, (id_serie,))
+            series = cursor.fetchone()
+            cursor.execute("""
+                SELECT ID_EPISODE, EPISODE_NUMBER, TITLE, OVERVIEW, DAT_AIR,
+                       AIR_YEAR, AIR_MONTH, AIR_DAY, RUNTIME, EPISODE_TYPE,
+                       STILL_PATH, VOTE_AVERAGE, VOTE_COUNT,
+                       ID_IMDB, ID_WIKIDATA, ID_TVDB
+                FROM T_WC_TMDB_EPISODE
+                WHERE ID_SEASON = %s
+                ORDER BY EPISODE_NUMBER ASC
+            """, (id_season,))
+            episodes = cursor.fetchall()
+            wikipedia_images = _fetch_wikipedia_images(cursor, season.get("ID_WIKIDATA"))
+            wikipedia_content = _fetch_wikipedia_content(cursor, season.get("ID_WIKIDATA"))
+            videos = _fetch_tmdb_videos(cursor, "season", id_season)
+        result = {
+            **season,
+            "cast": [c for c in credits if c["CREDIT_TYPE"] == "cast"],
+            "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
+            "posters": list(posters),
+            "backdrops": list(backdrops),
+            "series": series,
+            "episodes": list(episodes),
+            "wikipedia_images": wikipedia_images,
+            "wikipedia_content": wikipedia_content,
+            "videos": videos,
+        }
+        logs.log_usage(
+            "seasons",
+            {"id_serie": id_serie, "season_number": season_number, "response": result},
+            strapiversion,
+        )
+        return result
+    finally:
+        conn.close()
+
+
+@app.get(
+    "/episodes/{id_serie}/{season_number}/{episode_number}",
+    summary="TV series episode full detail",
+)
+async def get_episode(
+    id_serie: int,
+    season_number: int,
+    episode_number: int,
+    api_key: str = Depends(get_api_key),
+):
+    """Return all fields for a TV series episode plus embedded relations: cast, crew,
+    stills, navigation stubs for the parent season and series, and Wikipedia images
+    and content when the episode has an `ID_WIKIDATA`. The composite key is
+    (ID_SERIE, SEASON_NUMBER, EPISODE_NUMBER).
+
+    Episodes carry their canonical frame as `STILL_PATH` directly on the base row
+    (no separate poster table); the `stills` list exposes additional frames stored
+    in T_WC_TMDB_EPISODE_IMAGE.
+
+    Each nested cast/crew element carries PROFILE_PATH for the person plus
+    CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, CREW_JOB, and DISPLAY_ORDER from
+    T_WC_TMDB_PERSON_EPISODE, ordered by DISPLAY_ORDER ASC.
+
+    The stills list contains every image attached to this episode from
+    T_WC_TMDB_EPISODE_IMAGE, ordered by DISPLAY_ORDER; each element exposes ID_ROW,
+    TYPE_IMAGE, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE,
+    VOTE_COUNT, DISPLAY_ORDER. TMDb episodes typically only have still frames, but
+    any other TYPE_IMAGE rows present upstream are returned as-is.
+
+    The season object is a navigation stub with ID_SEASON, SEASON_NUMBER, TITLE,
+    POSTER_PATH so the frontend can render breadcrumbs without a second
+    /seasons/{id_serie}/{season_number} round trip.
+
+    The series object is a navigation stub with ID_SERIE, SERIE_TITLE, POSTER_PATH.
+
+    The wikipedia_images list contains the English and French Wikipedia images linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
+    LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER. Most
+    episodes do not have an ID_WIKIDATA, in which case this list is empty.
+
+    The wikipedia_content list contains the English Wikipedia section content linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
+    section title and content, ordered by DISPLAY_ORDER. Empty when ID_WIKIDATA is
+    NULL.
+
+    The videos list contains TMDb-sourced videos for this episode from
+    T_WC_TMDB_EPISODE_VIDEO (no Wikidata media is modeled at the episode level). Each
+    element exposes the unified shape: SOURCE='tmdb', VIDEO_KEY, VIDEO_NAME,
+    VIDEO_SITE, VIDEO_TYPE, LANG, OFFICIAL, DAT_PUBLISHED, WATCH_URL, EMBED_URL,
+    THUMBNAIL_URL, DISPLAY_ORDER. WATCH/EMBED/THUMBNAIL URLs are synthesized from
+    VIDEO_SITE + VIDEO_KEY (YouTube and Vimeo). Sorted OFFICIAL DESC then
+    DISPLAY_ORDER ASC.
+
+    Note: this endpoint reads from T_WC_TMDB_EPISODE, T_WC_TMDB_PERSON_EPISODE, and
+    T_WC_TMDB_EPISODE_IMAGE because the T_WC_T2S_* equivalents do not exist yet.
+    Registered as a migration site in SEASONS_AND_EPISODES.md section 6.1."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT * FROM T_WC_TMDB_EPISODE
+                WHERE ID_SERIE = %s AND SEASON_NUMBER = %s AND EPISODE_NUMBER = %s
+                """,
+                (id_serie, season_number, episode_number),
+            )
+            episode = cursor.fetchone()
+        if not episode:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Episode {episode_number} of season {season_number} "
+                    f"of series {id_serie} not found"
+                ),
+            )
+        id_episode = episode["ID_EPISODE"]
+        id_season = episode["ID_SEASON"]
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, pe.CREDIT_TYPE,
+                       pe.CAST_CHARACTER, pe.CREW_DEPARTMENT, pe.CREW_JOB,
+                       pe.DISPLAY_ORDER
+                FROM T_WC_TMDB_PERSON_EPISODE pe
+                JOIN T_WC_T2S_PERSON p ON pe.ID_PERSON = p.ID_PERSON
+                WHERE pe.ID_EPISODE = %s ORDER BY pe.DISPLAY_ORDER ASC
+            """, (id_episode,))
+            credits = cursor.fetchall()
+            cursor.execute("""
+                SELECT ID_ROW, TYPE_IMAGE, IMAGE_PATH, LANG, ASPECT_RATIO,
+                       WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                FROM T_WC_TMDB_EPISODE_IMAGE
+                WHERE ID_EPISODE = %s
+                ORDER BY DISPLAY_ORDER ASC
+            """, (id_episode,))
+            stills = cursor.fetchall()
+            cursor.execute("""
+                SELECT ID_SEASON, SEASON_NUMBER, TITLE, POSTER_PATH
+                FROM T_WC_TMDB_SEASON WHERE ID_SEASON = %s
+            """, (id_season,))
+            season = cursor.fetchone()
+            cursor.execute("""
+                SELECT ID_SERIE, SERIE_TITLE, POSTER_PATH
+                FROM T_WC_T2S_SERIE WHERE ID_SERIE = %s
+            """, (id_serie,))
+            series = cursor.fetchone()
+            wikipedia_images = _fetch_wikipedia_images(cursor, episode.get("ID_WIKIDATA"))
+            wikipedia_content = _fetch_wikipedia_content(cursor, episode.get("ID_WIKIDATA"))
+            videos = _fetch_tmdb_videos(cursor, "episode", id_episode)
+        result = {
+            **episode,
+            "cast": [c for c in credits if c["CREDIT_TYPE"] == "cast"],
+            "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
+            "stills": list(stills),
+            "season": season,
+            "series": series,
+            "wikipedia_images": wikipedia_images,
+            "wikipedia_content": wikipedia_content,
+            "videos": videos,
+        }
+        logs.log_usage(
+            "episodes",
+            {
+                "id_serie": id_serie,
+                "season_number": season_number,
+                "episode_number": episode_number,
+                "response": result,
+            },
+            strapiversion,
+        )
         return result
     finally:
         conn.close()
@@ -1960,7 +2439,20 @@ async def get_person(id: int, api_key: str = Depends(get_api_key)):
     The wikipedia_images list contains the English and French Wikipedia images linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
     LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
-    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER.
+
+    The wikipedia_content list contains the English Wikipedia section content linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
+    section title and content, ordered by DISPLAY_ORDER.
+
+    The videos list contains Wikidata-sourced videos for this person from
+    T_WC_WIKIDATA_MEDIA_RESOURCE (RESOURCE_KIND='video', joined via ID_WIKIDATA);
+    TMDb does not store person-level videos. Each element exposes the unified shape:
+    SOURCE='wikidata', VIDEO_KEY (SOURCE_IDENTIFIER), VIDEO_NAME (RESOURCE_TITLE),
+    VIDEO_SITE (SOURCE_PLATFORM), VIDEO_TYPE (CONTENT_ROLE), LANG, DURATION_SECONDS,
+    WATCH_URL, EMBED_URL, FILE_URL, THUMBNAIL_URL. URLs are pivoted from
+    T_WC_WIKIDATA_MEDIA_RESOURCE_URL by URL_TYPE. Sorted IS_PREFERRED_RESOURCE DESC
+    then SOURCE_PRIORITY ASC."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2020,6 +2512,8 @@ async def get_person(id: int, api_key: str = Depends(get_api_key)):
             """, (id,))
             portraits = cursor.fetchall()
             wikipedia_images = _fetch_wikipedia_images(cursor, person.get("ID_WIKIDATA"))
+            wikipedia_content = _fetch_wikipedia_content(cursor, person.get("ID_WIKIDATA"))
+            videos = _fetch_wikidata_videos(cursor, person.get("ID_WIKIDATA"))
         result = {
             **person,
             "movie_cast": [
@@ -2036,6 +2530,8 @@ async def get_person(id: int, api_key: str = Depends(get_api_key)):
             "nominations": list(nominations),
             "portraits": list(portraits),
             "wikipedia_images": wikipedia_images,
+            "wikipedia_content": wikipedia_content,
+            "videos": videos,
         }
         logs.log_usage("persons", {"id": id, "response": result}, strapiversion)
         return result
@@ -2120,7 +2616,11 @@ async def get_collection(id: int, api_key: str = Depends(get_api_key)):
     The wikipedia_images list contains the English and French Wikipedia images linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
     LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
-    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER.
+
+    The wikipedia_content list contains the English Wikipedia section content linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
+    section title and content, ordered by DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2144,7 +2644,8 @@ async def get_collection(id: int, api_key: str = Depends(get_api_key)):
             """, (id,))
             series = cursor.fetchall()
             wikipedia_images = _fetch_wikipedia_images(cursor, collection.get("ID_WIKIDATA"))
-        result = {**collection, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images}
+            wikipedia_content = _fetch_wikipedia_content(cursor, collection.get("ID_WIKIDATA"))
+        result = {**collection, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("collections", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2163,7 +2664,11 @@ async def get_topic(id: int, api_key: str = Depends(get_api_key)):
     The wikipedia_images list contains the English and French Wikipedia images linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
     LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
-    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER.
+
+    The wikipedia_content list contains the English Wikipedia section content linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
+    section title and content, ordered by DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2187,7 +2692,8 @@ async def get_topic(id: int, api_key: str = Depends(get_api_key)):
             """, (id,))
             series = cursor.fetchall()
             wikipedia_images = _fetch_wikipedia_images(cursor, topic.get("ID_WIKIDATA"))
-        result = {**topic, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images}
+            wikipedia_content = _fetch_wikipedia_content(cursor, topic.get("ID_WIKIDATA"))
+        result = {**topic, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("topics", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2206,7 +2712,11 @@ async def get_list(id: int, api_key: str = Depends(get_api_key)):
     The wikipedia_images list contains the English and French Wikipedia images linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
     LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
-    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER.
+
+    The wikipedia_content list contains the English Wikipedia section content linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
+    section title and content, ordered by DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2230,7 +2740,8 @@ async def get_list(id: int, api_key: str = Depends(get_api_key)):
             """, (id,))
             series = cursor.fetchall()
             wikipedia_images = _fetch_wikipedia_images(cursor, lst.get("ID_WIKIDATA"))
-        result = {**lst, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images}
+            wikipedia_content = _fetch_wikipedia_content(cursor, lst.get("ID_WIKIDATA"))
+        result = {**lst, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("lists", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2249,7 +2760,11 @@ async def get_movement(id: int, api_key: str = Depends(get_api_key)):
     The wikipedia_images list contains the English and French Wikipedia images linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
     LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
-    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER.
+
+    The wikipedia_content list contains the English Wikipedia section content linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
+    section title and content, ordered by DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2273,7 +2788,8 @@ async def get_movement(id: int, api_key: str = Depends(get_api_key)):
             """, (id,))
             series = cursor.fetchall()
             wikipedia_images = _fetch_wikipedia_images(cursor, movement.get("ID_WIKIDATA"))
-        result = {**movement, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images}
+            wikipedia_content = _fetch_wikipedia_content(cursor, movement.get("ID_WIKIDATA"))
+        result = {**movement, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("movements", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2296,7 +2812,11 @@ async def get_technical(id: int, api_key: str = Depends(get_api_key)):
     The wikipedia_images list contains the English and French Wikipedia images linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
     LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
-    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER.
+
+    The wikipedia_content list contains the English Wikipedia section content linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
+    section title and content, ordered by DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2322,7 +2842,8 @@ async def get_technical(id: int, api_key: str = Depends(get_api_key)):
             """, (technical["TECHNICAL_TYPE"], id))
             siblings = cursor.fetchall()
             wikipedia_images = _fetch_wikipedia_images(cursor, technical.get("ID_WIKIDATA"))
-        result = {**technical, "movies": list(movies), "siblings": list(siblings), "wikipedia_images": wikipedia_images}
+            wikipedia_content = _fetch_wikipedia_content(cursor, technical.get("ID_WIKIDATA"))
+        result = {**technical, "movies": list(movies), "siblings": list(siblings), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("technicals", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2340,7 +2861,11 @@ async def get_group(id: int, api_key: str = Depends(get_api_key)):
     The wikipedia_images list contains the English and French Wikipedia images linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
     LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
-    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER.
+
+    The wikipedia_content list contains the English Wikipedia section content linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
+    section title and content, ordered by DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2357,7 +2882,8 @@ async def get_group(id: int, api_key: str = Depends(get_api_key)):
             """, (id,))
             persons = cursor.fetchall()
             wikipedia_images = _fetch_wikipedia_images(cursor, group.get("ID_WIKIDATA"))
-        result = {**group, "persons": list(persons), "wikipedia_images": wikipedia_images}
+            wikipedia_content = _fetch_wikipedia_content(cursor, group.get("ID_WIKIDATA"))
+        result = {**group, "persons": list(persons), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("groups", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2375,7 +2901,11 @@ async def get_death(id: int, api_key: str = Depends(get_api_key)):
     The wikipedia_images list contains the English and French Wikipedia images linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
     LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
-    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER.
+
+    The wikipedia_content list contains the English Wikipedia section content linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
+    section title and content, ordered by DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2392,7 +2922,8 @@ async def get_death(id: int, api_key: str = Depends(get_api_key)):
             """, (id,))
             persons = cursor.fetchall()
             wikipedia_images = _fetch_wikipedia_images(cursor, death.get("ID_WIKIDATA"))
-        result = {**death, "persons": list(persons), "wikipedia_images": wikipedia_images}
+            wikipedia_content = _fetch_wikipedia_content(cursor, death.get("ID_WIKIDATA"))
+        result = {**death, "persons": list(persons), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("deaths", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2411,7 +2942,11 @@ async def get_award(id: int, api_key: str = Depends(get_api_key)):
     The wikipedia_images list contains the English and French Wikipedia images linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
     LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
-    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER.
+
+    The wikipedia_content list contains the English Wikipedia section content linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
+    section title and content, ordered by DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2442,7 +2977,8 @@ async def get_award(id: int, api_key: str = Depends(get_api_key)):
             """, (id,))
             persons = cursor.fetchall()
             wikipedia_images = _fetch_wikipedia_images(cursor, award.get("ID_WIKIDATA"))
-        result = {**award, "movies": list(movies), "series": list(series), "persons": list(persons), "wikipedia_images": wikipedia_images}
+            wikipedia_content = _fetch_wikipedia_content(cursor, award.get("ID_WIKIDATA"))
+        result = {**award, "movies": list(movies), "series": list(series), "persons": list(persons), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("awards", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2461,7 +2997,11 @@ async def get_nomination(id: int, api_key: str = Depends(get_api_key)):
     The wikipedia_images list contains the English and French Wikipedia images linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
     LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
-    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER.
+
+    The wikipedia_content list contains the English Wikipedia section content linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
+    section title and content, ordered by DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2492,7 +3032,8 @@ async def get_nomination(id: int, api_key: str = Depends(get_api_key)):
             """, (id,))
             persons = cursor.fetchall()
             wikipedia_images = _fetch_wikipedia_images(cursor, nomination.get("ID_WIKIDATA"))
-        result = {**nomination, "movies": list(movies), "series": list(series), "persons": list(persons), "wikipedia_images": wikipedia_images}
+            wikipedia_content = _fetch_wikipedia_content(cursor, nomination.get("ID_WIKIDATA"))
+        result = {**nomination, "movies": list(movies), "series": list(series), "persons": list(persons), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("nominations", {"id": id, "response": result}, strapiversion)
         return result
     finally:
@@ -2511,7 +3052,11 @@ async def get_location(wikidata_id: str, api_key: str = Depends(get_api_key)):
     The wikipedia_images list contains the English and French Wikipedia images linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
     LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
-    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER."""
+    FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER.
+
+    The wikipedia_content list contains the English Wikipedia section content linked
+    to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
+    section title and content, ordered by DISPLAY_ORDER."""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -2539,7 +3084,8 @@ async def get_location(wikidata_id: str, api_key: str = Depends(get_api_key)):
             """, (wikidata_id,))
             series = cursor.fetchall()
             wikipedia_images = _fetch_wikipedia_images(cursor, wikidata_id)
-        result = {**location, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images}
+            wikipedia_content = _fetch_wikipedia_content(cursor, wikidata_id)
+        result = {**location, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("locations", {"wikidata_id": wikidata_id, "response": result}, strapiversion)
         return result
     finally:
@@ -2600,15 +3146,25 @@ async def _mcp_sql_search(question: str, ui_language: str = "en") -> str:
 @mcp.tool(name="get_movie")
 async def _mcp_get_movie(id: int) -> str:
     """Get all fields for a movie (title, release date, runtime, budget, revenue, ratings,
-    plot, IMDb/Wikidata IDs, aspect ratio, color/B&W/silent flags) plus embedded relations:
+    plot, IMDb/Wikidata IDs, color/B&W/silent flags) plus embedded relations:
     cast, crew, genre codes, production companies, production countries, spoken languages,
     topics, collections, movements, technicals, awards, and nominations. Each related
     company, topic, list, collection, and movement carries its own POSTER_PATH
     (LOGO_PATH for companies), WIKIPEDIA_IMAGE_PATH (when applicable),
     IMDB_RATING_WEIGHTED, and POPULARITY. Technicals (sound systems, color/film/sound
-    technologies, film formats from T_WC_T2S_TECHNICAL) expose ID_TECHNICAL,
-    DESCRIPTION, DESCRIPTION_FR, TECHNICAL_TYPE, WIKIPEDIA_IMAGE_PATH,
-    IMDB_RATING_WEIGHTED, and POPULARITY. id = TMDb ID_MOVIE."""
+    technologies, film formats, and aspect ratios from T_WC_T2S_TECHNICAL) expose
+    ID_TECHNICAL, DESCRIPTION, DESCRIPTION_FR, TECHNICAL_TYPE (one of: sound_system,
+    color_technology, film_technology, sound_technology, film_format, medium_format,
+    aspect_ratio), WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY. Also
+    returns top-level wikipedia_images
+    (en+fr Wikipedia image metadata), wikipedia_content (en Wikipedia section
+    title/content pairs from T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA,
+    and a unified videos list merging TMDb-sourced videos (T_WC_TMDB_MOVIE_VIDEO)
+    and Wikidata-sourced videos (T_WC_WIKIDATA_MEDIA_RESOURCE, RESOURCE_KIND='video');
+    each video exposes SOURCE, VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG,
+    OFFICIAL, DAT_PUBLISHED, DURATION_SECONDS, and WATCH_URL/EMBED_URL/FILE_URL/
+    THUMBNAIL_URL.
+    id = TMDb ID_MOVIE."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2626,10 +3182,19 @@ async def _mcp_get_series(id: int) -> str:
     """Get all fields for a TV series (title, first/last air date, number of seasons and
     episodes, ratings, status, Wikidata/IMDb IDs) plus embedded relations: cast, crew,
     genre codes, companies, networks, production countries, spoken languages, topics,
-    collections, movements, awards, and nominations. Each related company, topic, list,
+    collections, movements, awards, nominations, and seasons (every season from
+    T_WC_TMDB_SEASON with SEASON_NUMBER, TITLE, DAT_AIR, POSTER_PATH, EPISODE_COUNT,
+    VOTE_AVERAGE, and IMDb/Wikidata/TVDB IDs). Each related company, topic, list,
     collection, and movement carries its own POSTER_PATH (LOGO_PATH for companies and
     networks), WIKIPEDIA_IMAGE_PATH (when applicable), IMDB_RATING_WEIGHTED, and
-    POPULARITY. id = TMDb ID_SERIE."""
+    POPULARITY. Also returns top-level wikipedia_images (en+fr Wikipedia image
+    metadata), wikipedia_content (en Wikipedia section title/content pairs from
+    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA, and a unified videos
+    list merging TMDb-sourced videos (T_WC_TMDB_SERIE_VIDEO) and Wikidata-sourced
+    videos (T_WC_WIKIDATA_MEDIA_RESOURCE, RESOURCE_KIND='video'); each video exposes
+    SOURCE, VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG, OFFICIAL,
+    DAT_PUBLISHED, DURATION_SECONDS, and WATCH_URL/EMBED_URL/FILE_URL/THUMBNAIL_URL.
+    id = TMDb ID_SERIE."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2647,7 +3212,13 @@ async def _mcp_get_person(id: int) -> str:
     """Get all fields for a person (name, biography, birth/death dates, gender, country of
     birth, known-for department, IMDb/Wikidata IDs, popularity) plus embedded filmography
     split by role: movie_cast, movie_crew, series_cast, series_crew, groups, deaths,
-    awards, and nominations. id = TMDb ID_PERSON."""
+    awards, and nominations. Also returns top-level wikipedia_images (en+fr Wikipedia
+    image metadata), wikipedia_content (en Wikipedia section title/content pairs
+    from T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA, and a videos list
+    sourced from Wikidata media resources (T_WC_WIKIDATA_MEDIA_RESOURCE,
+    RESOURCE_KIND='video'; TMDb does not store person-level videos); each video
+    exposes SOURCE='wikidata', VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG,
+    DURATION_SECONDS, and WATCH_URL/EMBED_URL/FILE_URL/THUMBNAIL_URL. id = TMDb ID_PERSON."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2665,7 +3236,9 @@ async def _mcp_get_collection(id: int) -> str:
     """Get all fields for a named collection (trilogy, saga, universe, franchise) plus member
     movies and TV series ordered by their position in the collection. The collection itself
     includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
-    id = ID_T2S_COLLECTION."""
+    Also returns top-level wikipedia_images (en+fr Wikipedia image metadata) and
+    wikipedia_content (en Wikipedia section title/content pairs from
+    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_T2S_COLLECTION."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2683,7 +3256,9 @@ async def _mcp_get_topic(id: int) -> str:
     """Get all fields for a topic (theme, keyword, recurring-character collection) plus linked
     movies and TV series ordered by their position in the topic. The topic itself includes
     POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
-    id = ID_TOPIC."""
+    Also returns top-level wikipedia_images (en+fr Wikipedia image metadata) and
+    wikipedia_content (en Wikipedia section title/content pairs from
+    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_TOPIC."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2701,7 +3276,9 @@ async def _mcp_get_list(id: int) -> str:
     """Get all fields for a named curated list (e.g. AFI Top 100, Criterion Collection)
     plus member movies and TV series ordered by their position. The list itself includes
     POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
-    id = ID_T2S_LIST."""
+    Also returns top-level wikipedia_images (en+fr Wikipedia image metadata) and
+    wikipedia_content (en Wikipedia section title/content pairs from
+    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_T2S_LIST."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2719,7 +3296,9 @@ async def _mcp_get_movement(id: int) -> str:
     """Get all fields for a film movement or style (e.g. French New Wave, Neo-Noir) plus
     associated movies and TV series ordered by their position. The movement itself includes
     POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
-    id = ID_MOVEMENT."""
+    Also returns top-level wikipedia_images (en+fr Wikipedia image metadata) and
+    wikipedia_content (en Wikipedia section title/content pairs from
+    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_MOVEMENT."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2738,7 +3317,10 @@ async def _mcp_get_technical(id: int) -> str:
     or film format — e.g. Dolby, Technicolor, 70mm, IMAX, Cinemascope) plus associated
     movies and sibling technicals sharing the same TECHNICAL_TYPE. The technical itself
     includes WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY. Each sibling
-    carries MOVIE_COUNT for ranking. id = ID_TECHNICAL."""
+    carries MOVIE_COUNT for ranking. Also returns top-level wikipedia_images (en+fr
+    Wikipedia image metadata) and wikipedia_content (en Wikipedia section
+    title/content pairs from T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA.
+    id = ID_TECHNICAL."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2754,7 +3336,10 @@ async def _mcp_get_technical(id: int) -> str:
 @mcp.tool(name="get_group")
 async def _mcp_get_group(id: int) -> str:
     """Get all fields for a person group (organization, club, musical group) plus
-    associated persons ordered by their position. id = ID_GROUP."""
+    associated persons ordered by their position. Also returns top-level
+    wikipedia_images (en+fr Wikipedia image metadata) and wikipedia_content (en
+    Wikipedia section title/content pairs from T_WC_WIKIPEDIA_PAGE_LANG_SECTION)
+    keyed off ID_WIKIDATA. id = ID_GROUP."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2770,7 +3355,10 @@ async def _mcp_get_group(id: int) -> str:
 @mcp.tool(name="get_death")
 async def _mcp_get_death(id: int) -> str:
     """Get all fields for a cause or circumstance of death plus associated persons
-    ordered by their position. id = ID_DEATH."""
+    ordered by their position. Also returns top-level wikipedia_images (en+fr
+    Wikipedia image metadata) and wikipedia_content (en Wikipedia section
+    title/content pairs from T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA.
+    id = ID_DEATH."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2786,7 +3374,9 @@ async def _mcp_get_death(id: int) -> str:
 @mcp.tool(name="get_award")
 async def _mcp_get_award(id: int) -> str:
     """Get all fields for an award plus associated movies, TV series, and persons.
-    id = ID_AWARD."""
+    Also returns top-level wikipedia_images (en+fr Wikipedia image metadata) and
+    wikipedia_content (en Wikipedia section title/content pairs from
+    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_AWARD."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2802,7 +3392,9 @@ async def _mcp_get_award(id: int) -> str:
 @mcp.tool(name="get_nomination")
 async def _mcp_get_nomination(id: int) -> str:
     """Get all fields for an award nomination plus associated movies, TV series, and persons.
-    id = ID_NOMINATION."""
+    Also returns top-level wikipedia_images (en+fr Wikipedia image metadata) and
+    wikipedia_content (en Wikipedia section title/content pairs from
+    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_NOMINATION."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2850,7 +3442,10 @@ async def _mcp_get_network(id: int) -> str:
 @mcp.tool(name="get_location")
 async def _mcp_get_location(wikidata_id: str) -> str:
     """Get all fields for a location by Wikidata ID (e.g. 'Q90' for Paris) plus movies
-    and series where it is a narrative location (P840) or filming location (P915)."""
+    and series where it is a narrative location (P840) or filming location (P915).
+    Also returns top-level wikipedia_images (en+fr Wikipedia image metadata) and
+    wikipedia_content (en Wikipedia section title/content pairs from
+    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off the route's Wikidata ID."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -2875,10 +3470,13 @@ async def _mcp_database_scope() -> str:
     STATUS (Released / Post Production / In Production / Planned / Rumored / Canceled),
     TAGLINE, POSTER_PATH, BACKDROP_PATH, VIDEO (1 if video release),
     IS_MOVIE (1/0), IS_DOCUMENTARY (1/0), IS_SHORT_FILM (1/0),
-    IS_COLOR (1/0), IS_BLACK_AND_WHITE (1/0), IS_SILENT (1/0), ASPECT_RATIO,
+    IS_COLOR (1/0), IS_BLACK_AND_WHITE (1/0), IS_SILENT (1/0),
     ID_IMDB (tt...), ID_WIKIDATA (Q...), ID_CRITERION, ID_CRITERION_SPINE,
-    ALIASES, PLOT, CAST (text, use dedicated tables for structured queries),
-    PRODUCTION, RECEPTION, SOUNDTRACK
+    ALIASES
+    (Aspect ratios are not filtered on the movie row; they live as rows in
+    T_WC_T2S_TECHNICAL with TECHNICAL_TYPE='aspect_ratio' and are linked
+    many-to-many through T_WC_T2S_MOVIE_TECHNICAL, matching how all other
+    technical attributes are modeled.)
 
     ## TV Series (T_WC_T2S_SERIE)
     ID_SERIE (TMDb ID), SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR,

@@ -389,7 +389,6 @@ def resolve_entities(
                     key.startswith("Status_name")
                     or key.startswith("Serie_type")
                     or key.startswith("Department_name")
-                    or key.startswith("Aspect_ratio")
                 ):
                     raw_value = "" if value is None else str(value).strip()
                     placeholder = "{{" + key + "}}"
@@ -400,10 +399,8 @@ def resolve_entities(
                         entity_name = "Status_name"
                     elif key.startswith("Serie_type"):
                         entity_name = "Serie_type"
-                    elif key.startswith("Department_name"):
-                        entity_name = "Department_name"
                     else:
-                        entity_name = "Aspect_ratio"
+                        entity_name = "Department_name"
                     canonical = closed_vocab.resolve(entity_name, raw_value)
                     if canonical is None:
                         add_message(
