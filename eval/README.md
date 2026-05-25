@@ -47,12 +47,20 @@ Phase 11 hits the FastAPI server over HTTP. Phase 20 does the scoring offline ag
 
 ## 2. Quick Start & CLI
 
+**Secrets are never baked into the image.** `.env` is excluded from the build context via [.dockerignore](.dockerignore), and the [Dockerfile](Dockerfile) never `COPY`s `.env` or declares secrets via `ENV`. At runtime, secrets are injected via Docker's `--env-file` flag, pointing at a host-managed env file kept outside the app source tree (e.g. `/home/debian/docker/text2sql-eval/.env`).
+
 ```bash
 # Docker (recommended)
-docker run -it --rm --network="host" --name text2sql-eval -v /home/debian/docker/shared_data/text2sql-eval:/shared text2sql-eval-python-app
+docker run -it --rm --network="host" \
+  --env-file /home/debian/docker/text2sql-eval/.env \
+  --name text2sql-eval \
+  -v /home/debian/docker/shared_data/text2sql-eval:/shared \
+  text2sql-eval-python-app
 
 # Custom parameters
-docker run -it --rm --network="host" --name text2sql-eval \
+docker run -it --rm --network="host" \
+  --env-file /home/debian/docker/text2sql-eval/.env \
+  --name text2sql-eval \
   -v /home/debian/docker/shared_data/text2sql-eval:/shared \
   text2sql-eval-python-app \
   --api-version 1.1.15 \
@@ -62,7 +70,9 @@ docker run -it --rm --network="host" --name text2sql-eval \
   --language fr
 
 # Gemma 4 Google run without writing new API cache entries
-docker run -it --rm --network="host" --name text2sql-eval \
+docker run -it --rm --network="host" \
+  --env-file /home/debian/docker/text2sql-eval/.env \
+  --name text2sql-eval \
   -v /home/debian/docker/shared_data/text2sql-eval:/shared \
   text2sql-eval-python-app \
   --api-version 1.1.15 \
@@ -73,11 +83,11 @@ docker run -it --rm --network="host" --name text2sql-eval \
   --no-store-to-cache \
   --no-complex-model-used
 
-# Launch via helper script (builds image, runs detached)
+# Launch via helper script (builds image, runs detached, already wired with --env-file)
 ./text2sql-eval.sh
 ```
 
-All CLI arguments are optional; defaults are chosen so `docker run` without arguments reproduces the previous hardcoded configuration.
+All CLI arguments are optional; defaults are chosen so `docker run` without arguments reproduces the previous hardcoded configuration. The `--env-file` path must always be supplied explicitly — the env file lives outside the app source tree so it cannot end up in image layers, build cache, or registries.
 
 The `/shared` mount is now **read-write**. Phases 30/31/32 write JSON exports there into three subfolders — `evaluation_category/`, `evaluation/`, `evaluation_execution/` — see [§10 JSON Exports for LLM Analysis](#10-json-exports-for-llm-analysis). The base directory can be overridden with the env var `TEXT2SQL_EVAL_EXPORT_DIR` (default `/shared`).
 

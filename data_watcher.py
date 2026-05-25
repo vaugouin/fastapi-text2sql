@@ -60,7 +60,7 @@ def register(filename: str, on_change: OnChange) -> None:
 
     # Initial synchronous load so the caller can rely on the value immediately.
     on_change(content)
-    print(f"[data-watcher] Registered '{filename}' for hot-reload")
+    print(f"[data-watcher] Registered '{filename}' for hot-reload", flush=True)
 
     _ensure_thread_started()
 
@@ -74,7 +74,7 @@ def _scan_once() -> None:
         try:
             mtime = os.path.getmtime(path)
         except OSError as e:
-            print(f"[data-watcher] Cannot stat {filename}: {e}")
+            print(f"[data-watcher] Cannot stat {filename}: {e}", flush=True)
             continue
 
         with _lock:
@@ -85,7 +85,7 @@ def _scan_once() -> None:
         try:
             content = _read(filename)
         except Exception as e:
-            print(f"[data-watcher] Failed to read {filename}: {e}")
+            print(f"[data-watcher] Failed to read {filename}: {e}", flush=True)
             continue
 
         with _lock:
@@ -94,9 +94,9 @@ def _scan_once() -> None:
         try:
             callback(content)
             logs.log_hot_reload(filename)
-            print(f"[data-watcher] Reloaded '{filename}'")
+            print(f"[data-watcher] Reloaded '{filename}'", flush=True)
         except Exception as e:
-            print(f"[data-watcher] Callback for {filename} raised: {e}")
+            print(f"[data-watcher] Callback for {filename} raised: {e}", flush=True)
 
 
 def _loop() -> None:
@@ -105,7 +105,7 @@ def _loop() -> None:
         try:
             _scan_once()
         except Exception as e:
-            print(f"[data-watcher] Scan error: {e}")
+            print(f"[data-watcher] Scan error: {e}", flush=True)
 
 
 def _ensure_thread_started() -> None:
@@ -115,4 +115,4 @@ def _ensure_thread_started() -> None:
             return
         _thread = threading.Thread(target=_loop, name="data-folder-watcher", daemon=True)
         _thread.start()
-    print(f"[data-watcher] Started watching '{DATA_DIR}' every {WATCH_INTERVAL}s")
+    print(f"[data-watcher] Started watching '{DATA_DIR}' every {WATCH_INTERVAL}s", flush=True)

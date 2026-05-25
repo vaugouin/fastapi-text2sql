@@ -190,24 +190,6 @@ Disambiguation:
 - If the user writes "documentary" or "documentaries" **without** explicit series/TV context (e.g., "List documentaries", "best documentaries of 2020"), do **NOT** extract it as `Serie_type`, `Movie_genre`, or `Serie_genre`. Leave the word in the question unchanged so the text-to-SQL step can handle it directly.
 - Common synonyms ("doc", "documentaire", "mini-série", "talk-show") are accepted at resolution time and resolve to the canonical value above.
 
-### Aspect_ratio
-A movie aspect ratio, expressed in decimal form, in `width:height` form, or by a well-known named convention.
-Common surface forms include (non-exhaustive): `1.33`, `1.37`, `1.66`, `1.78`, `1.85`, `2.35`, `2.39`, `Academy ratio`, `4:3`, `16:9`, `widescreen`, `anamorphic`, `scope`, `Academy`, `flat`, `fullscreen`, `2.35:1`, `2.40:1`.
-
-Examples:
-- `2.35`
-- `1.85:1`
-- `Academy ratio`
-- `16:9`
-- `anamorphic`
-- `widescreen`
-
-Disambiguation:
-- Extract `Aspect_ratio` only when the question filters or asks about the movie's aspect ratio (e.g., "movies shot in 2.35:1", "Academy ratio films", "widescreen movies", "16:9 films").
-- Common surface variants (`2,35` with comma decimal, `2.35:1` with `:1` suffix, named forms `Academy`, `widescreen`, `anamorphic`, `scope`, `4:3`, `16:9`) are accepted at resolution time and resolve to the canonical decimal value (e.g. `1.37`, `1.85`, `2.35`).
-- Do NOT extract a numeric value as `Aspect_ratio` when the context clearly refers to something else (a release year, a runtime, an IMDb rating, a budget, etc.).
-- If the value is not in the supported list above and not a known named alias, do NOT extract it as `Aspect_ratio`. Leave it in the question unchanged.
-
 ### Department_name
 A film/TV **crew** department classification. **Crew-only — never Acting/Actors.** Cast (acting) credits are handled by a separate rule and never produce a `Department_name` placeholder.
 
@@ -229,7 +211,7 @@ Disambiguation:
 - If the surface form is not in the supported crew list above and not a known crew synonym, do NOT extract it as `Department_name`. Leave it in the question unchanged.
 
 ### Technical_format
-A movie technical format, technology, or process — covers sound systems, color technologies, film technologies, sound technologies, and film formats stored in the `T_WC_T2S_TECHNICAL` reference table.
+A movie technical format, technology, process, **classification**, or **aspect ratio** — covers sound systems, color technologies, film technologies, sound technologies, film formats, movie classifications (color / black & white / silent / 3D), and aspect ratios, all stored in the `T_WC_T2S_TECHNICAL` reference table.
 
 Surface forms include (non-exhaustive):
 - Sound systems: `dolby`, `stereo`, `dts`, `sdds`, `mono`, `5.1`, `7.1`, `imax`, `auro`
@@ -237,6 +219,8 @@ Surface forms include (non-exhaustive):
 - Film technologies: `cinemascope`, `panavision`, `vistavision`, `super_35`, `super_16`, `techniscope`, `technovision`, `ultra_panavision`, `panaflex`, `technirama`, `tohoscope`, `todd_ao`, `cinerama`, `polyvision`, `arriflex`, `panoramique`, `d_cinema`
 - Sound technologies: `western_electric`, `westrex`, `photophone`, `tobis_klangfilm`, `vitaphone`, `perspecta`, `movietone`
 - Film formats: `35 mm`, `16 mm`, `65 mm`, `70 mm`, `digital`, `dcp`, `franscope`
+- Movie classifications: `color`, `couleur`, `black and white`, `b&w`, `noir et blanc`, `silent`, `muet`, `3d`, `stereoscopic`
+- Aspect ratios — decimal form (`1.33`, `1.37`, `1.66`, `1.78`, `1.85`, `2.00`, `2.35`, `2.39`, `2.40`), `width:height` form (`4:3`, `16:9`, `2.35:1`, `2.40:1`), or named conventions (`Academy ratio`, `Academy`, `widescreen`, `flat`, `fullscreen`, `anamorphic`, `scope`)
 
 Examples:
 - `IMAX`
@@ -244,10 +228,15 @@ Examples:
 - `35mm`
 - `Dolby`
 - `cinemascope`
+- `2.35:1`
+- `Academy ratio`
+- `widescreen`
+- `16:9`
 
 Disambiguation:
-- Extract `Technical_format` only when the question filters or asks about a specific technical format, technology, or process (e.g., "movies shot in IMAX", "Technicolor films", "films tournés en franscope", "70mm releases").
-- Common synonyms / format variants ("35mm", "70mm", "scope", "imax format", "5.1 surround", "dolby digital", "super 35", "todd-ao", "d-cinema") are accepted at resolution time and resolve to the canonical value above.
+- Extract `Technical_format` only when the question filters or asks about a specific technical format, technology, process, classification, or aspect ratio (e.g., "movies shot in IMAX", "Technicolor films", "films tournés en franscope", "70mm releases", "movies shot in 2.35:1", "Academy ratio films", "widescreen movies").
+- Common synonyms / format variants ("35mm", "70mm", "scope", "imax format", "5.1 surround", "dolby digital", "super 35", "todd-ao", "d-cinema", `2,35` with comma decimal, `2.35:1` with `:1` suffix, named aspect-ratio forms `Academy`, `widescreen`, `flat`, `4:3`, `16:9`) are accepted at resolution time and resolve to the canonical value above.
+- Do NOT extract a numeric value as `Technical_format` when the context clearly refers to something else (a release year, a runtime, an IMDb rating, a budget, etc.).
 - If the user writes a format that is not in the supported lists above and not a known alias, do NOT extract it as `Technical_format`. Leave the word in the question unchanged.
 
 ## Important Extraction Rules
@@ -310,11 +299,6 @@ Do not extract as `Movement_name` for franchises, universes, trilogies, recurrin
 ### Group_name boundaries
 Extract as `Group_name` when the phrase refers to an organization, club, publication group, collective, or musical/comedy group associated with a person.
 Do not extract as `Group_name` for companies, networks, franchises, topics, awards, nominations, movements, or curated ranking lists.
-
-### Aspect_ratio boundaries
-Extract as `Aspect_ratio` when the phrase refers to a movie aspect ratio by its decimal form (`2.35`, `1.85`, `1.37`), its named convention (`Academy ratio`, `widescreen`, `anamorphic`, `scope`, `fullscreen`), or its `width:height` form (`16:9`, `4:3`, `2.35:1`, `2.40:1`).
-Do not extract as `Aspect_ratio` for film formats (`35 mm`, `70 mm`, `IMAX`) — those are `Technical_format`.
-Do not extract as `Aspect_ratio` for unrelated numeric values mentioned in the question (release years, runtimes, budgets, ratings, IDs).
 
 ### Department_name boundaries
 Extract as `Department_name` when the phrase refers to a film/TV **crew** department or job category by name (e.g., `directors`, `cinematographers`, `editors`, `producers`, `creators`, `réalisateurs`, `scénaristes`, `monteurs`).
@@ -592,36 +576,36 @@ Output:
 Input: `Movies shot in 2.35:1`
 Output:
 {
-  "question": "Movies shot in {{Aspect_ratio1}}",
-  "Aspect_ratio1": "2.35:1"
+  "question": "Movies shot in {{Technical_format1}}",
+  "Technical_format1": "2.35:1"
 }
 
 Input: `Academy ratio films`
 Output:
 {
-  "question": "{{Aspect_ratio1}} films",
-  "Aspect_ratio1": "Academy ratio"
+  "question": "{{Technical_format1}} films",
+  "Technical_format1": "Academy ratio"
 }
 
 Input: `Widescreen movies`
 Output:
 {
-  "question": "{{Aspect_ratio1}} movies",
-  "Aspect_ratio1": "Widescreen"
+  "question": "{{Technical_format1}} movies",
+  "Technical_format1": "Widescreen"
 }
 
 Input: `Films in 16:9`
 Output:
 {
-  "question": "Films in {{Aspect_ratio1}}",
-  "Aspect_ratio1": "16:9"
+  "question": "Films in {{Technical_format1}}",
+  "Technical_format1": "16:9"
 }
 
 Input: `Anamorphic movies directed by Steven Spielberg`
 Output:
 {
-  "question": "{{Aspect_ratio1}} movies directed by {{Person_name1}}",
-  "Aspect_ratio1": "Anamorphic",
+  "question": "{{Technical_format1}} movies directed by {{Person_name1}}",
+  "Technical_format1": "Anamorphic",
   "Person_name1": "Steven Spielberg"
 }
 

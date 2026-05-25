@@ -20,6 +20,11 @@ RUN wget https://www.sqlite.org/2022/sqlite-autoconf-3400100.tar.gz \
 # Set environment variable to use the new SQLite
 ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 
+# Force unbuffered stdout/stderr so `print()` lines reach `docker logs -f`
+# immediately (Python defaults to block-buffering when stdout is not a TTY,
+# which delays data-watcher reload events and similar telemetry).
+ENV PYTHONUNBUFFERED=1
+
 COPY requirements.txt /app/
 RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY *.py /app/
