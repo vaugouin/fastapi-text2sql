@@ -552,6 +552,31 @@ Each endpoint returns `404` when the requested entity is not found. Successful r
 
 The language-tagged image arrays themselves (`posters`, `portraits`, …) are always returned in full so a client can still pick a different language, and usage logs keep the canonical paths (localization runs after logging). Episodes are not affected (`STILL_PATH` frames are not language-specific).
 
+**Collection pagination (`collection` / `page` / `rows_per_page`)**: the embedded **related-entity lists** can be very large (a prolific person has thousands of `movie_cast` credits; a popular technical format has thousands of `movies`). To keep responses bounded, every entity detail endpoint paginates these lists:
+
+- **Default (no extra params)** — a bare `GET /persons/123` returns **every** related-entity list, each capped to its first page (`rows_per_page` rows, default **50**, max **200**). A top-level `pagination` object reports each list's totals:
+  ```jsonc
+  "pagination": {
+    "movie_cast": { "total": 1287, "page": 1, "rows_per_page": 50, "returned": 50 },
+    "movie_crew": { "total": 12,   "page": 1, "rows_per_page": 50, "returned": 12 },
+    "groups":     { "total": 1,    "page": 1, "rows_per_page": 50, "returned": 1 }
+    /* one entry per paginated list */
+  }
+  ```
+  The arrays themselves stay plain lists (backward compatible); only the new `pagination` key is added.
+- **Targeted (`?collection=<name>&page=N&rows_per_page=M`)** — `GET /persons/123?collection=movie_cast&page=2` returns a **lean** payload with just that one list's requested page (the base entity fields and the other lists are omitted to save bandwidth):
+  ```jsonc
+  {
+    "id": 123,
+    "collection": "movie_cast",
+    "movie_cast": [ /* page-2 rows */ ],
+    "pagination": { "movie_cast": { "total": 1287, "page": 2, "rows_per_page": 50, "returned": 50 } }
+  }
+  ```
+  (For composite-key endpoints the identifier echo uses the path keys, e.g. `id_serie`/`season_number` for `/seasons`, `wikidata_id` for `/locations`.) An unknown `collection` name for that endpoint returns `400` listing the valid names. `page` defaults to `1`, `rows_per_page` to `50` (clamped to `1..200`). Targeted mode does not re-validate the parent entity's existence — an unmatched id simply yields an empty list with `total: 0`.
+
+Pagination covers only the related-entity lists. Image arrays (`posters`, `backdrops`, `portraits`, `stills`), `videos`, `wikipedia_images`, `wikipedia_content`, and scalar lists (`genres`, `production_countries`, `spoken_languages`) are always returned in full. Each endpoint's paginatable `collection` names are exactly the related-list field names documented in the per-endpoint tables below.
+
 | Method | Endpoint | Identifier | Primary table | Purpose |
 |---|---|---|---|---|
 | `GET` | `/movies/{id}` | `ID_MOVIE` | `T_WC_T2S_MOVIE` | Movie detail |
