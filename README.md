@@ -320,7 +320,7 @@ Content-Type: application/json
 - `llm_model_entity_extraction` (optional, str, default: "default"): LLM model to use for entity extraction
 - `llm_model_text2sql` (optional, str, default: "default"): LLM model to use for text-to-SQL conversion
 - `llm_model_complex` (optional, str, default: "default"): LLM model to use for complex-question resolution / stronger-model retry
-- `ui_language` (optional, str, default: `"en"`): Language code for the user-oriented `answer` field in the response (e.g., `"en"`, `"fr"`). The answer is a plain-language sentence describing what the query returns, written in the specified language, with no table/column names or SQL details. This value is also used as part of the cache key, so the same question submitted with different `ui_language` values produces separate cache entries.
+- `ui_language` (optional, str, default: `"en"`): Language code for the user-oriented `answer` field in the response. Only `"en"` (English) and `"fr"` (French) are supported; the value is normalized (case-insensitive, region/script subtags stripped, so `"fr-FR"` → `"fr"`) and any missing, empty, or unsupported value falls back to `"en"`. The answer is a plain-language sentence describing what the query returns, written in the specified language, with no table/column names or SQL details. This value is also used as part of the cache key, so the same question submitted with different `ui_language` values produces separate cache entries.
 - `complex_question_processing` (optional, bool, default: `false`): Controls whether the API is allowed to escalate to the stronger model when the primary pipeline fails. When `false` (the default), the API returns the raw error or empty result set directly to the caller without retrying. When `true`, the three automatic retry triggers are active:
   - The text-to-SQL model cannot produce a SQL query and returns an error
   - The generated SQL raises an execution error on the database
@@ -529,7 +529,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `llm_model_text2sql` (str): LLM model actually used for text-to-SQL conversion
 - `llm_model_complex` (str): LLM model **configured** for complex-question resolution / stronger-model retry — exposed even when the retry path was not taken
 - `complex_model_used` (bool, default `false`): **Whether the stronger model was actually invoked** during the request — set to `true` when any of the four complex-retry code paths fired (text2sql error, SQL execution error, zero-row result on page 1, or single-cell zero-count direct answer). Use this rather than `llm_model_complex` to know whether the extra LLM call happened.
-- `ui_language` (str): Language code used for the `answer` field and the cache key (e.g., `"en"`, `"fr"`)
+- `ui_language` (str): Normalized language code used for the `answer` field and the cache key — either `"en"` or `"fr"` (any other requested value falls back to `"en"`)
 - `api_version` (str): Current API version
 - `messages` (list): Array of processing step messages, each with `position` (int) and `text` (str). On a stronger-model retry, the messages from the outer and inner runs are merged and renumbered.
 

@@ -309,6 +309,39 @@ print(f"[startup] BK-trees pre-built in {time.perf_counter() - _t0:.2f}s.", flus
 
 print(f"[startup] Startup tasks complete in {time.perf_counter() - _startup_t0:.2f}s. Handing off to uvicorn.", flush=True)
 
+# ---------------------------------------------------------------------------
+# UI language handling
+# ---------------------------------------------------------------------------
+# The user-oriented `answer` field is written in the requested UI language.
+# Only English and French are supported; any missing, empty, or unsupported
+# value falls back to the default ("en"). This is the single source of truth
+# for both the REST API (via the Text2SQLRequest validator) and the MCP tools.
+DEFAULT_UI_LANGUAGE = "en"
+SUPPORTED_UI_LANGUAGES = frozenset({"en", "fr"})
+
+
+def normalize_ui_language(value) -> str:
+    """Normalize a requested UI language to a supported code.
+
+    Supported languages are English ("en") and French ("fr"). Region/script
+    variants are reduced to their base subtag (e.g. "fr-FR" -> "fr",
+    "EN_us" -> "en"). Any missing, empty, or unsupported value falls back to
+    the default ("en").
+
+    Args:
+        value: Raw ui_language value from a request (any type; typically str or None).
+
+    Returns:
+        str: A supported language code, one of SUPPORTED_UI_LANGUAGES.
+    """
+    if value is None:
+        return DEFAULT_UI_LANGUAGE
+    code = str(value).strip().lower().replace("_", "-").split("-")[0]
+    if code in SUPPORTED_UI_LANGUAGES:
+        return code
+    return DEFAULT_UI_LANGUAGE
+
+
 class TextExpr(BaseModel):
     text: str
     sql_query: str = ""
@@ -326,7 +359,19 @@ class Text2SQLRequest(BaseModel):
     complex_question_processing: bool = False
     complex_question_already_resolved: bool = False
     ui_language: Optional[str] = "en"
-    
+
+    @field_validator("ui_language", mode="before")
+    @classmethod
+    def _normalize_ui_language(cls, v):
+        """Normalize ui_language to a supported code, falling back to "en".
+
+        Runs for any explicitly provided value (including null); when the field
+        is omitted the default "en" is used as-is. After validation
+        ``ui_language`` is always a supported, non-null code, so downstream code
+        can use it directly without an ``or "en"`` guard.
+        """
+        return normalize_ui_language(v)
+
     @model_validator(mode='after')
     def validate_question_or_hashed(self):
         """Ensure that each request provides either the original question or its hash."""
@@ -570,7 +615,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 connection,
                 request.question_hashed,
                 strapiversionformatted,
-                ui_language=request.ui_language or "en",
+                ui_language=request.ui_language,
             )
             if not cache_result_exact.get("found"):
                 print("Exact question hash not found in the SQL cache")
@@ -590,7 +635,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 connection,
                 request.question,
                 strapiversionformatted,
-                ui_language=request.ui_language or "en",
+                ui_language=request.ui_language,
             )
             if not cache_result_exact.get("found"):
                 print("Exact question not found in the SQL cache")
@@ -705,7 +750,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 connection,
                 input_text_anonymized,
                 strapiversionformatted,
-                ui_language=request.ui_language or "en",
+                ui_language=request.ui_language,
             )
             
             if cache_result_anonymized.get("found"):
@@ -871,7 +916,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 text=f"Generating SQL using LLM model '{strtext2sqlmodel}'."
             ))
             position_counter += 1
-            json_content = t2s.f_text2sql(input_text_anonymized, strtext2sqlmodel, ui_language=request.ui_language or "en")
+            json_content = t2s.f_text2sql(input_text_anonymized, strtext2sqlmodel, ui_language=request.ui_language)
             if not isinstance(json_content, dict):
                 json_content = {"error": str(json_content)}
 
@@ -988,7 +1033,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             query_time=getattr(retry_response, "query_execution_time", 0.0) or 0.0,
                             total_processing_time=getattr(retry_response, "total_processing_time", 0.0) or 0.0,
                             is_anonymized=False,
-                            ui_language=request.ui_language or "en",
+                            ui_language=request.ui_language,
                         )
                         messages.append(TextMessage(
                             position=position_counter,
@@ -1411,7 +1456,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             query_time=query_execution_time,
                             total_processing_time=0.0,
                             is_anonymized=False,
-                            ui_language=request.ui_language or "en",
+                            ui_language=request.ui_language,
                         )
                         messages.append(TextMessage(
                             position=position_counter,
@@ -1464,7 +1509,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 query_time=query_execution_time,
                 total_processing_time=total_processing_time,
                 is_anonymized=False,
-                ui_language=request.ui_language or "en",
+                ui_language=request.ui_language,
             )
 
         # Store to SQL cache if requested and not already stored as exact question or anonymized question
@@ -1489,7 +1534,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 query_time=query_execution_time,
                 total_processing_time=total_processing_time,
                 is_anonymized=True,
-                ui_language=request.ui_language or "en",
+                ui_language=request.ui_language,
             )
         
         if USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE and request.store_to_cache and not cached_anonymized_question_embedding and not sql_execution_failed and input_text_anonymized:
@@ -1597,7 +1642,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         llm_model_text2sql=strtext2sqlmodel,
         llm_model_complex=strcomplexquestionmodel,
         complex_model_used=complex_model_used,
-        ui_language=request.ui_language or "en",
+        ui_language=request.ui_language,
         api_version=strapiversion,
         result=query_results,
         messages=messages
@@ -3109,7 +3154,9 @@ async def _mcp_sql_search(question: str, ui_language: str = "en") -> str:
 
     The result returns rows with entity IDs and key fields (title, release date,
     IMDb rating, poster path), plus a plain-language `answer` field generated in
-    the requested `ui_language`. Use the entity tools below to fetch full details.
+    the requested `ui_language`. Supported `ui_language` values are "en" (English,
+    the default) and "fr" (French); any other value falls back to English. Use the
+    entity tools below to fetch full details.
 
     For precise field knowledge (column names, value ranges, genre codes) read
     the resource context://database-scope before formulating complex questions.
@@ -3134,7 +3181,7 @@ async def _mcp_sql_search(question: str, ui_language: str = "en") -> str:
         async with httpx.AsyncClient(timeout=60) as client:
             r = await client.post(
                 f"{MCP_INTERNAL_BASE_URL}/search/text2sql",
-                json={"question": question, "ui_language": ui_language},
+                json={"question": question, "ui_language": normalize_ui_language(ui_language)},
                 headers={"X-API-Key": MCP_INTERNAL_API_KEY},
             )
             r.raise_for_status()
