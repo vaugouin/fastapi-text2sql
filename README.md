@@ -22,7 +22,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **Docker Support**: Containerized deployment with Blue/Green deployment strategy
 - **UTF-8 Support**: Proper handling of Unicode characters in queries and logs
 - **MCP Server**: Remote MCP endpoint for Claude clients (web, desktop, mobile) via FastMCP 2.x
-- **Entity Detail Endpoints**: 14 REST endpoints returning full entity data with embedded relations and usage logging
+- **Entity Detail Endpoints**: 17 REST endpoints returning full entity data with embedded relations and usage logging, each accepting an optional `ui_language` parameter (`en`/`fr`) that returns fully localized, language-collapsed responses (see below)
 - **Multi-API Key Support**: Comma-separated `API_KEYS` env var with legacy `API_KEY` fallback
 
 ### Advanced Features
@@ -542,6 +542,8 @@ X-API-Key: your_api_key
 ```
 
 Each endpoint returns `404` when the requested entity is not found. Successful responses include every column selected with `SELECT *` from the endpoint's primary `T_WC_T2S_*` table, plus the embedded relation arrays documented below.
+
+**Localization (`ui_language`)**: every entity detail endpoint accepts an optional `ui_language` query parameter (e.g. `GET /movies/123?ui_language=fr`). Supported values are `"en"` (default) and `"fr"`; the value is normalized and any missing/unsupported value falls back to `"en"`. Responses are **fully localized and collapsed**: each localizable column (`MOVIE_TITLE`, `TOPIC_NAME`, `LIST_NAME`, `COLLECTION_NAME`, `MOVEMENT_NAME`, `AWARD_NAME`, `NOMINATION_NAME`, `GROUP_NAME`, `DEATH_NAME`, `ITEM_LABEL`, technical `DESCRIPTION`) is returned under its canonical name carrying the requested language's value (English fallback when the French value is empty), both on the primary entity and on nested related entities. The separate `*_FR` columns are **not** returned. `wikipedia_content` and `wikipedia_images` are filtered to the requested language with English fallback. Note: series titles (`SERIE_TITLE`), person `BIOGRAPHY`, and company `DESCRIPTION` have no French variant in the database and are always returned as stored.
 
 | Method | Endpoint | Identifier | Primary table | Purpose |
 |---|---|---|---|---|

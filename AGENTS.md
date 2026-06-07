@@ -197,6 +197,10 @@ When working on either side, scan the other for divergence and **surface any dis
 
 When you spot a divergence, describe it (which side has which behavior, where in the spec/code), and let the user decide which side is authoritative for the fix.
 
+### Entity endpoint localization (`ui_language`)
+
+Every entity detail endpoint and its MCP `get_*` proxy take a `ui_language` parameter (query param for REST, tool arg for MCP), normalized by `normalize_ui_language()` to `en`/`fr` (default/fallback `en`). Responses are localized by `localize_response()`, which recursively collapses each `<COL>`/`<COL>_FR` pair into the single canonical `<COL>` (French value when present, English fallback) and drops the `_FR` keys — on both the primary entity and nested related rows. The real localizable columns are `MOVIE_TITLE`, `TOPIC_NAME`, `LIST_NAME`, `COLLECTION_NAME`, `MOVEMENT_NAME`, `AWARD_NAME`, `NOMINATION_NAME`, `GROUP_NAME`, `DEATH_NAME`, `ITEM_LABEL`, and technical `DESCRIPTION`; `SERIE_TITLE`, person `BIOGRAPHY`, and company `DESCRIPTION` have no `_FR` variant. `_fetch_wikipedia_images` / `_fetch_wikipedia_content` filter by `ui_language` with English fallback. When adding a nested related-entity SELECT that exposes a localizable name/description column, also select its `_FR` variant so `localize_response()` can resolve it. Usage logs (`logs.log_usage`) capture the pre-localization row, so logged responses retain both language columns.
+
 ---
 
 ## Entity-resolution config schema (`data/entity_resolution.json`)
