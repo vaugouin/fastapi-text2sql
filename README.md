@@ -1211,6 +1211,78 @@ API request/response log files include:
 - Full request/response data
 - Processing messages array
 
+#### Why these logs are kept: a usage & agent-behaviour dataset
+
+The `logs/` folder is **not** transient debug output — it is a permanent,
+append-only record of **every** API call, intentionally retained and mirrored
+off-box. It is meant to be **studied**, not just tailed when something breaks.
+Each `text2sql_post` file captures the full request *and* the full response
+(generated SQL, anonymized SQL, resolved entities, `answer`, `messages` trace,
+per-stage timings, cache-hit flags, model used, `complex_model_used`, errors),
+so the corpus supports analysis of:
+
+- **Query behaviour** — what users/agents actually ask, how questions get
+  anonymized, which entities are extracted and how they resolve.
+- **Result & error quality** — ambiguous-question cases, empty result sets,
+  SQL execution errors, stronger-model escalations, provider rate-limit (429) hits.
+- **Cache & cost** — exact/anonymized/embedding hit rates and how often the
+  stronger model is actually invoked.
+- **Drift over time** — the version in each filename lets you compare behaviour
+  across API versions.
+
+**Agent observability (primary use case).** The main client of this API is an
+LLM agent (the `voice-agent` repo). Because every tool invocation is logged, the
+corpus is an exact record of **what the agent sent** when it called the search
+tool (`POST /search/text2sql`) or an entity-retrieval endpoint (`/movies/{id}`,
+`/persons/{id}`, …) — the literal question text, parameters, and the response it
+got back. This is the ground truth for debugging and improving agent tool-use:
+mismatches between what the agent *meant* and what it *asked*, redundant calls,
+malformed parameters, and which tools it favours.
+
+> ⚠️ **Retention policy: do not auto-prune or exclude from backup.** These files
+> are a dataset. They are mirrored to the off-box backup on purpose. Do not add
+> log rotation, a `find -delete` cron, or a backup/sync exclude for `*/logs/`
+> without first archiving the corpus — doing so silently discards the usage
+> history this analysis depends on. The files are small JSON; volume (tens of
+> thousands) is expected and acceptable. If the live directory grows large enough
+> to slow tooling, **archive** old logs rather than deleting them —
+> [`archive-logs.sh`](archive-logs.sh) does exactly that (see
+> [Archiving old logs](#archiving-old-logs) below).
+>
+> ⚠️ **Sensitivity:** these files contain full natural-language queries and
+> responses, which may include personal or otherwise sensitive content. Treat the
+> corpus (and its off-box mirror) as private; don't share casually.
+
+#### Archiving old logs
+
+`archive-logs.sh` keeps the **live** `logs/` directory small without losing any
+data. It packs every **past month's** `*.json` files into
+`logs/archive/<YYYYMM>.tar.gz`, verifies the archive, then removes the loose
+originals. The **current** (and any future) month is left untouched, so in-flight
+logging is never disturbed. It is idempotent and re-runnable — an existing
+monthly archive is merged with any stragglers, and only files strictly older than
+the current month are ever touched.
+
+```bash
+# Archive the deployed log dirs (defaults to the blue / green / plain text2sql dirs):
+./archive-logs.sh
+# Or target specific dirs:
+./archive-logs.sh /home/debian/docker/fastapi-text2sql-blue/logs
+
+# Run monthly via cron (1st of the month, 03:30). Run as the user that owns
+# logs/ (or via sudo) so it can delete the loose originals after archiving:
+# 30 3 1 * * /home/debian/docker/fastapi-text2sql-blue/archive-logs.sh \
+#   >> /home/debian/docker/fastapi-text2sql-blue/logs/archive/archive.log 2>&1
+```
+
+This is what lets the off-box mirror keep pace: once old logs are compressed into
+a handful of monthly tarballs, the remote directory listing stays fast and the
+additive sync just pulls the new archives plus the current month's loose files.
+**The archives are part of the dataset and are mirrored** — they are not excluded
+from backup. (Off-box mirroring is handled by `sync_vps_docker.py` in the
+`tmdb-front` repo under `doc/debian-migration/`, whose SFTP timeouts were raised
+so large log directories don't abort a sync mid-listing.)
+
 ## 🔒 Security
 
 - **API Key Authentication**: All endpoints require a valid API key via `X-API-Key` header; multiple keys supported via `API_KEYS` env var
@@ -1273,6 +1345,8 @@ Check the `logs/` folder for detailed request/response logs with comprehensive t
 - Embeddings processing time
 - Query execution time
 - Cache hit/miss information
+
+Beyond troubleshooting, these logs are a **retained usage & agent-behaviour dataset** — see [Why these logs are kept](#why-these-logs-are-kept-a-usage--agent-behaviour-dataset) under the Logging section before pruning or excluding them from backup.
 
 ## 📝 API Response Format
 
