@@ -366,6 +366,29 @@ def localize_row(row: dict, ui_language: str) -> dict:
     return row
 
 
+def apply_localized_main_image(entity: dict, image_rows, path_key: str, ui_language: str) -> None:
+    """Override an entity's main picture path with its localized image for non-default languages.
+
+    For ``ui_language`` other than the default ("en"), pick the main picture (the
+    lowest ``DISPLAY_ORDER`` row) whose ``LANG`` matches the requested language from
+    the entity's own related image rows (``image_rows`` — e.g. its posters or
+    portraits, already ordered by ``DISPLAY_ORDER ASC``) and write its ``IMAGE_PATH``
+    onto ``entity[path_key]`` (e.g. ``POSTER_PATH`` / ``PROFILE_PATH``). When no image
+    in the requested language exists, the entity keeps its canonical (English/default)
+    path as a fallback. For the default language the entity is left untouched. Mutates
+    ``entity`` in place.
+    """
+    if ui_language == DEFAULT_UI_LANGUAGE or not isinstance(entity, dict) or not image_rows:
+        return
+    for row in image_rows:
+        if not isinstance(row, dict) or row.get("LANG") != ui_language:
+            continue
+        image_path = row.get("IMAGE_PATH")
+        if image_path is not None and (not isinstance(image_path, str) or image_path.strip() != ""):
+            entity[path_key] = image_path
+            return
+
+
 def localize_response(obj, ui_language: str):
     """Recursively localize an entity response, collapsing ``_FR`` columns everywhere.
 
@@ -1930,7 +1953,10 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", api_key: str = D
     available for this movie from T_WC_T2S_MOVIE_IMAGE (TYPE_IMAGE = 'poster' for
     posters, 'backdrop' for backdrops), ordered by DISPLAY_ORDER; each element
     exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE,
-    VOTE_COUNT, DISPLAY_ORDER.
+    VOTE_COUNT, DISPLAY_ORDER. When ui_language is not the default 'en', the
+    top-level POSTER_PATH is overridden with the IMAGE_PATH of the main (lowest
+    DISPLAY_ORDER) poster whose LANG matches ui_language, falling back to the
+    canonical POSTER_PATH when no localized poster exists.
 
     The wikipedia_images list contains the Wikipedia images for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
@@ -2079,6 +2105,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", api_key: str = D
             "videos": videos,
         }
         logs.log_usage("movies", {"id": id, "response": result}, strapiversion)
+        apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -2103,7 +2130,10 @@ async def get_series(id: int, ui_language: Optional[str] = "en", api_key: str = 
     available for this series from T_WC_T2S_SERIE_IMAGE (TYPE_IMAGE = 'poster' for
     posters, 'backdrop' for backdrops), ordered by DISPLAY_ORDER; each element
     exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE,
-    VOTE_COUNT, DISPLAY_ORDER.
+    VOTE_COUNT, DISPLAY_ORDER. When ui_language is not the default 'en', the
+    top-level POSTER_PATH is overridden with the IMAGE_PATH of the main (lowest
+    DISPLAY_ORDER) poster whose LANG matches ui_language, falling back to the
+    canonical POSTER_PATH when no localized poster exists.
 
     The wikipedia_images list contains the Wikipedia images for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
@@ -2260,6 +2290,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", api_key: str = 
             "videos": videos,
         }
         logs.log_usage("series", {"id": id, "response": result}, strapiversion)
+        apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -2280,7 +2311,10 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     available for this season from T_WC_TMDB_SEASON_IMAGE (TYPE_IMAGE = 'poster' for
     posters, 'backdrop' for backdrops), ordered by DISPLAY_ORDER; each element
     exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE,
-    VOTE_COUNT, DISPLAY_ORDER.
+    VOTE_COUNT, DISPLAY_ORDER. When ui_language is not the default 'en', the
+    top-level POSTER_PATH is overridden with the IMAGE_PATH of the main (lowest
+    DISPLAY_ORDER) poster whose LANG matches ui_language, falling back to the
+    canonical POSTER_PATH when no localized poster exists.
 
     The series object is a navigation stub with ID_SERIE, SERIE_TITLE, POSTER_PATH
     so the frontend can render breadcrumbs without a second /series/{id} round trip.
@@ -2390,6 +2424,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
             {"id_serie": id_serie, "season_number": season_number, "response": result},
             strapiversion,
         )
+        apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -2552,7 +2587,10 @@ async def get_person(id: int, ui_language: Optional[str] = "en", api_key: str = 
     The portraits list contains every profile picture available for this person from
     T_WC_T2S_PERSON_IMAGE (TYPE_IMAGE = 'profile'), ordered by DISPLAY_ORDER; each
     element exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
-    VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER.
+    VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER. When ui_language is not the default
+    'en', the top-level PROFILE_PATH is overridden with the IMAGE_PATH of the main
+    (lowest DISPLAY_ORDER) portrait whose LANG matches ui_language, falling back to
+    the canonical PROFILE_PATH when no localized portrait exists.
 
     The wikipedia_images list contains the Wikipedia images for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
@@ -2653,6 +2691,7 @@ async def get_person(id: int, ui_language: Optional[str] = "en", api_key: str = 
             "videos": videos,
         }
         logs.log_usage("persons", {"id": id, "response": result}, strapiversion)
+        apply_localized_main_image(result, portraits, "PROFILE_PATH", ui_language)
         localize_response(result, ui_language)
         return result
     finally:
