@@ -492,6 +492,102 @@ def localize_response(obj, ui_language: str):
     return obj
 
 
+# ---------------------------------------------------------------------------
+# Embedded-collection pagination
+# ---------------------------------------------------------------------------
+# Entity detail endpoints embed related-entity lists (cast, crew, movies, ...)
+# that can grow very large (a prolific person has thousands of credits). Each such
+# list is paginated: a bare GET returns every collection capped to its first page
+# plus a top-level ``pagination`` block carrying per-collection totals; passing
+# ``?collection=<name>&page=N&rows_per_page=M`` returns a lean payload with just
+# that collection's requested page (other collections and the base entity fields
+# are omitted to save bandwidth). Image arrays, videos, Wikipedia arrays, and
+# scalar lists (genres, production countries, spoken languages) are NOT paginated.
+COLLECTION_ROWS_PER_PAGE_DEFAULT = 50
+COLLECTION_ROWS_PER_PAGE_MAX = 200
+
+
+def _collection_page_params(page, rows_per_page):
+    """Clamp paging inputs and return ``(page, rows_per_page, limit, offset)``."""
+    try:
+        page = int(page)
+    except (TypeError, ValueError):
+        page = 1
+    if page < 1:
+        page = 1
+    try:
+        rpp = int(rows_per_page)
+    except (TypeError, ValueError):
+        rpp = COLLECTION_ROWS_PER_PAGE_DEFAULT
+    if rpp < 1:
+        rpp = COLLECTION_ROWS_PER_PAGE_DEFAULT
+    if rpp > COLLECTION_ROWS_PER_PAGE_MAX:
+        rpp = COLLECTION_ROWS_PER_PAGE_MAX
+    return page, rpp, rpp, (page - 1) * rpp
+
+
+def _paginate_collection(cursor, sql, params, page, rows_per_page):
+    """Execute a collection query with LIMIT/OFFSET and return ``(rows, meta)``.
+
+    ``sql`` must already select ``COUNT(*) OVER() AS _TOTAL_COUNT`` alongside its row
+    columns and must carry a deterministic ORDER BY (with a unique tiebreaker) so
+    paging is stable; it must NOT contain its own LIMIT/OFFSET or a trailing
+    semicolon. The window total is popped out of every row into the returned
+    metadata ``{total, page, rows_per_page, returned}``.
+    """
+    page, rpp, limit, offset = _collection_page_params(page, rows_per_page)
+    cursor.execute(sql + "\nLIMIT %s OFFSET %s", (*params, limit, offset))
+    rows = list(cursor.fetchall())
+    total = int(rows[0]["_TOTAL_COUNT"]) if rows else 0
+    for row in rows:
+        row.pop("_TOTAL_COUNT", None)
+    return rows, {"total": total, "page": page, "rows_per_page": rpp, "returned": len(rows)}
+
+
+def _run_collections(cursor, pcollections, collection, page, rows_per_page):
+    """Drive an entity endpoint's registry of paginated collections.
+
+    ``pcollections`` maps a collection name to ``(sql, params, image_kind)``. When
+    ``collection`` is None (untargeted) every collection is fetched at page 1 using
+    the requested ``rows_per_page``; otherwise only the named collection is fetched
+    at the requested ``page``. Returns ``(data, pagination, kinds)`` mapping name ->
+    rows, name -> meta, and name -> image_kind respectively. Raises HTTP 400 on an
+    unknown target name.
+    """
+    if collection is not None:
+        if collection not in pcollections:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown collection '{collection}'. Valid collections: {sorted(pcollections)}",
+            )
+        sql, params, kind = pcollections[collection]
+        rows, meta = _paginate_collection(cursor, sql, params, page, rows_per_page)
+        return {collection: rows}, {collection: meta}, {collection: kind}
+    data, pagination, kinds = {}, {}, {}
+    for name, (sql, params, kind) in pcollections.items():
+        rows, meta = _paginate_collection(cursor, sql, params, 1, rows_per_page)
+        data[name] = rows
+        pagination[name] = meta
+        kinds[name] = kind
+    return data, pagination, kinds
+
+
+def _localized_image_groups(data, kinds):
+    """Group fetched collection rows by image kind for apply_localized_related_images."""
+    groups = {}
+    for name, kind in kinds.items():
+        if kind and data.get(name):
+            groups.setdefault(kind, []).append(data[name])
+    return groups
+
+
+def _targeted_collection_response(conn, ident, collection, data, pagination, kinds, ui_language):
+    """Assemble and localize the lean payload for a targeted single-collection request."""
+    result = {**ident, "collection": collection, collection: data[collection], "pagination": pagination}
+    apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
+    localize_response(result, ui_language)
+    return result
+
 
 class TextExpr(BaseModel):
     text: str
@@ -2018,7 +2114,7 @@ def _fetch_wikidata_videos(cursor, id_wikidata):
 
 
 @app.get("/movies/{id}", summary="Movie full detail")
-async def get_movie(id: int, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a movie plus embedded relations: genres, production
     companies, production countries, spoken languages, topics, lists, collections,
     movements, technicals, awards, nominations, cast, and crew. The id is the TMDb
@@ -2069,128 +2165,144 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", api_key: str = D
             movie = cursor.fetchone()
         if not movie:
             raise HTTPException(status_code=404, detail=f"Movie {id} not found")
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, pm.CREDIT_TYPE,
-                       pm.CAST_CHARACTER, pm.CREW_DEPARTMENT, pm.DISPLAY_ORDER
-                FROM T_WC_T2S_PERSON_MOVIE pm
-                JOIN T_WC_T2S_PERSON p ON pm.ID_PERSON = p.ID_PERSON
-                WHERE pm.ID_MOVIE = %s ORDER BY pm.DISPLAY_ORDER ASC
-            """, (id,))
-            credits = cursor.fetchall()
-            cursor.execute("SELECT ID_GENRE FROM T_WC_T2S_MOVIE_GENRE WHERE ID_MOVIE = %s", (id,))
-            genres = [r["ID_GENRE"] for r in cursor.fetchall()]
-            cursor.execute("""
-                SELECT c.ID_COMPANY, c.COMPANY_NAME, c.LOGO_PATH, c.IMDB_RATING_WEIGHTED, c.POPULARITY
+        exclude_self_credits = movie.get("IS_DOCUMENTARY") != 1
+        _cast_filter = (
+            " AND pm.CAST_CHARACTER NOT IN (%s)" % ",".join(["%s"] * len(CAST_CHARACTER_EXCLUSIONS))
+            if exclude_self_credits else ""
+        )
+        _cast_params = (id, *CAST_CHARACTER_EXCLUSIONS) if exclude_self_credits else (id,)
+        pcollections = {
+            "companies": ("""
+                SELECT c.ID_COMPANY, c.COMPANY_NAME, c.LOGO_PATH, c.IMDB_RATING_WEIGHTED, c.POPULARITY,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_MOVIE_COMPANY mc
                 JOIN T_WC_T2S_COMPANY c ON mc.ID_COMPANY = c.ID_COMPANY
                 WHERE mc.ID_MOVIE = %s ORDER BY c.ID_COMPANY ASC
-            """, (id,))
-            companies = cursor.fetchall()
-            cursor.execute("SELECT COUNTRY_CODE FROM T_WC_T2S_MOVIE_PRODUCTION_COUNTRY WHERE ID_MOVIE = %s", (id,))
-            production_countries = [r["COUNTRY_CODE"] for r in cursor.fetchall()]
-            cursor.execute("SELECT SPOKEN_LANGUAGE FROM T_WC_T2S_MOVIE_SPOKEN_LANGUAGE WHERE ID_MOVIE = %s", (id,))
-            spoken_languages = [r["SPOKEN_LANGUAGE"] for r in cursor.fetchall()]
-            cursor.execute("""
+            """, (id,), None),
+            "topics": ("""
                 SELECT t.ID_TOPIC, t.TOPIC_NAME, t.TOPIC_NAME_FR, t.TOPIC_TYPE, t.POSTER_PATH, t.WIKIPEDIA_IMAGE_PATH,
-                       t.IMDB_RATING_WEIGHTED, t.POPULARITY
+                       t.IMDB_RATING_WEIGHTED, t.POPULARITY, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_MOVIE_TOPIC mt
                 JOIN T_WC_T2S_TOPIC t ON mt.ID_TOPIC = t.ID_TOPIC
-                WHERE mt.ID_MOVIE = %s ORDER BY mt.DISPLAY_ORDER ASC
-            """, (id,))
-            topics = cursor.fetchall()
-            cursor.execute("""
+                WHERE mt.ID_MOVIE = %s ORDER BY mt.DISPLAY_ORDER ASC, t.ID_TOPIC ASC
+            """, (id,), None),
+            "lists": ("""
                 SELECT l.ID_T2S_LIST, l.LIST_NAME, l.LIST_NAME_FR, l.LIST_TYPE, l.POSTER_PATH, l.WIKIPEDIA_IMAGE_PATH,
-                       l.IMDB_RATING_WEIGHTED, l.POPULARITY
+                       l.IMDB_RATING_WEIGHTED, l.POPULARITY, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_MOVIE_LIST ml
                 JOIN T_WC_T2S_LIST l ON ml.ID_T2S_LIST = l.ID_T2S_LIST
-                WHERE ml.ID_MOVIE = %s ORDER BY ml.DISPLAY_ORDER ASC
-            """, (id,))
-            lists = cursor.fetchall()
-            cursor.execute("""
+                WHERE ml.ID_MOVIE = %s ORDER BY ml.DISPLAY_ORDER ASC, l.ID_T2S_LIST ASC
+            """, (id,), None),
+            "collections": ("""
                 SELECT c.ID_T2S_COLLECTION, c.COLLECTION_NAME, c.COLLECTION_NAME_FR, c.POSTER_PATH, c.WIKIPEDIA_IMAGE_PATH,
-                       c.IMDB_RATING_WEIGHTED, c.POPULARITY
+                       c.IMDB_RATING_WEIGHTED, c.POPULARITY, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_MOVIE_COLLECTION mc
                 JOIN T_WC_T2S_COLLECTION c ON mc.ID_T2S_COLLECTION = c.ID_T2S_COLLECTION
-                WHERE mc.ID_MOVIE = %s ORDER BY mc.DISPLAY_ORDER ASC
-            """, (id,))
-            collections = cursor.fetchall()
-            cursor.execute("""
+                WHERE mc.ID_MOVIE = %s ORDER BY mc.DISPLAY_ORDER ASC, c.ID_T2S_COLLECTION ASC
+            """, (id,), None),
+            "movements": ("""
                 SELECT m.ID_MOVEMENT, m.MOVEMENT_NAME, m.MOVEMENT_NAME_FR, m.POSTER_PATH, m.WIKIPEDIA_IMAGE_PATH,
-                       m.IMDB_RATING_WEIGHTED, m.POPULARITY
+                       m.IMDB_RATING_WEIGHTED, m.POPULARITY, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_MOVIE_MOVEMENT mm
                 JOIN T_WC_T2S_MOVEMENT m ON mm.ID_MOVEMENT = m.ID_MOVEMENT
-                WHERE mm.ID_MOVIE = %s ORDER BY mm.DISPLAY_ORDER ASC
-            """, (id,))
-            movements = cursor.fetchall()
-            cursor.execute("""
+                WHERE mm.ID_MOVIE = %s ORDER BY mm.DISPLAY_ORDER ASC, m.ID_MOVEMENT ASC
+            """, (id,), None),
+            "technicals": ("""
                 SELECT t.ID_TECHNICAL, t.DESCRIPTION, t.DESCRIPTION_FR, t.TECHNICAL_TYPE,
-                       t.WIKIPEDIA_IMAGE_PATH, t.IMDB_RATING_WEIGHTED, t.POPULARITY
+                       t.WIKIPEDIA_IMAGE_PATH, t.IMDB_RATING_WEIGHTED, t.POPULARITY,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_MOVIE_TECHNICAL mt
                 JOIN T_WC_T2S_TECHNICAL t ON mt.ID_TECHNICAL = t.ID_TECHNICAL
-                WHERE mt.ID_MOVIE = %s ORDER BY mt.DISPLAY_ORDER ASC
-            """, (id,))
-            technicals = cursor.fetchall()
-            cursor.execute("""
-                SELECT a.ID_AWARD, a.AWARD_NAME, a.AWARD_NAME_FR, a.POSTER_PATH, a.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_MOVIE_AWARD ma
+                WHERE mt.ID_MOVIE = %s ORDER BY mt.DISPLAY_ORDER ASC, t.ID_TECHNICAL ASC
+            """, (id,), None),
+            "awards": ("""
+                SELECT a.ID_AWARD, a.AWARD_NAME, a.AWARD_NAME_FR, a.POSTER_PATH, a.WIKIPEDIA_IMAGE_PATH,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_MOVIE_AWARD ma
                 JOIN T_WC_T2S_AWARD a ON ma.ID_AWARD = a.ID_AWARD
-                WHERE ma.ID_MOVIE = %s ORDER BY ma.DISPLAY_ORDER ASC
-            """, (id,))
-            awards = cursor.fetchall()
-            cursor.execute("""
-                SELECT n.ID_NOMINATION, n.NOMINATION_NAME, n.NOMINATION_NAME_FR, n.POSTER_PATH, n.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_MOVIE_NOMINATION mn
+                WHERE ma.ID_MOVIE = %s ORDER BY ma.DISPLAY_ORDER ASC, a.ID_AWARD ASC
+            """, (id,), None),
+            "nominations": ("""
+                SELECT n.ID_NOMINATION, n.NOMINATION_NAME, n.NOMINATION_NAME_FR, n.POSTER_PATH, n.WIKIPEDIA_IMAGE_PATH,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_MOVIE_NOMINATION mn
                 JOIN T_WC_T2S_NOMINATION n ON mn.ID_NOMINATION = n.ID_NOMINATION
-                WHERE mn.ID_MOVIE = %s ORDER BY mn.DISPLAY_ORDER ASC
-            """, (id,))
-            nominations = cursor.fetchall()
-            cursor.execute("""
-                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
-                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
-                FROM T_WC_T2S_MOVIE_IMAGE
-                WHERE ID_MOVIE = %s AND TYPE_IMAGE = 'poster'
-                ORDER BY DISPLAY_ORDER ASC
-            """, (id,))
-            posters = cursor.fetchall()
-            cursor.execute("""
-                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
-                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
-                FROM T_WC_T2S_MOVIE_IMAGE
-                WHERE ID_MOVIE = %s AND TYPE_IMAGE = 'backdrop'
-                ORDER BY DISPLAY_ORDER ASC
-            """, (id,))
-            backdrops = cursor.fetchall()
-            wikipedia_images = _fetch_wikipedia_images(cursor, movie.get("ID_WIKIDATA"), ui_language)
-            wikipedia_content = _fetch_wikipedia_content(cursor, movie.get("ID_WIKIDATA"), ui_language)
-            videos = _fetch_tmdb_videos(cursor, "movie", id) + _fetch_wikidata_videos(cursor, movie.get("ID_WIKIDATA"))
-        exclude_self_credits = movie.get("IS_DOCUMENTARY") != 1
+                WHERE mn.ID_MOVIE = %s ORDER BY mn.DISPLAY_ORDER ASC, n.ID_NOMINATION ASC
+            """, (id,), None),
+            "cast": ("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, pm.CREDIT_TYPE,
+                       pm.CAST_CHARACTER, pm.CREW_DEPARTMENT, pm.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_PERSON_MOVIE pm
+                JOIN T_WC_T2S_PERSON p ON pm.ID_PERSON = p.ID_PERSON
+                WHERE pm.ID_MOVIE = %s AND pm.CREDIT_TYPE = 'cast'""" + _cast_filter + """
+                ORDER BY pm.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+            """, _cast_params, "person"),
+            "crew": ("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, pm.CREDIT_TYPE,
+                       pm.CAST_CHARACTER, pm.CREW_DEPARTMENT, pm.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_PERSON_MOVIE pm
+                JOIN T_WC_T2S_PERSON p ON pm.ID_PERSON = p.ID_PERSON
+                WHERE pm.ID_MOVIE = %s AND pm.CREDIT_TYPE = 'crew'
+                ORDER BY pm.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+            """, (id,), "person"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                cursor.execute("SELECT ID_GENRE FROM T_WC_T2S_MOVIE_GENRE WHERE ID_MOVIE = %s", (id,))
+                genres = [r["ID_GENRE"] for r in cursor.fetchall()]
+                cursor.execute("SELECT COUNTRY_CODE FROM T_WC_T2S_MOVIE_PRODUCTION_COUNTRY WHERE ID_MOVIE = %s", (id,))
+                production_countries = [r["COUNTRY_CODE"] for r in cursor.fetchall()]
+                cursor.execute("SELECT SPOKEN_LANGUAGE FROM T_WC_T2S_MOVIE_SPOKEN_LANGUAGE WHERE ID_MOVIE = %s", (id,))
+                spoken_languages = [r["SPOKEN_LANGUAGE"] for r in cursor.fetchall()]
+                cursor.execute("""
+                    SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                           VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                    FROM T_WC_T2S_MOVIE_IMAGE
+                    WHERE ID_MOVIE = %s AND TYPE_IMAGE = 'poster'
+                    ORDER BY DISPLAY_ORDER ASC
+                """, (id,))
+                posters = cursor.fetchall()
+                cursor.execute("""
+                    SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                           VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                    FROM T_WC_T2S_MOVIE_IMAGE
+                    WHERE ID_MOVIE = %s AND TYPE_IMAGE = 'backdrop'
+                    ORDER BY DISPLAY_ORDER ASC
+                """, (id,))
+                backdrops = cursor.fetchall()
+                wikipedia_images = _fetch_wikipedia_images(cursor, movie.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, movie.get("ID_WIKIDATA"), ui_language)
+                videos = _fetch_tmdb_videos(cursor, "movie", id) + _fetch_wikidata_videos(cursor, movie.get("ID_WIKIDATA"))
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {
             **movie,
             "genres": genres,
-            "companies": list(companies),
+            "companies": data["companies"],
             "production_countries": production_countries,
             "spoken_languages": spoken_languages,
-            "topics": list(topics),
-            "lists": list(lists),
-            "collections": list(collections),
-            "movements": list(movements),
-            "technicals": list(technicals),
-            "awards": list(awards),
-            "nominations": list(nominations),
-            "cast": [
-                c for c in credits
-                if c["CREDIT_TYPE"] == "cast"
-                and not (exclude_self_credits and c["CAST_CHARACTER"] in CAST_CHARACTER_EXCLUSIONS)
-            ],
-            "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
+            "topics": data["topics"],
+            "lists": data["lists"],
+            "collections": data["collections"],
+            "movements": data["movements"],
+            "technicals": data["technicals"],
+            "awards": data["awards"],
+            "nominations": data["nominations"],
+            "cast": data["cast"],
+            "crew": data["crew"],
             "posters": list(posters),
             "backdrops": list(backdrops),
             "wikipedia_images": wikipedia_images,
             "wikipedia_content": wikipedia_content,
             "videos": videos,
+            "pagination": pagination,
         }
         logs.log_usage("movies", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
-        apply_localized_related_images(conn, {"person": [result["cast"], result["crew"]]}, ui_language)
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -2198,7 +2310,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", api_key: str = D
 
 
 @app.get("/series/{id}", summary="TV series full detail")
-async def get_series(id: int, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_series(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a TV series plus embedded relations: genres, production
     companies, networks, production countries, spoken languages, topics, lists,
     collections, movements, awards, nominations, cast, and crew. The id is the TMDb
@@ -2252,135 +2364,146 @@ async def get_series(id: int, ui_language: Optional[str] = "en", api_key: str = 
             serie = cursor.fetchone()
         if not serie:
             raise HTTPException(status_code=404, detail=f"Series {id} not found")
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, ps.CREDIT_TYPE,
-                       ps.CAST_CHARACTER, ps.CREW_DEPARTMENT, ps.DISPLAY_ORDER
-                FROM T_WC_T2S_PERSON_SERIE ps
-                JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON
-                WHERE ps.ID_SERIE = %s ORDER BY ps.DISPLAY_ORDER ASC
-            """, (id,))
-            credits = cursor.fetchall()
-            cursor.execute("SELECT ID_GENRE FROM T_WC_T2S_SERIE_GENRE WHERE ID_SERIE = %s", (id,))
-            genres = [r["ID_GENRE"] for r in cursor.fetchall()]
-            cursor.execute("""
-                SELECT c.ID_COMPANY, c.COMPANY_NAME, c.LOGO_PATH, c.IMDB_RATING_WEIGHTED, c.POPULARITY
+        pcollections = {
+            "companies": ("""
+                SELECT c.ID_COMPANY, c.COMPANY_NAME, c.LOGO_PATH, c.IMDB_RATING_WEIGHTED, c.POPULARITY,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_COMPANY sc
                 JOIN T_WC_T2S_COMPANY c ON sc.ID_COMPANY = c.ID_COMPANY
                 WHERE sc.ID_SERIE = %s ORDER BY c.ID_COMPANY ASC
-            """, (id,))
-            companies = cursor.fetchall()
-            cursor.execute("""
-                SELECT n.ID_NETWORK, n.NETWORK_NAME, n.LOGO_PATH FROM T_WC_T2S_SERIE_NETWORK sn
+            """, (id,), None),
+            "networks": ("""
+                SELECT n.ID_NETWORK, n.NETWORK_NAME, n.LOGO_PATH, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_SERIE_NETWORK sn
                 JOIN T_WC_T2S_NETWORK n ON sn.ID_NETWORK = n.ID_NETWORK
                 WHERE sn.ID_SERIE = %s ORDER BY n.ID_NETWORK ASC
-            """, (id,))
-            networks = cursor.fetchall()
-            cursor.execute("SELECT COUNTRY_CODE FROM T_WC_T2S_SERIE_PRODUCTION_COUNTRY WHERE ID_SERIE = %s", (id,))
-            production_countries = [r["COUNTRY_CODE"] for r in cursor.fetchall()]
-            cursor.execute("SELECT SPOKEN_LANGUAGE FROM T_WC_T2S_SERIE_SPOKEN_LANGUAGE WHERE ID_SERIE = %s", (id,))
-            spoken_languages = [r["SPOKEN_LANGUAGE"] for r in cursor.fetchall()]
-            cursor.execute("""
+            """, (id,), None),
+            "topics": ("""
                 SELECT t.ID_TOPIC, t.TOPIC_NAME, t.TOPIC_NAME_FR, t.TOPIC_TYPE, t.POSTER_PATH, t.WIKIPEDIA_IMAGE_PATH,
-                       t.IMDB_RATING_WEIGHTED, t.POPULARITY
+                       t.IMDB_RATING_WEIGHTED, t.POPULARITY, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_TOPIC st
                 JOIN T_WC_T2S_TOPIC t ON st.ID_TOPIC = t.ID_TOPIC
-                WHERE st.ID_SERIE = %s ORDER BY st.DISPLAY_ORDER ASC
-            """, (id,))
-            topics = cursor.fetchall()
-            cursor.execute("""
+                WHERE st.ID_SERIE = %s ORDER BY st.DISPLAY_ORDER ASC, t.ID_TOPIC ASC
+            """, (id,), None),
+            "lists": ("""
                 SELECT l.ID_T2S_LIST, l.LIST_NAME, l.LIST_NAME_FR, l.LIST_TYPE, l.POSTER_PATH, l.WIKIPEDIA_IMAGE_PATH,
-                       l.IMDB_RATING_WEIGHTED, l.POPULARITY
+                       l.IMDB_RATING_WEIGHTED, l.POPULARITY, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_LIST sl
                 JOIN T_WC_T2S_LIST l ON sl.ID_T2S_LIST = l.ID_T2S_LIST
-                WHERE sl.ID_SERIE = %s ORDER BY sl.DISPLAY_ORDER ASC
-            """, (id,))
-            lists = cursor.fetchall()
-            cursor.execute("""
+                WHERE sl.ID_SERIE = %s ORDER BY sl.DISPLAY_ORDER ASC, l.ID_T2S_LIST ASC
+            """, (id,), None),
+            "collections": ("""
                 SELECT c.ID_T2S_COLLECTION, c.COLLECTION_NAME, c.COLLECTION_NAME_FR, c.POSTER_PATH, c.WIKIPEDIA_IMAGE_PATH,
-                       c.IMDB_RATING_WEIGHTED, c.POPULARITY
+                       c.IMDB_RATING_WEIGHTED, c.POPULARITY, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_COLLECTION sc
                 JOIN T_WC_T2S_COLLECTION c ON sc.ID_T2S_COLLECTION = c.ID_T2S_COLLECTION
-                WHERE sc.ID_SERIE = %s ORDER BY sc.DISPLAY_ORDER ASC
-            """, (id,))
-            collections = cursor.fetchall()
-            cursor.execute("""
+                WHERE sc.ID_SERIE = %s ORDER BY sc.DISPLAY_ORDER ASC, c.ID_T2S_COLLECTION ASC
+            """, (id,), None),
+            "movements": ("""
                 SELECT m.ID_MOVEMENT, m.MOVEMENT_NAME, m.MOVEMENT_NAME_FR, m.POSTER_PATH, m.WIKIPEDIA_IMAGE_PATH,
-                       m.IMDB_RATING_WEIGHTED, m.POPULARITY
+                       m.IMDB_RATING_WEIGHTED, m.POPULARITY, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_MOVEMENT sm
                 JOIN T_WC_T2S_MOVEMENT m ON sm.ID_MOVEMENT = m.ID_MOVEMENT
-                WHERE sm.ID_SERIE = %s ORDER BY sm.DISPLAY_ORDER ASC
-            """, (id,))
-            movements = cursor.fetchall()
-            cursor.execute("""
-                SELECT a.ID_AWARD, a.AWARD_NAME, a.AWARD_NAME_FR, a.POSTER_PATH, a.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_SERIE_AWARD sa
+                WHERE sm.ID_SERIE = %s ORDER BY sm.DISPLAY_ORDER ASC, m.ID_MOVEMENT ASC
+            """, (id,), None),
+            "awards": ("""
+                SELECT a.ID_AWARD, a.AWARD_NAME, a.AWARD_NAME_FR, a.POSTER_PATH, a.WIKIPEDIA_IMAGE_PATH,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_SERIE_AWARD sa
                 JOIN T_WC_T2S_AWARD a ON sa.ID_AWARD = a.ID_AWARD
-                WHERE sa.ID_SERIE = %s ORDER BY sa.DISPLAY_ORDER ASC
-            """, (id,))
-            awards = cursor.fetchall()
-            cursor.execute("""
-                SELECT n.ID_NOMINATION, n.NOMINATION_NAME, n.NOMINATION_NAME_FR, n.POSTER_PATH, n.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_SERIE_NOMINATION sn
+                WHERE sa.ID_SERIE = %s ORDER BY sa.DISPLAY_ORDER ASC, a.ID_AWARD ASC
+            """, (id,), None),
+            "nominations": ("""
+                SELECT n.ID_NOMINATION, n.NOMINATION_NAME, n.NOMINATION_NAME_FR, n.POSTER_PATH, n.WIKIPEDIA_IMAGE_PATH,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_SERIE_NOMINATION sn
                 JOIN T_WC_T2S_NOMINATION n ON sn.ID_NOMINATION = n.ID_NOMINATION
-                WHERE sn.ID_SERIE = %s ORDER BY sn.DISPLAY_ORDER ASC
-            """, (id,))
-            nominations = cursor.fetchall()
-            cursor.execute("""
-                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
-                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
-                FROM T_WC_T2S_SERIE_IMAGE
-                WHERE ID_SERIE = %s AND TYPE_IMAGE = 'poster'
-                ORDER BY DISPLAY_ORDER ASC
-            """, (id,))
-            posters = cursor.fetchall()
-            cursor.execute("""
-                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
-                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
-                FROM T_WC_T2S_SERIE_IMAGE
-                WHERE ID_SERIE = %s AND TYPE_IMAGE = 'backdrop'
-                ORDER BY DISPLAY_ORDER ASC
-            """, (id,))
-            backdrops = cursor.fetchall()
-            cursor.execute("""
+                WHERE sn.ID_SERIE = %s ORDER BY sn.DISPLAY_ORDER ASC, n.ID_NOMINATION ASC
+            """, (id,), None),
+            "cast": ("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, ps.CREDIT_TYPE,
+                       ps.CAST_CHARACTER, ps.CREW_DEPARTMENT, ps.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_PERSON_SERIE ps
+                JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON
+                WHERE ps.ID_SERIE = %s AND ps.CREDIT_TYPE = 'cast'
+                ORDER BY ps.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+            """, (id,), "person"),
+            "crew": ("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, ps.CREDIT_TYPE,
+                       ps.CAST_CHARACTER, ps.CREW_DEPARTMENT, ps.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_PERSON_SERIE ps
+                JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON
+                WHERE ps.ID_SERIE = %s AND ps.CREDIT_TYPE = 'crew'
+                ORDER BY ps.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+            """, (id,), "person"),
+            "seasons": ("""
                 SELECT ID_SEASON, SEASON_NUMBER, TITLE, OVERVIEW, DAT_AIR,
                        AIR_YEAR, AIR_MONTH, AIR_DAY, POSTER_PATH, EPISODE_COUNT,
-                       VOTE_AVERAGE, ID_IMDB, ID_WIKIDATA, ID_TVDB
+                       VOTE_AVERAGE, ID_IMDB, ID_WIKIDATA, ID_TVDB,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_TMDB_SEASON
                 WHERE ID_SERIE = %s
                 ORDER BY SEASON_NUMBER ASC
-            """, (id,))
-            seasons = cursor.fetchall()
-            wikipedia_images = _fetch_wikipedia_images(cursor, serie.get("ID_WIKIDATA"), ui_language)
-            wikipedia_content = _fetch_wikipedia_content(cursor, serie.get("ID_WIKIDATA"), ui_language)
-            videos = _fetch_tmdb_videos(cursor, "serie", id) + _fetch_wikidata_videos(cursor, serie.get("ID_WIKIDATA"))
+            """, (id,), "season"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                cursor.execute("SELECT ID_GENRE FROM T_WC_T2S_SERIE_GENRE WHERE ID_SERIE = %s", (id,))
+                genres = [r["ID_GENRE"] for r in cursor.fetchall()]
+                cursor.execute("SELECT COUNTRY_CODE FROM T_WC_T2S_SERIE_PRODUCTION_COUNTRY WHERE ID_SERIE = %s", (id,))
+                production_countries = [r["COUNTRY_CODE"] for r in cursor.fetchall()]
+                cursor.execute("SELECT SPOKEN_LANGUAGE FROM T_WC_T2S_SERIE_SPOKEN_LANGUAGE WHERE ID_SERIE = %s", (id,))
+                spoken_languages = [r["SPOKEN_LANGUAGE"] for r in cursor.fetchall()]
+                cursor.execute("""
+                    SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                           VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                    FROM T_WC_T2S_SERIE_IMAGE
+                    WHERE ID_SERIE = %s AND TYPE_IMAGE = 'poster'
+                    ORDER BY DISPLAY_ORDER ASC
+                """, (id,))
+                posters = cursor.fetchall()
+                cursor.execute("""
+                    SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                           VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                    FROM T_WC_T2S_SERIE_IMAGE
+                    WHERE ID_SERIE = %s AND TYPE_IMAGE = 'backdrop'
+                    ORDER BY DISPLAY_ORDER ASC
+                """, (id,))
+                backdrops = cursor.fetchall()
+                wikipedia_images = _fetch_wikipedia_images(cursor, serie.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, serie.get("ID_WIKIDATA"), ui_language)
+                videos = _fetch_tmdb_videos(cursor, "serie", id) + _fetch_wikidata_videos(cursor, serie.get("ID_WIKIDATA"))
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {
             **serie,
             "genres": genres,
-            "companies": list(companies),
-            "networks": list(networks),
+            "companies": data["companies"],
+            "networks": data["networks"],
             "production_countries": production_countries,
             "spoken_languages": spoken_languages,
-            "topics": list(topics),
-            "lists": list(lists),
-            "collections": list(collections),
-            "movements": list(movements),
-            "awards": list(awards),
-            "nominations": list(nominations),
-            "cast": [c for c in credits if c["CREDIT_TYPE"] == "cast"],
-            "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
+            "topics": data["topics"],
+            "lists": data["lists"],
+            "collections": data["collections"],
+            "movements": data["movements"],
+            "awards": data["awards"],
+            "nominations": data["nominations"],
+            "cast": data["cast"],
+            "crew": data["crew"],
             "posters": list(posters),
             "backdrops": list(backdrops),
-            "seasons": list(seasons),
+            "seasons": data["seasons"],
             "wikipedia_images": wikipedia_images,
             "wikipedia_content": wikipedia_content,
             "videos": videos,
+            "pagination": pagination,
         }
         logs.log_usage("series", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
-        apply_localized_related_images(
-            conn,
-            {"person": [result["cast"], result["crew"]], "season": [result["seasons"]]},
-            ui_language,
-        )
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -2388,7 +2511,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", api_key: str = 
 
 
 @app.get("/seasons/{id_serie}/{season_number}", summary="TV series season full detail")
-async def get_season(id_serie: int, season_number: int, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_season(id_serie: int, season_number: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a TV series season plus embedded relations: cast, crew,
     posters, backdrops, and a navigation stub for the parent series. The composite
     key is (ID_SERIE, SEASON_NUMBER); season 0 is the specials season when present.
@@ -2453,61 +2576,81 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                 detail=f"Season {season_number} of series {id_serie} not found",
             )
         id_season = season["ID_SEASON"]
-        with conn.cursor() as cursor:
-            cursor.execute("""
+        pcollections = {
+            "cast": ("""
                 SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, ps.CREDIT_TYPE,
                        ps.CAST_CHARACTER, ps.CREW_DEPARTMENT, ps.CREW_JOB,
-                       ps.TOTAL_EPISODE_COUNT, ps.DISPLAY_ORDER
+                       ps.TOTAL_EPISODE_COUNT, ps.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_TMDB_PERSON_SEASON ps
                 JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON
-                WHERE ps.ID_SEASON = %s ORDER BY ps.DISPLAY_ORDER ASC
-            """, (id_season,))
-            credits = cursor.fetchall()
-            cursor.execute("""
-                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
-                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
-                FROM T_WC_TMDB_SEASON_IMAGE
-                WHERE ID_SEASON = %s AND TYPE_IMAGE = 'poster'
-                ORDER BY DISPLAY_ORDER ASC
-            """, (id_season,))
-            posters = cursor.fetchall()
-            cursor.execute("""
-                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
-                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
-                FROM T_WC_TMDB_SEASON_IMAGE
-                WHERE ID_SEASON = %s AND TYPE_IMAGE = 'backdrop'
-                ORDER BY DISPLAY_ORDER ASC
-            """, (id_season,))
-            backdrops = cursor.fetchall()
-            cursor.execute("""
-                SELECT ID_SERIE, SERIE_TITLE, SERIE_TITLE_FR, POSTER_PATH
-                FROM T_WC_T2S_SERIE WHERE ID_SERIE = %s
-            """, (id_serie,))
-            series = cursor.fetchone()
-            cursor.execute("""
+                WHERE ps.ID_SEASON = %s AND ps.CREDIT_TYPE = 'cast'
+                ORDER BY ps.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+            """, (id_season,), "person"),
+            "crew": ("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, ps.CREDIT_TYPE,
+                       ps.CAST_CHARACTER, ps.CREW_DEPARTMENT, ps.CREW_JOB,
+                       ps.TOTAL_EPISODE_COUNT, ps.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_TMDB_PERSON_SEASON ps
+                JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON
+                WHERE ps.ID_SEASON = %s AND ps.CREDIT_TYPE = 'crew'
+                ORDER BY ps.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+            """, (id_season,), "person"),
+            "episodes": ("""
                 SELECT ID_EPISODE, EPISODE_NUMBER, TITLE, OVERVIEW, DAT_AIR,
                        AIR_YEAR, AIR_MONTH, AIR_DAY, RUNTIME, EPISODE_TYPE,
                        STILL_PATH, VOTE_AVERAGE, VOTE_COUNT,
-                       ID_IMDB, ID_WIKIDATA, ID_TVDB
+                       ID_IMDB, ID_WIKIDATA, ID_TVDB,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_TMDB_EPISODE
                 WHERE ID_SEASON = %s
                 ORDER BY EPISODE_NUMBER ASC
-            """, (id_season,))
-            episodes = cursor.fetchall()
-            wikipedia_images = _fetch_wikipedia_images(cursor, season.get("ID_WIKIDATA"), ui_language)
-            wikipedia_content = _fetch_wikipedia_content(cursor, season.get("ID_WIKIDATA"), ui_language)
-            videos = _fetch_tmdb_videos(cursor, "season", id_season)
+            """, (id_season,), None),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                cursor.execute("""
+                    SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                           VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                    FROM T_WC_TMDB_SEASON_IMAGE
+                    WHERE ID_SEASON = %s AND TYPE_IMAGE = 'poster'
+                    ORDER BY DISPLAY_ORDER ASC
+                """, (id_season,))
+                posters = cursor.fetchall()
+                cursor.execute("""
+                    SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                           VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                    FROM T_WC_TMDB_SEASON_IMAGE
+                    WHERE ID_SEASON = %s AND TYPE_IMAGE = 'backdrop'
+                    ORDER BY DISPLAY_ORDER ASC
+                """, (id_season,))
+                backdrops = cursor.fetchall()
+                cursor.execute("""
+                    SELECT ID_SERIE, SERIE_TITLE, SERIE_TITLE_FR, POSTER_PATH
+                    FROM T_WC_T2S_SERIE WHERE ID_SERIE = %s
+                """, (id_serie,))
+                series = cursor.fetchone()
+                wikipedia_images = _fetch_wikipedia_images(cursor, season.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, season.get("ID_WIKIDATA"), ui_language)
+                videos = _fetch_tmdb_videos(cursor, "season", id_season)
+        if collection is not None:
+            return _targeted_collection_response(
+                conn, {"id_serie": id_serie, "season_number": season_number}, collection, data, pagination, kinds, ui_language
+            )
         result = {
             **season,
-            "cast": [c for c in credits if c["CREDIT_TYPE"] == "cast"],
-            "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
+            "cast": data["cast"],
+            "crew": data["crew"],
             "posters": list(posters),
             "backdrops": list(backdrops),
             "series": series,
-            "episodes": list(episodes),
+            "episodes": data["episodes"],
             "wikipedia_images": wikipedia_images,
             "wikipedia_content": wikipedia_content,
             "videos": videos,
+            "pagination": pagination,
         }
         logs.log_usage(
             "seasons",
@@ -2515,11 +2658,9 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
             strapiversion,
         )
         apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
-        apply_localized_related_images(
-            conn,
-            {"person": [result["cast"], result["crew"]], "serie": [result["series"]]},
-            ui_language,
-        )
+        groups = _localized_image_groups(data, kinds)
+        groups.setdefault("serie", []).append(result["series"])
+        apply_localized_related_images(conn, groups, ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -2535,6 +2676,9 @@ async def get_episode(
     season_number: int,
     episode_number: int,
     ui_language: Optional[str] = "en",
+    collection: Optional[str] = None,
+    page: int = 1,
+    rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT,
     api_key: str = Depends(get_api_key),
 ):
     """Return all fields for a TV series episode plus embedded relations: cast, crew,
@@ -2606,47 +2750,67 @@ async def get_episode(
             )
         id_episode = episode["ID_EPISODE"]
         id_season = episode["ID_SEASON"]
-        with conn.cursor() as cursor:
-            cursor.execute("""
+        pcollections = {
+            "cast": ("""
                 SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, pe.CREDIT_TYPE,
                        pe.CAST_CHARACTER, pe.CREW_DEPARTMENT, pe.CREW_JOB,
-                       pe.DISPLAY_ORDER
+                       pe.DISPLAY_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_TMDB_PERSON_EPISODE pe
                 JOIN T_WC_T2S_PERSON p ON pe.ID_PERSON = p.ID_PERSON
-                WHERE pe.ID_EPISODE = %s ORDER BY pe.DISPLAY_ORDER ASC
-            """, (id_episode,))
-            credits = cursor.fetchall()
-            cursor.execute("""
-                SELECT ID_ROW, TYPE_IMAGE, IMAGE_PATH, LANG, ASPECT_RATIO,
-                       WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
-                FROM T_WC_TMDB_EPISODE_IMAGE
-                WHERE ID_EPISODE = %s
-                ORDER BY DISPLAY_ORDER ASC
-            """, (id_episode,))
-            stills = cursor.fetchall()
-            cursor.execute("""
-                SELECT ID_SEASON, SEASON_NUMBER, TITLE, POSTER_PATH
-                FROM T_WC_TMDB_SEASON WHERE ID_SEASON = %s
-            """, (id_season,))
-            season = cursor.fetchone()
-            cursor.execute("""
-                SELECT ID_SERIE, SERIE_TITLE, SERIE_TITLE_FR, POSTER_PATH
-                FROM T_WC_T2S_SERIE WHERE ID_SERIE = %s
-            """, (id_serie,))
-            series = cursor.fetchone()
-            wikipedia_images = _fetch_wikipedia_images(cursor, episode.get("ID_WIKIDATA"), ui_language)
-            wikipedia_content = _fetch_wikipedia_content(cursor, episode.get("ID_WIKIDATA"), ui_language)
-            videos = _fetch_tmdb_videos(cursor, "episode", id_episode)
+                WHERE pe.ID_EPISODE = %s AND pe.CREDIT_TYPE = 'cast'
+                ORDER BY pe.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+            """, (id_episode,), "person"),
+            "crew": ("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, pe.CREDIT_TYPE,
+                       pe.CAST_CHARACTER, pe.CREW_DEPARTMENT, pe.CREW_JOB,
+                       pe.DISPLAY_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_TMDB_PERSON_EPISODE pe
+                JOIN T_WC_T2S_PERSON p ON pe.ID_PERSON = p.ID_PERSON
+                WHERE pe.ID_EPISODE = %s AND pe.CREDIT_TYPE = 'crew'
+                ORDER BY pe.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+            """, (id_episode,), "person"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                cursor.execute("""
+                    SELECT ID_ROW, TYPE_IMAGE, IMAGE_PATH, LANG, ASPECT_RATIO,
+                           WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                    FROM T_WC_TMDB_EPISODE_IMAGE
+                    WHERE ID_EPISODE = %s
+                    ORDER BY DISPLAY_ORDER ASC
+                """, (id_episode,))
+                stills = cursor.fetchall()
+                cursor.execute("""
+                    SELECT ID_SEASON, SEASON_NUMBER, TITLE, POSTER_PATH
+                    FROM T_WC_TMDB_SEASON WHERE ID_SEASON = %s
+                """, (id_season,))
+                season = cursor.fetchone()
+                cursor.execute("""
+                    SELECT ID_SERIE, SERIE_TITLE, SERIE_TITLE_FR, POSTER_PATH
+                    FROM T_WC_T2S_SERIE WHERE ID_SERIE = %s
+                """, (id_serie,))
+                series = cursor.fetchone()
+                wikipedia_images = _fetch_wikipedia_images(cursor, episode.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, episode.get("ID_WIKIDATA"), ui_language)
+                videos = _fetch_tmdb_videos(cursor, "episode", id_episode)
+        if collection is not None:
+            return _targeted_collection_response(
+                conn,
+                {"id_serie": id_serie, "season_number": season_number, "episode_number": episode_number},
+                collection, data, pagination, kinds, ui_language,
+            )
         result = {
             **episode,
-            "cast": [c for c in credits if c["CREDIT_TYPE"] == "cast"],
-            "crew": [c for c in credits if c["CREDIT_TYPE"] == "crew"],
+            "cast": data["cast"],
+            "crew": data["crew"],
             "stills": list(stills),
             "season": season,
             "series": series,
             "wikipedia_images": wikipedia_images,
             "wikipedia_content": wikipedia_content,
             "videos": videos,
+            "pagination": pagination,
         }
         logs.log_usage(
             "episodes",
@@ -2658,15 +2822,10 @@ async def get_episode(
             },
             strapiversion,
         )
-        apply_localized_related_images(
-            conn,
-            {
-                "person": [result["cast"], result["crew"]],
-                "season": [result["season"]],
-                "serie": [result["series"]],
-            },
-            ui_language,
-        )
+        groups = _localized_image_groups(data, kinds)
+        groups.setdefault("season", []).append(result["season"])
+        groups.setdefault("serie", []).append(result["series"])
+        apply_localized_related_images(conn, groups, ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -2674,7 +2833,7 @@ async def get_episode(
 
 
 @app.get("/persons/{id}", summary="Person full detail")
-async def get_person(id: int, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_person(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a person plus embedded relations: movie cast and crew,
     series cast and crew, groups, causes of death, awards, and nominations.
     The id is the TMDb person ID (ID_PERSON).
@@ -2721,89 +2880,109 @@ async def get_person(id: int, ui_language: Optional[str] = "en", api_key: str = 
             person = cursor.fetchone()
         if not person:
             raise HTTPException(status_code=404, detail=f"Person {id} not found")
-        with conn.cursor() as cursor:
-            cursor.execute("""
+        _excl_ph = ",".join(["%s"] * len(CAST_CHARACTER_EXCLUSIONS))
+        pcollections = {
+            "movie_cast": ("""
                 SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED,
                        m.POSTER_PATH, m.IS_DOCUMENTARY, pm.CREDIT_TYPE, pm.CAST_CHARACTER,
-                       pm.CREW_DEPARTMENT, pm.DISPLAY_ORDER
+                       pm.CREW_DEPARTMENT, pm.DISPLAY_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_PERSON_MOVIE pm
                 JOIN T_WC_T2S_MOVIE m ON pm.ID_MOVIE = m.ID_MOVIE
-                WHERE pm.ID_PERSON = %s ORDER BY m.IMDB_RATING_WEIGHTED DESC
-            """, (id,))
-            movie_credits = cursor.fetchall()
-            cursor.execute("""
+                WHERE pm.ID_PERSON = %s AND pm.CREDIT_TYPE = 'cast'
+                  AND NOT (m.IS_DOCUMENTARY <> 1 AND pm.CAST_CHARACTER IN (""" + _excl_ph + """))
+                ORDER BY m.IMDB_RATING_WEIGHTED DESC, m.ID_MOVIE ASC
+            """, (id, *CAST_CHARACTER_EXCLUSIONS), "movie"),
+            "movie_crew": ("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED,
+                       m.POSTER_PATH, m.IS_DOCUMENTARY, pm.CREDIT_TYPE, pm.CAST_CHARACTER,
+                       pm.CREW_DEPARTMENT, pm.DISPLAY_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_PERSON_MOVIE pm
+                JOIN T_WC_T2S_MOVIE m ON pm.ID_MOVIE = m.ID_MOVIE
+                WHERE pm.ID_PERSON = %s AND pm.CREDIT_TYPE = 'crew'
+                ORDER BY m.IMDB_RATING_WEIGHTED DESC, m.ID_MOVIE ASC
+            """, (id,), "movie"),
+            "series_cast": ("""
                 SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED,
                        s.POSTER_PATH, ps.CREDIT_TYPE, ps.CAST_CHARACTER, ps.CREW_DEPARTMENT,
-                       ps.DISPLAY_ORDER
+                       ps.DISPLAY_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_PERSON_SERIE ps
                 JOIN T_WC_T2S_SERIE s ON ps.ID_SERIE = s.ID_SERIE
-                WHERE ps.ID_PERSON = %s ORDER BY s.IMDB_RATING_WEIGHTED DESC
-            """, (id,))
-            serie_credits = cursor.fetchall()
-            cursor.execute("""
-                SELECT g.ID_GROUP, g.GROUP_NAME, g.GROUP_NAME_FR, g.GROUP_TYPE, g.PROFILE_PATH, g.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_PERSON_GROUP pg
+                WHERE ps.ID_PERSON = %s AND ps.CREDIT_TYPE = 'cast'
+                ORDER BY s.IMDB_RATING_WEIGHTED DESC, s.ID_SERIE ASC
+            """, (id,), "serie"),
+            "series_crew": ("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED,
+                       s.POSTER_PATH, ps.CREDIT_TYPE, ps.CAST_CHARACTER, ps.CREW_DEPARTMENT,
+                       ps.DISPLAY_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_PERSON_SERIE ps
+                JOIN T_WC_T2S_SERIE s ON ps.ID_SERIE = s.ID_SERIE
+                WHERE ps.ID_PERSON = %s AND ps.CREDIT_TYPE = 'crew'
+                ORDER BY s.IMDB_RATING_WEIGHTED DESC, s.ID_SERIE ASC
+            """, (id,), "serie"),
+            "groups": ("""
+                SELECT g.ID_GROUP, g.GROUP_NAME, g.GROUP_NAME_FR, g.GROUP_TYPE, g.PROFILE_PATH, g.WIKIPEDIA_IMAGE_PATH,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_PERSON_GROUP pg
                 JOIN T_WC_T2S_GROUP g ON pg.ID_GROUP = g.ID_GROUP
-                WHERE pg.ID_PERSON = %s ORDER BY pg.DISPLAY_ORDER ASC
-            """, (id,))
-            groups = cursor.fetchall()
-            cursor.execute("""
-                SELECT d.ID_DEATH, d.DEATH_NAME, d.DEATH_NAME_FR, d.DEATH_TYPE, d.PROFILE_PATH, d.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_PERSON_DEATH pd
+                WHERE pg.ID_PERSON = %s ORDER BY pg.DISPLAY_ORDER ASC, g.ID_GROUP ASC
+            """, (id,), None),
+            "deaths": ("""
+                SELECT d.ID_DEATH, d.DEATH_NAME, d.DEATH_NAME_FR, d.DEATH_TYPE, d.PROFILE_PATH, d.WIKIPEDIA_IMAGE_PATH,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_PERSON_DEATH pd
                 JOIN T_WC_T2S_DEATH d ON pd.ID_DEATH = d.ID_DEATH
-                WHERE pd.ID_PERSON = %s ORDER BY pd.DISPLAY_ORDER ASC
-            """, (id,))
-            deaths = cursor.fetchall()
-            cursor.execute("""
-                SELECT a.ID_AWARD, a.AWARD_NAME, a.AWARD_NAME_FR, a.POSTER_PATH, a.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_PERSON_AWARD pa
+                WHERE pd.ID_PERSON = %s ORDER BY pd.DISPLAY_ORDER ASC, d.ID_DEATH ASC
+            """, (id,), None),
+            "awards": ("""
+                SELECT a.ID_AWARD, a.AWARD_NAME, a.AWARD_NAME_FR, a.POSTER_PATH, a.WIKIPEDIA_IMAGE_PATH,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_PERSON_AWARD pa
                 JOIN T_WC_T2S_AWARD a ON pa.ID_AWARD = a.ID_AWARD
-                WHERE pa.ID_PERSON = %s ORDER BY pa.DISPLAY_ORDER ASC
-            """, (id,))
-            awards = cursor.fetchall()
-            cursor.execute("""
-                SELECT n.ID_NOMINATION, n.NOMINATION_NAME, n.NOMINATION_NAME_FR, n.POSTER_PATH, n.WIKIPEDIA_IMAGE_PATH FROM T_WC_T2S_PERSON_NOMINATION pn
+                WHERE pa.ID_PERSON = %s ORDER BY pa.DISPLAY_ORDER ASC, a.ID_AWARD ASC
+            """, (id,), None),
+            "nominations": ("""
+                SELECT n.ID_NOMINATION, n.NOMINATION_NAME, n.NOMINATION_NAME_FR, n.POSTER_PATH, n.WIKIPEDIA_IMAGE_PATH,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_PERSON_NOMINATION pn
                 JOIN T_WC_T2S_NOMINATION n ON pn.ID_NOMINATION = n.ID_NOMINATION
-                WHERE pn.ID_PERSON = %s ORDER BY pn.DISPLAY_ORDER ASC
-            """, (id,))
-            nominations = cursor.fetchall()
-            cursor.execute("""
-                SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
-                       VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
-                FROM T_WC_T2S_PERSON_IMAGE
-                WHERE ID_PERSON = %s AND TYPE_IMAGE = 'profile'
-                ORDER BY DISPLAY_ORDER ASC
-            """, (id,))
-            portraits = cursor.fetchall()
-            wikipedia_images = _fetch_wikipedia_images(cursor, person.get("ID_WIKIDATA"), ui_language)
-            wikipedia_content = _fetch_wikipedia_content(cursor, person.get("ID_WIKIDATA"), ui_language)
-            videos = _fetch_wikidata_videos(cursor, person.get("ID_WIKIDATA"))
+                WHERE pn.ID_PERSON = %s ORDER BY pn.DISPLAY_ORDER ASC, n.ID_NOMINATION ASC
+            """, (id,), None),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                cursor.execute("""
+                    SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
+                           VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
+                    FROM T_WC_T2S_PERSON_IMAGE
+                    WHERE ID_PERSON = %s AND TYPE_IMAGE = 'profile'
+                    ORDER BY DISPLAY_ORDER ASC
+                """, (id,))
+                portraits = cursor.fetchall()
+                wikipedia_images = _fetch_wikipedia_images(cursor, person.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, person.get("ID_WIKIDATA"), ui_language)
+                videos = _fetch_wikidata_videos(cursor, person.get("ID_WIKIDATA"))
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {
             **person,
-            "movie_cast": [
-                c for c in movie_credits
-                if c["CREDIT_TYPE"] == "cast"
-                and not (c.get("IS_DOCUMENTARY") != 1 and c["CAST_CHARACTER"] in CAST_CHARACTER_EXCLUSIONS)
-            ],
-            "movie_crew": [c for c in movie_credits if c["CREDIT_TYPE"] == "crew"],
-            "series_cast": [c for c in serie_credits if c["CREDIT_TYPE"] == "cast"],
-            "series_crew": [c for c in serie_credits if c["CREDIT_TYPE"] == "crew"],
-            "groups": list(groups),
-            "deaths": list(deaths),
-            "awards": list(awards),
-            "nominations": list(nominations),
+            "movie_cast": data["movie_cast"],
+            "movie_crew": data["movie_crew"],
+            "series_cast": data["series_cast"],
+            "series_crew": data["series_crew"],
+            "groups": data["groups"],
+            "deaths": data["deaths"],
+            "awards": data["awards"],
+            "nominations": data["nominations"],
             "portraits": list(portraits),
             "wikipedia_images": wikipedia_images,
             "wikipedia_content": wikipedia_content,
             "videos": videos,
+            "pagination": pagination,
         }
         logs.log_usage("persons", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, portraits, "PROFILE_PATH", ui_language)
-        apply_localized_related_images(
-            conn,
-            {
-                "movie": [result["movie_cast"], result["movie_crew"]],
-                "serie": [result["series_cast"], result["series_crew"]],
-            },
-            ui_language,
-        )
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -2811,7 +2990,7 @@ async def get_person(id: int, ui_language: Optional[str] = "en", api_key: str = 
 
 
 @app.get("/companies/{id}", summary="Production company full detail")
-async def get_company(id: int, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_company(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a production company plus associated movies and TV series,
     ordered by adjusted IMDb rating. The id is ID_COMPANY.
 
@@ -2826,26 +3005,29 @@ async def get_company(id: int, ui_language: Optional[str] = "en", api_key: str =
             company = cursor.fetchone()
         if not company:
             raise HTTPException(status_code=404, detail=f"Company {id} not found")
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH
+        pcollections = {
+            "movies": ("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_MOVIE_COMPANY mc
                 JOIN T_WC_T2S_MOVIE m ON mc.ID_MOVIE = m.ID_MOVIE
-                WHERE mc.ID_COMPANY = %s ORDER BY m.IMDB_RATING_WEIGHTED DESC
-            """, (id,))
-            movies = cursor.fetchall()
-            cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH
+                WHERE mc.ID_COMPANY = %s ORDER BY m.IMDB_RATING_WEIGHTED DESC, m.ID_MOVIE ASC
+            """, (id,), "movie"),
+            "series": ("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_COMPANY sc
                 JOIN T_WC_T2S_SERIE s ON sc.ID_SERIE = s.ID_SERIE
-                WHERE sc.ID_COMPANY = %s ORDER BY s.IMDB_RATING_WEIGHTED DESC
-            """, (id,))
-            series = cursor.fetchall()
-        result = {**company, "movies": list(movies), "series": list(series)}
+                WHERE sc.ID_COMPANY = %s ORDER BY s.IMDB_RATING_WEIGHTED DESC, s.ID_SERIE ASC
+            """, (id,), "serie"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
+        result = {**company, "movies": data["movies"], "series": data["series"], "pagination": pagination}
         logs.log_usage("companies", {"id": id, "response": result}, strapiversion)
-        apply_localized_related_images(
-            conn, {"movie": [result["movies"]], "serie": [result["series"]]}, ui_language
-        )
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -2853,7 +3035,7 @@ async def get_company(id: int, ui_language: Optional[str] = "en", api_key: str =
 
 
 @app.get("/networks/{id}", summary="TV network full detail")
-async def get_network(id: int, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_network(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a TV network plus associated TV series, ordered by
     adjusted IMDb rating. The id is ID_NETWORK.
 
@@ -2866,17 +3048,22 @@ async def get_network(id: int, ui_language: Optional[str] = "en", api_key: str =
             network = cursor.fetchone()
         if not network:
             raise HTTPException(status_code=404, detail=f"Network {id} not found")
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH
+        pcollections = {
+            "series": ("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_NETWORK sn
                 JOIN T_WC_T2S_SERIE s ON sn.ID_SERIE = s.ID_SERIE
-                WHERE sn.ID_NETWORK = %s ORDER BY s.IMDB_RATING_WEIGHTED DESC
-            """, (id,))
-            series = cursor.fetchall()
-        result = {**network, "series": list(series)}
+                WHERE sn.ID_NETWORK = %s ORDER BY s.IMDB_RATING_WEIGHTED DESC, s.ID_SERIE ASC
+            """, (id,), "serie"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
+        result = {**network, "series": data["series"], "pagination": pagination}
         logs.log_usage("networks", {"id": id, "response": result}, strapiversion)
-        apply_localized_related_images(conn, {"serie": [result["series"]]}, ui_language)
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -2884,7 +3071,7 @@ async def get_network(id: int, ui_language: Optional[str] = "en", api_key: str =
 
 
 @app.get("/collections/{id}", summary="Film/series collection full detail")
-async def get_collection(id: int, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_collection(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a named collection (trilogy, saga, universe, franchise) plus
     member movies and TV series ordered by DISPLAY_ORDER. The id is ID_T2S_COLLECTION.
 
@@ -2905,31 +3092,35 @@ async def get_collection(id: int, ui_language: Optional[str] = "en", api_key: st
     try:
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM T_WC_T2S_COLLECTION WHERE ID_T2S_COLLECTION = %s", (id,))
-            collection = cursor.fetchone()
-        if not collection:
+            collection_row = cursor.fetchone()
+        if not collection_row:
             raise HTTPException(status_code=404, detail=f"Collection {id} not found")
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mc.DISPLAY_ORDER
+        pcollections = {
+            "movies": ("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mc.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_MOVIE_COLLECTION mc
                 JOIN T_WC_T2S_MOVIE m ON mc.ID_MOVIE = m.ID_MOVIE
-                WHERE mc.ID_T2S_COLLECTION = %s ORDER BY mc.DISPLAY_ORDER ASC
-            """, (id,))
-            movies = cursor.fetchall()
-            cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sc.DISPLAY_ORDER
+                WHERE mc.ID_T2S_COLLECTION = %s ORDER BY mc.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
+            """, (id,), "movie"),
+            "series": ("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sc.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_COLLECTION sc
                 JOIN T_WC_T2S_SERIE s ON sc.ID_SERIE = s.ID_SERIE
-                WHERE sc.ID_T2S_COLLECTION = %s ORDER BY sc.DISPLAY_ORDER ASC
-            """, (id,))
-            series = cursor.fetchall()
-            wikipedia_images = _fetch_wikipedia_images(cursor, collection.get("ID_WIKIDATA"), ui_language)
-            wikipedia_content = _fetch_wikipedia_content(cursor, collection.get("ID_WIKIDATA"), ui_language)
-        result = {**collection, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
+                WHERE sc.ID_T2S_COLLECTION = %s ORDER BY sc.DISPLAY_ORDER ASC, s.ID_SERIE ASC
+            """, (id,), "serie"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                wikipedia_images = _fetch_wikipedia_images(cursor, collection_row.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, collection_row.get("ID_WIKIDATA"), ui_language)
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
+        result = {**collection_row, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
         logs.log_usage("collections", {"id": id, "response": result}, strapiversion)
-        apply_localized_related_images(
-            conn, {"movie": [result["movies"]], "serie": [result["series"]]}, ui_language
-        )
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -2937,7 +3128,7 @@ async def get_collection(id: int, ui_language: Optional[str] = "en", api_key: st
 
 
 @app.get("/topics/{id}", summary="Topic full detail")
-async def get_topic(id: int, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_topic(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a topic (theme, keyword, recurring-character collection) plus linked
     movies and TV series ordered by DISPLAY_ORDER. The id is ID_TOPIC.
 
@@ -2961,28 +3152,32 @@ async def get_topic(id: int, ui_language: Optional[str] = "en", api_key: str = D
             topic = cursor.fetchone()
         if not topic:
             raise HTTPException(status_code=404, detail=f"Topic {id} not found")
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mt.DISPLAY_ORDER
+        pcollections = {
+            "movies": ("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mt.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_MOVIE_TOPIC mt
                 JOIN T_WC_T2S_MOVIE m ON mt.ID_MOVIE = m.ID_MOVIE
-                WHERE mt.ID_TOPIC = %s ORDER BY mt.DISPLAY_ORDER ASC
-            """, (id,))
-            movies = cursor.fetchall()
-            cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, st.DISPLAY_ORDER
+                WHERE mt.ID_TOPIC = %s ORDER BY mt.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
+            """, (id,), "movie"),
+            "series": ("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, st.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_TOPIC st
                 JOIN T_WC_T2S_SERIE s ON st.ID_SERIE = s.ID_SERIE
-                WHERE st.ID_TOPIC = %s ORDER BY st.DISPLAY_ORDER ASC
-            """, (id,))
-            series = cursor.fetchall()
-            wikipedia_images = _fetch_wikipedia_images(cursor, topic.get("ID_WIKIDATA"), ui_language)
-            wikipedia_content = _fetch_wikipedia_content(cursor, topic.get("ID_WIKIDATA"), ui_language)
-        result = {**topic, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
+                WHERE st.ID_TOPIC = %s ORDER BY st.DISPLAY_ORDER ASC, s.ID_SERIE ASC
+            """, (id,), "serie"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                wikipedia_images = _fetch_wikipedia_images(cursor, topic.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, topic.get("ID_WIKIDATA"), ui_language)
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
+        result = {**topic, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
         logs.log_usage("topics", {"id": id, "response": result}, strapiversion)
-        apply_localized_related_images(
-            conn, {"movie": [result["movies"]], "serie": [result["series"]]}, ui_language
-        )
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -2990,7 +3185,7 @@ async def get_topic(id: int, ui_language: Optional[str] = "en", api_key: str = D
 
 
 @app.get("/lists/{id}", summary="Curated list full detail")
-async def get_list(id: int, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_list(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a named curated list plus member movies and TV series
     ordered by DISPLAY_ORDER. The id is ID_T2S_LIST.
 
@@ -3014,28 +3209,32 @@ async def get_list(id: int, ui_language: Optional[str] = "en", api_key: str = De
             lst = cursor.fetchone()
         if not lst:
             raise HTTPException(status_code=404, detail=f"List {id} not found")
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, ml.DISPLAY_ORDER
+        pcollections = {
+            "movies": ("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, ml.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_MOVIE_LIST ml
                 JOIN T_WC_T2S_MOVIE m ON ml.ID_MOVIE = m.ID_MOVIE
-                WHERE ml.ID_T2S_LIST = %s ORDER BY ml.DISPLAY_ORDER ASC
-            """, (id,))
-            movies = cursor.fetchall()
-            cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sl.DISPLAY_ORDER
+                WHERE ml.ID_T2S_LIST = %s ORDER BY ml.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
+            """, (id,), "movie"),
+            "series": ("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sl.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_LIST sl
                 JOIN T_WC_T2S_SERIE s ON sl.ID_SERIE = s.ID_SERIE
-                WHERE sl.ID_T2S_LIST = %s ORDER BY sl.DISPLAY_ORDER ASC
-            """, (id,))
-            series = cursor.fetchall()
-            wikipedia_images = _fetch_wikipedia_images(cursor, lst.get("ID_WIKIDATA"), ui_language)
-            wikipedia_content = _fetch_wikipedia_content(cursor, lst.get("ID_WIKIDATA"), ui_language)
-        result = {**lst, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
+                WHERE sl.ID_T2S_LIST = %s ORDER BY sl.DISPLAY_ORDER ASC, s.ID_SERIE ASC
+            """, (id,), "serie"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                wikipedia_images = _fetch_wikipedia_images(cursor, lst.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, lst.get("ID_WIKIDATA"), ui_language)
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
+        result = {**lst, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
         logs.log_usage("lists", {"id": id, "response": result}, strapiversion)
-        apply_localized_related_images(
-            conn, {"movie": [result["movies"]], "serie": [result["series"]]}, ui_language
-        )
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -3043,7 +3242,7 @@ async def get_list(id: int, ui_language: Optional[str] = "en", api_key: str = De
 
 
 @app.get("/movements/{id}", summary="Film movement or style full detail")
-async def get_movement(id: int, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_movement(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a film movement or style plus associated movies and TV series
     ordered by DISPLAY_ORDER. The id is ID_MOVEMENT.
 
@@ -3067,28 +3266,32 @@ async def get_movement(id: int, ui_language: Optional[str] = "en", api_key: str 
             movement = cursor.fetchone()
         if not movement:
             raise HTTPException(status_code=404, detail=f"Movement {id} not found")
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mm.DISPLAY_ORDER
+        pcollections = {
+            "movies": ("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mm.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_MOVIE_MOVEMENT mm
                 JOIN T_WC_T2S_MOVIE m ON mm.ID_MOVIE = m.ID_MOVIE
-                WHERE mm.ID_MOVEMENT = %s ORDER BY mm.DISPLAY_ORDER ASC
-            """, (id,))
-            movies = cursor.fetchall()
-            cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sm.DISPLAY_ORDER
+                WHERE mm.ID_MOVEMENT = %s ORDER BY mm.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
+            """, (id,), "movie"),
+            "series": ("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sm.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_MOVEMENT sm
                 JOIN T_WC_T2S_SERIE s ON sm.ID_SERIE = s.ID_SERIE
-                WHERE sm.ID_MOVEMENT = %s ORDER BY sm.DISPLAY_ORDER ASC
-            """, (id,))
-            series = cursor.fetchall()
-            wikipedia_images = _fetch_wikipedia_images(cursor, movement.get("ID_WIKIDATA"), ui_language)
-            wikipedia_content = _fetch_wikipedia_content(cursor, movement.get("ID_WIKIDATA"), ui_language)
-        result = {**movement, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
+                WHERE sm.ID_MOVEMENT = %s ORDER BY sm.DISPLAY_ORDER ASC, s.ID_SERIE ASC
+            """, (id,), "serie"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                wikipedia_images = _fetch_wikipedia_images(cursor, movement.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, movement.get("ID_WIKIDATA"), ui_language)
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
+        result = {**movement, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
         logs.log_usage("movements", {"id": id, "response": result}, strapiversion)
-        apply_localized_related_images(
-            conn, {"movie": [result["movies"]], "serie": [result["series"]]}, ui_language
-        )
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -3096,7 +3299,7 @@ async def get_movement(id: int, ui_language: Optional[str] = "en", api_key: str 
 
 
 @app.get("/technicals/{id}", summary="Technical format full detail")
-async def get_technical(id: int, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_technical(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a technical format (sound system, color/film/sound technology,
     or film format) plus associated movies and sibling technicals sharing the same
     TECHNICAL_TYPE. The id is ID_TECHNICAL.
@@ -3124,28 +3327,33 @@ async def get_technical(id: int, ui_language: Optional[str] = "en", api_key: str
             technical = cursor.fetchone()
         if not technical:
             raise HTTPException(status_code=404, detail=f"Technical {id} not found")
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mt.DISPLAY_ORDER
+        pcollections = {
+            "movies": ("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mt.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_MOVIE_TECHNICAL mt
                 JOIN T_WC_T2S_MOVIE m ON mt.ID_MOVIE = m.ID_MOVIE
                 WHERE mt.ID_TECHNICAL = %s
-                ORDER BY mt.DISPLAY_ORDER ASC, m.IMDB_RATING_WEIGHTED DESC
-            """, (id,))
-            movies = cursor.fetchall()
-            cursor.execute("""
+                ORDER BY mt.DISPLAY_ORDER ASC, m.IMDB_RATING_WEIGHTED DESC, m.ID_MOVIE ASC
+            """, (id,), "movie"),
+            "siblings": ("""
                 SELECT ID_TECHNICAL, DESCRIPTION, DESCRIPTION_FR, WIKIPEDIA_IMAGE_PATH,
-                       IMDB_RATING_WEIGHTED, POPULARITY, MOVIE_COUNT
+                       IMDB_RATING_WEIGHTED, POPULARITY, MOVIE_COUNT, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_TECHNICAL
                 WHERE TECHNICAL_TYPE = %s AND ID_TECHNICAL <> %s
-                ORDER BY MOVIE_COUNT DESC
-            """, (technical["TECHNICAL_TYPE"], id))
-            siblings = cursor.fetchall()
-            wikipedia_images = _fetch_wikipedia_images(cursor, technical.get("ID_WIKIDATA"), ui_language)
-            wikipedia_content = _fetch_wikipedia_content(cursor, technical.get("ID_WIKIDATA"), ui_language)
-        result = {**technical, "movies": list(movies), "siblings": list(siblings), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
+                ORDER BY MOVIE_COUNT DESC, ID_TECHNICAL ASC
+            """, (technical["TECHNICAL_TYPE"], id), None),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                wikipedia_images = _fetch_wikipedia_images(cursor, technical.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, technical.get("ID_WIKIDATA"), ui_language)
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
+        result = {**technical, "movies": data["movies"], "siblings": data["siblings"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
         logs.log_usage("technicals", {"id": id, "response": result}, strapiversion)
-        apply_localized_related_images(conn, {"movie": [result["movies"]]}, ui_language)
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -3153,7 +3361,7 @@ async def get_technical(id: int, ui_language: Optional[str] = "en", api_key: str
 
 
 @app.get("/groups/{id}", summary="Person group full detail")
-async def get_group(id: int, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_group(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a group (organization, club, musical group) plus associated
     persons ordered by DISPLAY_ORDER. The id is ID_GROUP.
 
@@ -3176,19 +3384,25 @@ async def get_group(id: int, ui_language: Optional[str] = "en", api_key: str = D
             group = cursor.fetchone()
         if not group:
             raise HTTPException(status_code=404, detail=f"Group {id} not found")
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, p.PROFILE_PATH, pg.DISPLAY_ORDER
+        pcollections = {
+            "persons": ("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, p.PROFILE_PATH, pg.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_PERSON_GROUP pg
                 JOIN T_WC_T2S_PERSON p ON pg.ID_PERSON = p.ID_PERSON
-                WHERE pg.ID_GROUP = %s ORDER BY pg.DISPLAY_ORDER ASC
-            """, (id,))
-            persons = cursor.fetchall()
-            wikipedia_images = _fetch_wikipedia_images(cursor, group.get("ID_WIKIDATA"), ui_language)
-            wikipedia_content = _fetch_wikipedia_content(cursor, group.get("ID_WIKIDATA"), ui_language)
-        result = {**group, "persons": list(persons), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
+                WHERE pg.ID_GROUP = %s ORDER BY pg.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+            """, (id,), "person"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                wikipedia_images = _fetch_wikipedia_images(cursor, group.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, group.get("ID_WIKIDATA"), ui_language)
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
+        result = {**group, "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
         logs.log_usage("groups", {"id": id, "response": result}, strapiversion)
-        apply_localized_related_images(conn, {"person": [result["persons"]]}, ui_language)
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -3196,7 +3410,7 @@ async def get_group(id: int, ui_language: Optional[str] = "en", api_key: str = D
 
 
 @app.get("/deaths/{id}", summary="Cause of death full detail")
-async def get_death(id: int, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_death(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a cause or circumstance of death plus associated persons
     ordered by DISPLAY_ORDER. The id is ID_DEATH.
 
@@ -3219,19 +3433,25 @@ async def get_death(id: int, ui_language: Optional[str] = "en", api_key: str = D
             death = cursor.fetchone()
         if not death:
             raise HTTPException(status_code=404, detail=f"Death {id} not found")
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, p.PROFILE_PATH, pd.DISPLAY_ORDER
+        pcollections = {
+            "persons": ("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, p.PROFILE_PATH, pd.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_PERSON_DEATH pd
                 JOIN T_WC_T2S_PERSON p ON pd.ID_PERSON = p.ID_PERSON
-                WHERE pd.ID_DEATH = %s ORDER BY pd.DISPLAY_ORDER ASC
-            """, (id,))
-            persons = cursor.fetchall()
-            wikipedia_images = _fetch_wikipedia_images(cursor, death.get("ID_WIKIDATA"), ui_language)
-            wikipedia_content = _fetch_wikipedia_content(cursor, death.get("ID_WIKIDATA"), ui_language)
-        result = {**death, "persons": list(persons), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
+                WHERE pd.ID_DEATH = %s ORDER BY pd.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+            """, (id,), "person"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                wikipedia_images = _fetch_wikipedia_images(cursor, death.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, death.get("ID_WIKIDATA"), ui_language)
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
+        result = {**death, "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
         logs.log_usage("deaths", {"id": id, "response": result}, strapiversion)
-        apply_localized_related_images(conn, {"person": [result["persons"]]}, ui_language)
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -3239,7 +3459,7 @@ async def get_death(id: int, ui_language: Optional[str] = "en", api_key: str = D
 
 
 @app.get("/awards/{id}", summary="Award full detail")
-async def get_award(id: int, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_award(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for an award plus associated movies, TV series, and persons,
     all ordered by DISPLAY_ORDER. The id is ID_AWARD.
 
@@ -3263,37 +3483,39 @@ async def get_award(id: int, ui_language: Optional[str] = "en", api_key: str = D
             award = cursor.fetchone()
         if not award:
             raise HTTPException(status_code=404, detail=f"Award {id} not found")
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, ma.DISPLAY_ORDER
+        pcollections = {
+            "movies": ("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, ma.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_MOVIE_AWARD ma
                 JOIN T_WC_T2S_MOVIE m ON ma.ID_MOVIE = m.ID_MOVIE
-                WHERE ma.ID_AWARD = %s ORDER BY ma.DISPLAY_ORDER ASC
-            """, (id,))
-            movies = cursor.fetchall()
-            cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sa.DISPLAY_ORDER
+                WHERE ma.ID_AWARD = %s ORDER BY ma.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
+            """, (id,), "movie"),
+            "series": ("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sa.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_AWARD sa
                 JOIN T_WC_T2S_SERIE s ON sa.ID_SERIE = s.ID_SERIE
-                WHERE sa.ID_AWARD = %s ORDER BY sa.DISPLAY_ORDER ASC
-            """, (id,))
-            series = cursor.fetchall()
-            cursor.execute("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, p.PROFILE_PATH, pa.DISPLAY_ORDER
+                WHERE sa.ID_AWARD = %s ORDER BY sa.DISPLAY_ORDER ASC, s.ID_SERIE ASC
+            """, (id,), "serie"),
+            "persons": ("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, p.PROFILE_PATH, pa.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_PERSON_AWARD pa
                 JOIN T_WC_T2S_PERSON p ON pa.ID_PERSON = p.ID_PERSON
-                WHERE pa.ID_AWARD = %s ORDER BY pa.DISPLAY_ORDER ASC
-            """, (id,))
-            persons = cursor.fetchall()
-            wikipedia_images = _fetch_wikipedia_images(cursor, award.get("ID_WIKIDATA"), ui_language)
-            wikipedia_content = _fetch_wikipedia_content(cursor, award.get("ID_WIKIDATA"), ui_language)
-        result = {**award, "movies": list(movies), "series": list(series), "persons": list(persons), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
+                WHERE pa.ID_AWARD = %s ORDER BY pa.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+            """, (id,), "person"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                wikipedia_images = _fetch_wikipedia_images(cursor, award.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, award.get("ID_WIKIDATA"), ui_language)
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
+        result = {**award, "movies": data["movies"], "series": data["series"], "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
         logs.log_usage("awards", {"id": id, "response": result}, strapiversion)
-        apply_localized_related_images(
-            conn,
-            {"movie": [result["movies"]], "serie": [result["series"]], "person": [result["persons"]]},
-            ui_language,
-        )
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -3301,7 +3523,7 @@ async def get_award(id: int, ui_language: Optional[str] = "en", api_key: str = D
 
 
 @app.get("/nominations/{id}", summary="Award nomination full detail")
-async def get_nomination(id: int, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_nomination(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for an award nomination plus associated movies, TV series, and
     persons, all ordered by DISPLAY_ORDER. The id is ID_NOMINATION.
 
@@ -3325,37 +3547,39 @@ async def get_nomination(id: int, ui_language: Optional[str] = "en", api_key: st
             nomination = cursor.fetchone()
         if not nomination:
             raise HTTPException(status_code=404, detail=f"Nomination {id} not found")
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mn.DISPLAY_ORDER
+        pcollections = {
+            "movies": ("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mn.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_MOVIE_NOMINATION mn
                 JOIN T_WC_T2S_MOVIE m ON mn.ID_MOVIE = m.ID_MOVIE
-                WHERE mn.ID_NOMINATION = %s ORDER BY mn.DISPLAY_ORDER ASC
-            """, (id,))
-            movies = cursor.fetchall()
-            cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sn.DISPLAY_ORDER
+                WHERE mn.ID_NOMINATION = %s ORDER BY mn.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
+            """, (id,), "movie"),
+            "series": ("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sn.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_NOMINATION sn
                 JOIN T_WC_T2S_SERIE s ON sn.ID_SERIE = s.ID_SERIE
-                WHERE sn.ID_NOMINATION = %s ORDER BY sn.DISPLAY_ORDER ASC
-            """, (id,))
-            series = cursor.fetchall()
-            cursor.execute("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, p.PROFILE_PATH, pn.DISPLAY_ORDER
+                WHERE sn.ID_NOMINATION = %s ORDER BY sn.DISPLAY_ORDER ASC, s.ID_SERIE ASC
+            """, (id,), "serie"),
+            "persons": ("""
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, p.PROFILE_PATH, pn.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_PERSON_NOMINATION pn
                 JOIN T_WC_T2S_PERSON p ON pn.ID_PERSON = p.ID_PERSON
-                WHERE pn.ID_NOMINATION = %s ORDER BY pn.DISPLAY_ORDER ASC
-            """, (id,))
-            persons = cursor.fetchall()
-            wikipedia_images = _fetch_wikipedia_images(cursor, nomination.get("ID_WIKIDATA"), ui_language)
-            wikipedia_content = _fetch_wikipedia_content(cursor, nomination.get("ID_WIKIDATA"), ui_language)
-        result = {**nomination, "movies": list(movies), "series": list(series), "persons": list(persons), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
+                WHERE pn.ID_NOMINATION = %s ORDER BY pn.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+            """, (id,), "person"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                wikipedia_images = _fetch_wikipedia_images(cursor, nomination.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, nomination.get("ID_WIKIDATA"), ui_language)
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
+        result = {**nomination, "movies": data["movies"], "series": data["series"], "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
         logs.log_usage("nominations", {"id": id, "response": result}, strapiversion)
-        apply_localized_related_images(
-            conn,
-            {"movie": [result["movies"]], "serie": [result["series"]], "person": [result["persons"]]},
-            ui_language,
-        )
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -3363,7 +3587,7 @@ async def get_nomination(id: int, ui_language: Optional[str] = "en", api_key: st
 
 
 @app.get("/locations/{wikidata_id}", summary="Location full detail")
-async def get_location(wikidata_id: str, ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_location(wikidata_id: str, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a location identified by its Wikidata ID (e.g. Q90 for Paris)
     plus movies and series linked as narrative location (ID_PROPERTY=P840) or filming
     location (ID_PROPERTY=P915), ordered by adjusted IMDb rating.
@@ -3387,32 +3611,34 @@ async def get_location(wikidata_id: str, ui_language: Optional[str] = "en", api_
             location = cursor.fetchone()
         if not location:
             raise HTTPException(status_code=404, detail=f"Location {wikidata_id} not found")
-        with conn.cursor() as cursor:
-            cursor.execute("""
+        pcollections = {
+            "movies": ("""
                 SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED,
-                       m.POSTER_PATH, wp.ID_PROPERTY
+                       m.POSTER_PATH, wp.ID_PROPERTY, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_WIKIDATA_ITEM_PROPERTY wp
                 JOIN T_WC_T2S_MOVIE m ON wp.ID_WIKIDATA = m.ID_WIKIDATA
                 WHERE wp.ID_ITEM = %s AND wp.ID_PROPERTY IN ('P840', 'P915')
-                ORDER BY m.IMDB_RATING_WEIGHTED DESC
-            """, (wikidata_id,))
-            movies = cursor.fetchall()
-            cursor.execute("""
+                ORDER BY m.IMDB_RATING_WEIGHTED DESC, m.ID_MOVIE ASC
+            """, (wikidata_id,), "movie"),
+            "series": ("""
                 SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED,
-                       s.POSTER_PATH, wp.ID_PROPERTY
+                       s.POSTER_PATH, wp.ID_PROPERTY, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_WIKIDATA_ITEM_PROPERTY wp
                 JOIN T_WC_T2S_SERIE s ON wp.ID_WIKIDATA = s.ID_WIKIDATA
                 WHERE wp.ID_ITEM = %s AND wp.ID_PROPERTY IN ('P840', 'P915')
-                ORDER BY s.IMDB_RATING_WEIGHTED DESC
-            """, (wikidata_id,))
-            series = cursor.fetchall()
-            wikipedia_images = _fetch_wikipedia_images(cursor, wikidata_id, ui_language)
-            wikipedia_content = _fetch_wikipedia_content(cursor, wikidata_id, ui_language)
-        result = {**location, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
+                ORDER BY s.IMDB_RATING_WEIGHTED DESC, s.ID_SERIE ASC
+            """, (wikidata_id,), "serie"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                wikipedia_images = _fetch_wikipedia_images(cursor, wikidata_id, ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, wikidata_id, ui_language)
+        if collection is not None:
+            return _targeted_collection_response(conn, {"wikidata_id": wikidata_id}, collection, data, pagination, kinds, ui_language)
+        result = {**location, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
         logs.log_usage("locations", {"wikidata_id": wikidata_id, "response": result}, strapiversion)
-        apply_localized_related_images(
-            conn, {"movie": [result["movies"]], "serie": [result["series"]]}, ui_language
-        )
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -3472,18 +3698,28 @@ async def _mcp_sql_search(question: str, ui_language: str = "en") -> str:
         return json.dumps({"error": str(e)})
 
 
-async def _mcp_get(path: str, ui_language: str = "en") -> str:
+async def _mcp_get(path: str, ui_language: str = "en", collection: Optional[str] = None,
+                   page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Shared MCP helper: GET an internal entity endpoint and return its raw JSON text.
 
     Forwards the normalized ``ui_language`` (en/fr, English fallback) so every
-    localized entity tool honors the requested language without duplicating the
-    HTTP/error-handling boilerplate.
+    localized entity tool honors the requested language. Embedded related-entity
+    lists are paginated: by default every list is capped to its first page (with a
+    ``pagination`` block carrying per-list totals); passing ``collection`` (plus
+    optional ``page`` / ``rows_per_page``) returns a lean payload with just that
+    one list's requested page. Pagination params are only forwarded when a
+    ``collection`` is targeted, so the default call is unchanged.
     """
+    params = {"ui_language": normalize_ui_language(ui_language)}
+    if collection:
+        params["collection"] = collection
+        params["page"] = page
+        params["rows_per_page"] = rows_per_page
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
                 f"{MCP_INTERNAL_BASE_URL}{path}",
-                params={"ui_language": normalize_ui_language(ui_language)},
+                params=params,
                 headers={"X-API-Key": MCP_INTERNAL_API_KEY},
             )
             r.raise_for_status()
@@ -3493,7 +3729,7 @@ async def _mcp_get(path: str, ui_language: str = "en") -> str:
 
 
 @mcp.tool(name="get_movie")
-async def _mcp_get_movie(id: int, ui_language: str = "en") -> str:
+async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a movie (title, release date, runtime, budget, revenue, ratings,
     plot, IMDb/Wikidata IDs, color/B&W/silent flags) plus embedded relations:
     cast, crew, genre codes, production companies, production countries, spoken languages,
@@ -3513,12 +3749,19 @@ async def _mcp_get_movie(id: int, ui_language: str = "en") -> str:
     each video exposes SOURCE, VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG,
     OFFICIAL, DAT_PUBLISHED, DURATION_SECONDS, and WATCH_URL/EMBED_URL/FILE_URL/
     THUMBNAIL_URL.
-    id = TMDb ID_MOVIE."""
-    return await _mcp_get(f"/movies/{id}", ui_language)
+    id = TMDb ID_MOVIE.
+
+    Embedded related lists (cast, crew, companies, topics, lists, collections,
+    movements, technicals, awards, nominations) are paginated: by default each is
+    capped to its first 50 rows and a top-level `pagination` block reports each
+    list's total. To fetch more of one list, set `collection` to its name (e.g.
+    'cast') with `page` / `rows_per_page`; the response then contains just that
+    list's requested page."""
+    return await _mcp_get(f"/movies/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_series")
-async def _mcp_get_series(id: int, ui_language: str = "en") -> str:
+async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a TV series (title, first/last air date, number of seasons and
     episodes, ratings, status, Wikidata/IMDb IDs) plus embedded relations: cast, crew,
     genre codes, companies, networks, production countries, spoken languages, topics,
@@ -3534,12 +3777,18 @@ async def _mcp_get_series(id: int, ui_language: str = "en") -> str:
     videos (T_WC_WIKIDATA_MEDIA_RESOURCE, RESOURCE_KIND='video'); each video exposes
     SOURCE, VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG, OFFICIAL,
     DAT_PUBLISHED, DURATION_SECONDS, and WATCH_URL/EMBED_URL/FILE_URL/THUMBNAIL_URL.
-    id = TMDb ID_SERIE."""
-    return await _mcp_get(f"/series/{id}", ui_language)
+    id = TMDb ID_SERIE.
+
+    Embedded related lists (cast, crew, companies, networks, topics, lists,
+    collections, movements, awards, nominations, seasons) are paginated: by default
+    each is capped to its first 50 rows and a top-level `pagination` block reports
+    each list's total. To fetch more of one list, set `collection` to its name with
+    `page` / `rows_per_page`; the response then contains just that list's page."""
+    return await _mcp_get(f"/series/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_person")
-async def _mcp_get_person(id: int, ui_language: str = "en") -> str:
+async def _mcp_get_person(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a person (name, biography, birth/death dates, gender, country of
     birth, known-for department, IMDb/Wikidata IDs, popularity) plus embedded filmography
     split by role: movie_cast, movie_crew, series_cast, series_crew, groups, deaths,
@@ -3549,56 +3798,63 @@ async def _mcp_get_person(id: int, ui_language: str = "en") -> str:
     sourced from Wikidata media resources (T_WC_WIKIDATA_MEDIA_RESOURCE,
     RESOURCE_KIND='video'; TMDb does not store person-level videos); each video
     exposes SOURCE='wikidata', VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG,
-    DURATION_SECONDS, and WATCH_URL/EMBED_URL/FILE_URL/THUMBNAIL_URL. id = TMDb ID_PERSON."""
-    return await _mcp_get(f"/persons/{id}", ui_language)
+    DURATION_SECONDS, and WATCH_URL/EMBED_URL/FILE_URL/THUMBNAIL_URL. id = TMDb ID_PERSON.
+
+    Embedded related lists (movie_cast, movie_crew, series_cast, series_crew, groups,
+    deaths, awards, nominations) are paginated: by default each is capped to its
+    first 50 rows and a top-level `pagination` block reports each list's total. A
+    prolific person can have thousands of credits — to fetch more of one list, set
+    `collection` to its name (e.g. 'movie_cast') with `page` / `rows_per_page`; the
+    response then contains just that list's requested page."""
+    return await _mcp_get(f"/persons/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_collection")
-async def _mcp_get_collection(id: int, ui_language: str = "en") -> str:
+async def _mcp_get_collection(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a named collection (trilogy, saga, universe, franchise) plus member
     movies and TV series ordered by their position in the collection. The collection itself
     includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
     T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_T2S_COLLECTION."""
-    return await _mcp_get(f"/collections/{id}", ui_language)
+    return await _mcp_get(f"/collections/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_topic")
-async def _mcp_get_topic(id: int, ui_language: str = "en") -> str:
+async def _mcp_get_topic(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a topic (theme, keyword, recurring-character collection) plus linked
     movies and TV series ordered by their position in the topic. The topic itself includes
     POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
     T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_TOPIC."""
-    return await _mcp_get(f"/topics/{id}", ui_language)
+    return await _mcp_get(f"/topics/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_list")
-async def _mcp_get_list(id: int, ui_language: str = "en") -> str:
+async def _mcp_get_list(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a named curated list (e.g. AFI Top 100, Criterion Collection)
     plus member movies and TV series ordered by their position. The list itself includes
     POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
     T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_T2S_LIST."""
-    return await _mcp_get(f"/lists/{id}", ui_language)
+    return await _mcp_get(f"/lists/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_movement")
-async def _mcp_get_movement(id: int, ui_language: str = "en") -> str:
+async def _mcp_get_movement(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a film movement or style (e.g. French New Wave, Neo-Noir) plus
     associated movies and TV series ordered by their position. The movement itself includes
     POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
     T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_MOVEMENT."""
-    return await _mcp_get(f"/movements/{id}", ui_language)
+    return await _mcp_get(f"/movements/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_technical")
-async def _mcp_get_technical(id: int, ui_language: str = "en") -> str:
+async def _mcp_get_technical(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a technical format (sound system, color/film/sound technology,
     or film format — e.g. Dolby, Technicolor, 70mm, IMAX, Cinemascope) plus associated
     movies and sibling technicals sharing the same TECHNICAL_TYPE. The technical itself
@@ -3607,69 +3863,69 @@ async def _mcp_get_technical(id: int, ui_language: str = "en") -> str:
     Wikipedia image metadata) and wikipedia_content (Wikipedia section in the requested ui_language,
     title/content pairs from T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA.
     id = ID_TECHNICAL."""
-    return await _mcp_get(f"/technicals/{id}", ui_language)
+    return await _mcp_get(f"/technicals/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_group")
-async def _mcp_get_group(id: int, ui_language: str = "en") -> str:
+async def _mcp_get_group(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a person group (organization, club, musical group) plus
     associated persons ordered by their position. Also returns top-level
     wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and wikipedia_content (en
     Wikipedia section title/content pairs from T_WC_WIKIPEDIA_PAGE_LANG_SECTION)
     keyed off ID_WIKIDATA. id = ID_GROUP."""
-    return await _mcp_get(f"/groups/{id}", ui_language)
+    return await _mcp_get(f"/groups/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_death")
-async def _mcp_get_death(id: int, ui_language: str = "en") -> str:
+async def _mcp_get_death(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a cause or circumstance of death plus associated persons
     ordered by their position. Also returns top-level wikipedia_images (ui_language-specific
     Wikipedia image metadata) and wikipedia_content (Wikipedia section in the requested ui_language,
     title/content pairs from T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA.
     id = ID_DEATH."""
-    return await _mcp_get(f"/deaths/{id}", ui_language)
+    return await _mcp_get(f"/deaths/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_award")
-async def _mcp_get_award(id: int, ui_language: str = "en") -> str:
+async def _mcp_get_award(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for an award plus associated movies, TV series, and persons.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
     T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_AWARD."""
-    return await _mcp_get(f"/awards/{id}", ui_language)
+    return await _mcp_get(f"/awards/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_nomination")
-async def _mcp_get_nomination(id: int, ui_language: str = "en") -> str:
+async def _mcp_get_nomination(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for an award nomination plus associated movies, TV series, and persons.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
     T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_NOMINATION."""
-    return await _mcp_get(f"/nominations/{id}", ui_language)
+    return await _mcp_get(f"/nominations/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_company")
-async def _mcp_get_company(id: int, ui_language: str = "en") -> str:
+async def _mcp_get_company(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a production company plus associated movies and TV series. The
     company itself includes LOGO_PATH, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING_WEIGHTED,
     and POPULARITY. id = ID_COMPANY."""
-    return await _mcp_get(f"/companies/{id}", ui_language)
+    return await _mcp_get(f"/companies/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_network")
-async def _mcp_get_network(id: int, ui_language: str = "en") -> str:
+async def _mcp_get_network(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a TV network plus associated TV series. id = ID_NETWORK."""
-    return await _mcp_get(f"/networks/{id}", ui_language)
+    return await _mcp_get(f"/networks/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_location")
-async def _mcp_get_location(wikidata_id: str, ui_language: str = "en") -> str:
+async def _mcp_get_location(wikidata_id: str, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a location by Wikidata ID (e.g. 'Q90' for Paris) plus movies
     and series where it is a narrative location (P840) or filming location (P915).
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
     T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off the route's Wikidata ID."""
-    return await _mcp_get(f"/locations/{wikidata_id}", ui_language)
+    return await _mcp_get(f"/locations/{wikidata_id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.resource("context://database-scope")
