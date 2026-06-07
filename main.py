@@ -389,6 +389,90 @@ def apply_localized_main_image(entity: dict, image_rows, path_key: str, ui_langu
             return
 
 
+# Nested related-entity kinds whose main picture can be localized, mapped to the
+# language-tagged image table that supplies the localized path:
+#   kind -> (image_table, id_column, type_image, path_key)
+# Each nested row carries id_column + path_key but not its own image array, so the
+# localized main image is fetched in one batched query per kind (see
+# apply_localized_related_images). The `season` kind reads the TMDb source image
+# table, matching the /seasons endpoint's own poster source.
+_RELATED_IMAGE_SOURCES = {
+    "movie": ("T_WC_T2S_MOVIE_IMAGE", "ID_MOVIE", "poster", "POSTER_PATH"),
+    "serie": ("T_WC_T2S_SERIE_IMAGE", "ID_SERIE", "poster", "POSTER_PATH"),
+    "person": ("T_WC_T2S_PERSON_IMAGE", "ID_PERSON", "profile", "PROFILE_PATH"),
+    "season": ("T_WC_TMDB_SEASON_IMAGE", "ID_SEASON", "poster", "POSTER_PATH"),
+}
+
+
+def _fetch_localized_main_image_paths(cursor, image_table, id_column, type_image, id_values, ui_language):
+    """Return ``{id_value: image_path}`` for each id's main localized image.
+
+    Runs one batched query against ``image_table`` and keeps, per id, the lowest
+    ``DISPLAY_ORDER`` row whose ``LANG`` matches ``ui_language`` (mirroring how
+    ``apply_localized_main_image`` picks the main image from an ordered array). Ids
+    with no localized image are simply absent from the returned mapping. The table /
+    column identifiers are trusted internal constants (interpolated like the other DB
+    helpers); the ids and filter values are passed as bound parameters.
+    """
+    ids = [v for v in dict.fromkeys(id_values) if v is not None]
+    if not ids:
+        return {}
+    placeholders = ",".join(["%s"] * len(ids))
+    cursor.execute(
+        f"""SELECT {id_column} AS ID_KEY, IMAGE_PATH, DISPLAY_ORDER
+            FROM {image_table}
+            WHERE {id_column} IN ({placeholders}) AND TYPE_IMAGE = %s AND LANG = %s
+            ORDER BY {id_column}, DISPLAY_ORDER ASC""",
+        (*ids, type_image, ui_language),
+    )
+    paths = {}
+    for row in cursor.fetchall():
+        key = row.get("ID_KEY")
+        if key in paths:
+            continue  # first row per id is the lowest DISPLAY_ORDER (main) image
+        image_path = row.get("IMAGE_PATH")
+        if image_path is not None and (not isinstance(image_path, str) or image_path.strip() != ""):
+            paths[key] = image_path
+    return paths
+
+
+def apply_localized_related_images(conn, grouped_rows: dict, ui_language: str) -> None:
+    """Localize the main picture path of nested related rows for non-default languages.
+
+    ``grouped_rows`` maps an entity kind in :data:`_RELATED_IMAGE_SOURCES`
+    ("movie" / "serie" / "person" / "season") to a list of row collections; each
+    collection is either a list of related-entity dicts (e.g. a ``cast`` array) or a
+    single dict (a navigation stub such as the parent ``series``). For each kind, all
+    ids are gathered and a single batched query fetches the main image in
+    ``ui_language`` per id; every row's canonical path field is overwritten when a
+    localized image exists, keeping the canonical (default-language) path as a
+    fallback otherwise. Mutates the rows in place. No-op for the default language.
+    """
+    if ui_language == DEFAULT_UI_LANGUAGE:
+        return
+    with conn.cursor() as cursor:
+        for kind, collections in grouped_rows.items():
+            image_table, id_column, type_image, path_key = _RELATED_IMAGE_SOURCES[kind]
+            rows = []
+            for collection in collections:
+                if isinstance(collection, dict):
+                    rows.append(collection)
+                elif collection:
+                    rows.extend(row for row in collection if isinstance(row, dict))
+            if not rows:
+                continue
+            id_to_path = _fetch_localized_main_image_paths(
+                cursor, image_table, id_column, type_image,
+                [row.get(id_column) for row in rows], ui_language,
+            )
+            if not id_to_path:
+                continue
+            for row in rows:
+                image_path = id_to_path.get(row.get(id_column))
+                if image_path is not None:
+                    row[path_key] = image_path
+
+
 def localize_response(obj, ui_language: str):
     """Recursively localize an entity response, collapsing ``_FR`` columns everywhere.
 
@@ -2106,6 +2190,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", api_key: str = D
         }
         logs.log_usage("movies", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
+        apply_localized_related_images(conn, {"person": [result["cast"], result["crew"]]}, ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -2291,6 +2376,11 @@ async def get_series(id: int, ui_language: Optional[str] = "en", api_key: str = 
         }
         logs.log_usage("series", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
+        apply_localized_related_images(
+            conn,
+            {"person": [result["cast"], result["crew"]], "season": [result["seasons"]]},
+            ui_language,
+        )
         localize_response(result, ui_language)
         return result
     finally:
@@ -2425,6 +2515,11 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
             strapiversion,
         )
         apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
+        apply_localized_related_images(
+            conn,
+            {"person": [result["cast"], result["crew"]], "serie": [result["series"]]},
+            ui_language,
+        )
         localize_response(result, ui_language)
         return result
     finally:
@@ -2563,6 +2658,15 @@ async def get_episode(
             },
             strapiversion,
         )
+        apply_localized_related_images(
+            conn,
+            {
+                "person": [result["cast"], result["crew"]],
+                "season": [result["season"]],
+                "serie": [result["series"]],
+            },
+            ui_language,
+        )
         localize_response(result, ui_language)
         return result
     finally:
@@ -2692,6 +2796,14 @@ async def get_person(id: int, ui_language: Optional[str] = "en", api_key: str = 
         }
         logs.log_usage("persons", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, portraits, "PROFILE_PATH", ui_language)
+        apply_localized_related_images(
+            conn,
+            {
+                "movie": [result["movie_cast"], result["movie_crew"]],
+                "serie": [result["series_cast"], result["series_crew"]],
+            },
+            ui_language,
+        )
         localize_response(result, ui_language)
         return result
     finally:
@@ -2731,6 +2843,9 @@ async def get_company(id: int, ui_language: Optional[str] = "en", api_key: str =
             series = cursor.fetchall()
         result = {**company, "movies": list(movies), "series": list(series)}
         logs.log_usage("companies", {"id": id, "response": result}, strapiversion)
+        apply_localized_related_images(
+            conn, {"movie": [result["movies"]], "serie": [result["series"]]}, ui_language
+        )
         localize_response(result, ui_language)
         return result
     finally:
@@ -2761,6 +2876,7 @@ async def get_network(id: int, ui_language: Optional[str] = "en", api_key: str =
             series = cursor.fetchall()
         result = {**network, "series": list(series)}
         logs.log_usage("networks", {"id": id, "response": result}, strapiversion)
+        apply_localized_related_images(conn, {"serie": [result["series"]]}, ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -2811,6 +2927,9 @@ async def get_collection(id: int, ui_language: Optional[str] = "en", api_key: st
             wikipedia_content = _fetch_wikipedia_content(cursor, collection.get("ID_WIKIDATA"), ui_language)
         result = {**collection, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("collections", {"id": id, "response": result}, strapiversion)
+        apply_localized_related_images(
+            conn, {"movie": [result["movies"]], "serie": [result["series"]]}, ui_language
+        )
         localize_response(result, ui_language)
         return result
     finally:
@@ -2861,6 +2980,9 @@ async def get_topic(id: int, ui_language: Optional[str] = "en", api_key: str = D
             wikipedia_content = _fetch_wikipedia_content(cursor, topic.get("ID_WIKIDATA"), ui_language)
         result = {**topic, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("topics", {"id": id, "response": result}, strapiversion)
+        apply_localized_related_images(
+            conn, {"movie": [result["movies"]], "serie": [result["series"]]}, ui_language
+        )
         localize_response(result, ui_language)
         return result
     finally:
@@ -2911,6 +3033,9 @@ async def get_list(id: int, ui_language: Optional[str] = "en", api_key: str = De
             wikipedia_content = _fetch_wikipedia_content(cursor, lst.get("ID_WIKIDATA"), ui_language)
         result = {**lst, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("lists", {"id": id, "response": result}, strapiversion)
+        apply_localized_related_images(
+            conn, {"movie": [result["movies"]], "serie": [result["series"]]}, ui_language
+        )
         localize_response(result, ui_language)
         return result
     finally:
@@ -2961,6 +3086,9 @@ async def get_movement(id: int, ui_language: Optional[str] = "en", api_key: str 
             wikipedia_content = _fetch_wikipedia_content(cursor, movement.get("ID_WIKIDATA"), ui_language)
         result = {**movement, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("movements", {"id": id, "response": result}, strapiversion)
+        apply_localized_related_images(
+            conn, {"movie": [result["movies"]], "serie": [result["series"]]}, ui_language
+        )
         localize_response(result, ui_language)
         return result
     finally:
@@ -3017,6 +3145,7 @@ async def get_technical(id: int, ui_language: Optional[str] = "en", api_key: str
             wikipedia_content = _fetch_wikipedia_content(cursor, technical.get("ID_WIKIDATA"), ui_language)
         result = {**technical, "movies": list(movies), "siblings": list(siblings), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("technicals", {"id": id, "response": result}, strapiversion)
+        apply_localized_related_images(conn, {"movie": [result["movies"]]}, ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -3059,6 +3188,7 @@ async def get_group(id: int, ui_language: Optional[str] = "en", api_key: str = D
             wikipedia_content = _fetch_wikipedia_content(cursor, group.get("ID_WIKIDATA"), ui_language)
         result = {**group, "persons": list(persons), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("groups", {"id": id, "response": result}, strapiversion)
+        apply_localized_related_images(conn, {"person": [result["persons"]]}, ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -3101,6 +3231,7 @@ async def get_death(id: int, ui_language: Optional[str] = "en", api_key: str = D
             wikipedia_content = _fetch_wikipedia_content(cursor, death.get("ID_WIKIDATA"), ui_language)
         result = {**death, "persons": list(persons), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("deaths", {"id": id, "response": result}, strapiversion)
+        apply_localized_related_images(conn, {"person": [result["persons"]]}, ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -3158,6 +3289,11 @@ async def get_award(id: int, ui_language: Optional[str] = "en", api_key: str = D
             wikipedia_content = _fetch_wikipedia_content(cursor, award.get("ID_WIKIDATA"), ui_language)
         result = {**award, "movies": list(movies), "series": list(series), "persons": list(persons), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("awards", {"id": id, "response": result}, strapiversion)
+        apply_localized_related_images(
+            conn,
+            {"movie": [result["movies"]], "serie": [result["series"]], "person": [result["persons"]]},
+            ui_language,
+        )
         localize_response(result, ui_language)
         return result
     finally:
@@ -3215,6 +3351,11 @@ async def get_nomination(id: int, ui_language: Optional[str] = "en", api_key: st
             wikipedia_content = _fetch_wikipedia_content(cursor, nomination.get("ID_WIKIDATA"), ui_language)
         result = {**nomination, "movies": list(movies), "series": list(series), "persons": list(persons), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("nominations", {"id": id, "response": result}, strapiversion)
+        apply_localized_related_images(
+            conn,
+            {"movie": [result["movies"]], "serie": [result["series"]], "person": [result["persons"]]},
+            ui_language,
+        )
         localize_response(result, ui_language)
         return result
     finally:
@@ -3269,6 +3410,9 @@ async def get_location(wikidata_id: str, ui_language: Optional[str] = "en", api_
             wikipedia_content = _fetch_wikipedia_content(cursor, wikidata_id, ui_language)
         result = {**location, "movies": list(movies), "series": list(series), "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content}
         logs.log_usage("locations", {"wikidata_id": wikidata_id, "response": result}, strapiversion)
+        apply_localized_related_images(
+            conn, {"movie": [result["movies"]], "serie": [result["series"]]}, ui_language
+        )
         localize_response(result, ui_language)
         return result
     finally:
