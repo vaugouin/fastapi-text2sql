@@ -2356,7 +2356,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
             """, (id_season,))
             backdrops = cursor.fetchall()
             cursor.execute("""
-                SELECT ID_SERIE, SERIE_TITLE, POSTER_PATH
+                SELECT ID_SERIE, SERIE_TITLE, SERIE_TITLE_FR, POSTER_PATH
                 FROM T_WC_T2S_SERIE WHERE ID_SERIE = %s
             """, (id_serie,))
             series = cursor.fetchone()
@@ -2500,7 +2500,7 @@ async def get_episode(
             """, (id_season,))
             season = cursor.fetchone()
             cursor.execute("""
-                SELECT ID_SERIE, SERIE_TITLE, POSTER_PATH
+                SELECT ID_SERIE, SERIE_TITLE, SERIE_TITLE_FR, POSTER_PATH
                 FROM T_WC_T2S_SERIE WHERE ID_SERIE = %s
             """, (id_serie,))
             series = cursor.fetchone()
@@ -2590,7 +2590,7 @@ async def get_person(id: int, ui_language: Optional[str] = "en", api_key: str = 
             """, (id,))
             movie_credits = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED,
                        s.POSTER_PATH, ps.CREDIT_TYPE, ps.CAST_CHARACTER, ps.CREW_DEPARTMENT,
                        ps.DISPLAY_ORDER
                 FROM T_WC_T2S_PERSON_SERIE ps
@@ -2684,7 +2684,7 @@ async def get_company(id: int, ui_language: Optional[str] = "en", api_key: str =
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH
                 FROM T_WC_T2S_SERIE_COMPANY sc
                 JOIN T_WC_T2S_SERIE s ON sc.ID_SERIE = s.ID_SERIE
                 WHERE sc.ID_COMPANY = %s ORDER BY s.IMDB_RATING_WEIGHTED DESC
@@ -2714,7 +2714,7 @@ async def get_network(id: int, ui_language: Optional[str] = "en", api_key: str =
             raise HTTPException(status_code=404, detail=f"Network {id} not found")
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH
                 FROM T_WC_T2S_SERIE_NETWORK sn
                 JOIN T_WC_T2S_SERIE s ON sn.ID_SERIE = s.ID_SERIE
                 WHERE sn.ID_NETWORK = %s ORDER BY s.IMDB_RATING_WEIGHTED DESC
@@ -2762,7 +2762,7 @@ async def get_collection(id: int, ui_language: Optional[str] = "en", api_key: st
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sc.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sc.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_COLLECTION sc
                 JOIN T_WC_T2S_SERIE s ON sc.ID_SERIE = s.ID_SERIE
                 WHERE sc.ID_T2S_COLLECTION = %s ORDER BY sc.DISPLAY_ORDER ASC
@@ -2812,7 +2812,7 @@ async def get_topic(id: int, ui_language: Optional[str] = "en", api_key: str = D
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, st.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, st.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_TOPIC st
                 JOIN T_WC_T2S_SERIE s ON st.ID_SERIE = s.ID_SERIE
                 WHERE st.ID_TOPIC = %s ORDER BY st.DISPLAY_ORDER ASC
@@ -2862,7 +2862,7 @@ async def get_list(id: int, ui_language: Optional[str] = "en", api_key: str = De
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sl.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sl.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_LIST sl
                 JOIN T_WC_T2S_SERIE s ON sl.ID_SERIE = s.ID_SERIE
                 WHERE sl.ID_T2S_LIST = %s ORDER BY sl.DISPLAY_ORDER ASC
@@ -2912,7 +2912,7 @@ async def get_movement(id: int, ui_language: Optional[str] = "en", api_key: str 
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sm.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sm.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_MOVEMENT sm
                 JOIN T_WC_T2S_SERIE s ON sm.ID_SERIE = s.ID_SERIE
                 WHERE sm.ID_MOVEMENT = %s ORDER BY sm.DISPLAY_ORDER ASC
@@ -3102,7 +3102,7 @@ async def get_award(id: int, ui_language: Optional[str] = "en", api_key: str = D
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sa.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sa.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_AWARD sa
                 JOIN T_WC_T2S_SERIE s ON sa.ID_SERIE = s.ID_SERIE
                 WHERE sa.ID_AWARD = %s ORDER BY sa.DISPLAY_ORDER ASC
@@ -3159,7 +3159,7 @@ async def get_nomination(id: int, ui_language: Optional[str] = "en", api_key: st
             """, (id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sn.DISPLAY_ORDER
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sn.DISPLAY_ORDER
                 FROM T_WC_T2S_SERIE_NOMINATION sn
                 JOIN T_WC_T2S_SERIE s ON sn.ID_SERIE = s.ID_SERIE
                 WHERE sn.ID_NOMINATION = %s ORDER BY sn.DISPLAY_ORDER ASC
@@ -3218,7 +3218,7 @@ async def get_location(wikidata_id: str, ui_language: Optional[str] = "en", api_
             """, (wikidata_id,))
             movies = cursor.fetchall()
             cursor.execute("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED,
                        s.POSTER_PATH, wp.ID_PROPERTY
                 FROM T_WC_WIKIDATA_ITEM_PROPERTY wp
                 JOIN T_WC_T2S_SERIE s ON wp.ID_WIKIDATA = s.ID_WIKIDATA
