@@ -728,7 +728,7 @@ CREATE TABLE T_WC_T2S_SERIE_VIDEO (
 
 ### General
 - When a field is included in the SELECT clause, it must be specified with the table name, for instance T_WC_T2S_MOVIE.ID_IMDB
-- Always use the DISTINCT keyword in the SELECT statement to remove duplicate rows from the result set
+- Always use the DISTINCT keyword in the SELECT statement to remove duplicate rows from the result set. This applies even when the SELECT projects columns from only one side of a join: a join to a one-row-per-reference table (for example T_WC_WIKIDATA_ITEM_PROPERTY, which holds one row per movie/series referencing a location, or any T_WC_T2S_*_* junction table) fans out and would otherwise return the same entity repeated, so DISTINCT is required there too.
 - Use exact equality comparisons (=) for name, title, character, and ID matching — never use LIKE
 - MOVIE_TITLE is the main title of the movie. Always use this field to search for a movie by its title 
 - SERIE_TITLE is the main title of the tv serie. Always use this field to search for a serie by its title 
@@ -835,7 +835,7 @@ Movie side: ID_MOVIE AS ID_CONTENT, 'movie' AS CONTENT_TYPE, MOVIE_TITLE AS CONT
 Serie side: ID_SERIE AS ID_CONTENT, 'serie' AS CONTENT_TYPE, SERIE_TITLE AS CONTENT_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH, NULL AS RUNTIME, TAGLINE, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES
 
 #### Topics – return:
-ID_TOPIC, TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG, ID_RECORD, POSTER_PATH, IMDB_RATING
+ID_TOPIC, TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG, ID_RECORD, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING
 
 #### Lists – return:
 ID_T2S_LIST, LIST_NAME, LIST_SOURCE, LIST_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING
