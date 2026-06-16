@@ -487,6 +487,39 @@ Total runtime: 312 seconds (00:05:12)
 
 Timings are read from the API response and stored per execution row — you can SQL-aggregate them any way you like.
 
+### Efficiency analysis (correctness-conditioned)
+
+The console rollup averages `total_processing_time` over **all** rows. For a large
+production MariaDB the sharper question is: *when the answer is correct, is the
+query also cheap to run?* — a correct query that full-scans a big table is useless
+in production, and a plain pass rate hides it (this is the spirit of BIRD's VES,
+which is defined only over correct queries).
+
+[claude/compute_efficiency.py](claude/compute_efficiency.py) reads the
+`claude/executions_v1_1_15.csv` produced by [claude/load_executions.py](claude/load_executions.py)
+and reports efficiency **scored only on passing executions**, separating the **DB
+execution time** (`query_execution_time`, the part a query plan / index controls)
+from the **LLM/pipeline time** (everything else). There is no gold SQL in the
+question bank, so a literal VES (predicted-time / reference-time) is not
+computable; the script uses two transparent substitutes: a data-driven percentile
+view (no constant) and an absolute-budget efficiency score (the single arbitrary
+knob `BUDGET_QUERY_S`, isolated at the top of the file).
+
+Outputs into `claude/`:
+- `efficiency_global.txt` — time distributions (DB vs LLM vs end-to-end), the mean
+  efficiency score, and the **correct-AND-fast** rate.
+- `efficiency_by_category.csv` — per-category DB-time percentiles, slowest first.
+- `efficiency_slow_correct.csv` — the **correct-but-slow** outliers: right answers
+  whose SQL is expensive (the production-risk list). Surfaces concrete antipatterns
+  — e.g. `ORDER BY RAND()` ("show me N random movies"), `COUNT(DISTINCT …)` over a
+  large image table, broad genre scans.
+
+Run: `cd eval && python claude/compute_efficiency.py`. Key takeaway from the
+v1.1.15 run: DB execution is near-instant at the median (~4 ms) — the read-model
+is well-indexed — so end-to-end cost is dominated by **LLM time** (text2sql ≈ 3.4 s
+mean), not SQL efficiency; the value of this report is the **small slow tail**
+(~46 correct-but-slow queries) where the SQL itself is the problem.
+
 ### Assertion evaluation complexity
 | Operation | Complexity | Notes |
 |---|---|---|
