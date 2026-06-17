@@ -26,6 +26,7 @@ import entity
 import logs
 import sql_cache
 import closed_vocab
+import samples_assertions as sa
 
 # Load environment variables from .env file
 load_dotenv()
@@ -122,6 +123,7 @@ intcleanupenabled = False
 #intcleanupenabled = True
 
 _startup_t0 = time.perf_counter()
+print(f"[startup] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
 print(f"[startup] Booting Text2SQL API version {strapiversion}...", flush=True)
 
 # Set your OpenAI API key from environment variable
@@ -3645,6 +3647,264 @@ async def get_location(wikidata_id: str, ui_language: Optional[str] = "en", coll
         conn.close()
 
 
+# Root parent of the suggested-samples category tree (mirrors the front-end's $lngroot=1).
+SAMPLES_ROOT_PARENT_ID = 1
+
+# entity_type -> (table, id_column, [select columns]) used to hydrate a sample's
+# assertion id-set into display rows. The selected columns mirror the related-entity
+# arrays of the detail endpoints (id + localizable label + date/rating + image path);
+# the trailing _FR columns are collapsed by localize_response at the end. "content"
+# (a movie+series union) is handled specially in _hydrate_sample_rows.
+SAMPLE_HYDRATION = {
+    "movie":   ("T_WC_T2S_MOVIE",   "ID_MOVIE",    ["ID_MOVIE", "MOVIE_TITLE", "MOVIE_TITLE_FR", "DAT_RELEASE", "IMDB_RATING_WEIGHTED", "POSTER_PATH"]),
+    "person":  ("T_WC_T2S_PERSON",  "ID_PERSON",   ["ID_PERSON", "PERSON_NAME", "PROFILE_PATH", "POPULARITY", "KNOWN_FOR_DEPARTMENT"]),
+    "serie":   ("T_WC_T2S_SERIE",   "ID_SERIE",    ["ID_SERIE", "SERIE_TITLE", "SERIE_TITLE_FR", "DAT_FIRST_AIR", "IMDB_RATING_WEIGHTED", "POSTER_PATH"]),
+    "topic":   ("T_WC_T2S_TOPIC",   "ID_TOPIC",    ["ID_TOPIC", "TOPIC_NAME", "TOPIC_NAME_FR", "POSTER_PATH", "WIKIPEDIA_IMAGE_PATH", "IMDB_RATING_WEIGHTED", "POPULARITY"]),
+    "company": ("T_WC_T2S_COMPANY", "ID_COMPANY",  ["ID_COMPANY", "COMPANY_NAME", "LOGO_PATH", "MOVIE_COUNT", "SERIE_COUNT", "POPULARITY"]),
+    "network": ("T_WC_T2S_NETWORK", "ID_NETWORK",  ["ID_NETWORK", "NETWORK_NAME", "LOGO_PATH", "SERIE_COUNT"]),
+    "list":    ("T_WC_T2S_LIST",    "ID_T2S_LIST", ["ID_T2S_LIST", "LIST_NAME", "LIST_NAME_FR", "POSTER_PATH", "WIKIPEDIA_IMAGE_PATH", "IMDB_RATING_WEIGHTED", "POPULARITY"]),
+    "location": ("T_WC_T2S_ITEM",   "ID_WIKIDATA", ["ID_WIKIDATA", "ITEM_LABEL", "ITEM_LABEL_FR", "WIKIPEDIA_IMAGE_PATH"]),
+}
+
+
+def _sample_clause_expectation(clause):
+    """Describe a non-materializable assertion clause as a flat expectation dict."""
+    if clause["type"] == "count":
+        return {"aggregate": f"COUNT({clause['arg']})", "operator": clause["op"], "value": clause["value"]}
+    if clause["type"] == "scalar":
+        return {"column": clause["column"], "operator": clause["op"], "value": clause["value"]}
+    if clause["type"] == "cell":
+        return {"cell": [clause["row"], clause["col"]], "operator": clause["op"], "value": clause["value"]}
+    if clause["type"] == "id_exclusion":
+        return {"column": clause["column"], "operator": "NOT IN", "value": clause["ids"]}
+    return None
+
+
+def _attach_sample_simulation(node, parsed, summary, pending):
+    """Populate ``node['simulated_result']`` from a parsed assertion.
+
+    For ``entity_rows`` the simulated_result is created with an empty ``result`` and the
+    (sim, entity_type, ordered ids) tuple is appended to ``pending`` so rows can be
+    hydrated in one batched pass per entity type. ``scalar`` results are materialized
+    inline from the literal value (no DB needed); ``count`` / ``bound`` carry only an
+    ``expectation`` block (no invented rows). A null/unknown assertion leaves
+    simulated_result as None.
+    """
+    if not summary:
+        return
+    kind = summary["result_kind"]
+    clauses = parsed["clauses"]
+
+    if kind == "entity_rows":
+        id_clause = next(c for c in clauses if c["type"] == "id_set")
+        entity_type = id_clause["entity"]
+        sim = {"result_kind": "entity_rows", "entity_type": entity_type, "total_count": 0, "result": []}
+        node["simulated_result"] = sim
+        if entity_type:  # unknown id-columns stay empty (no table to hydrate from)
+            pending.append((sim, entity_type, list(dict.fromkeys(id_clause["ids"]))))
+        return
+
+    if kind == "scalar":
+        literal = next(c for c in clauses if c["type"] in ("scalar", "cell") and c["op"] == "==")
+        data = {"VALUE": literal["value"]} if literal["type"] == "cell" else {literal["column"]: literal["value"]}
+        node["simulated_result"] = {
+            "result_kind": "scalar",
+            "total_count": 1,
+            "result": [{"index": 0, "data": data}],
+        }
+        return
+
+    # count / bound: no concrete rows, only the expectation.
+    if kind == "count":
+        source = next(c for c in clauses if c["type"] == "count")
+    else:
+        source = next((c for c in clauses if c["type"] in ("scalar", "cell", "id_exclusion")), None)
+    node["simulated_result"] = {
+        "result_kind": kind,
+        "result": [],
+        "expectation": _sample_clause_expectation(source) if source else None,
+    }
+
+
+def _hydrate_sample_rows(conn, pending):
+    """Fill every pending entity_rows simulation with hydrated display rows.
+
+    Ids are unioned per entity type and fetched with one batched query each, then each
+    simulation's ``result`` is rebuilt in the assertion's id order (missing/deleted ids
+    are skipped, and ``total_count`` reflects rows actually found). The "content" kind
+    is a movie+series union resolved movie-first, then series for the remainder, with a
+    MEDIA_TYPE tag on each row.
+    """
+    if not pending:
+        return
+    ids_by_type = {}
+    for _sim, entity_type, ids in pending:
+        ids_by_type.setdefault(entity_type, []).extend(ids)
+
+    row_maps = {}  # entity_type -> {id: data dict}
+    with conn.cursor() as cursor:
+        for entity_type, ids in ids_by_type.items():
+            unique_ids = list(dict.fromkeys(ids))
+            if not unique_ids:
+                row_maps[entity_type] = {}
+                continue
+            if entity_type == "content":
+                row_maps[entity_type] = _hydrate_content_rows(cursor, unique_ids)
+                continue
+            table, id_column, columns = SAMPLE_HYDRATION[entity_type]
+            placeholders = ",".join(["%s"] * len(unique_ids))
+            cursor.execute(
+                f"SELECT {', '.join(columns)} FROM {table} "
+                f"WHERE {id_column} IN ({placeholders}) AND DELETED = 0",
+                tuple(unique_ids),
+            )
+            row_maps[entity_type] = {row[id_column]: row for row in cursor.fetchall()}
+
+    for sim, entity_type, ids in pending:
+        row_map = row_maps.get(entity_type, {})
+        rows = []
+        for id_value in ids:
+            data = row_map.get(id_value)
+            if data is not None:
+                rows.append({"index": len(rows), "data": data})
+        sim["result"] = rows
+        sim["total_count"] = len(rows)
+
+
+def _hydrate_content_rows(cursor, ids):
+    """Resolve ambiguous ID_CONTENT ids against movies first, then series.
+
+    ID_CONTENT is a movie+series union; the same integer can exist as both a movie and
+    a series, so this is best-effort: an id is taken as a movie when present in
+    T_WC_T2S_MOVIE, otherwise as a series. Each returned row carries MEDIA_TYPE.
+    """
+    placeholders = ",".join(["%s"] * len(ids))
+    resolved = {}
+    cursor.execute(
+        f"SELECT ID_MOVIE, MOVIE_TITLE, MOVIE_TITLE_FR, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH "
+        f"FROM T_WC_T2S_MOVIE WHERE ID_MOVIE IN ({placeholders}) AND DELETED = 0",
+        tuple(ids),
+    )
+    for row in cursor.fetchall():
+        row["MEDIA_TYPE"] = "movie"
+        resolved[row["ID_MOVIE"]] = row
+    remaining = [i for i in ids if i not in resolved]
+    if remaining:
+        placeholders = ",".join(["%s"] * len(remaining))
+        cursor.execute(
+            f"SELECT ID_SERIE, SERIE_TITLE, SERIE_TITLE_FR, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH "
+            f"FROM T_WC_T2S_SERIE WHERE ID_SERIE IN ({placeholders}) AND DELETED = 0",
+            tuple(remaining),
+        )
+        for row in cursor.fetchall():
+            row["MEDIA_TYPE"] = "serie"
+            resolved[row["ID_SERIE"]] = row
+    return resolved
+
+
+@app.get("/samples", summary="Suggested sample questions")
+async def get_samples(ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+    """Return the curated tree of suggested sample questions, each with a simulated result.
+
+    Mirrors the front-end samples panel (lib/text2sql-samples.inc.php): a hierarchy of
+    evaluation categories (T_WC_T2S_EVALUATION_CATEGORY, rooted at ID_PARENT = 1,
+    ordered by DISPLAY_ORDER) whose leaves are sample questions (T_WC_T2S_EVALUATION
+    rows with IS_SAMPLE = 1 AND DELETED = 0, ordered by DISPLAY_ORDER). Categories that
+    contain no sample anywhere in their subtree are pruned, so the response carries only
+    branches with at least one question — matching the public (non-private) front-end
+    behavior.
+
+    Each category node exposes ID_T2S_EVALUATION_CATEGORY, DESCRIPTION (localized to
+    ui_language with English fallback), a ``samples`` array, and a ``categories`` array
+    of child nodes. Each sample exposes:
+      - ID_T2S_EVALUATION and QUESTION (localized; HTML entities decoded);
+      - ``assertion``: the parsed ground-truth spec from ASSERTIONS_QUERY_RESULT
+        (``raw``, ``result_kind`` of entity_rows|scalar|count|bound|unknown,
+        ``entity_type``, ``expected_count``, ``count_operator``); null when the sample
+        has no assertion;
+      - ``simulated_result``: a renderable simulation of the expected answer whose row
+        shape matches /search/text2sql (``result`` is a list of ``{index, data}``).
+        For ``entity_rows`` the assertion ids are hydrated into display rows from the
+        matching T_WC_T2S_* table; ``scalar`` carries the single known cell value;
+        ``count`` / ``bound`` carry an ``expectation`` block and no rows. Null when
+        nothing is materializable.
+
+    Supported ui_language values are "en" (default) and "fr"; any other value falls
+    back to English.
+    """
+    ui_language = normalize_ui_language(ui_language)
+    conn = get_db_connection()
+    try:
+        pending = []  # (simulated_result, entity_type, ordered ids) to hydrate in batch
+        with conn.cursor() as cursor:
+            def fetch_samples(category_id):
+                cursor.execute(
+                    """SELECT ID_T2S_EVALUATION, QUESTION, QUESTION_FR, ASSERTIONS_QUERY_RESULT
+                       FROM T_WC_T2S_EVALUATION
+                       WHERE ID_T2S_EVALUATION_CATEGORY = %s AND IS_SAMPLE = 1 AND DELETED = 0
+                       ORDER BY DISPLAY_ORDER ASC""",
+                    (category_id,),
+                )
+                rows = cursor.fetchall()  # materialize before reusing the cursor
+                nodes = []
+                for row in rows:
+                    raw_assertion = row.pop("ASSERTIONS_QUERY_RESULT", None)
+                    for key in ("QUESTION", "QUESTION_FR"):
+                        if isinstance(row.get(key), str):
+                            row[key] = html.unescape(row[key])
+                    parsed = sa.parse_assertion(raw_assertion)
+                    node = {**row, "assertion": sa.summarize(parsed, raw_assertion), "simulated_result": None}
+                    # Guard: a non-empty assertion that the parser could not fully
+                    # understand is logged (DB/format drift) but does not fail the request.
+                    if raw_assertion is not None and str(raw_assertion).strip():
+                        reason = sa.parse_failure(parsed, node["assertion"])
+                        if reason:
+                            print(
+                                f"[samples] Unparsed assertion for ID_T2S_EVALUATION="
+                                f"{row.get('ID_T2S_EVALUATION')}: {reason} "
+                                f"| raw={str(raw_assertion).strip()!r}",
+                                flush=True,
+                            )
+                    _attach_sample_simulation(node, parsed, node["assertion"], pending)
+                    nodes.append(node)
+                return nodes
+
+            def build_subtree(parent_id):
+                cursor.execute(
+                    """SELECT ID_T2S_EVALUATION_CATEGORY, DESCRIPTION, DESCRIPTION_FR
+                       FROM T_WC_T2S_EVALUATION_CATEGORY
+                       WHERE ID_PARENT = %s AND DELETED = 0
+                       ORDER BY DISPLAY_ORDER ASC""",
+                    (parent_id,),
+                )
+                categories = cursor.fetchall()  # materialize before reusing the cursor
+                nodes = []
+                for cat in categories:
+                    cat_id = cat["ID_T2S_EVALUATION_CATEGORY"]
+                    children = build_subtree(cat_id)
+                    samples = fetch_samples(cat_id)
+                    # Prune empty branches: keep a category only if it (or a descendant)
+                    # carries at least one sample — the non-private front-end behavior.
+                    if not children and not samples:
+                        continue
+                    cat["categories"] = children
+                    cat["samples"] = samples
+                    nodes.append(cat)
+                return nodes
+
+            categories = build_subtree(SAMPLES_ROOT_PARENT_ID)
+
+        # Hydrate every entity_rows simulation in one batched pass per entity type.
+        _hydrate_sample_rows(conn, pending)
+
+        result = {"ui_language": ui_language, "categories": categories}
+        logs.log_usage("samples", {"ui_language": ui_language, "response": result}, strapiversion)
+        localize_response(result, ui_language)  # collapses _FR on categories, samples, and hydrated rows
+        return result
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # MCP (Model Context Protocol) server — tools, resource, middleware, mount
 # ---------------------------------------------------------------------------
@@ -3926,6 +4186,21 @@ async def _mcp_get_location(wikidata_id: str, ui_language: str = "en", collectio
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
     T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off the route's Wikidata ID."""
     return await _mcp_get(f"/locations/{wikidata_id}", ui_language, collection, page, rows_per_page)
+
+
+@mcp.tool(name="list_samples")
+async def _mcp_list_samples(ui_language: str = "en") -> str:
+    """List the curated tree of suggested sample questions for the cinema/TV database.
+
+    Returns a nested structure of categories (each with DESCRIPTION localized to
+    ui_language) whose leaves are sample questions (QUESTION, localized) suitable for
+    feeding to sql_search. Each sample also carries an `assertion` (ground-truth spec)
+    and a `simulated_result` previewing the expected answer — entity rows hydrated with
+    title/poster, a scalar value, or a count/bound expectation — without running the
+    pipeline. Categories with no question anywhere in their subtree are omitted.
+    Supported ui_language values are "en" (default) and "fr"; any other value falls
+    back to English."""
+    return await _mcp_get("/samples", ui_language)
 
 
 @mcp.resource("context://database-scope")

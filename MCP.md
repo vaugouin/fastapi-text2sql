@@ -335,6 +335,17 @@ async def _mcp_get_location(wikidata_id: str) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
+@mcp.tool(name="list_samples")
+async def _mcp_list_samples(ui_language: str = "en") -> str:
+    """List the curated tree of suggested sample questions for the cinema/TV database.
+    Returns nested categories (DESCRIPTION localized to ui_language) whose leaves are
+    sample questions (QUESTION, localized) suitable for feeding to sql_search. Each
+    sample also carries an `assertion` (ground-truth spec) and a `simulated_result`
+    previewing the expected answer (hydrated entity rows / scalar / count expectation).
+    Categories with no question in their subtree are omitted. ui_language is "en"
+    (default) or "fr"."""
+    return await _mcp_get("/samples", ui_language)
+
 # --- Bearer-token middleware and mount ---
 
 async def _verify_mcp_bearer(request: Request, call_next):
