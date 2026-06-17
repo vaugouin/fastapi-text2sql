@@ -800,6 +800,87 @@ Returns all `T_WC_T2S_ITEM` fields for the location `ID_WIKIDATA`, for example `
 
 Base location fields currently include `ID_WIKIDATA`, `ITEM_LABEL`, `DESCRIPTION`, `INSTANCE_OF`, and `WIKIPEDIA_IMAGE_PATH`.
 
+#### 4. Sample Questions
+
+```http
+GET /samples?ui_language=en
+```
+
+Returns the curated tree of suggested sample questions used by the front-end search/home panel ([`lib/text2sql-samples.inc.php`](../tmdb-front/lib/text2sql-samples.inc.php)), so clients without database access (e.g. the `voice-agent` repo) can render the same suggestions. Requires the same `X-API-Key` header as the other endpoints.
+
+The tree is built from the evaluation tables: categories come from `T_WC_T2S_EVALUATION_CATEGORY` (rooted at `ID_PARENT = 1`, ordered by `DISPLAY_ORDER`), and the sample questions at each category are the `T_WC_T2S_EVALUATION` rows with `IS_SAMPLE = 1 AND DELETED = 0` (ordered by `DISPLAY_ORDER`). Categories that contain no sample anywhere in their subtree are pruned, matching the public (non-private) front-end behavior.
+
+**Localization (`ui_language`)**: optional query parameter, `"en"` (default) or `"fr"` (any other value falls back to `"en"`). `DESCRIPTION` and `QUESTION` are returned under their canonical names carrying the requested language's value (English fallback when the French value is empty); the `*_FR` columns are not returned. Question text has its HTML entities decoded.
+
+| Field | Shape |
+|---|---|
+| `ui_language` | Normalized language code actually used (`"en"` or `"fr"`) |
+| `categories` | Array of category nodes (the children of the root), ordered by `DISPLAY_ORDER` |
+
+Each **category node** has the shape:
+
+```jsonc
+{
+  "ID_T2S_EVALUATION_CATEGORY": 12,
+  "DESCRIPTION": "Movies",
+  "categories": [ /* child category nodes (same shape, possibly empty) */ ],
+  "samples": [ /* sample nodes, ordered by DISPLAY_ORDER */ ]
+}
+```
+
+**Sample node — simulated result**: each sample carries not just the question but the *expected answer*, derived from the evaluation framework's ground-truth assertion (`ASSERTIONS_QUERY_RESULT`). This lets a client preview a realistic answer for a suggested question without running the Text2SQL pipeline. A sample node has:
+
+- `ID_T2S_EVALUATION`, `QUESTION` (localized, HTML entities decoded);
+- `assertion` — the parsed ground-truth spec (or `null` when the sample has no assertion):
+  - `raw` — the original assertion string;
+  - `result_kind` — one of `entity_rows` (assertion lists entity IDs), `scalar` (a known literal value), `count` (a cardinality expectation only), `bound` (an inequality/exclusion constraint), or `unknown`;
+  - `entity_type` — for `entity_rows`: `movie` / `person` / `serie` / `topic` / `company` / `network` / `list` / `location` / `content`;
+  - `expected_count`, `count_operator` — present when a `COUNT(...)` clause is in the assertion;
+- `simulated_result` — a renderable simulation whose **row shape matches `/search/text2sql`** (`result` is a list of `{ index, data }`), or `null` when nothing is materializable:
+  - **`entity_rows`** — the assertion IDs hydrated into display rows from the matching `T_WC_T2S_*` table (title/date/rating + poster or logo path, localized). `total_count` is the number of rows found (missing/deleted IDs are skipped). `location` IDs are Wikidata Q-IDs resolved against `T_WC_T2S_ITEM.ID_WIKIDATA`; `content` is a movie+series union resolved movie-first then series, with a `MEDIA_TYPE` tag per row.
+  - **`scalar`** — a single `{ index: 0, data: { <COLUMN>: <value> } }` (or `{ "VALUE": <v> }` for a `CELL(0,0)` assertion).
+  - **`count` / `bound`** — `result: []` plus an `expectation` object (`{ aggregate|column|cell, operator, value }`); no rows are invented.
+
+```jsonc
+// entity_rows sample
+{
+  "ID_T2S_EVALUATION": 88,
+  "QUESTION": "List movies directed by Sergio Leone and starring Clint Eastwood",
+  "assertion": {
+    "raw": "COUNT(*) == 3 AND ID_MOVIE IN (429, 938, 391)",
+    "result_kind": "entity_rows", "entity_type": "movie",
+    "expected_count": 3, "count_operator": "=="
+  },
+  "simulated_result": {
+    "result_kind": "entity_rows", "entity_type": "movie", "total_count": 3,
+    "result": [
+      { "index": 0, "data": { "ID_MOVIE": 429, "MOVIE_TITLE": "...", "DAT_RELEASE": "...", "IMDB_RATING_WEIGHTED": 7.9, "POSTER_PATH": "/...jpg" } }
+      /* one entry per ID, in assertion order */
+    ]
+  }
+}
+
+// scalar sample
+{
+  "ID_T2S_EVALUATION": 11,
+  "QUESTION": "What character did Harrison Ford play in Star Wars?",
+  "assertion": { "raw": "CAST_CHARACTER == 'Han Solo'", "result_kind": "scalar" },
+  "simulated_result": { "result_kind": "scalar", "total_count": 1,
+    "result": [ { "index": 0, "data": { "CAST_CHARACTER": "Han Solo" } } ] }
+}
+
+// count sample
+{
+  "ID_T2S_EVALUATION": 2165,
+  "QUESTION": "List Sci-Fi movies released in the fifties",
+  "assertion": { "raw": "COUNT(*) > 0", "result_kind": "count", "expected_count": 0, "count_operator": ">" },
+  "simulated_result": { "result_kind": "count", "result": [],
+    "expectation": { "aggregate": "COUNT(*)", "operator": ">", "value": 0 } }
+}
+```
+
+The assertion DSL is parsed by [`samples_assertions.py`](samples_assertions.py); the `eval/data/evaluation*` JSON exports mirror the live tables and can be used to simulate this endpoint's output offline.
+
 ### Client handling for quota / rate-limit errors
 
 When an upstream LLM provider rejects a request because of quota exhaustion or temporary rate limiting, the API returns the failure in the normal JSON response and also exposes structured retry metadata.
