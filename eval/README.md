@@ -496,8 +496,9 @@ in production, and a plain pass rate hides it (this is the spirit of BIRD's VES,
 which is defined only over correct queries).
 
 [claude/compute_efficiency.py](claude/compute_efficiency.py) reads the
-`claude/executions_v1_1_15.csv` produced by [claude/load_executions.py](claude/load_executions.py)
-and reports efficiency **scored only on passing executions**, separating the **DB
+`claude/executions_<version>.csv` produced by [claude/load_executions.py](claude/load_executions.py)
+(both are version-parameterized — pass `1.1.16` to the loader, the CSV path to the
+analyzers) and reports efficiency **scored only on passing executions**, separating the **DB
 execution time** (`query_execution_time`, the part a query plan / index controls)
 from the **LLM/pipeline time** (everything else). There is no gold SQL in the
 question bank, so a literal VES (predicted-time / reference-time) is not
@@ -505,20 +506,27 @@ computable; the script uses two transparent substitutes: a data-driven percentil
 view (no constant) and an absolute-budget efficiency score (the single arbitrary
 knob `BUDGET_QUERY_S`, isolated at the top of the file).
 
-Outputs into `claude/`:
-- `efficiency_global.txt` — time distributions (DB vs LLM vs end-to-end), the mean
-  efficiency score, and the **correct-AND-fast** rate.
-- `efficiency_by_category.csv` — per-category DB-time percentiles, slowest first.
-- `efficiency_slow_correct.csv` — the **correct-but-slow** outliers: right answers
-  whose SQL is expensive (the production-risk list). Surfaces concrete antipatterns
-  — e.g. `ORDER BY RAND()` ("show me N random movies"), `COUNT(DISTINCT …)` over a
-  large image table, broad genre scans.
+Outputs into `claude/` (suffixed by version, e.g. `_v1_1_16`):
+- `efficiency_global_<tag>.txt` — time distributions (DB vs LLM vs end-to-end), the
+  mean efficiency score, and the **correct-AND-fast** rate.
+- `efficiency_by_category_<tag>.csv` — per-category DB-time percentiles, slowest first.
+- `efficiency_slow_correct_<tag>.csv` — the **correct-but-slow** outliers: right
+  answers whose SQL is expensive (the production-risk list). Surfaces concrete
+  antipatterns — e.g. `ORDER BY RAND()` ("show me N random"), heavy geography/location
+  (Wikidata) joins, and topic/genre scans returning 100 rows.
 
-Run: `cd eval && python claude/compute_efficiency.py`. Key takeaway from the
-v1.1.15 run: DB execution is near-instant at the median (~4 ms) — the read-model
-is well-indexed — so end-to-end cost is dominated by **LLM time** (text2sql ≈ 3.4 s
-mean), not SQL efficiency; the value of this report is the **small slow tail**
-(~46 correct-but-slow queries) where the SQL itself is the problem.
+Run (version-parameterized):
+`cd eval && python claude/load_executions.py 1.1.16 && python claude/compute_efficiency.py claude/executions_v1_1_16.csv`.
+
+**Key takeaway (latest run, v1.1.16, EN+FR).** DB execution is near-instant at the
+median (~7 ms) — the read-model is well-indexed — so end-to-end cost is dominated by
+**LLM time** (text2sql ≈ 3.8 s mean), not SQL efficiency *in general*. The value of
+this report is the **correct-but-slow tail**, which **grew vs v1.1.15** (46 → 76
+queries; worst-case DB time 25 s → 88 s). v1.1.16 trades accuracy (overall pass
+78.5% → 83.7%, FR 74.9% → 81.3%) for latency and a heavier slow tail, concentrated
+in geography/location (Wikidata) and topic queries plus `ORDER BY RAND()` — the
+handful of correct queries that would be unusable at scale. See full comparison in
+[claude/ANALYSIS_v1_1_16.md](claude/ANALYSIS_v1_1_16.md).
 
 ### Assertion evaluation complexity
 | Operation | Complexity | Notes |
