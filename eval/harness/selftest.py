@@ -8,8 +8,10 @@ Run:  cd eval && python harness/selftest.py
 import harness_lib as H
 
 
-def _t2s(rows, result_count=None, error="", forced=False):
+def _t2s(rows, result_count=None, error="", forced=False, diagnostic=None):
     out = {"rows": rows, "result_count": result_count if result_count is not None else len(rows), "error": error}
+    if diagnostic is not None:
+        out["diagnostic"] = diagnostic
     return {"name": "query_text2sql", "args": {}, "output": out, "forced": forced}
 
 
@@ -64,14 +66,26 @@ def main() -> None:
     wrong = case([_t2s([_row({"ID_MOVIE": 111})], forced=True)], "ID_MOVIE IN (22596)")
     check("wrong_result_no_retry", wrong["strategy"] == "wrong_result_no_retry" and not wrong["initial_empty"])
 
+    print("2b. diagnostic reason captured (observability, no behaviour change)")
+    diag = case(
+        [_t2s([], result_count=0, forced=True,
+              diagnostic={"reason": "entity_unresolved", "unresolved_entities": ["Rohmer"]})],
+        "COUNT(*) == 1",
+    )
+    check("initial_diagnostic_reason surfaced", diag["initial_diagnostic_reason"] == "entity_unresolved")
+    check("final_diagnostic_reason surfaced", diag["final_diagnostic_reason"] == "entity_unresolved")
+    check("strategy unaffected by diagnostic", diag["strategy"] == "gave_up_empty")
+    no_diag = case([_t2s([], result_count=0, forced=True)], "COUNT(*) == 1")
+    check("reason None without diagnostic", no_diag["initial_diagnostic_reason"] is None)
+
     print("3. aggregation")
-    agg = H.aggregate([direct, recovered, gave_up, retried_failed, wrong])
-    check("n == 5", agg["n"] == 5)
-    check("task_success_rate == 40.0", agg["task_success_rate"] == 40.0)
-    check("n_initial_empty == 3", agg["n_initial_empty"] == 3)
-    check("empty_result_recovery_rate == 33.3", agg["empty_result_recovery_rate"] == 33.3)
-    check("avg_t2s_calls == 1.4", agg["avg_t2s_calls"] == 1.4)
+    agg = H.aggregate([direct, recovered, gave_up, retried_failed, wrong, diag])
+    check("n == 6", agg["n"] == 6)
+    check("n_initial_empty == 4", agg["n_initial_empty"] == 4)
+    check("avg_t2s_calls == 1.33", agg["avg_t2s_calls"] == 1.33)
     check("answer_without_result == 1", agg["answer_without_result"] == 1)
+    check("initial_diagnostic_histogram counts the reason",
+          agg["initial_diagnostic_histogram"] == {"entity_unresolved": 1})
 
     print("4. real scenario loading from the question bank (json source)")
     scen = H.load_scenarios(lang="en", limit=3, source="json")

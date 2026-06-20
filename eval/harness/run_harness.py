@@ -134,7 +134,8 @@ def main() -> None:
     # per-scenario CSV
     cols = ["id", "lang", "category_id", "passed", "initial_empty", "final_empty",
             "recovered", "retry_attempted", "strategy", "answer_without_result",
-            "n_t2s_calls", "n_detail_calls", "final_result_count", "run_error",
+            "n_t2s_calls", "n_detail_calls", "final_result_count",
+            "initial_diagnostic_reason", "final_diagnostic_reason", "run_error",
             "question", "assertion", "final_answer_text"]
     csv_path = out_dir / f"harness_results_{args.lang}.csv"
     with csv_path.open("w", encoding="utf-8", newline="") as f:
