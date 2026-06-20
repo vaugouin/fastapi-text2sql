@@ -215,6 +215,11 @@ def parse_tool_trace(tool_outputs: list[dict[str, Any]]) -> dict[str, Any]:
                 "error": (out.get("error") or "") if isinstance(out, dict) else "",
                 "answer": (out.get("answer") or "") if isinstance(out, dict) else "",
                 "rows": rows or [],
+                # The voice-agent now surfaces a compact failure diagnostic in the
+                # tool output (reason + unresolved_entities). Capture it so the
+                # harness can report why a query came back empty; None when the
+                # voice-agent build predates the diagnostic field.
+                "diagnostic": out.get("diagnostic") if isinstance(out, dict) else None,
                 "forced": bool(o.get("forced")),
             })
         else:
@@ -236,6 +241,19 @@ def _is_empty(call: Optional[dict[str, Any]]) -> bool:
         return True
     rc = call.get("result_count")
     return (rc is None) or (rc == 0)
+
+
+def _reason(call: Optional[dict[str, Any]]) -> Optional[str]:
+    """The diagnostic `reason` for one query_text2sql call, or None if absent.
+
+    Observability only: it does NOT feed the recovery classification (that stays
+    based on _is_empty so baseline runs remain comparable). None when the
+    voice-agent build did not emit a `diagnostic`.
+    """
+    if not call:
+        return None
+    diag = call.get("diagnostic")
+    return diag.get("reason") if isinstance(diag, dict) else None
 
 
 def classify_run(trace: dict[str, Any], assertion: str,
@@ -282,6 +300,10 @@ def classify_run(trace: dict[str, Any], assertion: str,
         "n_t2s_calls": n_t2s,
         "n_detail_calls": trace.get("n_detail", 0),
         "final_result_count": (final or {}).get("result_count"),
+        # Diagnostic reason of the forced first query and of the final query
+        # (None when the voice-agent build predates the diagnostic field).
+        "initial_diagnostic_reason": _reason(first),
+        "final_diagnostic_reason": _reason(final),
         "details": details,
     }
 
@@ -307,6 +329,14 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
     for r in scored:
         strat[r["strategy"]] = strat.get(r["strategy"], 0) + 1
 
+    # Distribution of the diagnostic reason the agent saw on the forced first query.
+    # Empty when the voice-agent build did not emit a diagnostic (observability only).
+    diag_hist: dict[str, int] = {}
+    for r in scored:
+        reason = r.get("initial_diagnostic_reason")
+        if reason:
+            diag_hist[reason] = diag_hist.get(reason, 0) + 1
+
     return {
         "n": n,
         "run_errors": sum(1 for r in results if r.get("run_error")),
@@ -322,4 +352,5 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         "avg_t2s_calls": round(sum(t2s_calls) / n, 2),
         "answer_without_result": n_answer_without_result,
         "strategy_histogram": dict(sorted(strat.items(), key=lambda kv: -kv[1])),
+        "initial_diagnostic_histogram": dict(sorted(diag_hist.items(), key=lambda kv: -kv[1])),
     }

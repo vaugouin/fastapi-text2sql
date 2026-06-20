@@ -36,12 +36,19 @@ See `README.md` for metrics, how to run, and scope.
   No `--env-file`: the harness carries no secrets (the voice-agent holds them).
 - **Anchoring (verified in code):** the voice-agent uses its own OpenAI tools
   (`query_text2sql` + detail tools), NOT the MCP `sql_search`/`get_*` surface; it
-  sends `complex_question_processing=False`; on empty it currently surfaces only
-  `answer/error/result_count/rows` (not the `ambiguous`/entity-resolution signals).
+  sends `complex_question_processing=False`. As of June 2026 the `query_text2sql`
+  tool output also carries a compact `diagnostic` (`reason`, `unresolved_entities`);
+  `parse_tool_trace` captures it and the rollup reports
+  `initial_diagnostic_histogram`. This is observability only — it does NOT feed the
+  recovery classification (kept on `_is_empty` so baselines stay comparable), and is
+  `None`/empty when the voice-agent build predates the field.
 
 ## Pitfalls
 
 - This dir is tracked (unlike `../claude/`, which is gitignored). Mind what you
   commit — code yes, `results/` no.
 - A baseline must be measured before adding the diagnostic signals, otherwise the
-  later A/B has nothing to compare against.
+  later A/B has nothing to compare against. *(Done: baseline recorded in
+  `BASELINE.md`, 2026-06-16. The diagnostic is now captured but not yet acted on —
+  the agent's behaviour is unchanged until the `/text-chat` prompt invites
+  reformulation.)*

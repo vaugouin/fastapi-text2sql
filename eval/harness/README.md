@@ -7,9 +7,12 @@ Measures the **harness**, not the **scaffolding**. The single-turn evaluator in
 — and measures whether the agent **recovers on its own** when the first query
 comes back empty, without the parametric cheat.
 
-This MVP establishes the **recovery baseline WITHOUT the diagnostic signals**, so a
-later change (surfacing `{reason, unresolved_entities}` to the agent) can be A/B'd
-against it.
+This MVP established the **recovery baseline WITHOUT the diagnostic signals** (see
+`BASELINE.md`), so a later change (surfacing `{reason, unresolved_entities}` to the
+agent) can be A/B'd against it. The voice-agent now *emits* a compact `diagnostic`
+in its `query_text2sql` output, and the harness **captures** it (observability — see
+below); this does not change the agent's behaviour, which stays at the baseline
+until a `/text-chat` prompt actually invites reformulation.
 
 ## What it measures
 
@@ -26,6 +29,11 @@ Headline metrics (in `harness_global_<lang>.txt`):
   `retried_but_failed`, `gave_up_empty`, `wrong_result_no_retry`.
 - **answer_without_result** — anti-cheat flag: a non-empty spoken answer on an
   empty final result (possible ungrounded answer; could also be a clarification).
+- **initial_diagnostic_histogram** — distribution of the voice-agent `diagnostic`
+  `reason` (`empty_result`, `entity_unresolved`, `no_sql`, `sql_error`, …) on the
+  forced first query. Per-scenario, the CSV adds `initial_diagnostic_reason` and
+  `final_diagnostic_reason`. Observability only (does not affect classification);
+  empty when the voice-agent build predates the `diagnostic` field.
 
 ## What it reuses (single source of truth)
 
@@ -132,5 +140,10 @@ should return JSON (with a `tool_outputs` array).
 ## Next (after the baseline)
 
 Evolution #1 — surface a compact `diagnostic` (`reason`, `unresolved_entities`) in
-the voice-agent's `query_text2sql` tool result, then re-run this harness and
-compare `empty_result_recovery_rate` against the baseline.
+the voice-agent's `query_text2sql` tool result. **Done**: the voice-agent emits it
+and the harness captures it (`initial_diagnostic_histogram` + per-scenario reasons).
+What remains for the A/B to mean anything is the **second lever** — a `/text-chat`
+(and Realtime) prompt that *invites* reformulation on `empty_result` /
+`entity_unresolved`. Add that, re-run, and compare `empty_result_recovery_rate`
+against the baseline. The baseline's 0% retry rate shows the signal alone won't move
+the needle.
