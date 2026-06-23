@@ -1174,6 +1174,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 ambiguous_question_for_text2sql = 1
                 sql_query = ""
                 sql_query_anonymized = ""
+                result_entity = ""
                 justification = json_content.get('justification') or ""
                 justification_anonymized = justification
                 answer = json_content.get('answer') or ""
@@ -1189,6 +1190,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 if sql_query.endswith(';'):
                     sql_query = sql_query[:-1]
                 sql_query_anonymized = sql_query
+                result_entity = (json_content.get('result_entity') or "").strip().lower()
                 justification = json_content.get('justification') or ""
                 justification_anonymized = justification
                 answer = json_content.get('answer') or ""
@@ -1213,6 +1215,65 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     text="Error: " + error_text2sql
                 ))
                 position_counter += 1
+
+            # --- Answer-entity guard (FASTAPI-TEXT2SQL-117) ----------------------
+            # The SELECT must return the entity the user asked for (result_entity).
+            # When the model returns the wrong result table (e.g. "actors of <movie>"
+            # projecting the movie instead of the persons), do ONE targeted
+            # regeneration. Scoped to movie/serie/person (the failing classes); UNION
+            # / multi-entity queries are left untouched, and the regenerated query is
+            # only adopted if it actually fixes the projection (no regression).
+            _expected_id_by_entity = {
+                "movie": "ID_MOVIE",
+                "serie": "ID_SERIE",
+                "person": "ID_PERSON",
+            }
+            if sql_query and not error_text2sql and result_entity in _expected_id_by_entity:
+                _expected_id = _expected_id_by_entity[result_entity]
+                _select_clause = re.split(r"\bfrom\b", sql_query, maxsplit=1, flags=re.IGNORECASE)[0].upper()
+                _is_union = bool(re.search(r"\bunion\b", sql_query, re.IGNORECASE)) or ("CONTENT_TYPE" in sql_query)
+                if not _is_union and _expected_id not in _select_clause:
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=f"Answer-entity guard: query did not return the expected entity '{result_entity}' ({_expected_id}); regenerating once."
+                    ))
+                    position_counter += 1
+                    _entity_table = {"movie": "T_WC_T2S_MOVIE", "serie": "T_WC_T2S_SERIE", "person": "T_WC_T2S_PERSON"}[result_entity]
+                    _correction_hint = (
+                        f"CORRECTION: The user wants {result_entity} rows returned (result_entity = \"{result_entity}\"). "
+                        f"The previous SQL returned the wrong entity. Regenerate so the primary result table is "
+                        f"{_entity_table} and the SELECT projects {_expected_id} with the {result_entity} 'Result Columns'. "
+                        f"Any other named movie, person or serie is only a filter reached via joins, never the SELECT target."
+                    )
+                    json_content_retry = t2s.f_text2sql(
+                        input_text_anonymized, strtext2sqlmodel,
+                        ui_language=request.ui_language, correction_hint=_correction_hint,
+                    )
+                    if isinstance(json_content_retry, dict) and json_content_retry.get('sql_query'):
+                        _retry_sql = json_content_retry.get('sql_query') or ""
+                        if _retry_sql.endswith(';'):
+                            _retry_sql = _retry_sql[:-1]
+                        _retry_select = re.split(r"\bfrom\b", _retry_sql, maxsplit=1, flags=re.IGNORECASE)[0].upper()
+                        if _expected_id in _retry_select:
+                            sql_query = _retry_sql
+                            sql_query_anonymized = _retry_sql
+                            justification = json_content_retry.get('justification') or justification
+                            justification_anonymized = justification
+                            answer = json_content_retry.get('answer') or answer
+                            answer_anonymized = answer
+                            result_entity = (json_content_retry.get('result_entity') or result_entity).strip().lower()
+                            messages.append(TextMessage(
+                                position=position_counter,
+                                text=f"Answer-entity guard: regenerated query now returns '{result_entity}' ({_expected_id})."
+                            ))
+                            position_counter += 1
+                        else:
+                            messages.append(TextMessage(
+                                position=position_counter,
+                                text="Answer-entity guard: regeneration still did not return the expected entity; keeping the original query."
+                            ))
+                            position_counter += 1
+            # --- end answer-entity guard ----------------------------------------
     async def _retry_with_resolved_complex_question(*, start_message: str, success_message: str, empty_question_message: str, error_message: str):
         """Retry the full pipeline using a stronger-model simplification of the original question."""
         nonlocal position_counter, complex_model_used
