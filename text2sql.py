@@ -8,6 +8,7 @@ import json
 import re
 
 import data_watcher
+import json_guardrails
 from dotenv import load_dotenv
 import openai
 try:
@@ -294,10 +295,16 @@ def f_text2sql(user_question: str, strtext2sqlmodel: str, ui_language: str = "en
             return {"error": "Incomplete JSON response from API", "raw_content": json_content}
 
         try:
-            return json.loads(cleaned_content)
+            parsed = json.loads(cleaned_content)
         except json.JSONDecodeError as json_error:
             print(f"JSON parsing error in text2sql conversion: {str(json_error)}")
             return {"error": f"JSON parsing failed: {str(json_error)}", "raw_content": json_content}
+        # JSON guardrail (FASTAPI-TEXT2SQL-038): validate the output shape.
+        ok, guard_error = json_guardrails.validate_llm_json(parsed, "text2sql")
+        if not ok:
+            print(f"JSON guardrail failed in text2sql conversion: {guard_error}")
+            return {"error": f"JSON guardrail: {guard_error}", "raw_content": json_content}
+        return parsed
     except Exception as e:
         print(f"Error in text2sql conversion: {str(e)}")
         return {"error": f"Error: {str(e)}"}
@@ -366,10 +373,16 @@ def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str 
             return {"error": "Incomplete JSON response from API", "raw_content": json_content}
 
         try:
-            return json.loads(cleaned_content)
+            parsed = json.loads(cleaned_content)
         except json.JSONDecodeError as json_error:
             print(f"JSON parsing error in complex question resolution: {str(json_error)}")
             return {"error": f"JSON parsing failed: {str(json_error)}", "raw_content": json_content}
+        # JSON guardrail (FASTAPI-TEXT2SQL-038): validate the output shape.
+        ok, guard_error = json_guardrails.validate_llm_json(parsed, "complex_question")
+        if not ok:
+            print(f"JSON guardrail failed in complex question resolution: {guard_error}")
+            return {"error": f"JSON guardrail: {guard_error}", "raw_content": json_content}
+        return parsed
 
     except Exception as e:
         print(f"Error in complex question resolution: {str(e)}")
