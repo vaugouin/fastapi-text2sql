@@ -8,6 +8,7 @@ from language_family import guess_language_family
 import rapidfuzz_query
 import text2sql as t2s
 import data_watcher
+import json_guardrails
 import closed_vocab
 
 
@@ -151,6 +152,11 @@ def f_entity_extraction(user_question: str, strentityextractionmodel: str = "def
         try:
             entity_extraction = json.loads(cleaned_content)
             print(f"Successfully parsed JSON: {entity_extraction}")
+            # JSON guardrail (FASTAPI-TEXT2SQL-038): validate the output shape.
+            ok, guard_error = json_guardrails.validate_llm_json(entity_extraction, "entity_extraction")
+            if not ok:
+                print(f"JSON guardrail failed in entity extraction: {guard_error}")
+                return {"error": f"JSON guardrail: {guard_error}", "raw_content": json_content}
             return entity_extraction
         except json.JSONDecodeError as json_error:
             print(f"JSON parsing error in entity extraction: {str(json_error)}")
