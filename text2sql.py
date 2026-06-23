@@ -236,14 +236,17 @@ def _complex_question_temperature(model: str) -> float:
         return 1
     return 0
 
-def f_text2sql(user_question: str, strtext2sqlmodel: str, ui_language: str = "en"):
+def f_text2sql(user_question: str, strtext2sqlmodel: str, ui_language: str = "en", correction_hint: str = ""):
     """Convert natural language question to JSON using the LLM provider SDK.
-    
+
     Args:
         user_question (str): The user's natural language question
         strtext2sqlmodel (str): The model to use for SQL generation
         ui_language (str): Language code for the user-oriented answer (default: "en")
-        
+        correction_hint (str): Optional corrective instruction appended to the prompt,
+            used by the answer-entity guard to request a single targeted regeneration
+            when the first query returned the wrong result entity.
+
     Returns:
         str: The generated JSON
     """
@@ -251,12 +254,14 @@ def f_text2sql(user_question: str, strtext2sqlmodel: str, ui_language: str = "en
     print("User question:", user_question)
     model_to_use = _normalize_llm_model(strtext2sqlmodel, strtext2sqlmodeldefault)
     print("Text2SQL LLM model:", model_to_use)
-    
+
     try:
         # Use the text2sql_prompt_template from the data/prompt.txt file
         #print("Text to SQL prompt template")
         formatted_prompt = text2sql_prompt_template.replace("{user_question}", user_question)
         formatted_prompt = formatted_prompt.replace("{ui_language}", ui_language)
+        if correction_hint:
+            formatted_prompt = formatted_prompt + "\n\n" + correction_hint
 
         json_content = _call_chat_llm(
             model=model_to_use,
