@@ -26,6 +26,13 @@ See `README.md` for metrics, how to run, and scope.
   importable offline for `selftest.py`.
 - **No network in `harness_lib.py`** so it stays unit-testable (`selftest.py`).
   All HTTP lives in `run_harness.py`.
+- **Transient upstream 5xx are retried.** `/text-chat` returns 502 on a transient
+  upstream 5xx (observed: the **text2sql API** returning 500, surfaced via the
+  `query_text2sql_data` wrapper — not OpenAI). `run_harness._post_with_retry` retries
+  5xx / connection / timeout with linear backoff (4xx are not retried) so a single
+  blip does not drop a scenario to `run_error`. The voice-agent's `/text-chat` now
+  also retries the text2sql call itself (`_post_text2sql_with_retry`), so real users
+  are protected too; its OpenAI Responses call remains un-retried.
 - **Run artifacts** go to `results/` (local) or `/shared/harness` (VPS) and are
   gitignored (`.gitignore`). Do not commit run outputs.
 - **Runs in the existing eval Docker image.** The eval `Dockerfile` does

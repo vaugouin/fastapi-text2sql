@@ -34,6 +34,7 @@ import csv
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,31 @@ def default_out_dir() -> Path:
     return Path(__file__).resolve().parent / "results"
 
 
+def _post_with_retry(session: requests.Session, url: str, payload: dict[str, Any],
+                     timeout: float, *, retries: int = 3, backoff: float = 2.0):
+    """POST with retry on transient upstream failures.
+
+    /text-chat propagates OpenAI Responses 5xx as 502, and the orchestrator API can
+    blip; without this a single transient error drops a whole scenario to run_error.
+    Retries on 5xx responses and on connection/timeout errors with linear backoff.
+    4xx are NOT retried (they are real client errors and surface immediately).
+    """
+    for attempt in range(1, retries + 1):
+        try:
+            resp = session.post(url, json=payload, timeout=timeout)
+        except requests.RequestException:
+            if attempt >= retries:
+                raise
+            time.sleep(backoff * attempt)
+            continue
+        if resp.status_code >= 500 and attempt < retries:
+            time.sleep(backoff * attempt)
+            continue
+        resp.raise_for_status()  # 4xx -> raise now; 5xx on last attempt -> raise; 2xx -> ok
+        return resp
+    raise RuntimeError("retry loop exhausted")  # defensive; unreached for retries >= 1
+
+
 def drive_scenario(session: requests.Session, url: str, scenario: dict[str, Any],
                    timeout: float) -> dict[str, Any]:
     """Run one (possibly multi-turn) scenario; classify on the final turn."""
@@ -62,8 +88,7 @@ def drive_scenario(session: requests.Session, url: str, scenario: dict[str, Any]
     final_text, final_tool_outputs = "", []
 
     for msg in scenario["turns"]:
-        resp = session.post(f"{url}/text-chat", json={"message": msg, "context": context}, timeout=timeout)
-        resp.raise_for_status()
+        resp = _post_with_retry(session, f"{url}/text-chat", {"message": msg, "context": context}, timeout)
         body = resp.json()
         final_text = body.get("text", "") or ""
         final_tool_outputs = body.get("tool_outputs", []) or []
