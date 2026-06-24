@@ -5,6 +5,9 @@ docker stop fastapi-text2sql-green
 
 cd /home/debian/docker/fastapi-text2sql-green
 clear
+# Ensure ChromaDB is healthy before (re)starting the API — main.py connects to
+# Chroma at import time and the container crashes on boot if it is unreachable.
+bash "$HOME/docker/chromadb/chromadb-ensure.sh" || echo "WARNING: ChromaDB not healthy — the API will crash on boot until Chroma is up."
 docker build -t fastapi-text2sql-green-app .
 # Secrets are injected at runtime via --env-file from a host-managed env file
 # kept outside the app source tree (never baked into the image).
