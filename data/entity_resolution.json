@@ -54,6 +54,8 @@
         "collection": "movies",
         "default_field": "MOVIE_TITLE",
         "order_by": "POPULARITY",
+        "multi_language_match": true,
+        "year_metadata_filter": true,
         "languages": {
           "en": "MOVIE_TITLE",
           "fr": "MOVIE_TITLE_FR",
@@ -72,6 +74,7 @@
         "collection": "series",
         "default_field": "SERIE_TITLE",
         "order_by": "POPULARITY",
+        "multi_language_match": true,
         "languages": {
           "en": "SERIE_TITLE",
           "fr": "SERIE_TITLE_FR",

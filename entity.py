@@ -5,11 +5,30 @@ import time
 from typing import Any
 
 from language_family import guess_language_family
+from rapidfuzz import fuzz
 import rapidfuzz_query
 import text2sql as t2s
 import data_watcher
 import json_guardrails
 import closed_vocab
+
+
+def _extract_year_context(entity_extraction):
+    """Return a plausible release year (int) from a sibling ``Release_year*``
+    placeholder, or None. Used to tighten the embeddings shortlist via a
+    ChromaDB ``where={"year": {...}}`` filter when disambiguating same-title
+    films (voie B / hybrid)."""
+    if not isinstance(entity_extraction, dict):
+        return None
+    for k, v in entity_extraction.items():
+        if isinstance(k, str) and k.startswith("Release_year"):
+            try:
+                y = int(str(v).strip())
+            except (TypeError, ValueError):
+                continue
+            if 1800 <= y <= 2200:
+                return y
+    return None
 
 
 strentityextractionprompttemplate = "entity_extraction.md"
@@ -284,18 +303,55 @@ def resolve_entities(
         if not target_col:
             return False, current_sql_query, current_justification, current_answer
 
-        current_sql_query = re.sub(
-            rf"\b{re.escape(target_col)}\b\s*=\s*'{re.escape(placeholder)}'",
-            f"{strfieldnamenew} = '{first_record_value_sql}'",
-            current_sql_query,
-            flags=re.IGNORECASE,
-        )
-        current_sql_query = re.sub(
-            rf"\b{re.escape(target_col)}\b\s*=\s*{re.escape(placeholder)}",
-            f"{strfieldnamenew} = '{first_record_value_sql}'",
-            current_sql_query,
-            flags=re.IGNORECASE,
-        )
+        # Voie B: when enabled, rewrite "COL = 'X'" into a language-agnostic OR
+        # predicate across every title column, so a film whose match-language
+        # column differs from the typed language is still reached (e.g. Varda's
+        # "Le Bonheur" is stored as MOVIE_TITLE='Happiness', MOVIE_TITLE_FR='Le
+        # Bonheur'). The query's other constraints (director, year) then pick the
+        # right homonym. An optional table qualifier (e.g. "T_WC_T2S_MOVIE.") is
+        # captured and re-applied to each OR term.
+        multi_cols = []
+        if cfg.get("multi_language_match"):
+            seen = set()
+            for col in languages_map.values():
+                if col and col not in seen:
+                    seen.add(col)
+                    multi_cols.append(col)
+
+        if multi_cols:
+            def _or_group(match):
+                qual = match.group("qual") or ""
+                terms = " OR ".join(
+                    f"{qual}{col} = '{first_record_value_sql}'" for col in multi_cols
+                )
+                return f"({terms})"
+
+            qual_re = r"(?P<qual>(?:\w+\s*\.\s*)?)"
+            current_sql_query = re.sub(
+                qual_re + rf"\b{re.escape(target_col)}\b\s*=\s*'{re.escape(placeholder)}'",
+                _or_group,
+                current_sql_query,
+                flags=re.IGNORECASE,
+            )
+            current_sql_query = re.sub(
+                qual_re + rf"\b{re.escape(target_col)}\b\s*=\s*{re.escape(placeholder)}",
+                _or_group,
+                current_sql_query,
+                flags=re.IGNORECASE,
+            )
+        else:
+            current_sql_query = re.sub(
+                rf"\b{re.escape(target_col)}\b\s*=\s*'{re.escape(placeholder)}'",
+                f"{strfieldnamenew} = '{first_record_value_sql}'",
+                current_sql_query,
+                flags=re.IGNORECASE,
+            )
+            current_sql_query = re.sub(
+                rf"\b{re.escape(target_col)}\b\s*=\s*{re.escape(placeholder)}",
+                f"{strfieldnamenew} = '{first_record_value_sql}'",
+                current_sql_query,
+                flags=re.IGNORECASE,
+            )
         current_sql_query = re.sub(
             rf"'{re.escape(placeholder)}'",
             f"'{first_record_value_sql}'",
@@ -606,7 +662,27 @@ def resolve_entities(
                     if current_collection is None:
                         continue
 
-                    results = current_collection.query(query_texts=[raw_value], n_results=10)
+                    # Hybrid (voie B): when this entity carries year metadata and a
+                    # sibling Release_year is present, tighten the shortlist with a
+                    # ChromaDB metadata filter. Falls back to an unfiltered search if
+                    # the filter yields nothing (e.g. before the year backfill has run,
+                    # or for movies whose RELEASE_YEAR is NULL) so behaviour never regresses.
+                    results = None
+                    if search_cfg.get("year_metadata_filter"):
+                        _year_ctx = _extract_year_context(entity_extraction)
+                        if _year_ctx is not None:
+                            try:
+                                _filtered = current_collection.query(
+                                    query_texts=[raw_value],
+                                    n_results=10,
+                                    where={"year": {"$gte": _year_ctx - 1, "$lte": _year_ctx + 1}},
+                                )
+                                if (_filtered.get("documents", [[]]) or [[]])[0] or []:
+                                    results = _filtered
+                            except Exception:
+                                results = None
+                    if results is None:
+                        results = current_collection.query(query_texts=[raw_value], n_results=10)
                     documents = (results.get("documents", [[]]) or [[]])[0] or []
                     ids = (results.get("ids", [[]]) or [[]])[0] or []
                     if not documents or not ids:
@@ -624,12 +700,19 @@ def resolve_entities(
                             matched_result_position = i
                             found_match = True
                             break
-                    if not found_match:
+                    if not found_match and target_value_norm:
+                        # Typo-tolerant rerank of the shortlist (voie B): pick the
+                        # candidate whose title is lexically closest to the typed value
+                        # (e.g. "le bonnheur" -> "Le Bonheur"). Falls back to the
+                        # embedding top-1 if nothing scores.
+                        best_score = -1.0
                         for i, document in enumerate(documents):
-                            if isinstance(document, str) and document.strip().lower().startswith(target_value_norm):
+                            if not isinstance(document, str):
+                                continue
+                            score = fuzz.WRatio(target_value_norm, document.strip().lower())
+                            if score > best_score:
+                                best_score = score
                                 matched_result_position = i
-                                found_match = True
-                                break
 
                     first_record_id = ids[matched_result_position]
                     parts = str(first_record_id).split("_")
