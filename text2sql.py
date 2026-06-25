@@ -92,6 +92,40 @@ def _normalize_llm_model(model_name: str, default_value: str) -> str:
     return m
 
 
+def _log_openai_cache_usage(response, *, model_norm: str, label: str = "text2sql") -> None:
+    """Log OpenAI automatic prompt-cache stats for a chat/responses call.
+
+    OpenAI caches the longest common prompt prefix automatically (no flag) for
+    prompts over ~1024 tokens, in 128-token blocks, billing cached input tokens
+    at a reduced rate. The proof a hit occurred is
+    ``usage.prompt_tokens_details.cached_tokens > 0`` on a request whose prefix
+    matches an earlier one. This logs that field so prompt caching is observable.
+    """
+    try:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return
+        prompt_tokens = getattr(usage, "prompt_tokens", None)
+        if prompt_tokens is None:
+            # Responses API names it differently.
+            prompt_tokens = getattr(usage, "input_tokens", None)
+        details = getattr(usage, "prompt_tokens_details", None)
+        if details is None:
+            details = getattr(usage, "input_tokens_details", None)
+        cached_tokens = 0
+        if details is not None:
+            cached_tokens = getattr(details, "cached_tokens", 0) or 0
+        ratio = (cached_tokens / prompt_tokens) if prompt_tokens else 0.0
+        print(
+            f"[prompt-cache][openai][{label}] model={model_norm} "
+            f"prompt_tokens={prompt_tokens} cached_tokens={cached_tokens} "
+            f"hit_ratio={ratio:.1%}"
+        )
+    except Exception as cache_log_error:
+        # Never let cache observability break a request.
+        print(f"[prompt-cache][openai][{label}] usage logging failed: {cache_log_error}")
+
+
 def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperature: float) -> str:
     """Call the selected LLM and return raw text content."""
     model_norm = str(model).strip()
@@ -115,6 +149,7 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
                     ],
                     temperature=temperature,
                 )
+                _log_openai_cache_usage(response, model_norm=model_norm)
                 out_text = getattr(response, "output_text", None)
                 if out_text:
                     return out_text
@@ -131,6 +166,7 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
                 {"role": "user", "content": user_prompt},
             ],
         )
+        _log_openai_cache_usage(response, model_norm=model_norm)
         if not response.choices or not response.choices[0].message or not response.choices[0].message.content:
             raise RuntimeError("No content in OpenAI API response")
         return response.choices[0].message.content
