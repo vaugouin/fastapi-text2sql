@@ -52,6 +52,7 @@ Best-effort inference rules:
 
 ---
 
+<!--CACHE_BOUNDARY-->
 ## ? Input
 
 {user_question}
