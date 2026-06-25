@@ -44,6 +44,12 @@ strtext2sqlmodeldefault = "gpt-4o"
 strcomplexquestionprompttemplate = "complex_question.md"
 strcomplexquestionmodeldefault = "gpt-4o"
 
+# Sentinel that marks the boundary between the byte-stable static prefix and the
+# dynamic suffix (the user question / ui_language) in the prompt templates. Used
+# to place an explicit Anthropic `cache_control` breakpoint; stripped out for
+# OpenAI/Gemini (whose caching is automatic/prefix-based and needs no marker).
+CACHE_BOUNDARY_MARKER = "<!--CACHE_BOUNDARY-->"
+
 #print("Text to SQL prompt template", strtext2sqlprompttemplate)
 #print("Entity extraction prompt template", strentityextractionprompttemplate)
 
@@ -122,6 +128,18 @@ def drain_prompt_cache_events() -> list:
     return events
 
 
+def _record_prompt_cache_event(message_text: str) -> None:
+    """Print a prompt-cache observation and record it for the API response messages.
+
+    Each provider logger builds a ready-to-display summary string; main.py drains
+    these and appends them to the /search/text2sql response `messages` array.
+    """
+    print("[prompt-cache] " + message_text)
+    buffer = _prompt_cache_events.get()
+    if buffer is not None:
+        buffer.append({"text": message_text})
+
+
 def _log_openai_cache_usage(response, *, model_norm: str, label: str = "text2sql") -> None:
     """Log OpenAI automatic prompt-cache stats for a chat/responses call.
 
@@ -146,24 +164,84 @@ def _log_openai_cache_usage(response, *, model_norm: str, label: str = "text2sql
         if details is not None:
             cached_tokens = getattr(details, "cached_tokens", 0) or 0
         ratio = (cached_tokens / prompt_tokens) if prompt_tokens else 0.0
-        print(
-            f"[prompt-cache][openai][{label}] model={model_norm} "
-            f"prompt_tokens={prompt_tokens} cached_tokens={cached_tokens} "
-            f"hit_ratio={ratio:.1%}"
+        _record_prompt_cache_event(
+            f"Prompt cache ({label}): provider=openai, model={model_norm}, "
+            f"prompt_tokens={prompt_tokens}, cached_tokens={cached_tokens}, "
+            f"hit_ratio={ratio:.1%}."
         )
-        # Record the event so main.py can surface it in the API response messages.
-        buffer = _prompt_cache_events.get()
-        if buffer is not None:
-            buffer.append({
-                "label": label,
-                "model": model_norm,
-                "prompt_tokens": prompt_tokens,
-                "cached_tokens": cached_tokens,
-                "hit_ratio": ratio,
-            })
     except Exception as cache_log_error:
         # Never let cache observability break a request.
         print(f"[prompt-cache][openai][{label}] usage logging failed: {cache_log_error}")
+
+
+def _log_anthropic_cache_usage(message, *, model_norm: str, label: str = "text2sql") -> None:
+    """Log Anthropic explicit prompt-cache stats for a Messages API call.
+
+    Anthropic caching is NOT automatic: it requires a ``cache_control`` breakpoint
+    on the static block (placed by ``_build_anthropic_user_content``). On a write
+    ``usage.cache_creation_input_tokens > 0``; on a read
+    ``usage.cache_read_input_tokens > 0`` (billed ~0.1x). ``input_tokens`` is the
+    uncached remainder, so total prompt = input + cache_write + cache_read.
+    """
+    try:
+        usage = getattr(message, "usage", None)
+        if usage is None:
+            return
+        input_tokens = getattr(usage, "input_tokens", 0) or 0
+        cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+        total = input_tokens + cache_write + cache_read
+        ratio = (cache_read / total) if total else 0.0
+        _record_prompt_cache_event(
+            f"Prompt cache ({label}): provider=anthropic, model={model_norm}, "
+            f"input_tokens={input_tokens}, cache_write={cache_write}, "
+            f"cache_read={cache_read}, hit_ratio={ratio:.1%}."
+        )
+    except Exception as cache_log_error:
+        print(f"[prompt-cache][anthropic][{label}] usage logging failed: {cache_log_error}")
+
+
+def _log_gemini_cache_usage(response, *, model_norm: str, label: str = "text2sql") -> None:
+    """Log Gemini implicit prompt-cache stats for a generate_content call.
+
+    Implicit caching is automatic on Gemini 2.x (prefix-based, like OpenAI); the
+    hit shows up as ``usage_metadata.cached_content_token_count > 0``.
+    ``prompt_token_count`` is the full (effective) prompt size including any
+    cached content. Explicit ``CachedContent`` is not used here.
+    """
+    try:
+        usage = getattr(response, "usage_metadata", None)
+        if usage is None:
+            return
+        prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
+        cached_tokens = getattr(usage, "cached_content_token_count", 0) or 0
+        ratio = (cached_tokens / prompt_tokens) if prompt_tokens else 0.0
+        _record_prompt_cache_event(
+            f"Prompt cache ({label}): provider=google, model={model_norm}, "
+            f"prompt_tokens={prompt_tokens}, cached_tokens={cached_tokens}, "
+            f"hit_ratio={ratio:.1%}."
+        )
+    except Exception as cache_log_error:
+        print(f"[prompt-cache][google][{label}] usage logging failed: {cache_log_error}")
+
+
+def _build_anthropic_user_content(user_prompt: str):
+    """Split the user prompt at the cache boundary into Anthropic content blocks.
+
+    When the ``CACHE_BOUNDARY_MARKER`` is present, return a two-block list: the
+    static prefix carrying a ``cache_control: {"type": "ephemeral"}`` breakpoint,
+    followed by the dynamic suffix (no breakpoint). The schema/rules stay in the
+    user message (no role change vs. the plain-string path), so SQL behaviour is
+    unchanged — only a cache boundary is added. Falls back to the plain string
+    when the marker is absent (short prompts that aren't worth caching).
+    """
+    if CACHE_BOUNDARY_MARKER in user_prompt:
+        static_prefix, dynamic_suffix = user_prompt.split(CACHE_BOUNDARY_MARKER, 1)
+        return [
+            {"type": "text", "text": static_prefix, "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": dynamic_suffix},
+        ]
+    return user_prompt
 
 
 def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperature: float, cache_label: str = "text2sql") -> str:
@@ -179,6 +257,11 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
     if model_norm == "gemma-4-google":
         model_norm = "gemma-4-26b-a4b-it"
 
+    # Anthropic splits the user prompt on CACHE_BOUNDARY_MARKER to place an explicit
+    # cache breakpoint; every other provider gets the marker stripped (their caching
+    # is automatic/prefix-based, so the sentinel would only pollute the prompt text).
+    user_prompt_plain = user_prompt.replace(CACHE_BOUNDARY_MARKER, "")
+
     if model_norm in {"gpt-4o"} or model_norm.startswith("gpt-") or model_norm.startswith("o1") or model_norm.startswith("o3"):
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY not found in environment variables")
@@ -190,7 +273,7 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
                     model=model_norm,
                     input=[
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
+                        {"role": "user", "content": user_prompt_plain},
                     ],
                     temperature=temperature,
                 )
@@ -208,7 +291,7 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
             temperature=temperature,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {"role": "user", "content": user_prompt_plain},
             ],
         )
         _log_openai_cache_usage(response, model_norm=model_norm, label=cache_label)
@@ -228,7 +311,7 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
             temperature=temperature,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {"role": "user", "content": user_prompt_plain},
             ],
         )
         if not response.choices or not response.choices[0].message or not response.choices[0].message.content:
@@ -245,9 +328,10 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
             model=model_norm,
             max_tokens=4096,
             system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
+            messages=[{"role": "user", "content": _build_anthropic_user_content(user_prompt)}],
             temperature=temperature,
         )
+        _log_anthropic_cache_usage(message, model_norm=model_norm, label=cache_label)
         return message.content[0].text
 
     if model_norm.startswith("gemini-") or model_norm.startswith("gemma-4-"):
@@ -290,9 +374,10 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
                 )
                 res = client.models.generate_content(
                     model=candidate,
-                    contents=user_prompt,
+                    contents=user_prompt_plain,
                     config=config,
                 )
+                _log_gemini_cache_usage(res, model_norm=candidate, label=cache_label)
                 if getattr(res, "text", None):
                     return res.text
                 raise RuntimeError("No text in Google GenAI API response")

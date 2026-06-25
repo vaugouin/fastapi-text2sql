@@ -1907,19 +1907,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     total_end_time = time.time()
     total_processing_time = total_end_time - total_start_time
     
-    # Surface OpenAI prompt-cache observations (one per LLM call this request made,
-    # across entity extraction, text2sql, complex-question retry, and single-value)
-    # into the response messages so caching is verifiable through the API itself,
-    # not only the server stdout.
+    # Surface prompt-cache observations (one per LLM call this request made, across
+    # entity extraction, text2sql, complex-question retry, and single-value; for
+    # OpenAI / Anthropic / Google) into the response messages so caching is
+    # verifiable through the API itself, not only the server stdout.
     for _cache_event in t2s.drain_prompt_cache_events():
         messages.append(TextMessage(
             position=position_counter,
-            text=(
-                f"Prompt cache ({_cache_event['label']}): model={_cache_event['model']}, "
-                f"prompt_tokens={_cache_event['prompt_tokens']}, "
-                f"cached_tokens={_cache_event['cached_tokens']}, "
-                f"hit_ratio={_cache_event['hit_ratio']:.1%}."
-            )
+            text=_cache_event["text"],
         ))
         position_counter += 1
 

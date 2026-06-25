@@ -1088,6 +1088,7 @@ Do NOT confuse these with quality terms:
 
 ---
 
+<!--CACHE_BOUNDARY-->
 ## ? Input
 
 UI language: {ui_language}
