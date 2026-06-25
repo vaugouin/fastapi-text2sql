@@ -776,7 +776,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     # Initialize messages list and position counter
     messages = []
     position_counter = 1
-    
+
+    # Start a fresh prompt-cache observation buffer for this request. Only the
+    # outer call resets it; the complex-question retry re-enters this endpoint in
+    # the same context and must share the buffer so its LLM calls are captured too.
+    if not getattr(request, "complex_question_already_resolved", False):
+        t2s.reset_prompt_cache_events()
+
     # Strip whitespace and carriage return characters from question if provided
     if request.question:
         original_question = request.question
@@ -1901,8 +1907,24 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     total_end_time = time.time()
     total_processing_time = total_end_time - total_start_time
     
+    # Surface OpenAI prompt-cache observations (one per LLM call this request made,
+    # across entity extraction, text2sql, complex-question retry, and single-value)
+    # into the response messages so caching is verifiable through the API itself,
+    # not only the server stdout.
+    for _cache_event in t2s.drain_prompt_cache_events():
+        messages.append(TextMessage(
+            position=position_counter,
+            text=(
+                f"Prompt cache ({_cache_event['label']}): model={_cache_event['model']}, "
+                f"prompt_tokens={_cache_event['prompt_tokens']}, "
+                f"cached_tokens={_cache_event['cached_tokens']}, "
+                f"hit_ratio={_cache_event['hit_ratio']:.1%}."
+            )
+        ))
+        position_counter += 1
+
     messages.append(TextMessage(
-        position=position_counter, 
+        position=position_counter,
         text="Completed request processing and prepared response."
     ))
     position_counter += 1

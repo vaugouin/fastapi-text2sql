@@ -6,6 +6,7 @@ import psutil
 import os
 import json
 import re
+import contextvars
 
 import data_watcher
 import json_guardrails
@@ -92,6 +93,35 @@ def _normalize_llm_model(model_name: str, default_value: str) -> str:
     return m
 
 
+# Per-request buffer of OpenAI prompt-cache observations, surfaced into the
+# /search/text2sql response `messages` array by main.py. Isolated per request via
+# contextvars: FastAPI runs each request in its own task, which copies the context,
+# so concurrent requests never mix events. The complex-question retry re-enters the
+# endpoint in the SAME task/context, so it shares this buffer on purpose (main.py
+# only resets it for the outer call, keyed on complex_question_already_resolved).
+_prompt_cache_events: "contextvars.ContextVar" = contextvars.ContextVar(
+    "prompt_cache_events", default=None
+)
+
+
+def reset_prompt_cache_events() -> None:
+    """Install a fresh, empty prompt-cache event buffer for the current request."""
+    _prompt_cache_events.set([])
+
+
+def drain_prompt_cache_events() -> list:
+    """Return the collected prompt-cache events and clear the buffer.
+
+    Returns an empty list when no buffer was installed (no LLM call happened, or
+    the caller never opted in via reset_prompt_cache_events()).
+    """
+    events = _prompt_cache_events.get()
+    if not events:
+        return []
+    _prompt_cache_events.set([])
+    return events
+
+
 def _log_openai_cache_usage(response, *, model_norm: str, label: str = "text2sql") -> None:
     """Log OpenAI automatic prompt-cache stats for a chat/responses call.
 
@@ -121,13 +151,28 @@ def _log_openai_cache_usage(response, *, model_norm: str, label: str = "text2sql
             f"prompt_tokens={prompt_tokens} cached_tokens={cached_tokens} "
             f"hit_ratio={ratio:.1%}"
         )
+        # Record the event so main.py can surface it in the API response messages.
+        buffer = _prompt_cache_events.get()
+        if buffer is not None:
+            buffer.append({
+                "label": label,
+                "model": model_norm,
+                "prompt_tokens": prompt_tokens,
+                "cached_tokens": cached_tokens,
+                "hit_ratio": ratio,
+            })
     except Exception as cache_log_error:
         # Never let cache observability break a request.
         print(f"[prompt-cache][openai][{label}] usage logging failed: {cache_log_error}")
 
 
-def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperature: float) -> str:
-    """Call the selected LLM and return raw text content."""
+def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperature: float, cache_label: str = "text2sql") -> str:
+    """Call the selected LLM and return raw text content.
+
+    Args:
+        cache_label: Pipeline step name used to tag prompt-cache observations
+            (e.g. "entity_extraction", "text2sql", "complex_question").
+    """
     model_norm = str(model).strip()
     if model_norm == "gemma-4":
         model_norm = "google/gemma-4-26b-a4b-it:free"
@@ -149,7 +194,7 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
                     ],
                     temperature=temperature,
                 )
-                _log_openai_cache_usage(response, model_norm=model_norm)
+                _log_openai_cache_usage(response, model_norm=model_norm, label=cache_label)
                 out_text = getattr(response, "output_text", None)
                 if out_text:
                     return out_text
@@ -166,7 +211,7 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
                 {"role": "user", "content": user_prompt},
             ],
         )
-        _log_openai_cache_usage(response, model_norm=model_norm)
+        _log_openai_cache_usage(response, model_norm=model_norm, label=cache_label)
         if not response.choices or not response.choices[0].message or not response.choices[0].message.content:
             raise RuntimeError("No content in OpenAI API response")
         return response.choices[0].message.content
@@ -305,6 +350,7 @@ def f_text2sql(user_question: str, strtext2sqlmodel: str, ui_language: str = "en
             system_prompt="You are a MariaDB SQL query generator. Respond only with the JSON content, no explanations.",
             user_prompt=formatted_prompt,
             temperature=0,
+            cache_label="text2sql",
         ).strip()
         
         # Check if json_content starts with ```json and remove it
@@ -369,6 +415,7 @@ def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str 
                 system_prompt="You are a powerful question resolver. Respond only with the JSON content, no explanations.",
                 user_prompt=formatted_prompt,
                 temperature=temperature_to_use,
+                cache_label="complex_question",
             ).strip()
         except Exception as api_error:
             msg = str(api_error)
@@ -389,6 +436,7 @@ def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str 
                         system_prompt="You are a powerful question resolver. Respond only with the JSON content, no explanations.",
                         user_prompt=formatted_prompt,
                         temperature=_complex_question_temperature("gpt-4o"),
+                        cache_label="complex_question",
                     ).strip()
                 except Exception as fallback_error:
                     print(f"LLM API call failed: {str(fallback_error)}")
@@ -535,6 +583,7 @@ def f_answer_single_value(user_question: str, strcomplexquestionmodel: str = "de
             system_prompt=system_prompt,
             user_prompt=user_question,
             temperature=temperature_to_use,
+            cache_label="answer_single_value",
         ).strip()
     except Exception as e:
         return {"value": None, "error": f"LLM call failed: {str(e)}"}
