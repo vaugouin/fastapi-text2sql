@@ -144,6 +144,7 @@ def f_entity_extraction(user_question: str, strentityextractionmodel: str = "def
                 system_prompt="You are a powerful entity extraction tool. Respond only with the JSON content, no explanations.",
                 user_prompt=formatted_prompt,
                 temperature=0,
+                cache_label="entity_extraction",
             ).strip()
         except Exception as api_error:
             print(f"LLM API call failed: {str(api_error)}")
