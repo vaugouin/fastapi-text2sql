@@ -3988,7 +3988,13 @@ async def get_samples(ui_language: Optional[str] = "en", api_key: str = Depends(
 # ---------------------------------------------------------------------------
 
 @mcp.tool(name="sql_search")
-async def _mcp_sql_search(question: str, ui_language: str = "en") -> str:
+async def _mcp_sql_search(
+    question: str,
+    ui_language: str = "en",
+    llm_model_entity_extraction: str = "default",
+    llm_model_text2sql: str = "default",
+    llm_model_complex: str = "default",
+) -> str:
     """
     Query the cinema and TV database in natural language.
 
@@ -4003,6 +4009,12 @@ async def _mcp_sql_search(question: str, ui_language: str = "en") -> str:
     the requested `ui_language`. Supported `ui_language` values are "en" (English,
     the default) and "fr" (French); any other value falls back to English. Use the
     entity tools below to fetch full details.
+
+    Optional model overrides (each defaults to "default" = the server's configured
+    model, currently gpt-4o): llm_model_entity_extraction, llm_model_text2sql, and
+    llm_model_complex route the entity-extraction, SQL-generation, and complex-question
+    steps through a chosen provider/model (an OpenAI "gpt-*"/"o1*"/"o3*" model, a
+    "claude-*" model, or a "gemini-*" model).
 
     For precise field knowledge (column names, value ranges, genre codes) read
     the resource context://database-scope before formulating complex questions.
@@ -4027,7 +4039,13 @@ async def _mcp_sql_search(question: str, ui_language: str = "en") -> str:
         async with httpx.AsyncClient(timeout=60) as client:
             r = await client.post(
                 f"{MCP_INTERNAL_BASE_URL}/search/text2sql",
-                json={"question": question, "ui_language": normalize_ui_language(ui_language)},
+                json={
+                    "question": question,
+                    "ui_language": normalize_ui_language(ui_language),
+                    "llm_model_entity_extraction": llm_model_entity_extraction,
+                    "llm_model_text2sql": llm_model_text2sql,
+                    "llm_model_complex": llm_model_complex,
+                },
                 headers={"X-API-Key": MCP_INTERNAL_API_KEY},
             )
             r.raise_for_status()
