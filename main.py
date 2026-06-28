@@ -931,8 +931,56 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             position_counter += 1
             input_text = request.question
         elif request.question_hashed:
-            # If we have question_hashed but no cache hit, we can't proceed without the original question
-            raise ValueError("question_hashed provided but no entry found in the SQL cache and no original question provided")
+            # A hash that misses the cache is an EXPECTED outcome, not a server error.
+            # Ambiguous/empty questions return a question_hashed but never store SQL,
+            # and the cache is version-scoped + Blue/Green, so a hash a client still
+            # holds can legitimately vanish across a version bump or colour switch.
+            # Degrade gracefully (handled HTTP 200 with error_code "cache_miss")
+            # instead of raising an uncaught ValueError that FastAPI turns into a
+            # generic HTTP 500. Clients should resend the original `question` text so
+            # the text-fallback branch above fires. See FASTAPI-TEXT2SQL-135.
+            print("question_hashed provided but not found in the SQL cache and no original question provided; returning handled cache-miss response")
+            messages.append(TextMessage(
+                position=position_counter,
+                text="Provided question_hashed was not found in the cache and no original question was supplied; returning a handled cache-miss response."
+            ))
+            position_counter += 1
+            connection.close()
+            total_processing_time = time.time() - total_start_time
+            cache_miss_response = Text2SQLResponse(
+                question="",
+                question_hashed=request.question_hashed,
+                sql_query="",
+                justification="",
+                answer="",
+                error="No cached entry was found for the provided question_hashed and no original question text was supplied. Resend the request including the original question.",
+                error_code="cache_miss",
+                is_retryable=False,
+                entity_extraction_processing_time=0.0,
+                text2sql_processing_time=0.0,
+                embeddings_processing_time=0.0,
+                embeddings_cache_search_time=0.0,
+                query_execution_time=0.0,
+                total_processing_time=total_processing_time,
+                page=lngpage,
+                rows_per_page=lngrowsperpage,
+                llm_model_entity_extraction=strentityextractionmodel,
+                llm_model_text2sql=strtext2sqlmodel,
+                llm_model_complex=strcomplexquestionmodel,
+                ui_language=request.ui_language,
+                api_version=strapiversion,
+                messages=messages,
+                result=[],
+            )
+            logs.log_usage(
+                "text2sql_post",
+                {
+                    "request": request.model_dump(),
+                    "response": cache_miss_response.model_dump(),
+                },
+                strapiversion,
+            )
+            return cache_miss_response
         else:
             raise ValueError("Either question or question_hashed must be provided")
         """

@@ -496,7 +496,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `entity_extraction` (dict, optional): Full LLM entity extraction output, including the anonymized `question` key plus one key per extracted placeholder (e.g., `Person_name1`, `Movie_title1`)
 - `question_anonymized` (str, optional): The user question with entities replaced by typed placeholders
 - `error` (str): Error message if query processing failed (e.g., the LLM's explanation when the question is ambiguous)
-- `error_code` (str, optional): Structured API error code when the failure can be classified. Currently `"429"` is used for retryable provider quota / rate-limit failures.
+- `error_code` (str, optional): Structured API error code when the failure can be classified. `"429"` is used for retryable provider quota / rate-limit failures. `"cache_miss"` is returned (with HTTP 200, `is_retryable: false`) when a request supplies a `question_hashed` that is not present in the cache and provides no original `question` text to fall back on — resend the request including the original question.
 - `is_retryable` (bool): Indicates whether the client should treat the failure as retryable.
 - `retry_after_seconds` (float, optional): Suggested wait time before retrying the request. When available, this is extracted from the underlying provider response.
 - `provider` (str, optional): Provider associated with the failure when it can be inferred, such as `google`, `openrouter`, `openai`, or `anthropic`.
