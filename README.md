@@ -56,6 +56,12 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 
 ### Pipeline Steps
 
+0. **Bare-Identifier Fast Path (no LLM)**
+   - Before any cache or LLM step, if the **whole trimmed question is just a self-identifying identifier** it is answered with a direct, indexed SQL lookup and the entire LLM pipeline (entity extraction + text-to-SQL + resolution) is skipped — a sub-millisecond, zero-token response.
+   - Recognized forms (an optional leading `imdb` / `wikidata` keyword is tolerated, casing is normalized): `tt…` (IMDb title → looked up on `T_WC_T2S_MOVIE` then `T_WC_T2S_SERIE` by `ID_IMDB`; if it is instead a **season / episode** IMDb id, it is resolved through `T_WC_TMDB_SEASON` / `T_WC_TMDB_EPISODE` to its parent series, which is returned), `nm…` (IMDb person → `T_WC_T2S_PERSON.ID_IMDB`), `Q…` (Wikidata id → scanned across the `ID_WIKIDATA`-bearing entity tables in a fixed precedence, first match wins).
+   - The response keeps the **same shape** as a normal `/search/text2sql` answer: `result_entity` is set, the entity's "Result Columns" are projected, and `sql_query` + `messages` show the direct lookup (there is **no** text-to-SQL LLM message in the trace). The projected columns are read from the **live, hot-reloaded** "Result Columns" section of `data/text_to_sql.md` (single source of truth — a static per-entity table in `main.py` is only a fallback), so the fast path stays in sync when that prompt section changes.
+   - Deliberately **not** short-circuited (they fall through to the normal pipeline): bare integers (TMDb id / Criterion spine / year — ambiguous without a type word) and `P…` (a Wikidata *property*, not a returnable entity).
+
 1. **Exact Question Cache Lookup (SQL Database)**
    - Search for the exact user question in the SQL cache (`T_WC_T2S_CACHE` table)
    - If found, return the cached SQL query immediately

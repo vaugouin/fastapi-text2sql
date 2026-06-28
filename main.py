@@ -430,6 +430,231 @@ _RESULT_ENTITY_SOURCES = {
     "location": ("ID_WIKIDATA", "T_WC_T2S_ITEM"),
 }
 
+# --- Bare-identifier fast path (FASTAPI-TEXT2SQL-137) -------------------------
+# A question that is JUST a self-identifying id (tt… / nm… / Q…) is answered with
+# a direct indexed SQL lookup, skipping the entire LLM pipeline (entity extraction
+# + text-to-SQL + resolution): ID_IMDB / ID_WIKIDATA are indexed, so this is a
+# sub-millisecond, zero-token lookup. Only prefix-unambiguous ids qualify; bare
+# integers (TMDb / Criterion / year / TVDB) and P… (Wikidata property) deliberately
+# fall through to the normal pipeline.
+
+# Fallback columns projected per result_entity, mirroring the "Result Columns"
+# section of data/text_to_sql.md. At runtime the live (hot-reloaded) prompt is the
+# source of truth — see _fast_path_columns() — and this dict is only the safety net
+# used when the prompt can't be parsed or a parsed column list fails to execute.
+# `location` uses the base T_WC_T2S_ITEM columns because the prompt's Locations list
+# includes ID_PROPERTY, which lives on the join table, not on the item table reached
+# by a direct ID_WIKIDATA lookup.
+_FAST_PATH_SELECT_COLUMNS_FALLBACK = {
+    "movie": "ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH, RUNTIME, TAGLINE",
+    "serie": "ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES, TAGLINE",
+    "person": "ID_PERSON, PERSON_NAME, POPULARITY, KNOWN_FOR_DEPARTMENT, BIRTH_YEAR, DEATH_YEAR, PROFILE_PATH",
+    "collection": "ID_T2S_COLLECTION, COLLECTION_NAME, COLLECTION_SOURCE, COLLECTION_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING",
+    "list": "ID_T2S_LIST, LIST_NAME, LIST_SOURCE, LIST_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING",
+    "topic": "ID_TOPIC, TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG, ID_RECORD, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING",
+    "movement": "ID_MOVEMENT, MOVEMENT_NAME, MOVEMENT_SOURCE, MOVEMENT_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING",
+    "technical": "ID_TECHNICAL, DESCRIPTION, DESCRIPTION_FR, TECHNICAL_TYPE, OVERVIEW, WIKIPEDIA_IMAGE_PATH, MOVIE_COUNT, IMDB_RATING_WEIGHTED, POPULARITY",
+    "group": "ID_GROUP, GROUP_NAME, GROUP_SOURCE, GROUP_TYPE, PROFILE_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, PERSON_COUNT, POPULARITY",
+    "death": "ID_DEATH, DEATH_NAME, DEATH_SOURCE, DEATH_TYPE, PROFILE_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, PERSON_COUNT, POPULARITY",
+    "award": "ID_AWARD, AWARD_NAME, AWARD_SOURCE, AWARD_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT, IMDB_RATING",
+    "nomination": "ID_NOMINATION, NOMINATION_NAME, NOMINATION_SOURCE, NOMINATION_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT, IMDB_RATING",
+    "location": "ID_WIKIDATA, ITEM_LABEL, DESCRIPTION, INSTANCE_OF, WIKIPEDIA_IMAGE_PATH",
+}
+
+# result_entity precedence when a Q… id could match several T2S tables; first hit
+# wins (a Wikidata entity is, in practice, exactly one kind of thing).
+_WIKIDATA_FAST_PATH_PRECEDENCE = [
+    "movie", "serie", "person", "collection", "list", "topic", "movement",
+    "group", "death", "award", "nomination", "technical", "location",
+]
+
+# Heading name (in the prompt's "Result Columns" section) -> result_entity.
+_RESULT_SECTION_NAME_TO_ENTITY = {
+    "persons": "person", "movies": "movie", "series": "serie", "topics": "topic",
+    "lists": "list", "collections": "collection", "movements": "movement",
+    "technicals": "technical", "groups": "group", "deaths": "death",
+    "awards": "award", "nominations": "nomination", "companies": "company",
+    "networks": "network", "locations": "location",
+}
+
+# A "Result Columns" sub-heading, e.g. "#### Movies – return:" (en dash or hyphen).
+_RESULT_COLUMNS_HEADING_RE = re.compile(r"^#{2,4}\s*(.+?)\s*[–-]\s*return", re.IGNORECASE)
+
+
+def _parse_result_columns_from_prompt(template_text):
+    """Parse the "Result Columns" section of text_to_sql.md → {result_entity: 'col, col, …'}.
+
+    Makes the bare-id fast path follow the live, hot-reloaded prompt instead of a
+    static copy (FASTAPI-TEXT2SQL-137). Returns {} when the section is absent or
+    unparseable, so callers fall back to _FAST_PATH_SELECT_COLUMNS_FALLBACK. The
+    UNION and image/video sub-sections are ignored (their heading names are not
+    entity names and so are absent from _RESULT_SECTION_NAME_TO_ENTITY).
+    """
+    if not template_text:
+        return {}
+    sec = re.search(r"^#{2,3}\s*Result Columns\s*$", template_text, re.IGNORECASE | re.MULTILINE)
+    if not sec:
+        return {}
+    lines = template_text[sec.end():].splitlines()
+    out = {}
+    i = 0
+    while i < len(lines):
+        hm = _RESULT_COLUMNS_HEADING_RE.match(lines[i].strip())
+        if not hm:
+            i += 1
+            continue
+        name = re.sub(r"[^a-z]", "", hm.group(1).lower())
+        entity = _RESULT_SECTION_NAME_TO_ENTITY.get(name)
+        j = i + 1
+        while j < len(lines) and not lines[j].strip():
+            j += 1
+        if entity and j < len(lines):
+            cols = lines[j].strip()
+            if cols and not cols.startswith("#"):
+                out[entity] = cols
+        i = j + 1
+    return out
+
+
+# Cache the parse keyed on the prompt-string identity (hot-reload reassigns it).
+_fast_path_columns_cache = {"template": None, "map": {}}
+
+
+def _fast_path_columns(entity):
+    """Return the SELECT column list for ``entity``, preferring the live prompt.
+
+    Single source of truth = the hot-reloaded text_to_sql.md "Result Columns"
+    section; falls back to _FAST_PATH_SELECT_COLUMNS_FALLBACK per entity. ``location``
+    is always taken from the fallback (base T_WC_T2S_ITEM columns) because the
+    prompt's Locations list includes the join-only ID_PROPERTY column.
+    """
+    if entity == "location":
+        return _FAST_PATH_SELECT_COLUMNS_FALLBACK["location"]
+    tmpl = getattr(t2s, "text2sql_prompt_template", "") or ""
+    if _fast_path_columns_cache["template"] is not tmpl:
+        _fast_path_columns_cache["template"] = tmpl
+        _fast_path_columns_cache["map"] = _parse_result_columns_from_prompt(tmpl)
+    return _fast_path_columns_cache["map"].get(entity) or _FAST_PATH_SELECT_COLUMNS_FALLBACK[entity]
+
+
+_BARE_ID_PATTERNS = {
+    "imdb_person": re.compile(r"^(?:imdb\s+)?(nm\d+)$", re.IGNORECASE),
+    "imdb_title": re.compile(r"^(?:imdb\s+)?(tt\d+)$", re.IGNORECASE),
+    "wikidata": re.compile(r"^(?:wikidata\s+)?(Q\d+)$", re.IGNORECASE),
+}
+
+
+def _detect_bare_id(question):
+    """Return ``(kind, normalized_id)`` when the whole question is a bare id, else None.
+
+    ``kind`` is one of ``imdb_person`` / ``imdb_title`` / ``wikidata``. The id is
+    normalized to its canonical casing (``tt…`` / ``nm…`` lowercase, ``Q…`` with an
+    uppercase Q) so it matches the stored ``ID_IMDB`` / ``ID_WIKIDATA`` values. An
+    optional leading keyword (``imdb`` / ``wikidata``) is tolerated.
+    """
+    q = (question or "").strip()
+    if not q:
+        return None
+    m = _BARE_ID_PATTERNS["imdb_person"].match(q)
+    if m:
+        return ("imdb_person", m.group(1).lower())
+    m = _BARE_ID_PATTERNS["imdb_title"].match(q)
+    if m:
+        return ("imdb_title", m.group(1).lower())
+    m = _BARE_ID_PATTERNS["wikidata"].match(q)
+    if m:
+        return ("wikidata", "Q" + m.group(1)[1:])
+    return None
+
+
+def _run_bare_id_fast_path(connection, kind, id_value, lngpage, lngrowsperpage):
+    """Resolve a bare-id question with a direct indexed SQL lookup (no LLM).
+
+    Returns ``{result_entity, id_column, candidates_checked, sql_query, rows, resolved_via}``.
+    ``rows`` holds the raw DB dict rows of the first candidate table that matches
+    (precedence order for a Q… id); ``result_entity`` is ``""`` when nothing matched.
+    A ``tt…`` id that is actually a season/episode IMDb id resolves to its parent
+    series (``resolved_via`` = ``"season"`` / ``"episode"``). Columns come from the
+    live prompt via :func:`_fast_path_columns`, retrying with the static fallback if a
+    parsed list fails to execute, so one bad table never aborts the scan. The id is
+    parameter-bound; ``sql_query`` is a display string with the regex-validated id
+    inlined for the response trace.
+    """
+    limit = lngrowsperpage
+    offset = (lngpage - 1) * lngrowsperpage
+    checked = []
+
+    with connection.cursor() as cursor:
+        def _lookup(entity, table, id_column, filter_value):
+            """Project one entity; prefer live-prompt columns, fall back on error. Returns (rows, display_sql)."""
+            tried = []
+            for columns in (_fast_path_columns(entity), _FAST_PATH_SELECT_COLUMNS_FALLBACK[entity]):
+                if columns in tried:
+                    continue
+                tried.append(columns)
+                try:
+                    cursor.execute(
+                        f"SELECT {columns} FROM {table} WHERE {id_column} = %s LIMIT %s OFFSET %s",
+                        (filter_value, limit, offset),
+                    )
+                    rows = list(cursor.fetchall())
+                except Exception as exc:
+                    print(f"Bare-id fast path: lookup on {table} failed: {exc}")
+                    continue
+                display = f"SELECT {columns} FROM {table} WHERE {id_column} = '{filter_value}' LIMIT {limit} OFFSET {offset}"
+                return rows, display
+            return None, None
+
+        if kind == "imdb_person":
+            id_column = "ID_IMDB"
+            candidates = [("person", "T_WC_T2S_PERSON")]
+        elif kind == "imdb_title":
+            id_column = "ID_IMDB"
+            candidates = [("movie", "T_WC_T2S_MOVIE"), ("serie", "T_WC_T2S_SERIE")]
+        else:  # wikidata
+            id_column = "ID_WIKIDATA"
+            candidates = [(e, _RESULT_ENTITY_SOURCES[e][1]) for e in _WIKIDATA_FAST_PATH_PRECEDENCE]
+
+        for entity, table in candidates:
+            checked.append(entity)
+            rows, display = _lookup(entity, table, id_column, id_value)
+            if rows:
+                return {
+                    "result_entity": entity, "id_column": id_column,
+                    "candidates_checked": checked, "sql_query": display,
+                    "rows": rows, "resolved_via": None,
+                }
+
+        # A tt… that is actually a season/episode IMDb id: resolve to its parent
+        # series and return the series fiche (seasons/episodes have ID_IMDB + ID_SERIE
+        # but no result_entity of their own).
+        if kind == "imdb_title":
+            for src_table, src_label in (("T_WC_TMDB_SEASON", "season"), ("T_WC_TMDB_EPISODE", "episode")):
+                checked.append(src_label)
+                try:
+                    cursor.execute(
+                        f"SELECT ID_SERIE FROM {src_table} WHERE ID_IMDB = %s LIMIT 1",
+                        (id_value,),
+                    )
+                    parent = cursor.fetchone()
+                except Exception as exc:
+                    print(f"Bare-id fast path: {src_table} lookup failed: {exc}")
+                    parent = None
+                if parent and parent.get("ID_SERIE"):
+                    rows, display = _lookup("serie", "T_WC_T2S_SERIE", "ID_SERIE", parent["ID_SERIE"])
+                    if rows:
+                        return {
+                            "result_entity": "serie", "id_column": "ID_IMDB",
+                            "candidates_checked": checked, "sql_query": display,
+                            "rows": rows, "resolved_via": src_label,
+                        }
+
+    return {
+        "result_entity": "", "id_column": id_column,
+        "candidates_checked": checked, "sql_query": "",
+        "rows": [], "resolved_via": None,
+    }
+
 
 def _fetch_localized_main_image_paths(cursor, image_table, id_column, type_image, id_values, ui_language):
     """Return ``{id_value: image_path}`` for each id's main localized image.
@@ -875,7 +1100,134 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     print("- Entity extraction model:", strentityextractionmodel)
     print("- Text2SQL model:", strtext2sqlmodel)
     print("- Complex question model:", strcomplexquestionmodel)
-    
+
+    # --- Bare-identifier fast path (FASTAPI-TEXT2SQL-137) ----------------------
+    # When the whole question is just a self-identifying id (tt…/nm…/Q…), answer it
+    # with a direct indexed SQL lookup and skip the entire LLM pipeline (entity
+    # extraction + text-to-SQL + resolution). Same response shape as text2sql:
+    # result_entity is set, the entity's Result Columns are projected, and sql_query
+    # + messages show the direct lookup. Skipped on the complex-question retry
+    # re-entry (its resolved question is never a bare id).
+    _bare_id = _detect_bare_id(request.question) if request.question else None
+    if _bare_id is not None and not getattr(request, "complex_question_already_resolved", False):
+        _kind, _id_value = _bare_id
+        _kind_label = {"imdb_title": "IMDb title", "imdb_person": "IMDb person", "wikidata": "Wikidata"}[_kind]
+        input_text = request.question
+        messages.append(TextMessage(
+            position=position_counter,
+            text=f"Bare-identifier fast path: detected {_kind_label} id '{_id_value}'; resolving with a direct indexed SQL lookup (no LLM)."
+        ))
+        position_counter += 1
+
+        _fp_start = time.time()
+        _fp = _run_bare_id_fast_path(connection, _kind, _id_value, lngpage, lngrowsperpage)
+        query_execution_time = time.time() - _fp_start
+        result_entity_fp = _fp["result_entity"]
+        resolved_via = _fp.get("resolved_via")
+        sql_query = _fp["sql_query"]
+        sql_query_anonymized = _fp["sql_query"]
+
+        fast_path_results = []
+        for index, record in enumerate(_fp["rows"]):
+            fast_path_results.append({
+                "index": index,
+                "data": {k: html.unescape(v) if isinstance(v, str) else v for k, v in record.items()}
+            })
+
+        if result_entity_fp:
+            if resolved_via:
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Identifier '{_id_value}' matched a {resolved_via}; returning its parent series."
+                ))
+                position_counter += 1
+            if sql_query:
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Executing SQL query: {sql_query}"
+                ))
+                position_counter += 1
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Direct lookup matched result_entity '{result_entity_fp}' ({len(fast_path_results)} row(s))."
+            ))
+            position_counter += 1
+            if resolved_via:
+                justification = f"Direct indexed lookup: identifier '{_id_value}' is a {resolved_via} IMDb id; returning its parent serie; no LLM call."
+            else:
+                justification = f"Direct indexed lookup by {_fp['id_column']} = '{_id_value}' on the {result_entity_fp} table; no LLM call."
+            if request.ui_language == "fr":
+                answer = f"Voici l'entité ({result_entity_fp}) correspondant à l'identifiant {_id_value}."
+            else:
+                answer = f"Here is the {result_entity_fp} matching identifier {_id_value}."
+        else:
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"No entity found for identifier '{_id_value}' in the candidate tables: {', '.join(_fp['candidates_checked'])}."
+            ))
+            position_counter += 1
+            justification = f"Direct indexed lookup by {_fp['id_column']} = '{_id_value}' found no matching entity."
+            if request.ui_language == "fr":
+                answer = f"Aucune entité ne correspond à l'identifiant {_id_value}."
+            else:
+                answer = f"No entity matches identifier {_id_value}."
+
+        justification_anonymized = justification
+        answer_anonymized = answer
+
+        try:
+            connection.close()
+        except Exception:
+            pass
+
+        fast_path_question_hash = hashlib.sha256(request.question.encode('utf-8')).hexdigest()
+        total_processing_time = time.time() - total_start_time
+
+        fast_path_response = Text2SQLResponse(
+            question=input_text,
+            question_hashed=fast_path_question_hash,
+            sql_query=sql_query or "",
+            sql_query_anonymized=sql_query_anonymized or "",
+            justification=justification,
+            justification_anonymized=justification_anonymized,
+            answer=answer,
+            answer_anonymized=answer_anonymized,
+            error="",
+            entity_extraction=None,
+            question_anonymized=None,
+            entity_extraction_processing_time=0.0,
+            text2sql_processing_time=0.0,
+            embeddings_processing_time=0.0,
+            embeddings_cache_search_time=0.0,
+            query_execution_time=query_execution_time,
+            total_processing_time=total_processing_time,
+            page=lngpage,
+            llm_defined_limit=None,
+            llm_defined_offset=None,
+            limit=lngrowsperpage,
+            offset=(lngpage - 1) * lngrowsperpage,
+            rows_per_page=lngrowsperpage,
+            cached_exact_question=False,
+            cached_anonymized_question=False,
+            cached_anonymized_question_embedding=False,
+            ambiguous_question_for_text2sql=False,
+            llm_model_entity_extraction=strentityextractionmodel,
+            llm_model_text2sql=strtext2sqlmodel,
+            llm_model_complex=strcomplexquestionmodel,
+            complex_model_used=False,
+            ui_language=request.ui_language,
+            api_version=strapiversion,
+            result=fast_path_results,
+            messages=messages,
+        )
+        logs.log_usage(
+            "text2sql_post",
+            {"request": request.model_dump(), "response": fast_path_response.model_dump()},
+            strapiversion,
+        )
+        return fast_path_response
+    # --- end bare-identifier fast path -----------------------------------------
+
     # Try to retrieve user question from cache if requested
     if request.retrieve_from_cache:
         messages.append(TextMessage(
