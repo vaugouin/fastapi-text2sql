@@ -405,6 +405,31 @@ _RELATED_IMAGE_SOURCES = {
     "season": ("T_WC_TMDB_SEASON_IMAGE", "ID_SEASON", "poster", "POSTER_PATH"),
 }
 
+# Single source of truth: result_entity -> (id column, primary table).
+# Drives the answer-entity guard (FASTAPI-TEXT2SQL-117/-136) for EVERY entity the
+# text-to-SQL prompt can emit as `result_entity` (see data/text_to_sql.md line 16),
+# not just the original movie/serie/person trio. Keys mirror that vocabulary; the
+# id column / primary table mirror the entity detail-endpoint registry documented
+# in README.md. The `movie_serie` UNION value is intentionally absent — those
+# queries project ID_CONTENT + CONTENT_TYPE and are skipped by the guard.
+_RESULT_ENTITY_SOURCES = {
+    "movie": ("ID_MOVIE", "T_WC_T2S_MOVIE"),
+    "serie": ("ID_SERIE", "T_WC_T2S_SERIE"),
+    "person": ("ID_PERSON", "T_WC_T2S_PERSON"),
+    "collection": ("ID_T2S_COLLECTION", "T_WC_T2S_COLLECTION"),
+    "list": ("ID_T2S_LIST", "T_WC_T2S_LIST"),
+    "topic": ("ID_TOPIC", "T_WC_T2S_TOPIC"),
+    "movement": ("ID_MOVEMENT", "T_WC_T2S_MOVEMENT"),
+    "technical": ("ID_TECHNICAL", "T_WC_T2S_TECHNICAL"),
+    "group": ("ID_GROUP", "T_WC_T2S_GROUP"),
+    "death": ("ID_DEATH", "T_WC_T2S_DEATH"),
+    "award": ("ID_AWARD", "T_WC_T2S_AWARD"),
+    "nomination": ("ID_NOMINATION", "T_WC_T2S_NOMINATION"),
+    "company": ("ID_COMPANY", "T_WC_T2S_COMPANY"),
+    "network": ("ID_NETWORK", "T_WC_T2S_NETWORK"),
+    "location": ("ID_WIKIDATA", "T_WC_T2S_ITEM"),
+}
+
 
 def _fetch_localized_main_image_paths(cursor, image_table, id_column, type_image, id_values, ui_language):
     """Return ``{id_value: image_path}`` for each id's main localized image.
@@ -1270,20 +1295,17 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 ))
                 position_counter += 1
 
-            # --- Answer-entity guard (FASTAPI-TEXT2SQL-117) ----------------------
+            # --- Answer-entity guard (FASTAPI-TEXT2SQL-117, extended by -136) -----
             # The SELECT must return the entity the user asked for (result_entity).
             # When the model returns the wrong result table (e.g. "actors of <movie>"
             # projecting the movie instead of the persons), do ONE targeted
-            # regeneration. Scoped to movie/serie/person (the failing classes); UNION
-            # / multi-entity queries are left untouched, and the regenerated query is
-            # only adopted if it actually fixes the projection (no regression).
-            _expected_id_by_entity = {
-                "movie": "ID_MOVIE",
-                "serie": "ID_SERIE",
-                "person": "ID_PERSON",
-            }
-            if sql_query and not error_text2sql and result_entity in _expected_id_by_entity:
-                _expected_id = _expected_id_by_entity[result_entity]
+            # regeneration. Driven by _RESULT_ENTITY_SOURCES so EVERY result entity
+            # (collection, group, company, network, award, …) is checked, not just
+            # movie/serie/person; UNION / multi-entity (movie_serie / CONTENT_TYPE)
+            # queries are left untouched, and the regenerated query is only adopted
+            # if it actually fixes the projection (no regression).
+            if sql_query and not error_text2sql and result_entity in _RESULT_ENTITY_SOURCES:
+                _expected_id, _entity_table = _RESULT_ENTITY_SOURCES[result_entity]
                 _select_clause = re.split(r"\bfrom\b", sql_query, maxsplit=1, flags=re.IGNORECASE)[0].upper()
                 _is_union = bool(re.search(r"\bunion\b", sql_query, re.IGNORECASE)) or ("CONTENT_TYPE" in sql_query)
                 if not _is_union and _expected_id not in _select_clause:
@@ -1292,7 +1314,6 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         text=f"Answer-entity guard: query did not return the expected entity '{result_entity}' ({_expected_id}); regenerating once."
                     ))
                     position_counter += 1
-                    _entity_table = {"movie": "T_WC_T2S_MOVIE", "serie": "T_WC_T2S_SERIE", "person": "T_WC_T2S_PERSON"}[result_entity]
                     _correction_hint = (
                         f"CORRECTION: The user wants {result_entity} rows returned (result_entity = \"{result_entity}\"). "
                         f"The previous SQL returned the wrong entity. Regenerate so the primary result table is "
