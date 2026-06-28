@@ -431,3 +431,15 @@ The API/MCP server is built and run as a Docker container via the repo's `Docker
 
 **Last Updated**: 2026-06-03
 **Current Version**: 1.1.16 (see `strapiversion` in [main.py:105](main.py#L105))
+
+## Backlog (Nestor second-brain)
+
+The prioritized, agent-ready implementation backlog for this repo lives in the **Nestor**
+knowledge repo (a separate repo, not cloned alongside this one):
+
+- This repo: `C:\Users\vaugo\Nestor\projets\t2s-backlog\repos\fastapi-text2sql.md`
+- Cross-repo dashboard: `C:\Users\vaugo\Nestor\projets\t2s-backlog\index.md`
+
+Consult it before implementing: tasks are `FASTAPI-TEXT2SQL-NNN` with status (done / in-progress /
+todo), priority, and quick-wins. NOTE: these are local paths on Philippe's PC and do not
+resolve on the VPS or on cloud agents (claude.ai/code).
