@@ -355,7 +355,7 @@ The 9 regex-validated placeholders validate against a fixed pattern in `_REGEX_P
 
 Full prompt-visible schema rules live in [data/text_to_sql.md](data/text_to_sql.md), full DDL lives in [doc/sql/](doc/sql/), and MCP clients also see the `context://database-scope` resource. Quick map:
 
-- `T_WC_T2S_CACHE` — cache storage. Keys: `QUESTION`, `QUESTION_HASHED`, `SQL_QUERY`, `SQL_PROCESSED`, `JUSTIFICATION`, `ANSWER`, `API_VERSION` (`XXX.YYY.ZZZ`), `UI_LANGUAGE`, `IS_ANONYMIZED`, `DELETED`, timing columns.
+- `T_WC_T2S_CACHE` — cache storage. Keys: `QUESTION`, `QUESTION_HASHED`, `SQL_QUERY`, `SQL_PROCESSED`, `JUSTIFICATION`, `ANSWER`, `RESULT_ENTITY`, `API_VERSION` (`XXX.YYY.ZZZ`), `UI_LANGUAGE`, `IS_ANONYMIZED`, `DELETED`, timing columns. `RESULT_ENTITY` is written/read by [sql_cache.py](sql_cache.py) with graceful degradation: if the column is absent (pre-migration), reads/writes fall back to the legacy column set and treat it as empty rather than failing.
 - Primary entities: `T_WC_T2S_MOVIE`, `T_WC_T2S_SERIE`, `T_WC_T2S_PERSON`.
 - Reference (closed-vocab): `T_WC_TMDB_GENRE` + `T_WC_TMDB_GENRE_LANG` (genres); `T_WC_T2S_TECHNICAL` (technical formats).
 - Person AKAs: `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` (used by RapidFuzz for non-Latin person names; resolves canonical via `resolve_to_canonical`).

@@ -891,6 +891,7 @@ class Text2SQLResponse(BaseModel):
     justification_anonymized: str = ""
     answer: str = ""
     answer_anonymized: str = ""
+    result_entity: str = ""
     error: str
     error_code: Optional[str] = None
     is_retryable: bool = False
@@ -1069,6 +1070,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     justification_anonymized = None
     answer = None
     answer_anonymized = None
+    result_entity = ""
     error_text2sql = None
     llm_defined_limit = None
     llm_defined_offset = None
@@ -1192,6 +1194,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             justification_anonymized=justification_anonymized,
             answer=answer,
             answer_anonymized=answer_anonymized,
+            result_entity=result_entity_fp or "",
             error="",
             entity_extraction=None,
             question_anonymized=None,
@@ -1291,6 +1294,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             sql_query_anonymized = cache_result_exact["sql_query_raw"]
             justification = cache_result_exact.get("justification", "")
             answer = cache_result_exact.get("answer", "")
+            result_entity = cache_result_exact.get("result_entity", "")
     else:
         messages.append(TextMessage(
             position=position_counter, 
@@ -1452,6 +1456,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
 
                 justification = cache_result_anonymized.get("justification", "")
                 answer = cache_result_anonymized.get("answer", "")
+                result_entity = cache_result_anonymized.get("result_entity", "")
                 sql_query_anonymized = sql_query
                 justification_anonymized = justification
                 answer_anonymized = answer
@@ -1548,6 +1553,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                                     justification_anonymized = justification
                                     answer = metadata.get('answer', '')
                                     answer_anonymized = answer
+                                    result_entity = metadata.get('result_entity', '')
                                     print(f"Retrieved SQL query from questions embeddings cache: {sql_query}")
                                     messages.append(TextMessage(
                                         position=position_counter,
@@ -1794,6 +1800,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             total_processing_time=getattr(retry_response, "total_processing_time", 0.0) or 0.0,
                             is_anonymized=False,
                             ui_language=request.ui_language,
+                            result_entity=getattr(retry_response, "result_entity", "") or "",
                         )
                         messages.append(TextMessage(
                             position=position_counter,
@@ -2217,6 +2224,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             total_processing_time=0.0,
                             is_anonymized=False,
                             ui_language=request.ui_language,
+                            result_entity="",
                         )
                         messages.append(TextMessage(
                             position=position_counter,
@@ -2270,6 +2278,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 total_processing_time=total_processing_time,
                 is_anonymized=False,
                 ui_language=request.ui_language,
+                result_entity=result_entity or "",
             )
 
         # Store to SQL cache if requested and not already stored as exact question or anonymized question
@@ -2295,6 +2304,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 total_processing_time=total_processing_time,
                 is_anonymized=True,
                 ui_language=request.ui_language,
+                result_entity=result_entity or "",
             )
         
         if USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE and request.store_to_cache and not cached_anonymized_question_embedding and not sql_execution_failed and input_text_anonymized:
@@ -2331,6 +2341,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             "sql_query_anonymized": sql_query_anonymized,
                             "justification": justification_anonymized or "",
                             "answer": answer_anonymized or "",
+                            "result_entity": result_entity or "",
                             "api_version": strapiversionformatted,
                             "entity_variables": ",".join(entity_vars_for_metadata),  # Store as comma-separated string
                             "entity_extraction_processing_time": entity_extraction_processing_time,
@@ -2386,6 +2397,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         justification_anonymized=justification_anonymized,
         answer=answer,
         answer_anonymized=answer_anonymized,
+        result_entity=result_entity or "",
         error=response_error_text,
         error_code=retry_metadata.get("error_code"),
         is_retryable=bool(retry_metadata.get("is_retryable")),

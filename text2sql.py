@@ -45,9 +45,12 @@ strcomplexquestionprompttemplate = "complex_question.md"
 strcomplexquestionmodeldefault = "gpt-4o"
 
 # Answer-entity classification (decide result_entity from the ORIGINAL question).
-# A small, fast model is enough for a single-word classification; isolated here so the
-# cost/latency knob is easy to change. See f_classify_result_entity().
-strresultentitymodeldefault = "gpt-4o-mini"
+# The strong model is used on purpose: this classification is AUTHORITATIVE over the
+# text-to-SQL answer type (it drives the answer-entity guard), so a weak model that
+# mistakes a filter phrase ("in the Criterion collection") for the answer would wrongly
+# override a correct query. Isolated here so the cost/latency knob is easy to change.
+# See f_classify_result_entity().
+strresultentitymodeldefault = "gpt-4o"
 
 # Sentinel that marks the boundary between the byte-stable static prefix and the
 # dynamic suffix (the user question / ui_language) in the prompt templates. Used
@@ -514,12 +517,27 @@ def f_classify_result_entity(user_question: str, allowed_entities, strmodel: str
         "You classify what kind of thing a user wants LISTED in the results of a "
         "movie / TV database query. Reply with EXACTLY ONE lowercase word from this set:\n"
         + ", ".join(allowed) + "\n"
-        "Rules:\n"
-        "- Return the type of the ROWS the user wants back, not the filters they mention. "
-        "Example: 'Which movie directors died in 2025?' -> person (the directors are the "
-        "answer; 'movie' only scopes them). 'movies with Brad Pitt' -> movie. "
-        "'who directed Inception?' -> person.\n"
-        "- If the answer mixes movies and series, or you are unsure, reply exactly: unknown.\n"
+        "Decide the type of the ROWS the user wants back — never the filters/constraints "
+        "used to narrow the search.\n"
+        "Filter traps (do NOT return one of these just because the word appears in the "
+        "question):\n"
+        "- A named collection / franchise, award, genre, list, company, network, movement "
+        "or location used as a CONSTRAINT is a filter, not the answer. Phrases like 'in the "
+        "Criterion collection', 'won the Palme d'Or', 'Sci-Fi movies', 'on Netflix', 'set in "
+        "Paris' only scope the query.\n"
+        "- 'movie' / 'film' / 'TV' / 'serie' in front of a role ('movie directors') only "
+        "scopes the medium; the role is what the user wants listed.\n"
+        "Examples:\n"
+        "- 'List the movie directors with the most movies in the Criterion collection' -> person "
+        "(the directors are the answer; 'Criterion collection' is only a filter).\n"
+        "- 'Which movie directors died in 2025?' -> person.\n"
+        "- 'movies with Brad Pitt' -> movie.\n"
+        "- 'who directed Inception?' -> person.\n"
+        "- 'List Criterion collection movies' -> movie (you want movies; the collection filters).\n"
+        "- 'What collections is Inception part of?' -> collection (here the collections ARE the answer).\n"
+        "- 'Sci-Fi series on HBO' -> serie.\n"
+        "If the answer mixes movies and series, or you are genuinely unsure, reply exactly: "
+        "unknown (the caller then trusts the SQL-generation step instead).\n"
         "Reply with only the single word: no punctuation, no quotes, no explanation."
     )
     try:
