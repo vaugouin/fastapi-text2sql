@@ -44,6 +44,11 @@ strtext2sqlmodeldefault = "gpt-4o"
 strcomplexquestionprompttemplate = "complex_question.md"
 strcomplexquestionmodeldefault = "gpt-4o"
 
+# Answer-entity classification (decide result_entity from the ORIGINAL question).
+# A small, fast model is enough for a single-word classification; isolated here so the
+# cost/latency knob is easy to change. See f_classify_result_entity().
+strresultentitymodeldefault = "gpt-4o-mini"
+
 # Sentinel that marks the boundary between the byte-stable static prefix and the
 # dynamic suffix (the user question / ui_language) in the prompt templates. Used
 # to place an explicit Anthropic `cache_control` breakpoint; stripped out for
@@ -475,6 +480,63 @@ def f_text2sql(user_question: str, strtext2sqlmodel: str, ui_language: str = "en
     except Exception as e:
         print(f"Error in text2sql conversion: {str(e)}")
         return {"error": f"Error: {str(e)}"}
+
+
+def f_classify_result_entity(user_question: str, allowed_entities, strmodel: str = "default") -> str:
+    """Classify which entity type the user wants *listed*, from the ORIGINAL question.
+
+    ``result_entity`` is normally decided by the text-to-SQL LLM on the ANONYMIZED
+    question. Anonymization can flip the apparent answer type when the head noun is
+    itself an entity word: e.g. "Which movie directors died in 2025?" anonymizes to
+    "Which movie {{Department_name1}} died in {{Death_year1}}?", in which the leftover
+    "movie" reads as the head, so the model returns movies instead of the directors.
+    Re-deriving the expected answer type from the original question (which still says
+    "directors") gives the answer-entity guard a trustworthy expectation to enforce.
+    Extends the answer-entity guard (FASTAPI-TEXT2SQL-117/-136).
+
+    Args:
+        user_question: The original, de-anonymized user question.
+        allowed_entities: Iterable of valid lowercase result-entity strings
+            (passed in by the caller — the single source of truth is
+            ``main._RESULT_ENTITY_SOURCES`` — so this never drifts).
+        strmodel: Optional model override; "default" -> ``strresultentitymodeldefault``.
+
+    Returns:
+        A lowercase entity string contained in ``allowed_entities``, or "" when the
+        model is uncertain or the answer is multi-entity / unmapped. On "" the caller
+        falls back to the LLM's own ``result_entity`` (legacy behavior).
+    """
+    allowed = [str(e).strip().lower() for e in allowed_entities if str(e).strip()]
+    if not user_question or not user_question.strip() or not allowed:
+        return ""
+    model_to_use = _normalize_llm_model(strmodel, strresultentitymodeldefault)
+    system_prompt = (
+        "You classify what kind of thing a user wants LISTED in the results of a "
+        "movie / TV database query. Reply with EXACTLY ONE lowercase word from this set:\n"
+        + ", ".join(allowed) + "\n"
+        "Rules:\n"
+        "- Return the type of the ROWS the user wants back, not the filters they mention. "
+        "Example: 'Which movie directors died in 2025?' -> person (the directors are the "
+        "answer; 'movie' only scopes them). 'movies with Brad Pitt' -> movie. "
+        "'who directed Inception?' -> person.\n"
+        "- If the answer mixes movies and series, or you are unsure, reply exactly: unknown.\n"
+        "Reply with only the single word: no punctuation, no quotes, no explanation."
+    )
+    try:
+        raw = _call_chat_llm(
+            model=model_to_use,
+            system_prompt=system_prompt,
+            user_prompt=user_question,
+            temperature=0,
+            cache_label="result_entity",
+        ).strip().lower()
+    except Exception as e:
+        # Classification is best-effort; never let it break a request.
+        print(f"Error in result_entity classification: {str(e)}")
+        return ""
+    # Defend against stray punctuation / extra words: keep the first [a-z_] token only.
+    token = re.split(r"[^a-z_]+", raw, maxsplit=1)[0] if raw else ""
+    return token if token in allowed else ""
 
 
 def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str = "default"):

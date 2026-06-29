@@ -1647,29 +1647,52 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 ))
                 position_counter += 1
 
+            # --- Answer-entity expectation from the ORIGINAL question --------------
+            # result_entity above is decided by the LLM on the ANONYMIZED question.
+            # Anonymizing a head-noun entity word flips the apparent answer type:
+            # "Which movie directors died in 2025?" -> "Which movie {{Department_name1}}
+            # died in {{Death_year1}}?" reads as a movie query, so the model returns
+            # movies instead of the directors. Re-derive the expected answer type from
+            # the original question (still says "directors") and let the guard enforce
+            # it. Empty -> fall back to the LLM's own result_entity (legacy behavior).
+            expected_result_entity = ""
+            if sql_query and not error_text2sql:
+                expected_result_entity = t2s.f_classify_result_entity(
+                    input_text, list(_RESULT_ENTITY_SOURCES.keys())
+                )
+                if expected_result_entity and expected_result_entity != result_entity:
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=f"Answer-entity expectation from original question: '{expected_result_entity}' (LLM proposed '{result_entity or 'none'}')."
+                    ))
+                    position_counter += 1
+
             # --- Answer-entity guard (FASTAPI-TEXT2SQL-117, extended by -136) -----
-            # The SELECT must return the entity the user asked for (result_entity).
-            # When the model returns the wrong result table (e.g. "actors of <movie>"
-            # projecting the movie instead of the persons), do ONE targeted
-            # regeneration. Driven by _RESULT_ENTITY_SOURCES so EVERY result entity
-            # (collection, group, company, network, award, …) is checked, not just
-            # movie/serie/person; UNION / multi-entity (movie_serie / CONTENT_TYPE)
-            # queries are left untouched, and the regenerated query is only adopted
-            # if it actually fixes the projection (no regression).
-            if sql_query and not error_text2sql and result_entity in _RESULT_ENTITY_SOURCES:
-                _expected_id, _entity_table = _RESULT_ENTITY_SOURCES[result_entity]
+            # The SELECT must return the entity the user asked for. The expectation is
+            # the original-question classification when it maps to a known result
+            # entity, otherwise the LLM's own result_entity (legacy). When the SELECT
+            # returns the wrong result table (e.g. "actors of <movie>" projecting the
+            # movie instead of the persons, or an anonymization-flipped answer type),
+            # do ONE targeted regeneration. Driven by _RESULT_ENTITY_SOURCES so EVERY
+            # result entity (collection, group, company, network, award, …) is checked,
+            # not just movie/serie/person; UNION / multi-entity (movie_serie /
+            # CONTENT_TYPE) queries are left untouched, and the regenerated query is
+            # only adopted if it actually fixes the projection (no regression).
+            _guard_entity = expected_result_entity if expected_result_entity in _RESULT_ENTITY_SOURCES else result_entity
+            if sql_query and not error_text2sql and _guard_entity in _RESULT_ENTITY_SOURCES:
+                _expected_id, _entity_table = _RESULT_ENTITY_SOURCES[_guard_entity]
                 _select_clause = re.split(r"\bfrom\b", sql_query, maxsplit=1, flags=re.IGNORECASE)[0].upper()
                 _is_union = bool(re.search(r"\bunion\b", sql_query, re.IGNORECASE)) or ("CONTENT_TYPE" in sql_query)
                 if not _is_union and _expected_id not in _select_clause:
                     messages.append(TextMessage(
                         position=position_counter,
-                        text=f"Answer-entity guard: query did not return the expected entity '{result_entity}' ({_expected_id}); regenerating once."
+                        text=f"Answer-entity guard: query did not return the expected entity '{_guard_entity}' ({_expected_id}); regenerating once."
                     ))
                     position_counter += 1
                     _correction_hint = (
-                        f"CORRECTION: The user wants {result_entity} rows returned (result_entity = \"{result_entity}\"). "
+                        f"CORRECTION: The user wants {_guard_entity} rows returned (result_entity = \"{_guard_entity}\"). "
                         f"The previous SQL returned the wrong entity. Regenerate so the primary result table is "
-                        f"{_entity_table} and the SELECT projects {_expected_id} with the {result_entity} 'Result Columns'. "
+                        f"{_entity_table} and the SELECT projects {_expected_id} with the {_guard_entity} 'Result Columns'. "
                         f"Any other named movie, person or serie is only a filter reached via joins, never the SELECT target."
                     )
                     json_content_retry = t2s.f_text2sql(
@@ -1688,7 +1711,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             justification_anonymized = justification
                             answer = json_content_retry.get('answer') or answer
                             answer_anonymized = answer
-                            result_entity = (json_content_retry.get('result_entity') or result_entity).strip().lower()
+                            result_entity = (json_content_retry.get('result_entity') or _guard_entity).strip().lower()
                             messages.append(TextMessage(
                                 position=position_counter,
                                 text=f"Answer-entity guard: regenerated query now returns '{result_entity}' ({_expected_id})."
