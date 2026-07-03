@@ -2766,22 +2766,30 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
                 WHERE mn.ID_MOVIE = %s ORDER BY mn.DISPLAY_ORDER ASC, n.ID_NOMINATION ASC
             """, (id,), None),
             "cast": ("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, pm.CREDIT_TYPE,
-                       pm.CAST_CHARACTER, pm.CREW_DEPARTMENT, pm.DISPLAY_ORDER,
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH,
+                       MAX(pm.CREDIT_TYPE) AS CREDIT_TYPE,
+                       GROUP_CONCAT(DISTINCT pm.CAST_CHARACTER SEPARATOR ', ') AS CAST_CHARACTER,
+                       GROUP_CONCAT(DISTINCT pm.CREW_DEPARTMENT SEPARATOR ', ') AS CREW_DEPARTMENT,
+                       MIN(pm.DISPLAY_ORDER) AS DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_PERSON_MOVIE pm
                 JOIN T_WC_T2S_PERSON p ON pm.ID_PERSON = p.ID_PERSON
                 WHERE pm.ID_MOVIE = %s AND pm.CREDIT_TYPE = 'cast'""" + _cast_filter + """
-                ORDER BY pm.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+                GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
+                ORDER BY MIN(pm.DISPLAY_ORDER) ASC, p.ID_PERSON ASC
             """, _cast_params, "person"),
             "crew": ("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, pm.CREDIT_TYPE,
-                       pm.CAST_CHARACTER, pm.CREW_DEPARTMENT, pm.DISPLAY_ORDER,
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH,
+                       MAX(pm.CREDIT_TYPE) AS CREDIT_TYPE,
+                       GROUP_CONCAT(DISTINCT pm.CAST_CHARACTER SEPARATOR ', ') AS CAST_CHARACTER,
+                       GROUP_CONCAT(DISTINCT pm.CREW_DEPARTMENT SEPARATOR ', ') AS CREW_DEPARTMENT,
+                       MIN(pm.DISPLAY_ORDER) AS DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_PERSON_MOVIE pm
                 JOIN T_WC_T2S_PERSON p ON pm.ID_PERSON = p.ID_PERSON
                 WHERE pm.ID_MOVIE = %s AND pm.CREDIT_TYPE = 'crew'
-                ORDER BY pm.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+                GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
+                ORDER BY MIN(pm.DISPLAY_ORDER) ASC, p.ID_PERSON ASC
             """, (id,), "person"),
         }
         with conn.cursor() as cursor:
@@ -2957,22 +2965,30 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
                 WHERE sn.ID_SERIE = %s ORDER BY sn.DISPLAY_ORDER ASC, n.ID_NOMINATION ASC
             """, (id,), None),
             "cast": ("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, ps.CREDIT_TYPE,
-                       ps.CAST_CHARACTER, ps.CREW_DEPARTMENT, ps.DISPLAY_ORDER,
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH,
+                       MAX(ps.CREDIT_TYPE) AS CREDIT_TYPE,
+                       GROUP_CONCAT(DISTINCT ps.CAST_CHARACTER SEPARATOR ', ') AS CAST_CHARACTER,
+                       GROUP_CONCAT(DISTINCT ps.CREW_DEPARTMENT SEPARATOR ', ') AS CREW_DEPARTMENT,
+                       MIN(ps.DISPLAY_ORDER) AS DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_PERSON_SERIE ps
                 JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON
                 WHERE ps.ID_SERIE = %s AND ps.CREDIT_TYPE = 'cast'
-                ORDER BY ps.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+                GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
+                ORDER BY MIN(ps.DISPLAY_ORDER) ASC, p.ID_PERSON ASC
             """, (id,), "person"),
             "crew": ("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, ps.CREDIT_TYPE,
-                       ps.CAST_CHARACTER, ps.CREW_DEPARTMENT, ps.DISPLAY_ORDER,
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH,
+                       MAX(ps.CREDIT_TYPE) AS CREDIT_TYPE,
+                       GROUP_CONCAT(DISTINCT ps.CAST_CHARACTER SEPARATOR ', ') AS CAST_CHARACTER,
+                       GROUP_CONCAT(DISTINCT ps.CREW_DEPARTMENT SEPARATOR ', ') AS CREW_DEPARTMENT,
+                       MIN(ps.DISPLAY_ORDER) AS DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_PERSON_SERIE ps
                 JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON
                 WHERE ps.ID_SERIE = %s AND ps.CREDIT_TYPE = 'crew'
-                ORDER BY ps.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+                GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
+                ORDER BY MIN(ps.DISPLAY_ORDER) ASC, p.ID_PERSON ASC
             """, (id,), "person"),
             "seasons": ("""
                 SELECT ID_SEASON, SEASON_NUMBER, TITLE, OVERVIEW, DAT_AIR,
@@ -3052,9 +3068,12 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     posters, backdrops, and a navigation stub for the parent series. The composite
     key is (ID_SERIE, SEASON_NUMBER); season 0 is the specials season when present.
 
-    Each nested cast/crew element carries PROFILE_PATH for the person plus
-    CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, CREW_JOB, TOTAL_EPISODE_COUNT,
-    and DISPLAY_ORDER from T_WC_TMDB_PERSON_SEASON, ordered by DISPLAY_ORDER ASC.
+    Cast/crew are grouped one row per person: a person crediting several
+    characters or jobs appears once, with CAST_CHARACTER, CREW_DEPARTMENT and
+    CREW_JOB comma-joined across their credits. Each element carries PROFILE_PATH
+    for the person plus CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, CREW_JOB,
+    TOTAL_EPISODE_COUNT (the max across their credits), and DISPLAY_ORDER from
+    T_WC_TMDB_PERSON_SEASON, ordered by the person's best (minimum) DISPLAY_ORDER.
 
     The posters and backdrops lists each contain every image of the matching type
     available for this season from T_WC_TMDB_SEASON_IMAGE (TYPE_IMAGE = 'poster' for
@@ -3114,24 +3133,34 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
         id_season = season["ID_SEASON"]
         pcollections = {
             "cast": ("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, ps.CREDIT_TYPE,
-                       ps.CAST_CHARACTER, ps.CREW_DEPARTMENT, ps.CREW_JOB,
-                       ps.TOTAL_EPISODE_COUNT, ps.DISPLAY_ORDER,
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH,
+                       MAX(ps.CREDIT_TYPE) AS CREDIT_TYPE,
+                       GROUP_CONCAT(DISTINCT ps.CAST_CHARACTER SEPARATOR ', ') AS CAST_CHARACTER,
+                       GROUP_CONCAT(DISTINCT ps.CREW_DEPARTMENT SEPARATOR ', ') AS CREW_DEPARTMENT,
+                       GROUP_CONCAT(DISTINCT ps.CREW_JOB SEPARATOR ', ') AS CREW_JOB,
+                       MAX(ps.TOTAL_EPISODE_COUNT) AS TOTAL_EPISODE_COUNT,
+                       MIN(ps.DISPLAY_ORDER) AS DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_TMDB_PERSON_SEASON ps
                 JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON
                 WHERE ps.ID_SEASON = %s AND ps.CREDIT_TYPE = 'cast'
-                ORDER BY ps.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+                GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
+                ORDER BY MIN(ps.DISPLAY_ORDER) ASC, p.ID_PERSON ASC
             """, (id_season,), "person"),
             "crew": ("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, ps.CREDIT_TYPE,
-                       ps.CAST_CHARACTER, ps.CREW_DEPARTMENT, ps.CREW_JOB,
-                       ps.TOTAL_EPISODE_COUNT, ps.DISPLAY_ORDER,
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH,
+                       MAX(ps.CREDIT_TYPE) AS CREDIT_TYPE,
+                       GROUP_CONCAT(DISTINCT ps.CAST_CHARACTER SEPARATOR ', ') AS CAST_CHARACTER,
+                       GROUP_CONCAT(DISTINCT ps.CREW_DEPARTMENT SEPARATOR ', ') AS CREW_DEPARTMENT,
+                       GROUP_CONCAT(DISTINCT ps.CREW_JOB SEPARATOR ', ') AS CREW_JOB,
+                       MAX(ps.TOTAL_EPISODE_COUNT) AS TOTAL_EPISODE_COUNT,
+                       MIN(ps.DISPLAY_ORDER) AS DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_TMDB_PERSON_SEASON ps
                 JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON
                 WHERE ps.ID_SEASON = %s AND ps.CREDIT_TYPE = 'crew'
-                ORDER BY ps.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+                GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
+                ORDER BY MIN(ps.DISPLAY_ORDER) ASC, p.ID_PERSON ASC
             """, (id_season,), "person"),
             "episodes": ("""
                 SELECT ID_EPISODE, EPISODE_NUMBER, TITLE, OVERVIEW, DAT_AIR,
@@ -3226,9 +3255,12 @@ async def get_episode(
     (no separate poster table); the `stills` list exposes additional frames stored
     in T_WC_TMDB_EPISODE_IMAGE.
 
-    Each nested cast/crew element carries PROFILE_PATH for the person plus
-    CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, CREW_JOB, and DISPLAY_ORDER from
-    T_WC_TMDB_PERSON_EPISODE, ordered by DISPLAY_ORDER ASC.
+    Cast/crew are grouped one row per person: a person crediting several
+    characters or jobs appears once, with CAST_CHARACTER, CREW_DEPARTMENT and
+    CREW_JOB comma-joined across their credits. Each element carries PROFILE_PATH
+    for the person plus CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, CREW_JOB, and
+    DISPLAY_ORDER from T_WC_TMDB_PERSON_EPISODE, ordered by the person's best
+    (minimum) DISPLAY_ORDER.
 
     The stills list contains every image attached to this episode from
     T_WC_TMDB_EPISODE_IMAGE, ordered by DISPLAY_ORDER; each element exposes ID_ROW,
@@ -3288,22 +3320,32 @@ async def get_episode(
         id_season = episode["ID_SEASON"]
         pcollections = {
             "cast": ("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, pe.CREDIT_TYPE,
-                       pe.CAST_CHARACTER, pe.CREW_DEPARTMENT, pe.CREW_JOB,
-                       pe.DISPLAY_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH,
+                       MAX(pe.CREDIT_TYPE) AS CREDIT_TYPE,
+                       GROUP_CONCAT(DISTINCT pe.CAST_CHARACTER SEPARATOR ', ') AS CAST_CHARACTER,
+                       GROUP_CONCAT(DISTINCT pe.CREW_DEPARTMENT SEPARATOR ', ') AS CREW_DEPARTMENT,
+                       GROUP_CONCAT(DISTINCT pe.CREW_JOB SEPARATOR ', ') AS CREW_JOB,
+                       MIN(pe.DISPLAY_ORDER) AS DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_TMDB_PERSON_EPISODE pe
                 JOIN T_WC_T2S_PERSON p ON pe.ID_PERSON = p.ID_PERSON
                 WHERE pe.ID_EPISODE = %s AND pe.CREDIT_TYPE = 'cast'
-                ORDER BY pe.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+                GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
+                ORDER BY MIN(pe.DISPLAY_ORDER) ASC, p.ID_PERSON ASC
             """, (id_episode,), "person"),
             "crew": ("""
-                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, pe.CREDIT_TYPE,
-                       pe.CAST_CHARACTER, pe.CREW_DEPARTMENT, pe.CREW_JOB,
-                       pe.DISPLAY_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
+                SELECT p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH,
+                       MAX(pe.CREDIT_TYPE) AS CREDIT_TYPE,
+                       GROUP_CONCAT(DISTINCT pe.CAST_CHARACTER SEPARATOR ', ') AS CAST_CHARACTER,
+                       GROUP_CONCAT(DISTINCT pe.CREW_DEPARTMENT SEPARATOR ', ') AS CREW_DEPARTMENT,
+                       GROUP_CONCAT(DISTINCT pe.CREW_JOB SEPARATOR ', ') AS CREW_JOB,
+                       MIN(pe.DISPLAY_ORDER) AS DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_TMDB_PERSON_EPISODE pe
                 JOIN T_WC_T2S_PERSON p ON pe.ID_PERSON = p.ID_PERSON
                 WHERE pe.ID_EPISODE = %s AND pe.CREDIT_TYPE = 'crew'
-                ORDER BY pe.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+                GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
+                ORDER BY MIN(pe.DISPLAY_ORDER) ASC, p.ID_PERSON ASC
             """, (id_episode,), "person"),
         }
         with conn.cursor() as cursor:
