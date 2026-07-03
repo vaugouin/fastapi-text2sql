@@ -4200,6 +4200,17 @@ SAMPLE_HYDRATION = {
     "location": ("T_WC_T2S_ITEM",   "ID_WIKIDATA", ["ID_WIKIDATA", "ITEM_LABEL", "ITEM_LABEL_FR", "WIKIPEDIA_IMAGE_PATH"]),
 }
 
+# Evaluation categories whose samples preview the entity's FULL image set (every poster /
+# portrait from the *_IMAGE table) instead of the single entity row. Maps the category id
+# to the _RELATED_IMAGE_SOURCES key (which carries image table / id column / TYPE_IMAGE /
+# target path field). The assertion still resolves to the entity id(s); each id's hydrated
+# row is then expanded into one row per image, swapping the path field to each image.
+SAMPLE_IMAGE_CATEGORIES = {
+    14: "movie",   # Movies - Images queries (posters)   -> T_WC_T2S_MOVIE_IMAGE / POSTER_PATH
+    24: "serie",   # TV Series - Images queries (posters) -> T_WC_T2S_SERIE_IMAGE / POSTER_PATH
+    23: "person",  # Persons - Images queries (portraits) -> T_WC_T2S_PERSON_IMAGE / PROFILE_PATH
+}
+
 
 def _sample_clause_expectation(clause):
     """Describe a non-materializable assertion clause as a flat expectation dict."""
@@ -4214,15 +4225,17 @@ def _sample_clause_expectation(clause):
     return None
 
 
-def _attach_sample_simulation(node, parsed, summary, pending):
+def _attach_sample_simulation(node, parsed, summary, pending, image_source=None):
     """Populate ``node['simulated_result']`` from a parsed assertion.
 
     For ``entity_rows`` the simulated_result is created with an empty ``result`` and the
-    (sim, entity_type, ordered ids) tuple is appended to ``pending`` so rows can be
-    hydrated in one batched pass per entity type. ``scalar`` results are materialized
-    inline from the literal value (no DB needed); ``count`` / ``bound`` carry only an
-    ``expectation`` block (no invented rows). A null/unknown assertion leaves
-    simulated_result as None.
+    (sim, entity_type, ordered ids, image_source) tuple is appended to ``pending`` so rows
+    can be hydrated in one batched pass per entity type. ``image_source`` is None for a
+    normal sample; for the image-query categories (see ``SAMPLE_IMAGE_CATEGORIES``) it is
+    the ``_RELATED_IMAGE_SOURCES`` key, and each id's row is later expanded into the
+    entity's full poster / portrait set. ``scalar`` results are materialized inline from
+    the literal value (no DB needed); ``count`` / ``bound`` carry only an ``expectation``
+    block (no invented rows). A null/unknown assertion leaves simulated_result as None.
     """
     if not summary:
         return
@@ -4235,7 +4248,11 @@ def _attach_sample_simulation(node, parsed, summary, pending):
         sim = {"result_kind": "entity_rows", "entity_type": entity_type, "total_count": 0, "result": []}
         node["simulated_result"] = sim
         if entity_type:  # unknown id-columns stay empty (no table to hydrate from)
-            pending.append((sim, entity_type, list(dict.fromkeys(id_clause["ids"]))))
+            # image_source only applies when it matches the assertion's entity kind.
+            effective_image_source = image_source if image_source == entity_type else None
+            if effective_image_source:
+                sim["image_gallery"] = True  # signals the front to show the full image set
+            pending.append((sim, entity_type, list(dict.fromkeys(id_clause["ids"])), effective_image_source))
         return
 
     if kind == "scalar":
@@ -4268,14 +4285,21 @@ def _hydrate_sample_rows(conn, pending):
     are skipped, and ``total_count`` reflects rows actually found). The "content" kind
     is a movie+series union resolved movie-first, then series for the remainder, with a
     MEDIA_TYPE tag on each row.
+
+    Image-query samples (``image_source`` set — see ``SAMPLE_IMAGE_CATEGORIES``) expand
+    each id's hydrated row into one row per image from the entity's ``*_IMAGE`` table
+    (all posters / portraits, ordered by DISPLAY_ORDER), copying the row and swapping the
+    path field (``POSTER_PATH`` / ``PROFILE_PATH``) to each image; an id with no images
+    keeps its single entity row.
     """
     if not pending:
         return
     ids_by_type = {}
-    for _sim, entity_type, ids in pending:
+    for _sim, entity_type, ids, _image_source in pending:
         ids_by_type.setdefault(entity_type, []).extend(ids)
 
-    row_maps = {}  # entity_type -> {id: data dict}
+    row_maps = {}       # entity_type -> {id: data dict}
+    images_by_source = {}  # image_source -> {id: [IMAGE_PATH, ...]}
     with conn.cursor() as cursor:
         for entity_type, ids in ids_by_type.items():
             unique_ids = list(dict.fromkeys(ids))
@@ -4294,13 +4318,37 @@ def _hydrate_sample_rows(conn, pending):
             )
             row_maps[entity_type] = {row[id_column]: row for row in cursor.fetchall()}
 
-    for sim, entity_type, ids in pending:
+        # Image-query samples: fetch every poster / portrait for the involved ids.
+        image_ids_by_source = {}
+        for _sim, _entity_type, ids, image_source in pending:
+            if image_source:
+                image_ids_by_source.setdefault(image_source, []).extend(ids)
+        for image_source, ids in image_ids_by_source.items():
+            images_by_source[image_source] = _fetch_sample_images(
+                cursor, image_source, list(dict.fromkeys(ids))
+            )
+
+    for sim, entity_type, ids, image_source in pending:
         row_map = row_maps.get(entity_type, {})
         rows = []
-        for id_value in ids:
-            data = row_map.get(id_value)
-            if data is not None:
-                rows.append({"index": len(rows), "data": data})
+        if image_source:
+            path_field = _RELATED_IMAGE_SOURCES[image_source][3]
+            images = images_by_source.get(image_source, {})
+            for id_value in ids:
+                base = row_map.get(id_value)
+                if base is None:
+                    continue
+                paths = images.get(id_value) or []
+                if paths:
+                    for path in paths:
+                        rows.append({"index": len(rows), "data": {**base, path_field: path}})
+                else:  # no image rows: fall back to the entity's own single card
+                    rows.append({"index": len(rows), "data": base})
+        else:
+            for id_value in ids:
+                data = row_map.get(id_value)
+                if data is not None:
+                    rows.append({"index": len(rows), "data": data})
         sim["result"] = rows
         sim["total_count"] = len(rows)
 
@@ -4336,6 +4384,34 @@ def _hydrate_content_rows(cursor, ids):
     return resolved
 
 
+def _fetch_sample_images(cursor, image_source, ids):
+    """Return ``{entity_id: [IMAGE_PATH, ...]}`` for an image-query sample.
+
+    Reads every image row of the category's ``TYPE_IMAGE`` (posters for movies / series,
+    profiles for persons — from ``_RELATED_IMAGE_SOURCES``) for the given ids out of the
+    entity's ``*_IMAGE`` table, across all languages, ordered by ``DISPLAY_ORDER`` so a
+    sample can preview the entity's full poster / portrait set instead of only its main
+    image. Blank paths are skipped.
+    """
+    if not ids:
+        return {}
+    image_table, id_column, type_image, _path_field = _RELATED_IMAGE_SOURCES[image_source]
+    placeholders = ",".join(["%s"] * len(ids))
+    cursor.execute(
+        f"SELECT {id_column} AS _IMG_ID, IMAGE_PATH FROM {image_table} "
+        f"WHERE {id_column} IN ({placeholders}) AND TYPE_IMAGE = %s "
+        f"ORDER BY {id_column}, DISPLAY_ORDER ASC",
+        (*ids, type_image),
+    )
+    images = {}
+    for row in cursor.fetchall():
+        path = row.get("IMAGE_PATH")
+        if path is None or (isinstance(path, str) and not path.strip()):
+            continue
+        images.setdefault(row["_IMG_ID"], []).append(path)
+    return images
+
+
 @app.get("/samples", summary="Suggested sample questions")
 async def get_samples(ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
     """Return the curated tree of suggested sample questions, each with a simulated result.
@@ -4361,7 +4437,11 @@ async def get_samples(ui_language: Optional[str] = "en", api_key: str = Depends(
         For ``entity_rows`` the assertion ids are hydrated into display rows from the
         matching T_WC_T2S_* table; ``scalar`` carries the single known cell value;
         ``count`` / ``bound`` carry an ``expectation`` block and no rows. Null when
-        nothing is materializable.
+        nothing is materializable. For the image-query categories
+        (``SAMPLE_IMAGE_CATEGORIES``: 14 movies posters, 24 series posters, 23 persons
+        portraits) each entity row is expanded into one row per image from the entity's
+        ``*_IMAGE`` table (POSTER_PATH / PROFILE_PATH swapped per image), previewing the
+        full poster / portrait set instead of the single main image.
 
     Supported ui_language values are "en" (default) and "fr"; any other value falls
     back to English.
@@ -4372,6 +4452,7 @@ async def get_samples(ui_language: Optional[str] = "en", api_key: str = Depends(
         pending = []  # (simulated_result, entity_type, ordered ids) to hydrate in batch
         with conn.cursor() as cursor:
             def fetch_samples(category_id):
+                image_source = SAMPLE_IMAGE_CATEGORIES.get(category_id)
                 cursor.execute(
                     """SELECT ID_T2S_EVALUATION, QUESTION, QUESTION_FR, ASSERTIONS_QUERY_RESULT
                        FROM T_WC_T2S_EVALUATION
@@ -4399,7 +4480,7 @@ async def get_samples(ui_language: Optional[str] = "en", api_key: str = Depends(
                                 f"| raw={str(raw_assertion).strip()!r}",
                                 flush=True,
                             )
-                    _attach_sample_simulation(node, parsed, node["assertion"], pending)
+                    _attach_sample_simulation(node, parsed, node["assertion"], pending, image_source)
                     nodes.append(node)
                 return nodes
 
