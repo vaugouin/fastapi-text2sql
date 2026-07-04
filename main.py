@@ -2673,6 +2673,10 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
     entity. Technicals additionally expose DESCRIPTION (localized to ui_language) and
     TECHNICAL_TYPE (sound_system, color_technology, film_technology, sound_technology, film_format).
 
+    genres is a list of objects (not bare ids): each carries ID_GENRE and GENRE_NAME
+    (localized to ui_language via T_WC_TMDB_GENRE_LANG, English fallback), ordered by
+    English name; ID_GENRE links to GET /genres/{ID_GENRE}.
+
     The posters and backdrops lists each contain every image of the matching type
     available for this movie from T_WC_T2S_MOVIE_IMAGE (TYPE_IMAGE = 'poster' for
     posters, 'backdrop' for backdrops), ordered by DISPLAY_ORDER; each element
@@ -2803,8 +2807,15 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
             if collection is None:
-                cursor.execute("SELECT ID_GENRE FROM T_WC_T2S_MOVIE_GENRE WHERE ID_MOVIE = %s", (id,))
-                genres = [r["ID_GENRE"] for r in cursor.fetchall()]
+                cursor.execute("""
+                    SELECT g.id AS ID_GENRE, g.name AS GENRE_NAME, gl.name AS GENRE_NAME_FR
+                    FROM T_WC_T2S_MOVIE_GENRE mg
+                    JOIN T_WC_TMDB_GENRE g ON g.id = mg.ID_GENRE
+                    LEFT JOIN T_WC_TMDB_GENRE_LANG gl ON gl.id = g.id AND gl.LANG = 'fr'
+                    WHERE mg.ID_MOVIE = %s
+                    ORDER BY g.name ASC
+                """, (id,))
+                genres = cursor.fetchall()
                 cursor.execute("SELECT COUNTRY_CODE FROM T_WC_T2S_MOVIE_PRODUCTION_COUNTRY WHERE ID_MOVIE = %s", (id,))
                 production_countries = [r["COUNTRY_CODE"] for r in cursor.fetchall()]
                 cursor.execute("SELECT SPOKEN_LANGUAGE FROM T_WC_T2S_MOVIE_SPOKEN_LANGUAGE WHERE ID_MOVIE = %s", (id,))
@@ -2874,6 +2885,10 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
     Topics, lists, collections, movements, awards, and nominations also include
     WIKIPEDIA_IMAGE_PATH. Companies, topics, lists, collections, and movements also
     include IMDB_RATING_WEIGHTED and POPULARITY for the related entity.
+
+    genres is a list of objects (not bare ids): each carries ID_GENRE and GENRE_NAME
+    (localized to ui_language via T_WC_TMDB_GENRE_LANG, English fallback), ordered by
+    English name; ID_GENRE links to GET /genres/{ID_GENRE}.
 
     The posters and backdrops lists each contain every image of the matching type
     available for this series from T_WC_T2S_SERIE_IMAGE (TYPE_IMAGE = 'poster' for
@@ -3011,8 +3026,15 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
             if collection is None:
-                cursor.execute("SELECT ID_GENRE FROM T_WC_T2S_SERIE_GENRE WHERE ID_SERIE = %s", (id,))
-                genres = [r["ID_GENRE"] for r in cursor.fetchall()]
+                cursor.execute("""
+                    SELECT g.id AS ID_GENRE, g.name AS GENRE_NAME, gl.name AS GENRE_NAME_FR
+                    FROM T_WC_T2S_SERIE_GENRE sg
+                    JOIN T_WC_TMDB_GENRE g ON g.id = sg.ID_GENRE
+                    LEFT JOIN T_WC_TMDB_GENRE_LANG gl ON gl.id = g.id AND gl.LANG = 'fr'
+                    WHERE sg.ID_SERIE = %s
+                    ORDER BY g.name ASC
+                """, (id,))
+                genres = cursor.fetchall()
                 cursor.execute("SELECT COUNTRY_CODE FROM T_WC_T2S_SERIE_PRODUCTION_COUNTRY WHERE ID_SERIE = %s", (id,))
                 production_countries = [r["COUNTRY_CODE"] for r in cursor.fetchall()]
                 cursor.execute("SELECT SPOKEN_LANGUAGE FROM T_WC_T2S_SERIE_SPOKEN_LANGUAGE WHERE ID_SERIE = %s", (id,))
