@@ -22,7 +22,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **Docker Support**: Containerized deployment with Blue/Green deployment strategy
 - **UTF-8 Support**: Proper handling of Unicode characters in queries and logs
 - **MCP Server**: Remote MCP endpoint for Claude clients (web, desktop, mobile) via FastMCP 2.x
-- **Entity Detail Endpoints**: 17 REST endpoints returning full entity data with embedded relations and usage logging, each accepting an optional `ui_language` parameter (`en`/`fr`) that returns fully localized, language-collapsed responses (see below)
+- **Entity Detail Endpoints**: 18 REST endpoints returning full entity data with embedded relations and usage logging, each accepting an optional `ui_language` parameter (`en`/`fr`) that returns fully localized, language-collapsed responses (see below)
 - **Multi-API Key Support**: Comma-separated `API_KEYS` env var with legacy `API_KEY` fallback
 
 ### Advanced Features
@@ -502,7 +502,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `justification_anonymized` (str): The `justification` before entity de-anonymization (with placeholders)
 - `answer` (str): User-oriented plain-language description of what the query returns, written in the language specified by `ui_language`. Contains no table/column names or SQL details. Intended to be displayed above query results.
 - `answer_anonymized` (str): The `answer` before entity de-anonymization (with placeholders)
-- `result_entity` (str): The kind of row the result set lists — one of `movie`, `serie`, `person`, `collection`, `list`, `topic`, `movement`, `technical`, `group`, `death`, `award`, `nomination`, `company`, `network`, `location` (empty when not determined, e.g. ambiguous questions or `movie_serie` UNION results). It is the answer type enforced by the answer-entity guard, stored in the cache (`T_WC_T2S_CACHE.RESULT_ENTITY`) so it is also returned on cache hits.
+- `result_entity` (str): The kind of row the result set lists — one of `movie`, `serie`, `person`, `collection`, `list`, `topic`, `movement`, `technical`, `group`, `death`, `award`, `nomination`, `company`, `network`, `location`, `genre` (empty when not determined, e.g. ambiguous questions or `movie_serie` UNION results). `genre` is only chosen when the genres themselves are the answer ("what are the movie genres?"); a genre used to scope a search ("Sci-Fi movies") is a filter and yields `movie` / `serie`. It is the answer type enforced by the answer-entity guard, stored in the cache (`T_WC_T2S_CACHE.RESULT_ENTITY`) so it is also returned on cache hits.
 - `entity_extraction` (dict, optional): Full LLM entity extraction output, including the anonymized `question` key plus one key per extracted placeholder (e.g., `Person_name1`, `Movie_title1`)
 - `question_anonymized` (str, optional): The user question with entities replaced by typed placeholders
 - `error` (str): Error message if query processing failed (e.g., the LLM's explanation when the question is ambiguous)
@@ -601,6 +601,7 @@ Pagination covers only the related-entity lists. Image arrays (`posters`, `backd
 | `GET` | `/lists/{id}` | `ID_T2S_LIST` | `T_WC_T2S_LIST` | Curated list detail |
 | `GET` | `/movements/{id}` | `ID_MOVEMENT` | `T_WC_T2S_MOVEMENT` | Film movement or style detail |
 | `GET` | `/technicals/{id}` | `ID_TECHNICAL` | `T_WC_T2S_TECHNICAL` | Technical format detail (sound system, color/film/sound technology, film format) |
+| `GET` | `/genres/{id}` | `ID_GENRE` (TMDb genre code) | `T_WC_TMDB_GENRE` | Movie / TV genre detail (closed vocabulary) |
 | `GET` | `/groups/{id}` | `ID_GROUP` | `T_WC_T2S_GROUP` | Person group detail |
 | `GET` | `/deaths/{id}` | `ID_DEATH` | `T_WC_T2S_DEATH` | Cause or circumstance of death detail |
 | `GET` | `/awards/{id}` | `ID_AWARD` | `T_WC_T2S_AWARD` | Award detail |
@@ -774,6 +775,19 @@ Returns all `T_WC_T2S_TECHNICAL` fields for `ID_TECHNICAL`, plus:
 | `wikipedia_content` | Array of `{ title, content }` from `T_WC_WIKIPEDIA_PAGE_LANG_SECTION` joined on the technical's `ID_WIKIDATA`, filtered to `LANG = 'en'` and `DELETED = 0`, ordered by `DISPLAY_ORDER ASC`. Each element exposes the section `TITLE` and `CONTENT`. Empty when `ID_WIKIDATA` is NULL |
 
 Base technical fields currently include `ID_TECHNICAL`, `ID_RECORD`, `ID_WIKIDATA`, `DESCRIPTION`, `DESCRIPTION_FR`, `OVERVIEW`, `TECHNICAL_TYPE` (one of `sound_system`, `color_technology`, `film_technology`, `sound_technology`, `film_format`), `MOVIE_COUNT`, `SERIE_COUNT`, `WIKIPEDIA_IMAGE_PATH`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, and `POPULARITY`. No `series` array is returned because `T_WC_T2S_SERIE_TECHNICAL` does not exist yet.
+
+##### `GET /genres/{id}`
+
+Returns a genre from the closed-vocabulary reference table `T_WC_TMDB_GENRE`, identified by its TMDb genre code `ID_GENRE` (e.g. `28` = Action, `878` = Science Fiction, `18` = Drama), plus its member movies and TV series. Returns `404` when the genre code does not exist.
+
+Because `T_WC_TMDB_GENRE` uses the legacy lowercase columns `id` / `name`, the base row is aliased to the API's canonical shape. Base genre fields are `ID_GENRE` (from `id`), `GENRE_NAME` (from `name`, localized to `ui_language` via `T_WC_TMDB_GENRE_LANG` with English fallback), `APPLIES_TO_MOVIE`, and `APPLIES_TO_SERIE` (the flags that say which side the genre is valid for — 8 codes apply to both).
+
+| Field | Shape |
+|---|---|
+| `movies` | Array of `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH }` from `T_WC_T2S_MOVIE_GENRE` joined to `T_WC_T2S_MOVIE`, ordered by `IMDB_RATING_WEIGHTED DESC, ID_MOVIE ASC`. Empty for a TV-only genre |
+| `series` | Array of `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH }` from `T_WC_T2S_SERIE_GENRE` joined to `T_WC_T2S_SERIE`, ordered by `IMDB_RATING_WEIGHTED DESC, ID_SERIE ASC`. Empty for a movie-only genre |
+
+No `wikipedia_images` / `wikipedia_content` arrays are returned because `T_WC_TMDB_GENRE` has no `ID_WIKIDATA`. Both nested lists are paginated (`collection` = `movies` / `series`) and their `POSTER_PATH` is localized like every other nested movie/serie row.
 
 ##### `GET /groups/{id}` and `/deaths/{id}`
 

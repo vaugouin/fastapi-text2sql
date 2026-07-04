@@ -84,6 +84,7 @@ async def _mcp_sql_search(question: str, ui_language: str = "en") -> str:
     List IDs       → https://myapp.com/lists/{ID_T2S_LIST}
     Movement IDs   → https://myapp.com/movements/{ID_MOVEMENT}
     Technical IDs  → https://myapp.com/technicals/{ID_TECHNICAL}
+    Genre IDs      → https://myapp.com/genres/{ID_GENRE}
     Group IDs      → https://myapp.com/groups/{ID_GROUP}
     Death IDs      → https://myapp.com/deaths/{ID_DEATH}
     Award IDs      → https://myapp.com/awards/{ID_AWARD}
@@ -224,6 +225,22 @@ async def _mcp_get_technical(id: int) -> str:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
                 f"{MCP_INTERNAL_BASE_URL}/technicals/{id}",
+                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+            )
+            r.raise_for_status()
+            return r.text
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+@mcp.tool(name="get_genre")
+async def _mcp_get_genre(id: int) -> str:
+    """Get a movie / TV genre from the closed vocabulary (T_WC_TMDB_GENRE) plus its
+    member movies and TV series ordered best-rated first. id = ID_GENRE, the TMDb
+    genre code (e.g. 28 = Action, 878 = Science Fiction, 18 = Drama)."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{MCP_INTERNAL_BASE_URL}/genres/{id}",
                 headers={"X-API-Key": MCP_INTERNAL_API_KEY},
             )
             r.raise_for_status()
@@ -387,6 +404,7 @@ Each entity endpoint returns all properties for a given entity ID, including emb
 | `GET /lists/{id}` | List fields + member movies and series ordered by position |
 | `GET /movements/{id}` | Movement fields + associated movies and series |
 | `GET /technicals/{id}` | Technical-format fields + associated movies and sibling technicals sharing the same TECHNICAL_TYPE |
+| `GET /genres/{id}` | Genre fields (closed vocabulary, ID_GENRE = TMDb genre code) + member movies and TV series |
 | `GET /groups/{id}` | Group fields + associated persons |
 | `GET /deaths/{id}` | Death/cause fields + associated persons |
 | `GET /awards/{id}` | Award fields + associated movies, series, and persons |

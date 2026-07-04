@@ -428,6 +428,13 @@ _RESULT_ENTITY_SOURCES = {
     "company": ("ID_COMPANY", "T_WC_T2S_COMPANY"),
     "network": ("ID_NETWORK", "T_WC_T2S_NETWORK"),
     "location": ("ID_WIKIDATA", "T_WC_T2S_ITEM"),
+    # Genres are a closed-vocabulary reference (T_WC_TMDB_GENRE, legacy lowercase
+    # PK `id`). They are listable in their own right ("what are the movie genres?")
+    # but are ALSO the most common filter word ("Sci-Fi movies"); the classifier
+    # (text2sql.f_classify_result_entity) is what tells the two apart. The guard's
+    # id token is ID_GENRE, so the "Genres" Result Columns block MUST project the
+    # PK as `id AS ID_GENRE`.
+    "genre": ("ID_GENRE", "T_WC_TMDB_GENRE"),
 }
 
 # --- Bare-identifier fast path (FASTAPI-TEXT2SQL-137) -------------------------
@@ -459,6 +466,7 @@ _FAST_PATH_SELECT_COLUMNS_FALLBACK = {
     "award": "ID_AWARD, AWARD_NAME, AWARD_SOURCE, AWARD_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT, IMDB_RATING",
     "nomination": "ID_NOMINATION, NOMINATION_NAME, NOMINATION_SOURCE, NOMINATION_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT, IMDB_RATING",
     "location": "ID_WIKIDATA, ITEM_LABEL, DESCRIPTION, INSTANCE_OF, WIKIPEDIA_IMAGE_PATH",
+    "genre": "id AS ID_GENRE, name AS GENRE_NAME, APPLIES_TO_MOVIE, APPLIES_TO_SERIE",
 }
 
 # result_entity precedence when a Q… id could match several T2S tables; first hit
@@ -474,7 +482,7 @@ _RESULT_SECTION_NAME_TO_ENTITY = {
     "lists": "list", "collections": "collection", "movements": "movement",
     "technicals": "technical", "groups": "group", "deaths": "death",
     "awards": "award", "nominations": "nomination", "companies": "company",
-    "networks": "network", "locations": "location",
+    "networks": "network", "locations": "location", "genres": "genre",
 }
 
 # A "Result Columns" sub-heading, e.g. "#### Movies – return:" (en dash or hyphen).
@@ -3938,6 +3946,67 @@ async def get_technical(id: int, ui_language: Optional[str] = "en", collection: 
         conn.close()
 
 
+@app.get("/genres/{id}", summary="Movie / TV genre full detail")
+async def get_genre(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+    """Return the closed-vocabulary genre identified by ID_GENRE (the TMDb genre id,
+    e.g. 28 = Action, 878 = Science Fiction) plus its member movies and TV series.
+
+    The genre is stored in the reference table T_WC_TMDB_GENRE (legacy lowercase PK
+    `id` / `name`), so the base row is aliased to the API's canonical shape:
+    ID_GENRE, GENRE_NAME (localized to ui_language via T_WC_TMDB_GENRE_LANG, English
+    fallback), APPLIES_TO_MOVIE, APPLIES_TO_SERIE. The APPLIES_TO_* flags say which
+    side the genre is valid for (8 ids apply to both; the rest are movie- or TV-only).
+
+    movies (via T_WC_T2S_MOVIE_GENRE) and series (via T_WC_T2S_SERIE_GENRE) are each
+    ordered by IMDB_RATING_WEIGHTED DESC — best-rated first. A TV-only genre yields an
+    empty movies array and vice versa. Each nested movie/serie carries a localized
+    POSTER_PATH. There is no wikipedia_images / wikipedia_content block because
+    T_WC_TMDB_GENRE has no ID_WIKIDATA."""
+    ui_language = normalize_ui_language(ui_language)
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT g.id AS ID_GENRE, g.name AS GENRE_NAME, gl.name AS GENRE_NAME_FR,
+                       g.APPLIES_TO_MOVIE, g.APPLIES_TO_SERIE
+                FROM T_WC_TMDB_GENRE g
+                LEFT JOIN T_WC_TMDB_GENRE_LANG gl ON gl.id = g.id AND gl.LANG = 'fr'
+                WHERE g.id = %s
+            """, (id,))
+            genre = cursor.fetchone()
+        if not genre:
+            raise HTTPException(status_code=404, detail=f"Genre {id} not found")
+        pcollections = {
+            "movies": ("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_MOVIE_GENRE mg
+                JOIN T_WC_T2S_MOVIE m ON mg.ID_MOVIE = m.ID_MOVIE
+                WHERE mg.ID_GENRE = %s
+                ORDER BY m.IMDB_RATING_WEIGHTED DESC, m.ID_MOVIE ASC
+            """, (id,), "movie"),
+            "series": ("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_SERIE_GENRE sg
+                JOIN T_WC_T2S_SERIE s ON sg.ID_SERIE = s.ID_SERIE
+                WHERE sg.ID_GENRE = %s
+                ORDER BY s.IMDB_RATING_WEIGHTED DESC, s.ID_SERIE ASC
+            """, (id,), "serie"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
+        result = {**genre, "movies": data["movies"], "series": data["series"], "pagination": pagination}
+        logs.log_usage("genres", {"id": id, "response": result}, strapiversion)
+        apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
+        localize_response(result, ui_language)
+        return result
+    finally:
+        conn.close()
+
+
 @app.get("/groups/{id}", summary="Person group full detail")
 async def get_group(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a group (organization, club, musical group) plus associated
@@ -4606,6 +4675,7 @@ async def _mcp_sql_search(
     Topic IDs      → https://myapp.com/topics/{ID_TOPIC}
     List IDs       → https://myapp.com/lists/{ID_T2S_LIST}
     Movement IDs   → https://myapp.com/movements/{ID_MOVEMENT}
+    Genre IDs      → https://myapp.com/genres/{ID_GENRE}
     Group IDs      → https://myapp.com/groups/{ID_GROUP}
     Death IDs      → https://myapp.com/deaths/{ID_DEATH}
     Award IDs      → https://myapp.com/awards/{ID_AWARD}
@@ -4801,6 +4871,16 @@ async def _mcp_get_technical(id: int, ui_language: str = "en", collection: Optio
     return await _mcp_get(f"/technicals/{id}", ui_language, collection, page, rows_per_page)
 
 
+@mcp.tool(name="get_genre")
+async def _mcp_get_genre(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+    """Get a movie / TV genre from the closed vocabulary (T_WC_TMDB_GENRE) plus its
+    member movies and TV series ordered best-rated first. The genre itself carries
+    ID_GENRE, GENRE_NAME (localized to ui_language), and the APPLIES_TO_MOVIE /
+    APPLIES_TO_SERIE flags. id = ID_GENRE, the TMDb genre code (e.g. 28 = Action,
+    878 = Science Fiction, 18 = Drama). No Wikipedia block (genres have no ID_WIKIDATA)."""
+    return await _mcp_get(f"/genres/{id}", ui_language, collection, page, rows_per_page)
+
+
 @mcp.tool(name="get_group")
 async def _mcp_get_group(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a person group (organization, club, musical group) plus
@@ -4919,11 +4999,15 @@ async def _mcp_database_scope() -> str:
         CREDIT_TYPE = 'crew' \u2192 CREW_DEPARTMENT, DISPLAY_ORDER
         CREW_DEPARTMENT values: Art, Camera, Costume & Make-Up, Crew, Directing,
           Editing, Lighting, Production, Sound, Visual Effects, Writing
-    - Genres: T_WC_T2S_MOVIE_GENRE.ID_GENRE (INT)
+    - Genres: T_WC_T2S_MOVIE_GENRE.ID_GENRE (INT) -> T_WC_TMDB_GENRE (id, name)
         28 Action, 12 Adventure, 16 Animation, 35 Comedy, 80 Crime,
         18 Drama, 10751 Family, 14 Fantasy, 36 History, 27 Horror,
         10402 Music, 9648 Mystery, 10749 Romance, 878 Sci-Fi,
         53 Thriller, 10752 War, 37 Western, 10770 TV Movie, 99 Documentary
+        A genre is itself a listable entity (result_entity = genre, get_genre,
+        /genres/{ID_GENRE}) — used when the genres ARE the answer ("what are the
+        movie genres?"). When a genre only scopes the query ("Sci-Fi movies") it is
+        a FILTER, not the result.
     - Companies: T_WC_T2S_MOVIE_COMPANY \u2192 T_WC_T2S_COMPANY
     - Production countries: T_WC_T2S_MOVIE_PRODUCTION_COUNTRY (COUNTRY_CODE 2-letter upper)
     - Spoken languages: T_WC_T2S_MOVIE_SPOKEN_LANGUAGE (SPOKEN_LANGUAGE 2-letter lower)

@@ -44,8 +44,8 @@ Edit at the right layer; the architecture is intentionally split.
 - `strapiversion` lives at [main.py:105](main.py#L105) (also drives Blue/Green port parity and `MCP_INTERNAL_BASE_URL`)
 - `Text2SQLRequest` / `Text2SQLResponse` Pydantic models around [main.py:214-269](main.py#L214-L269)
 - `POST /search/text2sql` — main pipeline endpoint
-- 17 entity detail endpoints (movies, series, seasons, episodes, persons, companies, networks, collections, topics, lists, movements, technicals, groups, deaths, awards, nominations, locations). `seasons` and `episodes` are keyed on composite paths (`/seasons/{id_serie}/{season_number}`, `/episodes/{id_serie}/{season_number}/{episode_number}`) and currently read from `T_WC_TMDB_*` source tables — see [SEASONS_AND_EPISODES.md](SEASONS_AND_EPISODES.md) §6.1.
-- FastMCP instance + 16 MCP tools (`sql_search` + 15 entity tools), 1 resource (`context://database-scope`), bearer-token middleware, `app.mount("", mcp_app)` at root. The `seasons` and `episodes` HTTP endpoints do not yet have MCP wrappers (tracked in [SEASONS_AND_EPISODES.md](SEASONS_AND_EPISODES.md) §3 "MCP coverage")
+- 18 entity detail endpoints (movies, series, seasons, episodes, persons, companies, networks, collections, topics, lists, movements, technicals, genres, groups, deaths, awards, nominations, locations). `seasons` and `episodes` are keyed on composite paths (`/seasons/{id_serie}/{season_number}`, `/episodes/{id_serie}/{season_number}/{episode_number}`) and currently read from `T_WC_TMDB_*` source tables — see [SEASONS_AND_EPISODES.md](SEASONS_AND_EPISODES.md) §6.1. `genres` reads the closed-vocabulary reference table `T_WC_TMDB_GENRE` (legacy lowercase PK `id`, no `ID_WIKIDATA`, so no Wikipedia arrays).
+- FastMCP instance + 17 MCP tools (`sql_search` + 16 entity tools), 1 resource (`context://database-scope`), bearer-token middleware, `app.mount("", mcp_app)` at root. The `seasons` and `episodes` HTTP endpoints do not yet have MCP wrappers (tracked in [SEASONS_AND_EPISODES.md](SEASONS_AND_EPISODES.md) §3 "MCP coverage")
 
 **[text2sql.py](text2sql.py)** — core LLM logic.
 - `_call_chat_llm()` — unified multi-provider dispatcher (OpenAI / Anthropic / Google). Routes on prefix: `gpt-*`/`o1*`/`o3*` → OpenAI; `claude-*` → Anthropic; `gemini-*` → Google.
@@ -204,7 +204,7 @@ Always also:
 
 ## Text-to-SQL ↔ entity endpoint coherence
 
-[data/text_to_sql.md](data/text_to_sql.md) (drives LLM-generated SQL for `/search/text2sql`) and the 17 entity detail endpoints in [main.py](main.py) (hand-written SQL for `/movies/{id}`, `/persons/{id}`, `/seasons/{id_serie}/{season_number}`, etc., plus their MCP `get_*` proxies where they exist) are two independent SQL surfaces over the same data. They are kept in sync by hand, not enforced by code.
+[data/text_to_sql.md](data/text_to_sql.md) (drives LLM-generated SQL for `/search/text2sql`) and the 18 entity detail endpoints in [main.py](main.py) (hand-written SQL for `/movies/{id}`, `/persons/{id}`, `/seasons/{id_serie}/{season_number}`, etc., plus their MCP `get_*` proxies where they exist) are two independent SQL surfaces over the same data. They are kept in sync by hand, not enforced by code.
 
 When working on either side, scan the other for divergence and **surface any discrepancy to the user** — do not silently patch one to match the other, and do not treat this as an automatic refactor target. Default expectation: `data/text_to_sql.md` is the spec; the endpoints should match unless the user says otherwise. Categories of drift to watch for:
 

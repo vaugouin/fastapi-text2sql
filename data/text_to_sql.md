@@ -13,7 +13,7 @@ Convert the provided natural language question into the following json structure
   "error": "**request clarification**"
 }
 
-- **Step 1 — decide `result_entity` first.** It is the kind of thing the user wants *listed* in the results, exactly one of: `movie`, `serie`, `person`, `collection`, `list`, `topic`, `movement`, `technical`, `group`, `death`, `award`, `nomination`, `company`, `network`, `location` (use `movie_serie` for a movies+series UNION). Everything else named in the question is a FILTER reached via joins, never the SELECT target. The primary result table and the columns you SELECT (see "Result Columns") MUST match `result_entity`, and the SELECT MUST project that entity's id column. See "Answer entity (what to return)" below.
+- **Step 1 — decide `result_entity` first.** It is the kind of thing the user wants *listed* in the results, exactly one of: `movie`, `serie`, `person`, `collection`, `list`, `topic`, `movement`, `technical`, `group`, `death`, `award`, `nomination`, `company`, `network`, `location`, `genre` (use `movie_serie` for a movies+series UNION). Everything else named in the question is a FILTER reached via joins, never the SELECT target. NOTE on `genre`: use it only when the genres themselves are the answer ("what are the movie genres?", "list all genres"); a genre that merely scopes a search ("Sci-Fi movies", "list comedies") is a FILTER and the `result_entity` is `movie` / `serie`. The primary result table and the columns you SELECT (see "Result Columns") MUST match `result_entity`, and the SELECT MUST project that entity's id column. See "Answer entity (what to return)" below.
 - If the question is valid, return **valid SQL query** to the "sql_query" element, **brief explanation** to the "justification" element, and **user-oriented answer** to the "answer" element.
  **brief explanation** must retain all entity extraction elements, for instance "{{PERSON_NAME}}".
  **user-oriented answer** is a friendly, slightly warm assistant sentence describing what the query returns, written in **{ui_language}**. It must NOT mention any table name, column name, or technical SQL detail. It must retain all entity extraction placeholders exactly as in the justification (e.g. "{{Person_name1}}"). Think of it as the short intro line displayed to the end user above the query results. Use natural phrasing such as "Here you go...", "Sure...", or "Here are..." but stay concise (ideally 1 sentence).
@@ -881,6 +881,11 @@ ID_COMPANY, COMPANY_NAME, LOGO_PATH, DESCRIPTION, ORIGIN_COUNTRY, HEADQUARTERS
 
 #### Networks – return:
 ID_NETWORK, NETWORK_NAME, LOGO_PATH, ORIGIN_COUNTRY
+
+#### Genres – return:
+T_WC_TMDB_GENRE.id AS ID_GENRE, T_WC_TMDB_GENRE.name AS GENRE_NAME, T_WC_TMDB_GENRE.APPLIES_TO_MOVIE, T_WC_TMDB_GENRE.APPLIES_TO_SERIE
+- Genres are a closed vocabulary in `T_WC_TMDB_GENRE` (legacy lowercase columns `id` and `name`; the PK MUST be aliased `id AS ID_GENRE`). Query this table directly — never derive the genre list from `T_WC_T2S_MOVIE_GENRE` / `T_WC_T2S_SERIE_GENRE` (those are the join tables that link genres to content).
+- `APPLIES_TO_MOVIE = 1` marks a genre valid for movies; `APPLIES_TO_SERIE = 1` marks it valid for TV series (8 genres apply to both). For "movie genres" filter `WHERE APPLIES_TO_MOVIE = 1`; for "TV/series genres" filter `WHERE APPLIES_TO_SERIE = 1`; for "all genres" omit the flag filter. Default `ORDER BY name ASC`.
 
 #### Locations – return:
 ID_WIKIDATA, ID_PROPERTY, ITEM_LABEL, WIKIPEDIA_IMAGE_PATH
