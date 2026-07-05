@@ -114,7 +114,14 @@
       "romcom": "Romance",
       "biopic": "History",
       "western movie": "Western",
-      "westerns": "Western"
+      "westerns": "Western",
+      "animated": "Animation",
+      "comedic": "Comedy",
+      "romantic": "Romance",
+      "historical": "History",
+      "musical": "Music",
+      "dramatic": "Drama",
+      "docs": "Documentary"
     }
   },
   "Serie_genre": {
@@ -131,7 +138,10 @@
       "war": "War & Politics",
       "politics": "War & Politics",
       "war and politics": "War & Politics",
-      "westerns": "Western"
+      "westerns": "Western",
+      "animated": "Animation",
+      "comedic": "Comedy",
+      "docuseries": "Documentary"
     }
   },
   "Technical_format": {

@@ -281,12 +281,36 @@ def resolve(entity: str, raw_value: Any) -> Any:
     return _resolve_closed_vocab(raw_value, canonical, aliases)
 
 
+def _singularize(value: Any) -> str:
+    """Best-effort singularization of the LAST word of a genre surface form
+    ("thrillers" -> "thriller", "comedies" -> "comedy", "documentaries" ->
+    "documentary"). Used only as a fallback in genre resolution: the result is
+    still matched against the closed canonical set, so an over-eager strip that
+    yields a non-genre simply fails to match (no harm). Returns a normalized key.
+    """
+    s = _normalize(value)
+    if not s:
+        return ""
+    words = s.split()
+    w = words[-1]
+    if len(w) > 4 and w.endswith("ies"):
+        w = w[:-3] + "y"          # comedies->comedy, mysteries->mystery, fantasies->fantasy
+    elif len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+        w = w[:-1]                # thrillers->thriller, dramas->drama, romances->romance, westerns->western
+    words[-1] = w
+    return " ".join(words)
+
+
 def _resolve_genre_for(entity: str, raw_value: Any) -> int | None:
     """Resolve a genre name to its integer ID for a given side ("Movie_genre"
     or "Serie_genre"). The canonical map is filtered to the genres that apply
     to that side via APPLIES_TO_MOVIE / APPLIES_TO_SERIE on T_WC_TMDB_GENRE,
     so a query against the movie junction cannot resolve to a TV-only genre
     and vice versa.
+
+    Falls back to a singularized surface form on a miss so inflected values
+    ("thrillers", "comedies", "animated"* via aliases) still resolve even when
+    the extractor keeps the user's plural/adjective form (FASTAPI-TEXT2SQL-141).
     """
     canonical = _CANONICAL.get(entity, {})
     if not canonical:
@@ -294,7 +318,12 @@ def _resolve_genre_for(entity: str, raw_value: Any) -> int | None:
     db_aliases = _CANONICAL.get(f"{entity}_db_aliases", {}) or {}
     json_aliases = _aliases_for(entity, target_canonical=canonical)
     aliases = {**db_aliases, **json_aliases}
-    return _resolve_closed_vocab(raw_value, canonical, aliases)
+    resolved = _resolve_closed_vocab(raw_value, canonical, aliases)
+    if resolved is None:
+        singular = _singularize(raw_value)
+        if singular and singular != _normalize(raw_value):
+            resolved = _resolve_closed_vocab(singular, canonical, aliases)
+    return resolved
 
 
 def resolve_movie_genre(raw_value: Any) -> int | None:

@@ -136,29 +136,39 @@ Examples:
 - `Philip Marlowe`
 
 ### Movie_genre
-Extract `Movie_genre` when the user question mentions a movie genre by its standard name AND the question is about movies (not TV series).
-The value MUST be one of the following supported movie genre names (case-insensitive, keep the original surface form when possible):
+Extract `Movie_genre` when the user question mentions a movie genre AND the question is about movies (not TV series).
+**Normalize the value to the EXACT canonical name from the list below — do NOT keep the user's inflected surface form.** The value MUST be one of (case-insensitive):
 - `Action`, `Adventure`, `Animation`, `Comedy`, `Crime`, `Documentary`, `Drama`, `Family`, `Fantasy`, `History`, `Horror`, `Music`, `Mystery`, `Romance`, `Science Fiction`, `Sci-Fi`, `Thriller`, `TV Movie`, `War`, `Western`
 
+Normalize inflected and colloquial forms to the canonical name:
+- plural / adjective → canonical: `thrillers`→`Thriller`, `comedies`→`Comedy`, `animated`→`Animation`, `romantic`→`Romance`, `historical`→`History`, `musical`→`Music`, `documentaries`→`Documentary`.
+- mood / colloquial word that clearly implies one genre → closest canonical: `feel-good`→`Comedy`, `scary`/`gory`→`Horror`, `tearjerker`→`Drama`, `whodunit`→`Mystery`.
+- if a descriptor does NOT clearly map to exactly one supported genre, do NOT extract a genre (leave it as plain text).
+
 Examples:
-- `war` (in `war movies`)
-- `comedy` (in `comedy films`)
+- `Thriller` (in `thrillers to watch tonight`)
+- `Comedy` (in `feel-good comedies`)
+- `Animation` (in `animated films`)
 - `Science Fiction` (in `Science Fiction movies`)
 
 ### Serie_genre
-Extract `Serie_genre` when the user question mentions a TV series genre by its standard name AND the question is about TV series / shows (not movies).
-The value MUST be one of the following supported series genre names (case-insensitive, keep the original surface form when possible):
+Extract `Serie_genre` when the user question mentions a TV series genre AND the question is about TV series / shows (not movies).
+**Normalize the value to the EXACT canonical name from the list below — do NOT keep the user's inflected surface form.** The value MUST be one of (case-insensitive):
 - `Action & Adventure`, `Animation`, `Comedy`, `Crime`, `Documentary`, `Drama`, `Family`, `Kids`, `Mystery`, `News`, `Reality`, `Sci-Fi & Fantasy`, `Soap`, `Talk`, `War & Politics`, `Western`
+
+Normalize inflected and colloquial forms to the canonical name (e.g. `comedies`→`Comedy`, `animated`→`Animation`, `docuseries`→`Documentary`); if a descriptor does not clearly map to exactly one supported genre, do not extract a genre.
 
 Examples:
 - `Sci-Fi & Fantasy` (in `Sci-Fi & Fantasy series`)
 - `War & Politics` (in `War & Politics shows`)
 - `Reality` (in `reality TV`)
+- `Crime` (in `trending crime series`)
 
 ### Genre disambiguation
 - Picking the right placeholder is determined by what the question is filtering — movies use `Movie_genre`, series/shows/TV use `Serie_genre`. For example, `comedy movies` → `{{Movie_genre1}} = "comedy"`; `comedy series` → `{{Serie_genre1}} = "comedy"`. The two placeholders map to different ID spaces with some overlap (Animation, Comedy, Crime, Documentary, Drama, Family, Mystery, Western are valid on both sides).
 - If the user writes a simple word that matches a supported genre (e.g., `war movies`, `comedy series`), extract it as `Movie_genre` or `Serie_genre`, NOT as `Topic_name`.
 - If the user writes a compound topic that includes a genre word but refers to a specific theme (e.g., `Vietnam war`, `World War II`, `cold war`), extract it as `Topic_name`, NOT as a genre.
+- Do NOT extract a genre when the genre word is part of an **audience or mood descriptor** rather than a genre filter. In `animated films the whole family loves`, `the whole family loves` is praise, NOT the `Family` genre — extract only `Animation`. In `action-packed thriller`, `action-packed` describes the thriller — extract only `Thriller`. Never emit two AND-ed genres from a single descriptor phrase.
 - If the surface form is not in the matching side's supported list above, do NOT extract it as a genre placeholder. Leave it in the anonymized question unchanged, or treat it as a topic if appropriate. In particular: `Action & Adventure`, `Kids`, `News`, `Reality`, `Sci-Fi & Fantasy`, `Soap`, `Talk`, `War & Politics` are TV-only; `Action`, `Adventure`, `Fantasy`, `History`, `Horror`, `Music`, `Romance`, `Science Fiction`, `TV Movie`, `Thriller`, `War` are movie-only.
 
 ### Status_name
