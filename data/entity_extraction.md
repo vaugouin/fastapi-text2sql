@@ -142,7 +142,8 @@ Extract `Movie_genre` when the user question mentions a movie genre AND the ques
 
 Normalize inflected and colloquial forms to the canonical name:
 - plural / adjective → canonical: `thrillers`→`Thriller`, `comedies`→`Comedy`, `animated`→`Animation`, `romantic`→`Romance`, `historical`→`History`, `musical`→`Music`, `documentaries`→`Documentary`.
-- mood / colloquial word that clearly implies one genre → closest canonical: `feel-good`→`Comedy`, `scary`/`gory`→`Horror`, `tearjerker`→`Drama`, `whodunit`→`Mystery`.
+- extract the genre even when preceded by a qualifier word: `classic westerns`→`Western`, `historical movies`→`History`, `epic fantasy`→`Fantasy` (the Fantasy genre, NOT a topic).
+- mood / colloquial word that clearly implies one genre → closest canonical: `feel-good`/`slapstick`→`Comedy`, `scary`/`gory`/`slasher`→`Horror`, `tearjerker`/`weepie`/`melodrama`→`Drama`, `whodunit`→`Mystery`, `chick flick`→`Romance`, `suspense`→`Thriller`, `cartoon`/`anime`→`Animation`.
 - if a descriptor does NOT clearly map to exactly one supported genre, do NOT extract a genre (leave it as plain text).
 
 Examples:
@@ -156,7 +157,7 @@ Extract `Serie_genre` when the user question mentions a TV series genre AND the 
 **Normalize the value to the EXACT canonical name from the list below — do NOT keep the user's inflected surface form.** The value MUST be one of (case-insensitive):
 - `Action & Adventure`, `Animation`, `Comedy`, `Crime`, `Documentary`, `Drama`, `Family`, `Kids`, `Mystery`, `News`, `Reality`, `Sci-Fi & Fantasy`, `Soap`, `Talk`, `War & Politics`, `Western`
 
-Normalize inflected and colloquial forms to the canonical name (e.g. `comedies`→`Comedy`, `animated`→`Animation`, `docuseries`→`Documentary`); if a descriptor does not clearly map to exactly one supported genre, do not extract a genre.
+Normalize inflected and colloquial forms to the canonical name (e.g. `comedies`/`sitcom`→`Comedy`, `animated`/`cartoon`/`anime`→`Animation`, `docuseries`→`Documentary`, `reality show`→`Reality`); if a descriptor does not clearly map to exactly one supported genre, do not extract a genre.
 
 Examples:
 - `Sci-Fi & Fantasy` (in `Sci-Fi & Fantasy series`)

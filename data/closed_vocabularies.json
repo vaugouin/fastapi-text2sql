@@ -121,7 +121,23 @@
       "historical": "History",
       "musical": "Music",
       "dramatic": "Drama",
-      "docs": "Documentary"
+      "docs": "Documentary",
+      "docu": "Documentary",
+      "scary": "Horror",
+      "gory": "Horror",
+      "slasher": "Horror",
+      "suspense": "Thriller",
+      "whodunit": "Mystery",
+      "whodunnit": "Mystery",
+      "tearjerker": "Drama",
+      "weepie": "Drama",
+      "melodrama": "Drama",
+      "slapstick": "Comedy",
+      "chick flick": "Romance",
+      "chick-flick": "Romance",
+      "cartoon": "Animation",
+      "cartoons": "Animation",
+      "anime": "Animation"
     }
   },
   "Serie_genre": {
@@ -141,7 +157,15 @@
       "westerns": "Western",
       "animated": "Animation",
       "comedic": "Comedy",
-      "docuseries": "Documentary"
+      "docuseries": "Documentary",
+      "docu": "Documentary",
+      "sitcom": "Comedy",
+      "whodunit": "Mystery",
+      "reality show": "Reality",
+      "reality shows": "Reality",
+      "cartoon": "Animation",
+      "cartoons": "Animation",
+      "anime": "Animation"
     }
   },
   "Technical_format": {
