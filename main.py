@@ -4362,6 +4362,12 @@ SAMPLE_IMAGE_CATEGORIES = {
     23: "person",  # Persons - Images queries (portraits) -> T_WC_T2S_PERSON_IMAGE / PROFILE_PATH
 }
 
+# Cap images hydrated per entity for image-query samples. Without a cap, one sample
+# (8 entities) expands into every poster/portrait (hundreds each): the /samples payload
+# ballooned to ~28 MB / 40 s and timed out (breaking the voice-agent showcase). A small
+# cap keeps a rich poster/portrait wall while bounding the response.
+MAX_SAMPLE_IMAGES_PER_ENTITY = 6
+
 
 def _sample_clause_expectation(clause):
     """Describe a non-materializable assertion clause as a flat expectation dict."""
@@ -4439,7 +4445,7 @@ def _hydrate_sample_rows(conn, pending):
 
     Image-query samples (``image_source`` set — see ``SAMPLE_IMAGE_CATEGORIES``) expand
     each id's hydrated row into one row per image from the entity's ``*_IMAGE`` table
-    (all posters / portraits, ordered by DISPLAY_ORDER), copying the row and swapping the
+    (up to ``MAX_SAMPLE_IMAGES_PER_ENTITY`` posters / portraits by DISPLAY_ORDER), copying the row and swapping the
     path field (``POSTER_PATH`` / ``PROFILE_PATH``) to each image; an id with no images
     keeps its single entity row.
     """
@@ -4540,9 +4546,9 @@ def _fetch_sample_images(cursor, image_source, ids):
 
     Reads every image row of the category's ``TYPE_IMAGE`` (posters for movies / series,
     profiles for persons — from ``_RELATED_IMAGE_SOURCES``) for the given ids out of the
-    entity's ``*_IMAGE`` table, across all languages, ordered by ``DISPLAY_ORDER`` so a
-    sample can preview the entity's full poster / portrait set instead of only its main
-    image. Blank paths are skipped.
+    entity's ``*_IMAGE`` table, across all languages, ordered by ``DISPLAY_ORDER``, capped
+    at ``MAX_SAMPLE_IMAGES_PER_ENTITY`` per entity so a sample previews a bounded poster /
+    portrait wall instead of the full (multi-hundred) set. Blank paths are skipped.
     """
     if not ids:
         return {}
@@ -4559,7 +4565,9 @@ def _fetch_sample_images(cursor, image_source, ids):
         path = row.get("IMAGE_PATH")
         if path is None or (isinstance(path, str) and not path.strip()):
             continue
-        images.setdefault(row["_IMG_ID"], []).append(path)
+        bucket = images.setdefault(row["_IMG_ID"], [])
+        if len(bucket) < MAX_SAMPLE_IMAGES_PER_ENTITY:  # cap per entity (bound /samples payload)
+            bucket.append(path)
     return images
 
 
