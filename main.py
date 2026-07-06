@@ -14,6 +14,7 @@ import json
 import hashlib
 from datetime import datetime
 import time
+import threading
 from urllib.parse import unquote_plus
 import pymysql.cursors
 from dotenv import load_dotenv
@@ -304,10 +305,27 @@ _t0 = time.perf_counter()
 closed_vocab.init(connection)
 print(f"[startup] Closed-vocabulary canonicals loaded in {time.perf_counter() - _t0:.2f}s.", flush=True)
 
-print("[startup] Pre-building RapidFuzz BK-trees from DB (this may take a few minutes for large person tables)...", flush=True)
-_t0 = time.perf_counter()
-entity.prebuild_bktrees(connection)
-print(f"[startup] BK-trees pre-built in {time.perf_counter() - _t0:.2f}s.", flush=True)
+# BK-tree warm-up runs in the BACKGROUND (FASTAPI-TEXT2SQL-145) so uvicorn serves
+# immediately instead of blocking for minutes on large person tables. The warm-up
+# thread uses its OWN DB connection; any RapidFuzz query that arrives before a tree is
+# ready lazy-builds it, and get_or_build_bktree makes that race-safe (built once).
+print("[startup] Starting RapidFuzz BK-tree warm-up in the background (API available immediately; first RapidFuzz query may lazy-build)...", flush=True)
+def _warm_bktrees_background():
+    _t = time.perf_counter()
+    conn_bg = None
+    try:
+        conn_bg = get_db_connection()
+        entity.prebuild_bktrees(conn_bg)
+        print(f"[startup] BK-tree warm-up complete in {time.perf_counter() - _t:.1f}s.", flush=True)
+    except Exception as e:
+        print(f"[startup] BK-tree warm-up failed: {e}", flush=True)
+    finally:
+        if conn_bg is not None:
+            try:
+                conn_bg.close()
+            except Exception:
+                pass
+threading.Thread(target=_warm_bktrees_background, name="bktree-warmup", daemon=True).start()
 
 print(f"[startup] Startup tasks complete in {time.perf_counter() - _startup_t0:.2f}s. Handing off to uvicorn.", flush=True)
 
@@ -953,7 +971,7 @@ async def f_hello_world(api_key: str = Depends(get_api_key)):
         Returns: {"message": "hello world! The universal answer is 42"}
     """
     global answer
-    result = {"message": "hello world! The universal answer is " + str(answer)}
+    result = {"message": "hello world! The universal answer is " + str(answer), "bktrees_ready": entity.BKTREES_READY}
     logs.log_usage("hello", result, strapiversion)
     return result
 

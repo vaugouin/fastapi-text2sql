@@ -2,6 +2,7 @@ import json
 import os
 import re
 import time
+import threading
 from typing import Any
 
 from language_family import guess_language_family
@@ -43,20 +44,59 @@ ENTITY_RESOLUTION_CONFIG: list[dict] = []
 BKTREE_ENABLED = os.getenv("BKTREE_ENABLED", "1").strip().lower() in {"1", "true", "yes", "on"}
 _BKTREE_CACHE: dict[tuple[str, str, str], rapidfuzz_query.BKTreeIndex] = {}
 
+# Concurrency for BK-tree construction (FASTAPI-TEXT2SQL-145): the background warm-up
+# thread and the lazy build path in resolve_entities() may both need the same tree.
+# Per-key locks ensure each tree is built exactly once while different keys still build
+# in parallel. BKTREES_READY flips True when the eager warm-up finishes (readiness probe).
+_BKTREE_LOCKS_META = threading.Lock()
+_BKTREE_LOCKS: dict[tuple[str, str, str], threading.Lock] = {}
+BKTREES_READY = False
+
+
+def _bktree_lock_for(cache_key: tuple[str, str, str]) -> threading.Lock:
+    with _BKTREE_LOCKS_META:
+        lock = _BKTREE_LOCKS.get(cache_key)
+        if lock is None:
+            lock = threading.Lock()
+            _BKTREE_LOCKS[cache_key] = lock
+        return lock
+
+
+def get_or_build_bktree(cache_key, build_fn):
+    """Return the cached BK-tree for ``cache_key``, building it once if absent.
+
+    Thread-safe: concurrent callers for the SAME key serialize on a per-key lock so the
+    (potentially multi-minute) build runs once; callers for DIFFERENT keys proceed in
+    parallel. ``build_fn`` is a no-arg callable returning a BKTreeIndex. Used by both the
+    background warm-up (prebuild_bktrees) and the on-demand lazy path in resolve_entities.
+    """
+    idx = _BKTREE_CACHE.get(cache_key)
+    if idx is not None:
+        return idx
+    with _bktree_lock_for(cache_key):
+        idx = _BKTREE_CACHE.get(cache_key)
+        if idx is None:
+            idx = build_fn()
+            _BKTREE_CACHE[cache_key] = idx
+        return idx
+
 
 def prebuild_bktrees(connection) -> None:
     """Eagerly build a BK-tree for every RapidFuzz table in ENTITY_RESOLUTION_CONFIG.
 
-    Called once at API startup so the first non-Latin person query (and any other
-    RapidFuzz-backed lookup) does not pay the lazy build cost. Each tree is keyed
-    by (table, id, norm_col) — the same key used at query time — so the lazy path
-    in resolve_entities() will find them already cached.
+    Run in a BACKGROUND thread at startup (FASTAPI-TEXT2SQL-145) so uvicorn serves
+    immediately: this warm-up only primes the same cache the lazy path in
+    resolve_entities() fills on demand. Each tree is keyed by (table, id, norm_col) —
+    the same key used at query time — and built through get_or_build_bktree so a
+    concurrent lazy build of the same table does not double-build.
 
-    Failures on individual tables are logged and skipped so a single broken table
-    does not block startup.
+    Failures on individual tables are logged and skipped so a single broken table does
+    not block the warm-up. Sets BKTREES_READY when the pass finishes (readiness probe).
     """
+    global BKTREES_READY
     if not BKTREE_ENABLED:
         print("[entity] BKTREE_ENABLED=0, skipping BK-tree prebuild")
+        BKTREES_READY = True
         return
 
     seen: set[tuple[str, str, str]] = set()
@@ -81,16 +121,17 @@ def prebuild_bktrees(connection) -> None:
 
                 t0 = time.perf_counter()
                 try:
-                    bktree_idx = rapidfuzz_query.build_bktree_for_config(
-                        cursor,
-                        {"table": strtablename, "id": strtableid, "norm": strcolumndescnorm},
+                    bktree_idx = get_or_build_bktree(
+                        cache_key,
+                        lambda c=cursor, t=strtablename, i=strtableid, n=strcolumndescnorm:
+                            rapidfuzz_query.build_bktree_for_config(c, {"table": t, "id": i, "norm": n}),
                     )
-                    _BKTREE_CACHE[cache_key] = bktree_idx
-                    print(f"[entity] BK-tree built for {strtablename}.{strcolumndescnorm}: {bktree_idx.size} entries in {time.perf_counter() - t0:.1f}s")
+                    print(f"[entity] BK-tree ready for {strtablename}.{strcolumndescnorm}: {bktree_idx.size} entries in {time.perf_counter() - t0:.1f}s")
                 except Exception as e:
                     print(f"[entity] BK-tree prebuild failed for {strtablename}.{strcolumndescnorm}: {e}")
     finally:
         cursor.close()
+        BKTREES_READY = True
 
 
 def _validate_entity_resolution_config(config: Any) -> list[dict]:
@@ -544,21 +585,23 @@ def resolve_entities(
                             bktree_idx = None
                             if BKTREE_ENABLED:
                                 cache_key = (strtablename, strtableid, strcolumndescnorm)
-                                bktree_idx = _BKTREE_CACHE.get(cache_key)
-                                if bktree_idx is None:
-                                    try:
-                                        bktree_idx = rapidfuzz_query.build_bktree_for_config(
+                                was_cached = cache_key in _BKTREE_CACHE
+                                try:
+                                    bktree_idx = get_or_build_bktree(
+                                        cache_key,
+                                        lambda: rapidfuzz_query.build_bktree_for_config(
                                             cursor,
                                             {
                                                 "table": strtablename,
                                                 "id": strtableid,
                                                 "norm": strcolumndescnorm,
                                             },
-                                        )
-                                        _BKTREE_CACHE[cache_key] = bktree_idx
-                                        print(f"[entity] BK-tree loaded in memory for RapidFuzz search on {strtablename}.{strcolumndescnorm}: {bktree_idx.size} entries")
-                                    except Exception:
-                                        bktree_idx = None
+                                        ),
+                                    )
+                                    if not was_cached and bktree_idx is not None:
+                                        print(f"[entity] BK-tree loaded on-demand for RapidFuzz search on {strtablename}.{strcolumndescnorm}: {bktree_idx.size} entries")
+                                except Exception:
+                                    bktree_idx = None
                             rapidfuzz_result = rapidfuzz_query.search_first_match(
                                 cursor,
                                 strtablename,
