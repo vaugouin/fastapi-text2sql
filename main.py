@@ -4368,6 +4368,11 @@ SAMPLE_IMAGE_CATEGORIES = {
 # cap keeps a rich poster/portrait wall while bounding the response.
 MAX_SAMPLE_IMAGES_PER_ENTITY = 6
 
+# Cap ids hydrated per sample preview. A malformed / no-LIMIT ASSERTION_REFRESH_SQL can
+# resolve to 100k+ ids -> a 26 MB /samples response (broke the showcase). The eval scoring
+# uses the raw assertion, not this preview, so capping the preview is safe.
+MAX_SAMPLE_ENTITY_IDS = 12
+
 
 def _sample_clause_expectation(clause):
     """Describe a non-materializable assertion clause as a flat expectation dict."""
@@ -4451,6 +4456,11 @@ def _hydrate_sample_rows(conn, pending):
     """
     if not pending:
         return
+    # Bound each sample's preview to a handful of ids: a malformed assertion (e.g. an
+    # ASSERTION_REFRESH_SQL missing its LIMIT) can otherwise resolve to 100k+ ids and blow
+    # the /samples response to tens of MB, breaking the showcase. Preview-only; the eval
+    # scoring reads the raw assertion, not this. Images are further capped per entity.
+    pending = [(sim, et, list(ids)[:MAX_SAMPLE_ENTITY_IDS], img) for sim, et, ids, img in pending]
     ids_by_type = {}
     for _sim, entity_type, ids, _image_source in pending:
         ids_by_type.setdefault(entity_type, []).extend(ids)
