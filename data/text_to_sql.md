@@ -830,6 +830,7 @@ Phrasings that are commonly mis-targeted — get these right:
 - "movies directed by / written by `<person>`", "films de `<person>`" → `result_entity = movie`; the person is a **crew filter**.
 - A single word or phrase naming a profession/role, or "which actor/director/person …" → `result_entity = person`.
 - "Docu / Documentaire `<title>`" with no series indication → `result_entity = movie` (documentaries default to `T_WC_T2S_MOVIE`; see the documentary rule above).
+- **Pictures / photos / portraits / posters / backdrops OF an entity** — "show `<person>` pictures/photos/portraits", "images of `<person>`", "`<movie>` posters", "backdrops of `<serie>`" → `result_entity = person_image` / `movie_image` / `serie_image`. The **image ROWS are the answer, NOT the entity card**: SELECT from `T_WC_T2S_PERSON_IMAGE` / `T_WC_T2S_MOVIE_IMAGE` / `T_WC_T2S_SERIE_IMAGE`, JOIN the entity table to filter by the named person/movie/serie, and when the request names an image kind filter `TYPE_IMAGE` (`profile` for person portraits, `poster` for posters, `backdrop` for backdrops; omit the filter for a generic "pictures/images" request). `ORDER BY VOTE_AVERAGE DESC`. Return the *Person/Movie/Serie images* columns (which project `ID_ROW` and alias the path `IMAGE_PATH AS POSTER_PATH`). Example: "Show Zendaya pictures" → `SELECT pi.ID_ROW, pi.ID_PERSON, pi.TYPE_IMAGE, pi.LANG, pi.IMAGE_PATH AS POSTER_PATH, pi.VOTE_AVERAGE FROM T_WC_T2S_PERSON_IMAGE pi JOIN T_WC_T2S_PERSON p ON pi.ID_PERSON = p.ID_PERSON WHERE p.PERSON_NAME = '{{Person_name1}}' ORDER BY pi.VOTE_AVERAGE DESC`.
 
 **Self-check before emitting:** the SELECT must project the id column of `result_entity` — `ID_PERSON` for person, `ID_MOVIE` for movie, `ID_SERIE` for serie, etc. (a `movie_serie` UNION projects `ID_CONTENT` + `CONTENT_TYPE`). If the SELECT does not project that id column, you picked the wrong result table — fix it before returning.
 
@@ -891,10 +892,10 @@ T_WC_TMDB_GENRE.id AS ID_GENRE, T_WC_TMDB_GENRE.name AS GENRE_NAME, T_WC_TMDB_GE
 ID_WIKIDATA, ID_PROPERTY, ITEM_LABEL, WIKIPEDIA_IMAGE_PATH
 
 #### Movie images - return:
-IMAGE_PATH, TYPE_IMAGE, VOTE_AVERAGE, ID_MOVIE
+ID_ROW, ID_MOVIE, TYPE_IMAGE, LANG, IMAGE_PATH AS POSTER_PATH, VOTE_AVERAGE
 
 #### Serie images - return:
-IMAGE_PATH, TYPE_IMAGE, VOTE_AVERAGE, ID_SERIE
+ID_ROW, ID_SERIE, TYPE_IMAGE, LANG, IMAGE_PATH AS POSTER_PATH, VOTE_AVERAGE
 
 #### Company images - return:
 IMAGE_PATH, TYPE_IMAGE, VOTE_AVERAGE, ID_COMPANY
@@ -903,7 +904,7 @@ IMAGE_PATH, TYPE_IMAGE, VOTE_AVERAGE, ID_COMPANY
 IMAGE_PATH, TYPE_IMAGE, VOTE_AVERAGE, ID_NETWORK
 
 #### Person images - return:
-IMAGE_PATH, TYPE_IMAGE, VOTE_AVERAGE, ID_PERSON
+ID_ROW, ID_PERSON, TYPE_IMAGE, LANG, IMAGE_PATH AS POSTER_PATH, VOTE_AVERAGE
 
 #### Movie videos - return:
 VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, DAT_PUBLISHED, ID_MOVIE

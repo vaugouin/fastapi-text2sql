@@ -453,6 +453,12 @@ _RESULT_ENTITY_SOURCES = {
     # id token is ID_GENRE, so the "Genres" Result Columns block MUST project the
     # PK as `id AS ID_GENRE`.
     "genre": ("ID_GENRE", "T_WC_TMDB_GENRE"),
+    # Image queries ("Show Zendaya pictures", "Dune posters") return the entity's *_IMAGE
+    # rows, NOT the entity card. Guard id = ID_ROW (the image-row PK) -> the Result Columns
+    # MUST project ID_ROW; the image path is aliased AS POSTER_PATH so the front renders it.
+    "person_image": ("ID_ROW", "T_WC_T2S_PERSON_IMAGE"),
+    "movie_image": ("ID_ROW", "T_WC_T2S_MOVIE_IMAGE"),
+    "serie_image": ("ID_ROW", "T_WC_T2S_SERIE_IMAGE"),
 }
 
 # --- Bare-identifier fast path (FASTAPI-TEXT2SQL-137) -------------------------
@@ -485,6 +491,9 @@ _FAST_PATH_SELECT_COLUMNS_FALLBACK = {
     "nomination": "ID_NOMINATION, NOMINATION_NAME, NOMINATION_SOURCE, NOMINATION_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT, IMDB_RATING",
     "location": "ID_WIKIDATA, ITEM_LABEL, DESCRIPTION, INSTANCE_OF, WIKIPEDIA_IMAGE_PATH",
     "genre": "id AS ID_GENRE, name AS GENRE_NAME, APPLIES_TO_MOVIE, APPLIES_TO_SERIE",
+    "person_image": "ID_ROW, ID_PERSON, TYPE_IMAGE, LANG, IMAGE_PATH AS POSTER_PATH, VOTE_AVERAGE",
+    "movie_image": "ID_ROW, ID_MOVIE, TYPE_IMAGE, LANG, IMAGE_PATH AS POSTER_PATH, VOTE_AVERAGE",
+    "serie_image": "ID_ROW, ID_SERIE, TYPE_IMAGE, LANG, IMAGE_PATH AS POSTER_PATH, VOTE_AVERAGE",
 }
 
 # result_entity precedence when a Q… id could match several T2S tables; first hit
