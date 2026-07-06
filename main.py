@@ -4546,7 +4546,7 @@ def _fetch_sample_images(cursor, image_source, ids):
 
 
 @app.get("/samples", summary="Suggested sample questions")
-async def get_samples(ui_language: Optional[str] = "en", api_key: str = Depends(get_api_key)):
+async def get_samples(ui_language: Optional[str] = "en", set: Optional[str] = "sample", api_key: str = Depends(get_api_key)):
     """Return the curated tree of suggested sample questions, each with a simulated result.
 
     Mirrors the front-end samples panel (lib/text2sql-samples.inc.php): a hierarchy of
@@ -4578,8 +4578,16 @@ async def get_samples(ui_language: Optional[str] = "en", api_key: str = Depends(
 
     Supported ui_language values are "en" (default) and "fr"; any other value falls
     back to English.
+
+    ``set`` selects which curated set to return: "sample" (default — IS_SAMPLE = 1, the
+    existing behavior) or "showcase" (IS_SHOWCASE = 1 — the advisor home-screen picks).
+    Each sample node also carries ``IS_SHOWCASE`` so a client can filter client-side.
     """
     ui_language = normalize_ui_language(ui_language)
+    # Which curated set to return. Whitelisted -> the resolved column name is safe to
+    # interpolate into the query below (never the raw user value).
+    sample_set = (set or "sample").strip().lower()
+    sample_filter_col = "IS_SHOWCASE" if sample_set == "showcase" else "IS_SAMPLE"
     conn = get_db_connection()
     try:
         pending = []  # (simulated_result, entity_type, ordered ids) to hydrate in batch
@@ -4587,9 +4595,9 @@ async def get_samples(ui_language: Optional[str] = "en", api_key: str = Depends(
             def fetch_samples(category_id):
                 image_source = SAMPLE_IMAGE_CATEGORIES.get(category_id)
                 cursor.execute(
-                    """SELECT ID_T2S_EVALUATION, QUESTION, QUESTION_FR, ASSERTIONS_QUERY_RESULT
+                    f"""SELECT ID_T2S_EVALUATION, QUESTION, QUESTION_FR, IS_SHOWCASE, ASSERTIONS_QUERY_RESULT
                        FROM T_WC_T2S_EVALUATION
-                       WHERE ID_T2S_EVALUATION_CATEGORY = %s AND IS_SAMPLE = 1 AND DELETED = 0
+                       WHERE ID_T2S_EVALUATION_CATEGORY = %s AND {sample_filter_col} = 1 AND DELETED = 0
                        ORDER BY DISPLAY_ORDER ASC""",
                     (category_id,),
                 )
@@ -4645,7 +4653,7 @@ async def get_samples(ui_language: Optional[str] = "en", api_key: str = Depends(
         # Hydrate every entity_rows simulation in one batched pass per entity type.
         _hydrate_sample_rows(conn, pending)
 
-        result = {"ui_language": ui_language, "categories": categories}
+        result = {"ui_language": ui_language, "set": sample_set, "categories": categories}
         logs.log_usage("samples", {"ui_language": ui_language, "response": result}, strapiversion)
         localize_response(result, ui_language)  # collapses _FR on categories, samples, and hydrated rows
         return result
