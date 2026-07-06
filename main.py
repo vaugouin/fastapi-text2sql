@@ -4734,7 +4734,8 @@ async def _mcp_sql_search(
 
 
 async def _mcp_get(path: str, ui_language: str = "en", collection: Optional[str] = None,
-                   page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+                   page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT,
+                   sample_set: Optional[str] = None) -> str:
     """Shared MCP helper: GET an internal entity endpoint and return its raw JSON text.
 
     Forwards the normalized ``ui_language`` (en/fr, English fallback) so every
@@ -4750,6 +4751,8 @@ async def _mcp_get(path: str, ui_language: str = "en", collection: Optional[str]
         params["collection"] = collection
         params["page"] = page
         params["rows_per_page"] = rows_per_page
+    if sample_set is not None:
+        params["set"] = sample_set
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -4974,7 +4977,7 @@ async def _mcp_get_location(wikidata_id: str, ui_language: str = "en", collectio
 
 
 @mcp.tool(name="list_samples")
-async def _mcp_list_samples(ui_language: str = "en") -> str:
+async def _mcp_list_samples(ui_language: str = "en", set: str = "sample") -> str:
     """List the curated tree of suggested sample questions for the cinema/TV database.
 
     Returns a nested structure of categories (each with DESCRIPTION localized to
@@ -4983,9 +4986,12 @@ async def _mcp_list_samples(ui_language: str = "en") -> str:
     and a `simulated_result` previewing the expected answer — entity rows hydrated with
     title/poster, a scalar value, or a count/bound expectation — without running the
     pipeline. Categories with no question anywhere in their subtree are omitted.
-    Supported ui_language values are "en" (default) and "fr"; any other value falls
-    back to English."""
-    return await _mcp_get("/samples", ui_language)
+
+    ``set`` selects which curated set to return: "sample" (default — IS_SAMPLE = 1) or
+    "showcase" (IS_SHOWCASE = 1 — the advisor home-screen picks). Each sample also
+    carries IS_SHOWCASE. Supported ui_language values are "en" (default) and "fr";
+    any other value falls back to English."""
+    return await _mcp_get("/samples", ui_language, sample_set=set)
 
 
 @mcp.resource("context://database-scope")
