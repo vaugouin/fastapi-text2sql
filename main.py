@@ -4339,7 +4339,7 @@ SAMPLE_HYDRATION = {
 # target path field). The assertion still resolves to the entity id(s); each id's hydrated
 # row is then expanded into one row per image, swapping the path field to each image.
 SAMPLE_IMAGE_CATEGORIES = {
-    14: "movie",   # Movies - Images queries (posters)   -> T_WC_T2S_MOVIE_IMAGE / POSTER_PATH
+    13: "movie",   # Movies - Images queries (posters)   -> T_WC_T2S_MOVIE_IMAGE / POSTER_PATH
     24: "serie",   # TV Series - Images queries (posters) -> T_WC_T2S_SERIE_IMAGE / POSTER_PATH
     23: "person",  # Persons - Images queries (portraits) -> T_WC_T2S_PERSON_IMAGE / PROFILE_PATH
 }
@@ -4571,7 +4571,7 @@ async def get_samples(ui_language: Optional[str] = "en", api_key: str = Depends(
         matching T_WC_T2S_* table; ``scalar`` carries the single known cell value;
         ``count`` / ``bound`` carry an ``expectation`` block and no rows. Null when
         nothing is materializable. For the image-query categories
-        (``SAMPLE_IMAGE_CATEGORIES``: 14 movies posters, 24 series posters, 23 persons
+        (``SAMPLE_IMAGE_CATEGORIES``: 13 movies posters, 24 series posters, 23 persons
         portraits) each entity row is expanded into one row per image from the entity's
         ``*_IMAGE`` table (POSTER_PATH / PROFILE_PATH swapped per image), previewing the
         full poster / portrait set instead of the single main image.
