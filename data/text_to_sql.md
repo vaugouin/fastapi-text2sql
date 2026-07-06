@@ -950,9 +950,9 @@ ORDER BY CASE WHEN T_WC_T2S_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END, T_WC
 - TYPE_IMAGE values: poster, logo, backdrop, profile
 
 ### Trending / popular content
-"Trending" and "popular" mean recency-weighted popularity, not quality. When the question contains any of these terms (English and French — extend per UI language as needed), override the default sort with POPULARITY DESC:
-- English: trending, what's trending, hot, hot right now, popular, most popular, rising, buzzing
-- French:  tendance, tendances, en tendance, populaire(s), les plus populaires, à la mode, en vogue
+"Trending" and "popular" mean recency-weighted popularity, not quality. This also covers advisor-style, colloquial ways of asking "what's popular / what everyone is watching / what to watch". When the question contains any of these terms (English and French — extend per UI language as needed), override the default sort with POPULARITY DESC:
+- English: trending, what's trending, hot, hot right now, popular, most popular, rising, buzzing, everyone's watching, everybody's watching, what everyone's watching, everybody loves, the whole family loves, must-see, most-watched, most watched, what people are watching, what to watch, what to watch tonight, what to watch right now
+- French:  tendance, tendances, en tendance, populaire(s), les plus populaires, à la mode, en vogue, que tout le monde regarde, que tout le monde adore, incontournable(s), le plus regardé, les plus regardés, quoi regarder, quoi regarder ce soir, à voir ce soir, à voir en ce moment
 
 Apply to all three entity types:
 - Trending / popular movies   → ORDER BY T_WC_T2S_MOVIE.POPULARITY DESC
@@ -964,6 +964,8 @@ Do NOT confuse these with quality terms:
 - "top rated", "best rated", "highest rated", "best", "meilleurs", "mieux notés", "les mieux classés" → keep the documented default `IMDB_RATING_WEIGHTED DESC`.
 
 "Trending" alone does NOT imply a time filter. Do not invent DAT_RELEASE / DAT_FIRST_AIR / BIRTH_YEAR constraints unless the question explicitly names a window (e.g. "trending in 2024"; "trending this week" has no column to filter against, so ignore the time qualifier).
+
+Time-of-day / "watch now" qualifiers — "tonight", "right now", "this evening", "to watch now", "ce soir", "en ce moment", "maintenant" — are NOT date filters: never add a `DAT_RELEASE`/`DAT_FIRST_AIR = today` (or similar) constraint for them. When such a phrase frames a recommendation ("what to watch tonight", "a good thriller to watch right now", "quoi regarder ce soir"), read it as a request for popular content → apply `POPULARITY DESC` (per the list above) and add no date filter.
 
 ### Default Sorting
 - Movies → IMDB_RATING_WEIGHTED DESC
