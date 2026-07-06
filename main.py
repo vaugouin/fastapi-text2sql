@@ -4573,10 +4573,18 @@ def _fetch_sample_images(cursor, image_source, ids):
         return {}
     image_table, id_column, type_image, _path_field = _RELATED_IMAGE_SOURCES[image_source]
     placeholders = ",".join(["%s"] * len(ids))
+    # Cap to MAX_SAMPLE_IMAGES_PER_ENTITY per entity IN SQL (ROW_NUMBER window) so the DB
+    # returns only the few kept rows instead of every poster/portrait (hundreds each) --
+    # bounds the read/transfer, not just the Python-side payload. The int cap is a trusted
+    # constant; id_column/image_table come from _RELATED_IMAGE_SOURCES (never user input).
     cursor.execute(
-        f"SELECT {id_column} AS _IMG_ID, IMAGE_PATH FROM {image_table} "
-        f"WHERE {id_column} IN ({placeholders}) AND TYPE_IMAGE = %s "
-        f"ORDER BY {id_column}, DISPLAY_ORDER ASC",
+        f"SELECT _IMG_ID, IMAGE_PATH FROM ("
+        f"  SELECT {id_column} AS _IMG_ID, IMAGE_PATH, "
+        f"         ROW_NUMBER() OVER (PARTITION BY {id_column} ORDER BY DISPLAY_ORDER ASC) AS _rn "
+        f"  FROM {image_table} "
+        f"  WHERE {id_column} IN ({placeholders}) AND TYPE_IMAGE = %s"
+        f") ranked WHERE _rn <= {int(MAX_SAMPLE_IMAGES_PER_ENTITY)} "
+        f"ORDER BY _IMG_ID, _rn",
         (*ids, type_image),
     )
     images = {}
