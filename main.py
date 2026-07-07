@@ -104,7 +104,7 @@ def _is_retryable_quota_error_text(error_text: str) -> bool:
     return bool(retry_metadata.get("is_retryable") and str(retry_metadata.get("error_code") or "") == "429")
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.17"
+strapiversion = "1.1.18"
 # Convert API version to XXX.YYY.ZZZ format
 strapiversionformatted = format_api_version(strapiversion)
 
@@ -2691,6 +2691,13 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
     movements, technicals, awards, nominations, cast, and crew. The id is the TMDb
     movie ID (ID_MOVIE).
 
+    similar and recommendations are the grounded TMDb neighbour movies (from
+    T_WC_T2S_MOVIE_SIMILAR / T_WC_T2S_MOVIE_RECOMMENDATION): each element carries
+    ID_MOVIE, MOVIE_TITLE (localized to ui_language), DAT_RELEASE,
+    IMDB_RATING_WEIGHTED and POSTER_PATH, ordered by DISPLAY_ORDER (TMDb page-1
+    rank). similar is content-based (genres + keywords), recommendations is
+    behaviour-based; only neighbours present in the read-model are returned.
+
     Each nested list element carries the canonical image path of its related entity:
     PROFILE_PATH for cast/crew (persons); LOGO_PATH for companies; POSTER_PATH for
     topics, lists, collections, movements, awards, and nominations. Topics, lists,
@@ -2830,6 +2837,20 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
                 GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
                 ORDER BY MIN(pm.DISPLAY_ORDER) ASC, p.ID_PERSON ASC
             """, (id,), "person"),
+            "similar": ("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, ms.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_MOVIE_SIMILAR ms
+                JOIN T_WC_T2S_MOVIE m ON ms.ID_MOVIE_SIMILAR = m.ID_MOVIE
+                WHERE ms.ID_MOVIE = %s ORDER BY ms.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
+            """, (id,), "movie"),
+            "recommendations": ("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, mr.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_MOVIE_RECOMMENDATION mr
+                JOIN T_WC_T2S_MOVIE m ON mr.ID_MOVIE_RECOMMENDED = m.ID_MOVIE
+                WHERE mr.ID_MOVIE = %s ORDER BY mr.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
+            """, (id,), "movie"),
         }
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
@@ -2883,6 +2904,8 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
             "nominations": data["nominations"],
             "cast": data["cast"],
             "crew": data["crew"],
+            "similar": data["similar"],
+            "recommendations": data["recommendations"],
             "posters": list(posters),
             "backdrops": list(backdrops),
             "wikipedia_images": wikipedia_images,
@@ -2905,6 +2928,13 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
     companies, networks, production countries, spoken languages, topics, lists,
     collections, movements, awards, nominations, cast, and crew. The id is the TMDb
     series ID (ID_SERIE).
+
+    similar and recommendations are the grounded TMDb neighbour series (from
+    T_WC_T2S_SERIE_SIMILAR / T_WC_T2S_SERIE_RECOMMENDATION): each element carries
+    ID_SERIE, SERIE_TITLE (localized to ui_language), DAT_FIRST_AIR,
+    IMDB_RATING_WEIGHTED and POSTER_PATH, ordered by DISPLAY_ORDER (TMDb page-1
+    rank). similar is content-based, recommendations is behaviour-based; only
+    neighbours present in the read-model are returned.
 
     Each nested list element carries the canonical image path of its related entity:
     PROFILE_PATH for cast/crew (persons); LOGO_PATH for companies and networks;
@@ -3049,6 +3079,20 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
                 WHERE ID_SERIE = %s
                 ORDER BY SEASON_NUMBER ASC
             """, (id,), "season"),
+            "similar": ("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, ss.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_SERIE_SIMILAR ss
+                JOIN T_WC_T2S_SERIE s ON ss.ID_SERIE_SIMILAR = s.ID_SERIE
+                WHERE ss.ID_SERIE = %s ORDER BY ss.DISPLAY_ORDER ASC, s.ID_SERIE ASC
+            """, (id,), "serie"),
+            "recommendations": ("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sr.DISPLAY_ORDER,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_SERIE_RECOMMENDATION sr
+                JOIN T_WC_T2S_SERIE s ON sr.ID_SERIE_RECOMMENDED = s.ID_SERIE
+                WHERE sr.ID_SERIE = %s ORDER BY sr.DISPLAY_ORDER ASC, s.ID_SERIE ASC
+            """, (id,), "serie"),
         }
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
@@ -3102,6 +3146,8 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
             "nominations": data["nominations"],
             "cast": data["cast"],
             "crew": data["crew"],
+            "similar": data["similar"],
+            "recommendations": data["recommendations"],
             "posters": list(posters),
             "backdrops": list(backdrops),
             "seasons": data["seasons"],
