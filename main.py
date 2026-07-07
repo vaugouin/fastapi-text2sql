@@ -4870,7 +4870,10 @@ async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[
     """Get all fields for a movie (title, release date, runtime, budget, revenue, ratings,
     plot, IMDb/Wikidata IDs, color/B&W/silent flags) plus embedded relations:
     cast, crew, genre codes, production companies, production countries, spoken languages,
-    topics, collections, movements, technicals, awards, and nominations. Each related
+    topics, collections, movements, technicals, awards, and nominations, plus similar
+    and recommendations (grounded TMDb neighbour movies, each with ID_MOVIE, localized
+    MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, and POSTER_PATH, ordered by
+    DISPLAY_ORDER; similar is content-based, recommendations is behaviour-based). Each related
     company, topic, list, collection, and movement carries its own POSTER_PATH
     (LOGO_PATH for companies), WIKIPEDIA_IMAGE_PATH (when applicable),
     IMDB_RATING_WEIGHTED, and POPULARITY. Technicals (sound systems, color/film/sound
@@ -4889,7 +4892,7 @@ async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[
     id = TMDb ID_MOVIE.
 
     Embedded related lists (cast, crew, companies, topics, lists, collections,
-    movements, technicals, awards, nominations) are paginated: by default each is
+    movements, technicals, awards, nominations, similar, recommendations) are paginated: by default each is
     capped to its first 50 rows and a top-level `pagination` block reports each
     list's total. To fetch more of one list, set `collection` to its name (e.g.
     'cast') with `page` / `rows_per_page`; the response then contains just that
@@ -4902,7 +4905,10 @@ async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional
     """Get all fields for a TV series (title, first/last air date, number of seasons and
     episodes, ratings, status, Wikidata/IMDb IDs) plus embedded relations: cast, crew,
     genre codes, companies, networks, production countries, spoken languages, topics,
-    collections, movements, awards, nominations, and seasons (every season from
+    collections, movements, awards, nominations, similar and recommendations (grounded
+    TMDb neighbour series, each with ID_SERIE, localized SERIE_TITLE, DAT_FIRST_AIR,
+    IMDB_RATING_WEIGHTED, and POSTER_PATH, ordered by DISPLAY_ORDER; similar is
+    content-based, recommendations is behaviour-based), and seasons (every season from
     T_WC_TMDB_SEASON with SEASON_NUMBER, TITLE, DAT_AIR, POSTER_PATH, EPISODE_COUNT,
     VOTE_AVERAGE, and IMDb/Wikidata/TVDB IDs). Each related company, topic, list,
     collection, and movement carries its own POSTER_PATH (LOGO_PATH for companies and
@@ -4917,7 +4923,7 @@ async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional
     id = TMDb ID_SERIE.
 
     Embedded related lists (cast, crew, companies, networks, topics, lists,
-    collections, movements, awards, nominations, seasons) are paginated: by default
+    collections, movements, awards, nominations, seasons, similar, recommendations) are paginated: by default
     each is capped to its first 50 rows and a top-level `pagination` block reports
     each list's total. To fetch more of one list, set `collection` to its name with
     `page` / `rows_per_page`; the response then contains just that list's page."""
