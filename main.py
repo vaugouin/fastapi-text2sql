@@ -4870,7 +4870,7 @@ async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[
     """Get all fields for a movie (title, release date, runtime, budget, revenue, ratings,
     plot, IMDb/Wikidata IDs, color/B&W/silent flags) plus embedded relations:
     cast, crew, genre codes, production companies, production countries, spoken languages,
-    topics, collections, movements, technicals, awards, and nominations, plus similar
+    topics, lists, collections, movements, technicals, awards, and nominations, plus similar
     and recommendations (grounded TMDb neighbour movies, each with ID_MOVIE, localized
     MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, and POSTER_PATH, ordered by
     DISPLAY_ORDER; similar is content-based, recommendations is behaviour-based). Each related
@@ -4881,7 +4881,8 @@ async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[
     ID_TECHNICAL, DESCRIPTION (localized to ui_language), TECHNICAL_TYPE (one of: sound_system,
     color_technology, film_technology, sound_technology, film_format, medium_format,
     aspect_ratio), WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY. Also
-    returns top-level wikipedia_images
+    returns top-level posters and backdrops (all poster / backdrop images from
+    T_WC_T2S_MOVIE_IMAGE), wikipedia_images
     (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)), wikipedia_content (Wikipedia section in the requested ui_language,
     title/content pairs from T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA,
     and a unified videos list merging TMDb-sourced videos (T_WC_TMDB_MOVIE_VIDEO)
@@ -4904,7 +4905,7 @@ async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[
 async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a TV series (title, first/last air date, number of seasons and
     episodes, ratings, status, Wikidata/IMDb IDs) plus embedded relations: cast, crew,
-    genre codes, companies, networks, production countries, spoken languages, topics,
+    genre codes, companies, networks, production countries, spoken languages, topics, lists,
     collections, movements, awards, nominations, similar and recommendations (grounded
     TMDb neighbour series, each with ID_SERIE, localized SERIE_TITLE, DAT_FIRST_AIR,
     IMDB_RATING_WEIGHTED, and POSTER_PATH, ordered by DISPLAY_ORDER; similar is
@@ -4913,7 +4914,8 @@ async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional
     VOTE_AVERAGE, and IMDb/Wikidata/TVDB IDs). Each related company, topic, list,
     collection, and movement carries its own POSTER_PATH (LOGO_PATH for companies and
     networks), WIKIPEDIA_IMAGE_PATH (when applicable), IMDB_RATING_WEIGHTED, and
-    POPULARITY. Also returns top-level wikipedia_images (ui_language-specific Wikipedia image
+    POPULARITY. Also returns top-level posters and backdrops (all poster / backdrop
+    images from T_WC_T2S_SERIE_IMAGE), wikipedia_images (ui_language-specific Wikipedia image
     metadata), wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
     T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA, and a unified videos
     list merging TMDb-sourced videos (T_WC_TMDB_SERIE_VIDEO) and Wikidata-sourced
