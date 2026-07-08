@@ -2684,21 +2684,24 @@ def _fetch_wikidata_videos(cursor, id_wikidata):
     return videos
 
 
-def _movie_collection_prev_next(cursor, movie_id):
-    """Return ``(previous, next)`` movie objects around ``movie_id`` within its TMDb
-    collection (``T_WC_T2S_MOVIE_COLLECTION`` → ``T_WC_T2S_MOVIE``), ordered by release
-    date, or ``(None, None)``. If the movie belongs to several collections, the pair is
-    taken from the collection whose *next* film releases soonest (franchise nav). Each
-    object carries ID_MOVIE, MOVIE_TITLE(+_FR), DAT_RELEASE, IMDB_RATING_WEIGHTED,
-    POSTER_PATH. Backlog: FASTAPI-TEXT2SQL-150.
+def _movie_collection_context(cursor, movie_id, ui_language="en"):
+    """Collection context for a movie within its TMDb collection
+    (``T_WC_T2S_MOVIE_COLLECTION`` → ``T_WC_T2S_MOVIE``), ordered by release date.
+    Returns ``(collection_name, collection_movies, collection_previous, collection_next)``:
+    ``collection_movies`` is every film of the chosen collection, chronological, each with
+    an ``IS_CURRENT`` flag on ``movie_id`` (``[]`` when standalone); prev/next are its
+    release-date neighbours (or ``None``). If the movie is in several collections, the one
+    whose *next* film releases soonest is chosen (else the first non-empty). Members carry
+    ID_MOVIE, MOVIE_TITLE(+_FR), DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH.
+    Backlog: FASTAPI-TEXT2SQL-150 / VOICE-AGENT-064.
     """
     cursor.execute(
         "SELECT ID_T2S_COLLECTION FROM T_WC_T2S_MOVIE_COLLECTION WHERE ID_MOVIE = %s AND DELETED = 0",
         (movie_id,),
     )
     collection_ids = [r["ID_T2S_COLLECTION"] for r in cursor.fetchall()]
-    best_prev = None
-    best_next = None
+    chosen = None       # (cid, members, idx)
+    fallback = None     # (cid, members, idx) — first collection the movie is in
     best_next_date = None
     for cid in collection_ids:
         cursor.execute(
@@ -2716,17 +2719,34 @@ def _movie_collection_prev_next(cursor, movie_id):
         idx = next((i for i, r in enumerate(members) if r["ID_MOVIE"] == movie_id), -1)
         if idx < 0:
             continue
-        prev_obj = members[idx - 1] if idx > 0 else None
-        next_obj = members[idx + 1] if idx < len(members) - 1 else None
-        if next_obj is not None:
-            nd = next_obj.get("DAT_RELEASE")
-            if best_next is None or (nd is not None and (best_next_date is None or nd < best_next_date)):
-                best_next = next_obj
+        if fallback is None:
+            fallback = (cid, members, idx)
+        if idx < len(members) - 1:  # this collection has a "next"
+            nd = members[idx + 1].get("DAT_RELEASE")
+            if chosen is None or (nd is not None and (best_next_date is None or nd < best_next_date)):
+                chosen = (cid, members, idx)
                 best_next_date = nd
-                best_prev = prev_obj
-        elif best_next is None and best_prev is None:
-            best_prev = prev_obj
-    return best_prev, best_next
+    if chosen is None:
+        chosen = fallback
+    if not chosen:
+        return None, [], None, None
+    cid, members, idx = chosen
+    cursor.execute(
+        "SELECT COLLECTION_NAME, COLLECTION_NAME_FR FROM T_WC_T2S_COLLECTION WHERE ID_T2S_COLLECTION = %s",
+        (cid,),
+    )
+    row = cursor.fetchone() or {}
+    collection_name = row.get("COLLECTION_NAME")
+    if ui_language != "en" and (row.get("COLLECTION_NAME_FR") or "").strip():
+        collection_name = row.get("COLLECTION_NAME_FR")
+    collection_movies = []
+    for i, r in enumerate(members):
+        item = dict(r)
+        item["IS_CURRENT"] = (i == idx)
+        collection_movies.append(item)
+    collection_previous = members[idx - 1] if idx > 0 else None
+    collection_next = members[idx + 1] if idx < len(members) - 1 else None
+    return collection_name, collection_movies, collection_previous, collection_next
 
 
 def _hoist_collection_next_into_similar(data, pagination, collection_next):
@@ -2773,12 +2793,15 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
     rank). similar is content-based (genres + keywords), recommendations is
     behaviour-based; only neighbours present in the read-model are returned.
 
-    collection_previous and collection_next are the release-date neighbours of the movie
-    within its TMDb collection (T_WC_T2S_MOVIE_COLLECTION), each with ID_MOVIE, localized
-    MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED and POSTER_PATH, or null at the ends /
-    when the movie is standalone. As a franchise belt-and-suspenders, collection_next is
-    also forced to the #1 position of similar (hoisted if TMDb already lists it, prepended
-    otherwise) and flagged IS_COLLECTION_NEXT there.
+    collection_name and collection_movies describe the movie's TMDb collection: the
+    localized collection name, and every film of the collection in chronological
+    (release-date) order, each carrying ID_MOVIE, localized MOVIE_TITLE, DAT_RELEASE,
+    IMDB_RATING_WEIGHTED, POSTER_PATH and an IS_CURRENT flag on this movie
+    (collection_movies is [] when the movie is standalone). collection_previous and
+    collection_next are the adjacent films (or null at the ends). As a franchise
+    belt-and-suspenders, collection_next is also forced to the #1 position of similar
+    (hoisted if TMDb already lists it, prepended otherwise) and flagged IS_COLLECTION_NEXT
+    there.
 
     Each nested list element carries the canonical image path of its related entity:
     PROFILE_PATH for cast/crew (persons); LOGO_PATH for companies; POSTER_PATH for
@@ -2969,7 +2992,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
                 wikipedia_images = _fetch_wikipedia_images(cursor, movie.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, movie.get("ID_WIKIDATA"), ui_language)
                 videos = _fetch_tmdb_videos(cursor, "movie", id) + _fetch_wikidata_videos(cursor, movie.get("ID_WIKIDATA"))
-                collection_previous, collection_next = _movie_collection_prev_next(cursor, id)
+                collection_name, collection_movies, collection_previous, collection_next = _movie_collection_context(cursor, id, ui_language)
                 _hoist_collection_next_into_similar(data, pagination, collection_next)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
@@ -2990,6 +3013,8 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
             "crew": data["crew"],
             "similar": data["similar"],
             "recommendations": data["recommendations"],
+            "collection_name": collection_name,
+            "collection_movies": collection_movies,
             "collection_previous": collection_previous,
             "collection_next": collection_next,
             "posters": list(posters),
@@ -4960,10 +4985,11 @@ async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[
     and recommendations (grounded TMDb neighbour movies, each with ID_MOVIE, localized
     MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, and POSTER_PATH, ordered by
     DISPLAY_ORDER; similar is content-based, recommendations is behaviour-based).
-    collection_previous and collection_next give the release-date neighbours within the
-    movie's TMDb collection (null at the ends / when standalone); collection_next is also
-    forced to the #1 spot of similar and flagged IS_COLLECTION_NEXT. Each related
-    company, topic, list, collection, and movement carries its own POSTER_PATH
+    collection_name and collection_movies give the movie's TMDb collection name and all its
+    films in chronological order (each with IS_CURRENT on this movie; [] when standalone);
+    collection_previous and collection_next are the adjacent films (null at the ends), and
+    collection_next is also forced to the #1 spot of similar and flagged IS_COLLECTION_NEXT.
+    Each related company, topic, list, collection, and movement carries its own POSTER_PATH
     (LOGO_PATH for companies), WIKIPEDIA_IMAGE_PATH (when applicable),
     IMDB_RATING_WEIGHTED, and POPULARITY. Technicals (sound systems, color/film/sound
     technologies, film formats, and aspect ratios from T_WC_T2S_TECHNICAL) expose
