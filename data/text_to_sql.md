@@ -724,6 +724,22 @@ CREATE TABLE T_WC_T2S_SERIE_VIDEO (
   OFFICIAL INT
 );
 
+### Recommendations (grounded neighbour movies / series)
+
+Behaviour-based "recommended" neighbours sourced from TMDb, one row per (source, recommended) pair, ranked by DISPLAY_ORDER (lower = better). These power grounded recommendation from a NAMED title (see the query rule "Recommendations from a named film / series").
+
+CREATE TABLE T_WC_T2S_MOVIE_RECOMMENDATION (
+  ID_MOVIE INT NOT NULL,             -- the SOURCE movie (the one the user names / has seen)
+  ID_MOVIE_RECOMMENDED INT NOT NULL, -- a movie recommended for the source (FK to T_WC_T2S_MOVIE.ID_MOVIE)
+  DISPLAY_ORDER INT                  -- TMDb rank, 1 = best
+);
+
+CREATE TABLE T_WC_T2S_SERIE_RECOMMENDATION (
+  ID_SERIE INT NOT NULL,             -- the SOURCE series
+  ID_SERIE_RECOMMENDED INT NOT NULL, -- a series recommended for the source (FK to T_WC_T2S_SERIE.ID_SERIE)
+  DISPLAY_ORDER INT                  -- TMDb rank, 1 = best
+);
+
 ---
 
 ## ? Query Rules
@@ -820,6 +836,21 @@ Use when the user asks *about* the technical format (the technical IS the result
 - Detail phrasings ("what is X", "tell me about X", "describe X", "qu'est-ce que X", "définition de X", "X explained", "what does X mean") → **detail path**.
 - When the same question mixes both ("Tell me about Technicolor and list its movies"), prefer two separate queries or a UNION — never collapse them into a single `JOIN` that loses the technical's own columns.
 
+### Recommendations from a named film / series ("I saw X, what do you recommend?")
+
+Use when the user NAMES a film or series they have seen / liked and asks what to watch next / for recommendations. The named title is the **source filter**; the **recommended** titles are the RESULT. This is *grounded* recommendation: return the stored TMDb neighbours from the recommendation junction — never invent titles from memory.
+
+- Trigger phrasings: "I saw {{Movie_title1}}, what should I watch next?", "des recommandations à partir de {{Movie_title1}}", "que regarder après {{Movie_title1}} ?", "j'ai aimé {{Movie_title1}}, que me conseilles-tu ?", "recommend something based on {{Serie_title1}}".
+- **Scope (for now): recommendations only.** Do NOT use the *similar* tables (`T_WC_T2S_MOVIE_SIMILAR` / `T_WC_T2S_SERIE_SIMILAR`), and do NOT add a collection "next / sequel" here — those are handled separately. A "similar to / des films comme X" phrasing is out of scope of this rule.
+- **Movie source → `result_entity = movie`.** JOIN the source movie (by title) to `T_WC_T2S_MOVIE_RECOMMENDATION` on `ID_MOVIE`, then to the recommended movie on `ID_MOVIE_RECOMMENDED`; `ORDER BY DISPLAY_ORDER`. Return the *Movies* columns of the **recommended** movie (aliased `rec`).
+  Example: "I saw {{Movie_title1}}, what do you recommend?" →
+  `SELECT DISTINCT rec.ID_MOVIE, rec.MOVIE_TITLE, rec.DAT_RELEASE, rec.ID_IMDB, rec.IMDB_RATING, rec.IMDB_RATING_WEIGHTED, rec.POSTER_PATH, rec.RUNTIME, rec.TAGLINE FROM T_WC_T2S_MOVIE src JOIN T_WC_T2S_MOVIE_RECOMMENDATION mr ON mr.ID_MOVIE = src.ID_MOVIE JOIN T_WC_T2S_MOVIE rec ON rec.ID_MOVIE = mr.ID_MOVIE_RECOMMENDED WHERE src.MOVIE_TITLE = '{{Movie_title1}}' ORDER BY mr.DISPLAY_ORDER`
+- **Series source → `result_entity = serie`.** Same shape through `T_WC_T2S_SERIE_RECOMMENDATION` (`ID_SERIE` → `ID_SERIE_RECOMMENDED`); return the *Series* columns of the **recommended** series.
+  Example: "j'ai regardé {{Serie_title1}}, que me conseilles-tu ?" →
+  `SELECT DISTINCT rec.ID_SERIE, rec.SERIE_TITLE, rec.DAT_FIRST_AIR, rec.DAT_LAST_AIR, rec.ID_IMDB, rec.IMDB_RATING, rec.IMDB_RATING_WEIGHTED, rec.POSTER_PATH, rec.NUMBER_OF_SEASONS, rec.NUMBER_OF_EPISODES, rec.TAGLINE FROM T_WC_T2S_SERIE src JOIN T_WC_T2S_SERIE_RECOMMENDATION sr ON sr.ID_SERIE = src.ID_SERIE JOIN T_WC_T2S_SERIE rec ON rec.ID_SERIE = sr.ID_SERIE_RECOMMENDED WHERE src.SERIE_TITLE = '{{Serie_title1}}' ORDER BY sr.DISPLAY_ORDER`
+- The named title is ALWAYS the source filter, NEVER the result: the SELECT must project the **recommended** entity's id (`rec.ID_MOVIE` / `rec.ID_SERIE`). If it projects the source's id, you targeted the wrong row — fix it.
+- If the named title resolves to nothing, or has no stored recommendations, the query simply returns no rows — do NOT fall back to invented titles.
+
 ### Answer entity (what to return)
 
 `result_entity` is the single most important decision: it is the kind of row the user wants **listed**, NOT merely an entity that appears in the question. Named movies, persons, series, etc. that are *conditions* are filters reached through joins — never the SELECT target. Choose the primary table and the "Result Columns" to match `result_entity`.
@@ -830,6 +861,7 @@ Phrasings that are commonly mis-targeted — get these right:
 - "movies directed by / written by `<person>`", "films de `<person>`" → `result_entity = movie`; the person is a **crew filter**.
 - A single word or phrase naming a profession/role, or "which actor/director/person …" → `result_entity = person`.
 - "Docu / Documentaire `<title>`" with no series indication → `result_entity = movie` (documentaries default to `T_WC_T2S_MOVIE`; see the documentary rule above).
+- "I saw / j'ai vu / j'ai aimé `<movie or serie>`, what do you recommend / que me conseilles-tu / what to watch next" → `result_entity = movie` (or `serie`). Return the **recommended** titles from the recommendation junction; the named title is the SOURCE filter, not the result (see "Recommendations from a named film / series").
 - **Pictures / photos / portraits / posters / backdrops OF an entity** — "show `<person>` pictures/photos/portraits", "images of `<person>`", "`<movie>` posters", "backdrops of `<serie>`" → `result_entity = person_image` / `movie_image` / `serie_image`. The **image ROWS are the answer, NOT the entity card**: SELECT from `T_WC_T2S_PERSON_IMAGE` / `T_WC_T2S_MOVIE_IMAGE` / `T_WC_T2S_SERIE_IMAGE`, JOIN the entity table to filter by the named person/movie/serie, and when the request names an image kind filter `TYPE_IMAGE` (`profile` for person portraits, `poster` for posters, `backdrop` for backdrops; omit the filter for a generic "pictures/images" request). `ORDER BY VOTE_AVERAGE DESC`. Return the *Person/Movie/Serie images* columns (which project `ID_ROW` and alias the path `IMAGE_PATH AS POSTER_PATH`). Example: "Show Zendaya pictures" → `SELECT pi.ID_ROW, pi.ID_PERSON, pi.TYPE_IMAGE, pi.LANG, pi.IMAGE_PATH AS POSTER_PATH, pi.VOTE_AVERAGE FROM T_WC_T2S_PERSON_IMAGE pi JOIN T_WC_T2S_PERSON p ON pi.ID_PERSON = p.ID_PERSON WHERE p.PERSON_NAME = '{{Person_name1}}' ORDER BY pi.VOTE_AVERAGE DESC`.
 
 **Self-check before emitting:** the SELECT must project the id column of `result_entity` — `ID_PERSON` for person, `ID_MOVIE` for movie, `ID_SERIE` for serie, etc. (a `movie_serie` UNION projects `ID_CONTENT` + `CONTENT_TYPE`). If the SELECT does not project that id column, you picked the wrong result table — fix it before returning.
