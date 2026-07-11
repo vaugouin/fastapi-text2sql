@@ -81,6 +81,32 @@ def get_or_build_bktree(cache_key, build_fn):
         return idx
 
 
+def _estimate_table_rows(cursor, strtablename: str) -> int:
+    """Approximate row count for ``strtablename`` from ``information_schema``.
+
+    Used only to order the BK-tree warm-up (shortest tables first); the optimizer
+    estimate is more than precise enough for ordering by magnitude and costs no
+    table scan. Returns a large sentinel when the count is unavailable so unknown
+    tables build last rather than delaying the confirmed-short ones.
+    """
+    try:
+        cursor.execute(
+            "SELECT TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s",
+            (strtablename,),
+        )
+        row = cursor.fetchone()
+    except Exception:
+        return 1 << 62
+    if not row:
+        return 1 << 62
+    value = row.get("TABLE_ROWS") if isinstance(row, dict) else row[0]
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 1 << 62
+
+
 def prebuild_bktrees(connection) -> None:
     """Eagerly build a BK-tree for every RapidFuzz table in ENTITY_RESOLUTION_CONFIG.
 
@@ -89,6 +115,11 @@ def prebuild_bktrees(connection) -> None:
     resolve_entities() fills on demand. Each tree is keyed by (table, id, norm_col) —
     the same key used at query time — and built through get_or_build_bktree so a
     concurrent lazy build of the same table does not double-build.
+
+    Build order is **shortest table first** (by approximate row count): the smallest
+    trees finish almost immediately, so the entities they back (e.g. collections)
+    become resolvable within seconds of warm-up start while the large person tables
+    are still building — instead of waiting behind them.
 
     Failures on individual tables are logged and skipped so a single broken table does
     not block the warm-up. Sets BKTREES_READY when the pass finishes (readiness probe).
@@ -102,6 +133,8 @@ def prebuild_bktrees(connection) -> None:
     seen: set[tuple[str, str, str]] = set()
     cursor = connection.cursor()
     try:
+        # Gather the distinct rapidfuzz build tasks declared in the config.
+        tasks: list[tuple[str, str, str]] = []
         for entry in ENTITY_RESOLUTION_CONFIG:
             for search_cfg in entry.get("search_list") or []:
                 if (search_cfg.get("search_mode") or "").strip().lower() != "rapidfuzz":
@@ -118,17 +151,29 @@ def prebuild_bktrees(connection) -> None:
                 if cache_key in seen or cache_key in _BKTREE_CACHE:
                     continue
                 seen.add(cache_key)
+                tasks.append(cache_key)
 
-                t0 = time.perf_counter()
-                try:
-                    bktree_idx = get_or_build_bktree(
-                        cache_key,
-                        lambda c=cursor, t=strtablename, i=strtableid, n=strcolumndescnorm:
-                            rapidfuzz_query.build_bktree_for_config(c, {"table": t, "id": i, "norm": n}),
-                    )
-                    print(f"[entity] BK-tree ready for {strtablename}.{strcolumndescnorm}: {bktree_idx.size} entries in {time.perf_counter() - t0:.1f}s")
-                except Exception as e:
-                    print(f"[entity] BK-tree prebuild failed for {strtablename}.{strcolumndescnorm}: {e}")
+        # Order shortest-first so the quickest trees are ready soonest. Ties keep
+        # config order (Python's sort is stable). Row-count probing happens up
+        # front, before any (slow) build, and reuses the same cursor sequentially.
+        row_counts = {cache_key: _estimate_table_rows(cursor, cache_key[0]) for cache_key in tasks}
+        tasks.sort(key=lambda cache_key: row_counts[cache_key])
+        if tasks:
+            order_preview = ", ".join(f"{cache_key[0]}(~{row_counts[cache_key]})" for cache_key in tasks)
+            print(f"[entity] BK-tree warm-up order (shortest first): {order_preview}")
+
+        for cache_key in tasks:
+            strtablename, strtableid, strcolumndescnorm = cache_key
+            t0 = time.perf_counter()
+            try:
+                bktree_idx = get_or_build_bktree(
+                    cache_key,
+                    lambda c=cursor, t=strtablename, i=strtableid, n=strcolumndescnorm:
+                        rapidfuzz_query.build_bktree_for_config(c, {"table": t, "id": i, "norm": n}),
+                )
+                print(f"[entity] BK-tree ready for {strtablename}.{strcolumndescnorm}: {bktree_idx.size} entries in {time.perf_counter() - t0:.1f}s")
+            except Exception as e:
+                print(f"[entity] BK-tree prebuild failed for {strtablename}.{strcolumndescnorm}: {e}")
     finally:
         cursor.close()
         BKTREES_READY = True
