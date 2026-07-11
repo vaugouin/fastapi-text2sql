@@ -622,6 +622,19 @@ def resolve_entities(
                         if not isinstance(best, dict):
                             continue
 
+                        # Confidence gate (FASTAPI-TEXT2SQL-062): when `require_confident`
+                        # is set, only accept an exact / high-confidence auto-correct
+                        # (rapidfuzz `auto` True) so a low-confidence lexical guess falls
+                        # through to the next strategy (e.g. embeddings) instead of
+                        # substituting a wrong entity. Off by default so existing
+                        # Person_name strategies keep their always-resolve behaviour.
+                        if search_cfg.get("require_confident") and not (rapidfuzz_result or {}).get("auto"):
+                            add_message(
+                                f"Entity resolution: {placeholder} -> RapidFuzz best match not confident "
+                                f"({(rapidfuzz_result or {}).get('reason')}); falling through to next strategy"
+                            )
+                            continue
+
                         docid = best.get(strtableid)
                         if docid is None:
                             continue
@@ -729,6 +742,7 @@ def resolve_entities(
                         results = current_collection.query(query_texts=[raw_value], n_results=10)
                     documents = (results.get("documents", [[]]) or [[]])[0] or []
                     ids = (results.get("ids", [[]]) or [[]])[0] or []
+                    distances = (results.get("distances", [[]]) or [[]])[0] or []
                     if not documents or not ids:
                         continue
 
@@ -757,6 +771,49 @@ def resolve_entities(
                             if score > best_score:
                                 best_score = score
                                 matched_result_position = i
+
+                    # Confidence gate (FASTAPI-TEXT2SQL-062): when the chosen
+                    # candidate is not an exact normalized match, optionally reject
+                    # it so a degraded / near-miss shortlist yields "unresolved"
+                    # (safe) rather than a confidently wrong entity. Opt-in per
+                    # strategy via `max_distance` and/or `min_fuzz_ratio`; an exact
+                    # match always passes. `fuzz.ratio` (edit distance) is used, not
+                    # WRatio, because titles sharing a common suffix (e.g.
+                    # "... Collection") inflate WRatio's token_set component and let
+                    # unrelated entries through (observed: "Mad Max collection" ->
+                    # "Max und die Wilde 7 Collection", WRatio=85 but ratio=62).
+                    max_distance = search_cfg.get("max_distance")
+                    min_fuzz_ratio = search_cfg.get("min_fuzz_ratio")
+                    if not found_match and (max_distance is not None or min_fuzz_ratio is not None):
+                        chosen_doc = documents[matched_result_position] if matched_result_position < len(documents) else ""
+                        chosen_doc_norm = chosen_doc.strip().lower() if isinstance(chosen_doc, str) else ""
+                        chosen_distance = None
+                        if matched_result_position < len(distances):
+                            try:
+                                chosen_distance = float(distances[matched_result_position])
+                            except (TypeError, ValueError):
+                                chosen_distance = None
+                        chosen_ratio = fuzz.ratio(target_value_norm, chosen_doc_norm) if chosen_doc_norm else 0.0
+
+                        distance_ok = (max_distance is None) or (chosen_distance is None) or (chosen_distance <= max_distance)
+                        ratio_ok = (min_fuzz_ratio is None) or (chosen_ratio >= min_fuzz_ratio)
+                        if not (distance_ok and ratio_ok):
+                            shortlist_parts = []
+                            for j in range(min(len(ids), 5)):
+                                dtxt = ""
+                                if j < len(distances):
+                                    try:
+                                        dtxt = f" d={float(distances[j]):.3f}"
+                                    except (TypeError, ValueError):
+                                        dtxt = ""
+                                shortlist_parts.append(f"{ids[j]}{dtxt}")
+                            add_message(
+                                f"Entity resolution: {placeholder} -> rejected best embeddings candidate "
+                                f"'{chosen_doc}' (distance={chosen_distance}, fuzz_ratio={chosen_ratio:.0f}) "
+                                f"below confidence threshold (max_distance={max_distance}, min_fuzz_ratio={min_fuzz_ratio}); "
+                                f"shortlist: {', '.join(shortlist_parts)}"
+                            )
+                            continue
 
                     first_record_id = ids[matched_result_position]
                     parts = str(first_record_id).split("_")

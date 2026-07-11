@@ -191,12 +191,26 @@
     "placeholder_prefix": "Collection_name",
     "search_list": [
       {
+        "search_mode": "rapidfuzz",
+        "strtablename": "T_WC_T2S_COLLECTION",
+        "strtableid": "ID_T2S_COLLECTION",
+        "default_field": "COLLECTION_NAME",
+        "rapidfuzz_col_norm": "COLLECTION_NAME_NORM",
+        "rapidfuzz_col_key": "COLLECTION_NAME_KEY",
+        "rapidfuzz_col_popularity": "POPULARITY",
+        "require_confident": true,
+        "languages": {
+          "*": "COLLECTION_NAME"
+        }
+      },
+      {
         "search_mode": "embeddings",
         "strtablename": "T_WC_T2S_COLLECTION",
         "strtableid": "ID_T2S_COLLECTION",
         "collection": "collections",
         "default_field": "COLLECTION_NAME",
         "order_by": null,
+        "min_fuzz_ratio": 72,
         "languages": {
           "en": "COLLECTION_NAME",
           "fr": "COLLECTION_NAME_FR",

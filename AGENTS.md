@@ -247,6 +247,13 @@ Each entry has a `placeholder_prefix` and a `search_list`. Each search entry can
 - `rapidfuzz_col_norm`, `rapidfuzz_col_key`, `rapidfuzz_col_popularity`: generated/norm columns for lexical matching
 - `resolve_to_canonical`: when an AKA table returns a row, look up the canonical value in another table (e.g., `T_WC_TMDB_PERSON_ALSO_KNOWN_AS.ID_PERSON` → `T_WC_T2S_PERSON.PERSON_NAME`)
 
+**Confidence gating (opt-in, per strategy).** By default both search modes always substitute their best candidate — a degraded shortlist or a near-miss then produces a *confidently wrong* entity rather than an error. Three optional keys make a strategy fail safe (fall through to the next strategy, then to raw fallback / ambiguous) instead:
+- `min_fuzz_ratio` (embeddings): reject the chosen candidate when `fuzz.ratio(query, candidate) < min_fuzz_ratio`. Uses `fuzz.ratio` (edit distance), **not** `WRatio` — titles sharing a suffix (e.g. "… Collection") inflate WRatio's token_set component and let unrelated entries through. An exact normalized document match always passes. When rejected, a diagnostic message logs the chosen candidate and the top-5 shortlist with distances.
+- `max_distance` (embeddings): reject when the ChromaDB distance of the chosen candidate exceeds this. Weak discriminator for short proper nouns (near-duplicates sit at similar distances), so prefer `min_fuzz_ratio`; combine both only when distances are meaningful for that collection.
+- `require_confident` (rapidfuzz): only accept an exact / high-confidence auto-correct (`auto` True); a low-confidence lexical guess falls through. Off by default so `Person_name` keeps always-resolve behaviour.
+
+`Collection_name` uses both: a `require_confident` **rapidfuzz** strategy first (exact-normalized DB match — robust and independent of ChromaDB/RAM state), then the gated **embeddings** strategy (`min_fuzz_ratio: 72`) as a semantic/French fallback. The rapidfuzz strategy needs the generated columns in [doc/sql/T2S_COLLECTION-rapidfuzz.sql](doc/sql/T2S_COLLECTION-rapidfuzz.sql); until that migration runs it no-ops and only the embeddings strategy is active.
+
 ChromaDB document ID format is always `{entity}_{id}_{lang}` (e.g., `movie_12345_fr`). Language drives the SQL field via the `languages` map.
 
 ---
@@ -378,7 +385,7 @@ Full DDL lives under [doc/sql/](doc/sql/); do not duplicate table definitions he
 - [doc/sql/Wikipedia-tables.sql](doc/sql/Wikipedia-tables.sql) — Wikipedia section tables.
 - [doc/sql/T_WC_TMDB_GENRE.sql](doc/sql/T_WC_TMDB_GENRE.sql) — focused genre reference DDL.
 - [doc/sql/T_WC_T2S_TECHNICAL.sql](doc/sql/T_WC_T2S_TECHNICAL.sql) — focused technical-format reference DDL.
-- [doc/sql/T2S_PERSON-rapidfuzz.sql](doc/sql/T2S_PERSON-rapidfuzz.sql) and [doc/sql/T_WC_TMDB_PERSON_ALSO_KNOWN_AS-rapidfuzz.sql](doc/sql/T_WC_TMDB_PERSON_ALSO_KNOWN_AS-rapidfuzz.sql) — generated columns, indexes, and FULLTEXT setup required by RapidFuzz.
+- [doc/sql/T2S_PERSON-rapidfuzz.sql](doc/sql/T2S_PERSON-rapidfuzz.sql), [doc/sql/T_WC_TMDB_PERSON_ALSO_KNOWN_AS-rapidfuzz.sql](doc/sql/T_WC_TMDB_PERSON_ALSO_KNOWN_AS-rapidfuzz.sql), and [doc/sql/T2S_COLLECTION-rapidfuzz.sql](doc/sql/T2S_COLLECTION-rapidfuzz.sql) — generated columns, indexes, and FULLTEXT setup required by RapidFuzz.
 
 When changing SQL-facing behavior:
 
