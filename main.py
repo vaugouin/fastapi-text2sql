@@ -2706,7 +2706,7 @@ def _collection_members(cursor, cid):
     cursor.execute(
         """
         SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR AS DAT_RELEASE,
-               s.IMDB_RATING_WEIGHTED, s.POSTER_PATH
+               s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH
         FROM T_WC_T2S_SERIE_COLLECTION sc
         JOIN T_WC_T2S_SERIE s ON sc.ID_SERIE = s.ID_SERIE
         WHERE sc.ID_T2S_COLLECTION = %s AND sc.DELETED = 0
@@ -3251,14 +3251,14 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
                 ORDER BY SEASON_NUMBER ASC
             """, (id,), "season"),
             "similar": ("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, ss.DISPLAY_ORDER,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, ss.DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_SIMILAR ss
                 JOIN T_WC_T2S_SERIE s ON ss.ID_SERIE_SIMILAR = s.ID_SERIE
                 WHERE ss.ID_SERIE = %s ORDER BY ss.DISPLAY_ORDER ASC, s.ID_SERIE ASC
             """, (id,), "serie"),
             "recommendations": ("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sr.DISPLAY_ORDER,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sr.DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_RECOMMENDATION sr
                 JOIN T_WC_T2S_SERIE s ON sr.ID_SERIE_RECOMMENDED = s.ID_SERIE
@@ -3760,7 +3760,7 @@ async def get_person(id: int, ui_language: Optional[str] = "en", collection: Opt
                 ORDER BY m.IMDB_RATING_WEIGHTED DESC, m.ID_MOVIE ASC
             """, (id,), "movie"),
             "series_cast": ("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED,
                        s.POSTER_PATH, ps.CREDIT_TYPE, ps.CAST_CHARACTER, ps.CREW_DEPARTMENT,
                        ps.DISPLAY_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_PERSON_SERIE ps
@@ -3769,7 +3769,7 @@ async def get_person(id: int, ui_language: Optional[str] = "en", collection: Opt
                 ORDER BY s.IMDB_RATING_WEIGHTED DESC, s.ID_SERIE ASC
             """, (id,), "serie"),
             "series_crew": ("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED,
                        s.POSTER_PATH, ps.CREDIT_TYPE, ps.CAST_CHARACTER, ps.CREW_DEPARTMENT,
                        ps.DISPLAY_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_PERSON_SERIE ps
@@ -3872,7 +3872,7 @@ async def get_company(id: int, ui_language: Optional[str] = "en", collection: Op
                 WHERE mc.ID_COMPANY = %s ORDER BY m.IMDB_RATING_WEIGHTED DESC, m.ID_MOVIE ASC
             """, (id,), "movie"),
             "series": ("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_COMPANY sc
                 JOIN T_WC_T2S_SERIE s ON sc.ID_SERIE = s.ID_SERIE
@@ -3908,7 +3908,7 @@ async def get_network(id: int, ui_language: Optional[str] = "en", collection: Op
             raise HTTPException(status_code=404, detail=f"Network {id} not found")
         pcollections = {
             "series": ("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_NETWORK sn
                 JOIN T_WC_T2S_SERIE s ON sn.ID_SERIE = s.ID_SERIE
@@ -3962,7 +3962,7 @@ async def get_collection(id: int, ui_language: Optional[str] = "en", collection:
                 WHERE mc.ID_T2S_COLLECTION = %s ORDER BY mc.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
             """, (id,), "movie"),
             "series": ("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sc.DISPLAY_ORDER,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sc.DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_COLLECTION sc
                 JOIN T_WC_T2S_SERIE s ON sc.ID_SERIE = s.ID_SERIE
@@ -4019,7 +4019,7 @@ async def get_topic(id: int, ui_language: Optional[str] = "en", collection: Opti
                 WHERE mt.ID_TOPIC = %s ORDER BY mt.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
             """, (id,), "movie"),
             "series": ("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, st.DISPLAY_ORDER,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, st.DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_TOPIC st
                 JOIN T_WC_T2S_SERIE s ON st.ID_SERIE = s.ID_SERIE
@@ -4076,7 +4076,7 @@ async def get_list(id: int, ui_language: Optional[str] = "en", collection: Optio
                 WHERE ml.ID_T2S_LIST = %s ORDER BY ml.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
             """, (id,), "movie"),
             "series": ("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sl.DISPLAY_ORDER,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sl.DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_LIST sl
                 JOIN T_WC_T2S_SERIE s ON sl.ID_SERIE = s.ID_SERIE
@@ -4133,7 +4133,7 @@ async def get_movement(id: int, ui_language: Optional[str] = "en", collection: O
                 WHERE mm.ID_MOVEMENT = %s ORDER BY mm.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
             """, (id,), "movie"),
             "series": ("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sm.DISPLAY_ORDER,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sm.DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_MOVEMENT sm
                 JOIN T_WC_T2S_SERIE s ON sm.ID_SERIE = s.ID_SERIE
@@ -4258,7 +4258,7 @@ async def get_genre(id: int, ui_language: Optional[str] = "en", collection: Opti
                 ORDER BY m.IMDB_RATING_WEIGHTED DESC, m.ID_MOVIE ASC
             """, (id,), "movie"),
             "series": ("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_GENRE sg
                 JOIN T_WC_T2S_SERIE s ON sg.ID_SERIE = s.ID_SERIE
@@ -4411,7 +4411,7 @@ async def get_award(id: int, ui_language: Optional[str] = "en", collection: Opti
                 WHERE ma.ID_AWARD = %s ORDER BY ma.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
             """, (id,), "movie"),
             "series": ("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sa.DISPLAY_ORDER,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sa.DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_AWARD sa
                 JOIN T_WC_T2S_SERIE s ON sa.ID_SERIE = s.ID_SERIE
@@ -4475,7 +4475,7 @@ async def get_nomination(id: int, ui_language: Optional[str] = "en", collection:
                 WHERE mn.ID_NOMINATION = %s ORDER BY mn.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
             """, (id,), "movie"),
             "series": ("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sn.DISPLAY_ORDER,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sn.DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_SERIE_NOMINATION sn
                 JOIN T_WC_T2S_SERIE s ON sn.ID_SERIE = s.ID_SERIE
@@ -4540,7 +4540,7 @@ async def get_location(wikidata_id: str, ui_language: Optional[str] = "en", coll
                 ORDER BY m.IMDB_RATING_WEIGHTED DESC, m.ID_MOVIE ASC
             """, (wikidata_id,), "movie"),
             "series": ("""
-                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.IMDB_RATING_WEIGHTED,
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED,
                        s.POSTER_PATH, wp.ID_PROPERTY, COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_WIKIDATA_ITEM_PROPERTY wp
                 JOIN T_WC_T2S_SERIE s ON wp.ID_WIKIDATA = s.ID_WIKIDATA
