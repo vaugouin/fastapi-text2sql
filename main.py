@@ -2135,6 +2135,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 and "original_question" in locals()
                 and isinstance(original_question, str)
                 and original_question.strip() != ""
+                # Deterministic guard: only retry when the primary query had a resolution
+                # problem -- a vague question or unresolved entity placeholders leave
+                # ambiguous_question_for_text2sql = 1. When every placeholder resolved to a
+                # real entity and a well-formed query simply returned 0 rows, the empty
+                # result is AUTHORITATIVE (e.g. "series directed by Chris Carter" -- he has
+                # no series-level Directing credit) and must NOT be masked by a
+                # memory-fabricated retry. Complements the complex_question.md prompt rule.
+                and bool(ambiguous_question_for_text2sql)
             )
         except Exception:
             can_retry_no_results = False
@@ -2148,6 +2156,20 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             )
             if retry_response is not None:
                 return retry_response
+        elif (
+            request.complex_question_processing
+            and not sql_execution_failed
+            and lngpage == 1
+            and isinstance(query_results, list)
+            and len(query_results) == 0
+            and not ambiguous_question_for_text2sql
+            and not getattr(request, "complex_question_already_resolved", False)
+        ):
+            messages.append(TextMessage(
+                position=position_counter,
+                text="0 rows but all entity placeholders resolved; treating the empty result as authoritative (no complex-question retry)."
+            ))
+            position_counter += 1
 
         # Single-cell zero result: if the SQL returned a single row with a single column
         # whose value is 0, the SQL approach likely failed (e.g. COUNT returning 0).
