@@ -32,6 +32,37 @@ def _extract_year_context(entity_extraction):
     return None
 
 
+# Descriptor words that can trail a resolved franchise/collection name and get
+# duplicated by the answer template (see _collapse_repeated_descriptor).
+_DESCRIPTOR_BASE = {
+    "collection": "collection", "collections": "collection",
+    "saga": "saga", "sagas": "saga",
+    "universe": "universe", "universes": "universe",
+    "franchise": "franchise", "franchises": "franchise",
+    "trilogy": "trilogy", "trilogies": "trilogy",
+}
+_REPEATED_DESCRIPTOR_RE = re.compile(
+    r"\b(" + "|".join(_DESCRIPTOR_BASE) + r")\s+(" + "|".join(_DESCRIPTOR_BASE) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _collapse_repeated_descriptor(text: str) -> str:
+    """Collapse a franchise/collection descriptor word repeated back-to-back
+    (e.g. "Star Wars Collection collection" -> "Star Wars Collection"), keeping the
+    first copy. Only the SAME descriptor is collapsed (singular/plural tolerant);
+    mixed wording such as "Dollars Trilogy collection" is left untouched."""
+    if not text:
+        return text
+
+    def _keep_first(m):
+        if _DESCRIPTOR_BASE.get(m.group(1).lower()) == _DESCRIPTOR_BASE.get(m.group(2).lower()):
+            return m.group(1)
+        return m.group(0)
+
+    return _REPEATED_DESCRIPTOR_RE.sub(_keep_first, text)
+
+
 strentityextractionprompttemplate = "entity_extraction.md"
 strentityresolutionconfigfile = "entity_resolution.json"
 strentityextractionmodeldefault = "gpt-4o"
@@ -905,6 +936,16 @@ def resolve_entities(
         if len(unresolved_placeholders) > 10:
             unresolved_preview += ", ..."
         add_message(f"Unresolved placeholders remain in SQL after entity resolution: {unresolved_preview}")
+
+    # Collapse a descriptor word repeated right after a resolved entity name: a
+    # collection named "Star Wars Collection" substituted into the LLM template
+    # "... in the {{Collection_name}} collection" would otherwise read "Star Wars
+    # Collection collection". Only the SAME descriptor repeated back-to-back is
+    # collapsed (the first copy belongs to the name); distinct wording such as
+    # "Dollars Trilogy collection" is left intact. Runs on the final text so it also
+    # cleans cached answers/justifications.
+    answer = _collapse_repeated_descriptor(answer)
+    justification = _collapse_repeated_descriptor(justification)
 
     return {
         "sql_query": sql_query,
