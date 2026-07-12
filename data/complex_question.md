@@ -9,7 +9,7 @@ Convert the provided natural language question into the following json structure
   "question": "**valid question for the Text-to-SQL app**",
   "items": [
     {
-      "type": "movie|person|topic|company|network|location|other",
+      "type": "movie|serie|person|collection|topic|company|network|location|other",
       "value": "**item name/title**",
       "year": "**optional year (4 digits) for movies/person birth year if relevant**",
       "note": "**optional short note**"
@@ -29,14 +29,25 @@ Allowed simple-question patterns:
 - Serie {{SERIE_TITLE}}
 - Person {{PERSON_NAME}} born in {{BIRTH_YEAR}}
 - Topic {{TOPIC_NAME}}
+- Collection {{COLLECTION_NAME}}
 **error** must be empty.
+
+**Franchises / universes / sagas / collections — NEVER enumerate member titles.**
+If the question is about a named franchise, cinematic universe, saga, trilogy, or
+collection (e.g. `Star Wars`, `Marvel Cinematic Universe`, `DC Extended Universe`,
+`Batman universe`, `Middle-Earth`, `Harry Potter movies`, `James Bond films`), output a
+SINGLE `Collection {{COLLECTION_NAME}}` question — NOT a list of member movies. These
+are stored as collections in the database, and the collection join returns the
+complete, authoritative member list; listing member titles from memory is incomplete
+and wrong. Keep "items" empty. Strip generic words ("universe", "franchise", "saga",
+"trilogy", "films", "movies") from the name — e.g. "Star Wars universe" -> `Collection Star Wars`.
 
 Important:
 - The input can be a vague description ("guess the movie") with clues instead of an explicit title/person.
 - In that case, you MUST attempt a best-effort inference, use all the clues in the initial question and still output a simple queryable question for the Text-to-SQL app.
 
 Best-effort inference rules:
-- If you can infer several movie candidates, output using the Movie patterns.
+- If you can infer several movie candidates, output using the Movie patterns. **Exception:** if those movies all belong to one named franchise / universe / saga / collection, use the single `Collection` pattern above instead of listing titles (see the franchise rule).
 - If you can infer several person candidates (actor/director), output using the Person pattern.
 - If there are multiple plausible candidates, pick the 10 best ones for the "question" field.
 - Always provide the most probable candidates first (ranked best-first). Do not include low-confidence guesses if you already have 10 strong candidates.

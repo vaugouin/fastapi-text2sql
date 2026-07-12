@@ -199,6 +199,7 @@
         "rapidfuzz_col_key": "COLLECTION_NAME_KEY",
         "rapidfuzz_col_popularity": "POPULARITY",
         "require_confident": true,
+        "strip_franchise_stopwords": true,
         "languages": {
           "*": "COLLECTION_NAME"
         }

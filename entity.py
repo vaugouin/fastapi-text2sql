@@ -659,6 +659,11 @@ def resolve_entities(
                                 has_fulltext=has_fulltext,
                                 timings_enabled=False,
                                 bktree=bktree_idx,
+                                # Neutralize generic franchise words (collections): "Star Wars
+                                # universe" ~ "Star Wars Collection". Applied to the query and,
+                                # in-memory, to each candidate NORM, so no stored-column backfill
+                                # is required. Opt-in per strategy in entity_resolution.json.
+                                strip_stopwords=bool(search_cfg.get("strip_franchise_stopwords")),
                             )
                         except Exception:
                             continue
