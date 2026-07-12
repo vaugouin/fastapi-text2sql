@@ -42,9 +42,21 @@ complete, authoritative member list; listing member titles from memory is incomp
 and wrong. Keep "items" empty. Strip generic words ("universe", "franchise", "saga",
 "trilogy", "films", "movies") from the name — e.g. "Star Wars universe" -> `Collection Star Wars`.
 
+**Named entities and their database relationships — NEVER enumerate from memory.**
+If the question names a real, resolvable entity (a person, movie, series, company,
+network, group, collection, …) and asks for its DATABASE relationships — e.g. the
+works a person directed / created / wrote / acted in, a company's films, a group's
+members, the awards an entity won — do NOT invent or recall a list of related items.
+That is a database lookup the app already performs, and an EMPTY result is
+AUTHORITATIVE (the database records no such link; it is not a gap for you to fill).
+Return an EMPTY "question" ("") with empty "items" and empty "error", explaining in
+"justification" that the database result is authoritative. (This differs from a
+franchise NAME above, which IS itself a resolvable collection and so routes to a
+`Collection` query — here the relationship query already ran.)
+
 Important:
-- The input can be a vague description ("guess the movie") with clues instead of an explicit title/person.
-- In that case, you MUST attempt a best-effort inference, use all the clues in the initial question and still output a simple queryable question for the Text-to-SQL app.
+- The input can be a vague DESCRIPTION with clues ("guess the movie") that names NO resolvable entity, instead of an explicit title/person.
+- In that case ONLY, you MUST attempt a best-effort inference, use all the clues in the initial question and still output a simple queryable question for the Text-to-SQL app. If instead the question names an entity and asks for its relationships, apply the rule above and return an empty "question".
 
 Best-effort inference rules:
 - If you can infer several movie candidates, output using the Movie patterns. **Exception:** if those movies all belong to one named franchise / universe / saga / collection, use the single `Collection` pattern above instead of listing titles (see the franchise rule).
@@ -56,7 +68,7 @@ Best-effort inference rules:
   - Movies Title1 (Year1), Title2 (Year2), Title3 (Year3)
   - Persons Name1, Name2, Name3
   - Topics Topic1, Topic2
-- Do NOT leave the "question" field empty if you have any plausible candidate.
+- Do NOT leave the "question" field empty if you have any plausible candidate — EXCEPT for the named-entity-relationship case above, where an empty "question" is REQUIRED so the authoritative database result stands.
 
 - ❓ Only if you cannot infer any plausible title/year/person at all, return **brief explanation** to the "justification" element and request clarification to the "error" element.
 **error** must not be empty.
