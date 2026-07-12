@@ -2453,6 +2453,23 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     answer = entity._collapse_repeated_descriptor(answer)
     justification = entity._collapse_repeated_descriptor(justification)
 
+    # Empty-result honesty: the LLM writes `answer` before execution, so a well-formed
+    # query that returns no rows (and fired no retry -- see the deterministic gate above)
+    # still reads affirmatively ("Here are the series ..."). Replace it with a neutral,
+    # localized empty-result message so the answer matches the (empty) data. A scalar
+    # zero (COUNT = 0) is one row, not zero, so it is unaffected.
+    if (
+        isinstance(query_results, list)
+        and len(query_results) == 0
+        and not sql_execution_failed
+        and not response_error_text
+    ):
+        answer = (
+            "Aucun résultat ne correspond à cette question."
+            if request.ui_language == "fr"
+            else "No matching results were found for this question."
+        )
+
     response = Text2SQLResponse(
         question=input_text,
         question_hashed=response_question_hash,
