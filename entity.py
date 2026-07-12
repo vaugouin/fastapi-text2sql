@@ -937,16 +937,9 @@ def resolve_entities(
             unresolved_preview += ", ..."
         add_message(f"Unresolved placeholders remain in SQL after entity resolution: {unresolved_preview}")
 
-    # Collapse a descriptor word repeated right after a resolved entity name: a
-    # collection named "Star Wars Collection" substituted into the LLM template
-    # "... in the {{Collection_name}} collection" would otherwise read "Star Wars
-    # Collection collection". Only the SAME descriptor repeated back-to-back is
-    # collapsed (the first copy belongs to the name); distinct wording such as
-    # "Dollars Trilogy collection" is left intact. Runs on the final text so it also
-    # cleans cached answers/justifications.
-    answer = _collapse_repeated_descriptor(answer)
-    justification = _collapse_repeated_descriptor(justification)
-
+    # NOTE: the repeated-descriptor collapse (_collapse_repeated_descriptor) is applied
+    # once in main.py at response assembly, so it also covers the exact-question cache-hit
+    # path that bypasses this function. Not applied here to avoid a second, redundant pass.
     return {
         "sql_query": sql_query,
         "justification": justification,

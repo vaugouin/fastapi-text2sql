@@ -2445,6 +2445,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         response_error_text = str(entity_extraction.get("error") or "")
     retry_metadata = _extract_retry_metadata(response_error_text)
 
+    # Collapse a repeated franchise/collection descriptor in the final answer/justification
+    # ("Star Wars Collection collection" -> "Star Wars Collection"). Applied here, at
+    # response assembly, so it covers EVERY path reaching this point -- including the
+    # exact-question cache hit, which returns a cached answer verbatim and bypasses
+    # resolve_entities. Idempotent on already-clean text.
+    answer = entity._collapse_repeated_descriptor(answer)
+    justification = entity._collapse_repeated_descriptor(justification)
+
     response = Text2SQLResponse(
         question=input_text,
         question_hashed=response_question_hash,
