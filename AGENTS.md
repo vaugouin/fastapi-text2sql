@@ -437,6 +437,15 @@ Keep Markdown, prompt files, JSON config, and logs UTF-8. These files contain no
 
 The API/MCP server is built and run as a Docker container via the repo's `Dockerfile` (base image `python:3.12-slim-bookworm`, `PYTHONUNBUFFERED=1`). The build compiles SQLite 3.40.1 from source (set on `LD_LIBRARY_PATH`) for ChromaDB compatibility, installs `requirements.txt`, copies `*.py` and `./data/`, and runs `CMD ["python", "./main.py"]`. The `Dockerfile` does not declare an `EXPOSE` or `VOLUME`; the runtime config (the `.env` variables in "Runtime dependencies", including the Blue/Green `API_PORT_*` ports) is supplied at `docker run` time. Note `data/` is hot-reloaded from inside the image, so prompt/config edits need a rebuilt (or volume-mounted) `data/` to take effect in a running container.
 
+### Which Blue/Green slot is live — read it off the version's patch number
+
+The live color is determined by the **parity of the `strapiversion` patch number** (the `ZZZ` in `X.Y.ZZZ`), so you never have to guess which slot to restart:
+
+- **Odd** patch → **Green** is live (mnemonic: "Green" has 5 letters — odd). E.g. `1.1.17` → Green.
+- **Even** patch → **Blue** is live (mnemonic: "Blue" has 4 letters — even). E.g. `1.1.16` / `1.1.18` → Blue.
+
+Restarting a `*.py` change therefore means running the script for the color matching the current version's parity: `restart-green.sh` for an odd patch, `restart-blue.sh` for an even one. This also explains why an explicit `strapiversion` bump flips the parity — the deploy moves to the other color's port.
+
 ---
 
 **Last Updated**: 2026-06-03

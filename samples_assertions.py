@@ -31,6 +31,7 @@ ID_COLUMN_ENTITY = {
     "ID_COMPANY": "company",
     "ID_NETWORK": "network",
     "ID_T2S_LIST": "list",
+    "ID_T2S_COLLECTION": "collection",
     "ID_ITEM": "location",
     "ID_CONTENT": "content",
 }
