@@ -4629,6 +4629,17 @@ SAMPLE_HYDRATION = {
     "list":    ("T_WC_T2S_LIST",    "ID_T2S_LIST", ["ID_T2S_LIST", "LIST_NAME", "LIST_NAME_FR", "POSTER_PATH", "WIKIPEDIA_IMAGE_PATH", "IMDB_RATING_WEIGHTED", "POPULARITY"]),
     "collection": ("T_WC_T2S_COLLECTION", "ID_T2S_COLLECTION", ["ID_T2S_COLLECTION", "COLLECTION_NAME", "COLLECTION_NAME_FR", "POSTER_PATH", "WIKIPEDIA_IMAGE_PATH", "MOVIE_COUNT", "SERIE_COUNT", "IMDB_RATING_WEIGHTED"]),
     "location": ("T_WC_T2S_ITEM",   "ID_WIKIDATA", ["ID_WIKIDATA", "ITEM_LABEL", "ITEM_LABEL_FR", "WIKIPEDIA_IMAGE_PATH"]),
+    # Secondary entities. group/death store their image in PROFILE_PATH, aliased to
+    # POSTER_PATH so the front-end card picks it up (it reads POSTER_PATH ||
+    # WIKIPEDIA_IMAGE_PATH); technical's label is DESCRIPTION. These carry a real image
+    # column but image *coverage* is uneven, so a given sample only renders where rows
+    # actually have a usable image (VOICE-AGENT-068 hides image-less showcase cards).
+    "movement":   ("T_WC_T2S_MOVEMENT",   "ID_MOVEMENT",   ["ID_MOVEMENT", "MOVEMENT_NAME", "MOVEMENT_NAME_FR", "POSTER_PATH", "WIKIPEDIA_IMAGE_PATH"]),
+    "award":      ("T_WC_T2S_AWARD",      "ID_AWARD",      ["ID_AWARD", "AWARD_NAME", "AWARD_NAME_FR", "POSTER_PATH", "WIKIPEDIA_IMAGE_PATH"]),
+    "nomination": ("T_WC_T2S_NOMINATION", "ID_NOMINATION", ["ID_NOMINATION", "NOMINATION_NAME", "NOMINATION_NAME_FR", "POSTER_PATH", "WIKIPEDIA_IMAGE_PATH"]),
+    "group":      ("T_WC_T2S_GROUP",      "ID_GROUP",      ["ID_GROUP", "GROUP_NAME", "GROUP_NAME_FR", "PROFILE_PATH AS POSTER_PATH", "WIKIPEDIA_IMAGE_PATH"]),
+    "death":      ("T_WC_T2S_DEATH",      "ID_DEATH",      ["ID_DEATH", "DEATH_NAME", "DEATH_NAME_FR", "PROFILE_PATH AS POSTER_PATH", "WIKIPEDIA_IMAGE_PATH"]),
+    "technical":  ("T_WC_T2S_TECHNICAL",  "ID_TECHNICAL",  ["ID_TECHNICAL", "DESCRIPTION", "DESCRIPTION_FR", "WIKIPEDIA_IMAGE_PATH"]),
 }
 
 # Evaluation categories whose samples preview the entity's FULL image set (every poster /

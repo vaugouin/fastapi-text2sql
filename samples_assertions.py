@@ -34,6 +34,16 @@ ID_COLUMN_ENTITY = {
     "ID_T2S_COLLECTION": "collection",
     "ID_ITEM": "location",
     "ID_CONTENT": "content",
+    # Secondary entities: hydrate-able for the showcase (SAMPLE_HYDRATION in main.py).
+    # Whether they actually get a showcase sample depends on their image coverage.
+    "ID_MOVEMENT": "movement",
+    "ID_AWARD": "award",
+    "ID_NOMINATION": "nomination",
+    "ID_GROUP": "group",
+    "ID_DEATH": "death",
+    "ID_TECHNICAL": "technical",
+    # NB: genre has no standalone entity table (only T_WC_T2S_MOVIE/SERIE_GENRE
+    # junctions), so it cannot be hydrated as a result entity.
 }
 
 
