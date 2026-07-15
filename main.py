@@ -461,6 +461,154 @@ _RESULT_ENTITY_SOURCES = {
     "serie_image": ("ID_ROW", "T_WC_T2S_SERIE_IMAGE"),
 }
 
+# --- Name/title ambiguity detection (FASTAPI-TEXT2SQL-157) --------------------
+# When the generated SQL is *nothing but* an exact-equality match on an entity's
+# name/title column(s) against a SINGLE literal and returns >=2 distinct rows, the
+# result is a same-name cluster (homonym person, duplicate movie/serie title): the
+# user named ONE entity but the database holds several. `compute_name_ambiguity`
+# emits a NEUTRAL, DESCRIPTIVE flag stating that fact. It does NOT decide whether a
+# client should disambiguate or list — that is *intent*, which is NOT in the SQL
+# ("tell me about Dracula" and "list all movies called Dracula" produce the identical
+# WHERE, differing only by an incidental ORDER BY). A conversational client
+# (voice-agent) reads the flag and asks "which one?"; a plain display client
+# (tmdb-front) ignores it. The field is None otherwise, so ignoring clients are
+# unaffected.
+#
+# Detection reads the SQL, not the display titles, because the match can hit any of
+# several title columns (a "Le bonheur" row can carry MOVIE_TITLE="Happiness" with the
+# French/original title holding the anchor). Strict "=" is guaranteed (never LIKE) by
+# data/text_to_sql.md, so equality parsing cannot be bypassed by a fuzzy predicate.
+# Extend the map per entity table as needed (columns longest-first for regex safety).
+_NAME_AMBIGUITY_ENTITIES = {
+    "movie": {
+        "columns": ("MOVIE_TITLE_FR", "ORIGINAL_TITLE", "MOVIE_TITLE"),
+        "id": "ID_MOVIE", "display": "MOVIE_TITLE", "year": "DAT_RELEASE",
+    },
+    "serie": {
+        "columns": ("SERIE_TITLE_FR", "ORIGINAL_TITLE", "SERIE_TITLE"),
+        "id": "ID_SERIE", "display": "SERIE_TITLE", "year": "DAT_FIRST_AIR",
+    },
+    "person": {
+        "columns": ("PERSON_NAME",),
+        "id": "ID_PERSON", "display": "PERSON_NAME", "year": "BIRTH_YEAR",
+    },
+}
+
+
+def _extract_year(value):
+    """Best-effort 4-digit year from a DATE / date-string / int; None if not derivable."""
+    if value is None:
+        return None
+    match = re.search(r"\d{4}", str(value))
+    return int(match.group(0)) if match else None
+
+
+def _where_pure_name_equality_anchor(sql_query, columns):
+    """Return the single anchor literal L when the WHERE clause is composed ONLY of
+    exact-equality predicates ``col = 'L'`` on the given name/title ``columns`` (all
+    sharing the same literal L, joined by OR), with no other predicate, JOIN, or
+    subquery. Return None otherwise.
+
+    Robust to arbitrary literal content: each ``col = '...'`` predicate (with '' escaping)
+    is captured whole and subtracted; only OR/parentheses/whitespace plus the trailing
+    ORDER BY / LIMIT tail may remain. Any residue (AND, another column, a function) → None.
+    """
+    if not sql_query:
+        return None
+    sql = sql_query.strip().rstrip(";").strip()
+    # Single-table, no subquery: a JOIN or a second SELECT means the user's entity was
+    # narrowed or the query is not a plain name lookup.
+    if re.search(r"\bJOIN\b", sql, re.I):
+        return None
+    if len(re.findall(r"\bSELECT\b", sql, re.I)) != 1:
+        return None
+    where_match = re.search(r"\bWHERE\b", sql, re.I)
+    if not where_match:
+        return None
+    body = sql[where_match.end():]
+    col_alt = "|".join(re.escape(c) for c in columns)  # already longest-first
+    pred_re = re.compile(
+        r"(?:[A-Za-z_][A-Za-z0-9_]*\.)?(?:" + col_alt + r")\b\s*=\s*'((?:[^']|'')*)'",
+        re.I,
+    )
+    literals = []
+
+    def _grab(match):
+        literals.append(match.group(1))
+        return " "
+
+    residue = pred_re.sub(_grab, body)
+    if not literals:
+        return None
+    # Strip the trailing ORDER BY / LIMIT / OFFSET tail (never quoted).
+    residue = re.sub(r"\bORDER\s+BY\b.*$", " ", residue, flags=re.I | re.S)
+    residue = re.sub(r"\bLIMIT\b.*$", " ", residue, flags=re.I | re.S)
+    # A narrowing conjunction disqualifies a pure name cluster.
+    if re.search(r"\bAND\b", residue, re.I):
+        return None
+    # Remove OR connectives, parentheses, separators; anything left → not pure equality.
+    residue = re.sub(r"\bOR\b", " ", residue, flags=re.I)
+    residue = re.sub(r"[()\s;,]+", "", residue)
+    if residue:
+        return None
+    # All disjuncts must target the SAME literal (the user's single anchor).
+    unescaped = {lit.replace("''", "'") for lit in literals}
+    if len(unescaped) != 1:
+        return None
+    return next(iter(unescaped))
+
+
+def compute_name_ambiguity(sql_query, result_entity, query_results):
+    """Neutral name/title-ambiguity flag, or None. See _NAME_AMBIGUITY_ENTITIES.
+
+    Call on page 1 only (the small same-name cluster fits one page). Returns
+    ``{entity, anchor, count, candidates:[{id, display, discriminator}]}`` when the
+    generated SQL is a pure name/title equality on one literal AND >=2 *distinct*
+    candidates remain after collapsing data duplicates (same display + same year);
+    None otherwise.
+    """
+    spec = _NAME_AMBIGUITY_ENTITIES.get((result_entity or "").strip().lower())
+    if not spec or not isinstance(query_results, list) or len(query_results) < 2:
+        return None
+    anchor = _where_pure_name_equality_anchor(sql_query, spec["columns"])
+    if anchor is None:
+        return None
+    candidates, seen = [], set()
+    for item in query_results:
+        data = item.get("data") if isinstance(item, dict) else None
+        if not isinstance(data, dict):
+            continue
+        display = data.get(spec["display"])
+        year = _extract_year(data.get(spec["year"]))
+        if (result_entity or "").strip().lower() == "person":
+            discriminator = {
+                "birth_year": year,
+                "death_year": _extract_year(data.get("DEATH_YEAR")),
+                "role": data.get("KNOWN_FOR_DEPARTMENT"),
+            }
+        else:
+            discriminator = {"year": year}
+        # Collapse rows indistinguishable on (display, primary year): a data duplicate
+        # is not a user-facing ambiguity.
+        key = (str(display).strip().lower() if display is not None else "", year)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append({
+            "id": data.get(spec["id"]),
+            "display": display,
+            "discriminator": discriminator,
+        })
+    if len(candidates) < 2:
+        return None
+    return {
+        "entity": (result_entity or "").strip().lower(),
+        "anchor": anchor,
+        "count": len(candidates),
+        "candidates": candidates,
+    }
+
+
 # --- Bare-identifier fast path (FASTAPI-TEXT2SQL-137) -------------------------
 # A question that is JUST a self-identifying id (tt… / nm… / Q…) is answered with
 # a direct indexed SQL lookup, skipping the entire LLM pipeline (entity extraction
@@ -927,6 +1075,10 @@ class Text2SQLResponse(BaseModel):
     answer: str = ""
     answer_anonymized: str = ""
     result_entity: str = ""
+    # Neutral same-name-cluster flag (FASTAPI-TEXT2SQL-157); None unless the SQL is a
+    # pure name/title equality on one literal returning >=2 distinct rows. Clients
+    # decide what to do with it (voice-agent disambiguates; tmdb-front ignores it).
+    name_ambiguity: Optional[dict] = None
     error: str
     error_code: Optional[str] = None
     is_retryable: bool = False
@@ -1036,6 +1188,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             - sql_query_anonymized: SQL with entity placeholders before resolution.
             - justification: LLM explanation of the generated query.
             - error: Non-empty if the question could not produce a valid SQL query.
+            - name_ambiguity (dict, optional): Neutral same-name-cluster flag — present
+              only when the SQL is a pure name/title equality on one literal returning
+              >=2 distinct rows (homonym person / duplicate title). Descriptive, not an
+              instruction; clients decide (voice-agent disambiguates, tmdb-front ignores).
+              See README "Response Fields" for the shape. FASTAPI-TEXT2SQL-157.
             - entity_extraction (dict): Extracted entity names keyed by placeholder.
             - question_anonymized: Question with entity values replaced by placeholders.
             - result (list): Paginated rows, each as {"index": int, "data": dict}.
@@ -2470,6 +2627,16 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             else "No matching results were found for this question."
         )
 
+    # Same-name-cluster detection (FASTAPI-TEXT2SQL-157): page 1 only, on a clean
+    # result. Never let a detection glitch break the response.
+    name_ambiguity = None
+    if lngpage == 1 and not sql_execution_failed and not response_error_text:
+        try:
+            name_ambiguity = compute_name_ambiguity(sql_query, result_entity, query_results)
+        except Exception as _name_ambiguity_exc:
+            print(f"name_ambiguity computation skipped: {_name_ambiguity_exc}")
+            name_ambiguity = None
+
     response = Text2SQLResponse(
         question=input_text,
         question_hashed=response_question_hash,
@@ -2480,6 +2647,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         answer=answer,
         answer_anonymized=answer_anonymized,
         result_entity=result_entity or "",
+        name_ambiguity=name_ambiguity,
         error=response_error_text,
         error_code=retry_metadata.get("error_code"),
         is_retryable=bool(retry_metadata.get("is_retryable")),
