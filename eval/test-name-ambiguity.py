@@ -28,6 +28,8 @@ WHAT EACH GROUP PINS
                    (the collapse must merge ONLY true duplicates, never distinct
                    films that merely share a title+year -- the bug fixed in
                    commit fac0797, e.g. two 1989 "Black Rain", two 2025 "Dracula").
+- flag_serie     : same as flag_movie for a duplicate TV-series title (phrase as
+                   "the TV series X", since some titles are also films).
 - flag_person    : a homonym person search must flag (role/birth-year carried).
 - flag_soft      : apostrophe robustness -- the WHERE literal 'Ocean''s Eleven'
                    must be parsed and un-escaped correctly (or, if the resolver
@@ -58,8 +60,9 @@ HOW TO EXTEND
 Add a dict to CASES. Fields: {"q": <question>, "kind": <one of the KINDS below>,
 optional "page": <int>, optional "note": <why this case exists>}. Keep real,
 stable examples (a title whose duplicate set won't churn) so the battery stays
-deterministic. If you add a duplicate-SERIE title (none was known at authoring
-time), use kind "flag_serie".
+deterministic. Duplicate SERIE titles come from
+    SELECT COUNT(*), SERIE_TITLE FROM T_WC_T2S_SERIE GROUP BY SERIE_TITLE HAVING COUNT(*)>1
+-- phrase them as "the TV series X" (kind "flag_serie") so they resolve to serie.
 """
 
 import argparse
@@ -108,6 +111,17 @@ CASES = [
      "note": "20 distinct films; no false collapse on shared title/year"},
     {"q": "Tell me about the movie Black Rain", "kind": "flag_movie",
      "note": "two 1989 films (Scott US / Imamura JP) -> year-collision case"},
+
+    # POSITIVES -- duplicate SERIE titles (found via
+    #   SELECT COUNT(*), SERIE_TITLE FROM T_WC_T2S_SERIE GROUP BY SERIE_TITLE HAVING COUNT(*)>1
+    # Phrase as "the TV series X" so result_entity resolves to serie, not movie
+    # (several of these titles are also films: 48 Hours, 1992, ...).
+    {"q": "Tell me about the TV series 1001 Nights", "kind": "flag_serie",
+     "note": "2 series; clean baseline serie cluster"},
+    {"q": "Tell me about the TV series 20,000 Leagues Under the Sea", "kind": "flag_serie",
+     "note": "2 series; comma inside the WHERE literal (robustness)"},
+    {"q": "Tell me about the TV series 1 vs. 100", "kind": "flag_serie",
+     "note": "3 series; count>2 and 'vs.' punctuation"},
 
     # POSITIVES -- homonym persons.
     {"q": "Tell me about Steve McQueen", "kind": "flag_person",
