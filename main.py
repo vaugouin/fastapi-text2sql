@@ -483,10 +483,12 @@ _NAME_AMBIGUITY_ENTITIES = {
     "movie": {
         "columns": ("MOVIE_TITLE_FR", "ORIGINAL_TITLE", "MOVIE_TITLE"),
         "id": "ID_MOVIE", "display": "MOVIE_TITLE", "year": "DAT_RELEASE",
+        "imdb": "ID_IMDB",
     },
     "serie": {
         "columns": ("SERIE_TITLE_FR", "ORIGINAL_TITLE", "SERIE_TITLE"),
         "id": "ID_SERIE", "display": "SERIE_TITLE", "year": "DAT_FIRST_AIR",
+        "imdb": "ID_IMDB",
     },
     "person": {
         "columns": ("PERSON_NAME",),
@@ -573,7 +575,8 @@ def compute_name_ambiguity(sql_query, result_entity, query_results):
     anchor = _where_pure_name_equality_anchor(sql_query, spec["columns"])
     if anchor is None:
         return None
-    candidates, seen = [], set()
+    candidates, seen_imdb = [], set()
+    imdb_col = spec.get("imdb")
     for item in query_results:
         data = item.get("data") if isinstance(item, dict) else None
         if not isinstance(data, dict):
@@ -588,12 +591,18 @@ def compute_name_ambiguity(sql_query, result_entity, query_results):
             }
         else:
             discriminator = {"year": year}
-        # Collapse rows indistinguishable on (display, primary year): a data duplicate
-        # is not a user-facing ambiguity.
-        key = (str(display).strip().lower() if display is not None else "", year)
-        if key in seen:
+        # Collapse ONLY true duplicates: rows sharing a non-empty external id (ID_IMDB)
+        # are the same work double-recorded. Never collapse on (title, year) — distinct
+        # films share those (two different "Dracula" from 2025: tt31434030 vs tt32448239).
+        # Persons carry no ID_IMDB in the projection, so they never collapse.
+        imdb = ""
+        if imdb_col:
+            raw_imdb = data.get(imdb_col)
+            imdb = str(raw_imdb).strip() if raw_imdb not in (None, "") else ""
+        if imdb and imdb in seen_imdb:
             continue
-        seen.add(key)
+        if imdb:
+            seen_imdb.add(imdb)
         candidates.append({
             "id": data.get(spec["id"]),
             "display": display,
