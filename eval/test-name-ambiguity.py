@@ -60,9 +60,22 @@ HOW TO EXTEND
 Add a dict to CASES. Fields: {"q": <question>, "kind": <one of the KINDS below>,
 optional "page": <int>, optional "note": <why this case exists>}. Keep real,
 stable examples (a title whose duplicate set won't churn) so the battery stays
-deterministic. Duplicate SERIE titles come from
-    SELECT COUNT(*), SERIE_TITLE FROM T_WC_T2S_SERIE GROUP BY SERIE_TITLE HAVING COUNT(*)>1
--- phrase them as "the TV series X" (kind "flag_serie") so they resolve to serie.
+deterministic.
+
+FINDING DUPLICATE CANDIDATES (how the positive cases were sourced) -- group the
+entity table by its display name/title and keep the groups of size > 1:
+
+    -- persons:
+    SELECT COUNT(*) AS N, PERSON_NAME FROM T_WC_T2S_PERSON GROUP BY PERSON_NAME HAVING N>1 ORDER BY N DESC;
+    -- TV series:
+    SELECT COUNT(*) AS N, SERIE_TITLE FROM T_WC_T2S_SERIE  GROUP BY SERIE_TITLE HAVING N>1 ORDER BY N DESC;
+    -- movies (English title). The flag ALSO matches MOVIE_TITLE_FR / ORIGINAL_TITLE,
+    -- so group those columns too to catch cross-language duplicates like "Le Bonheur":
+    SELECT COUNT(*) AS N, MOVIE_TITLE FROM T_WC_T2S_MOVIE  GROUP BY MOVIE_TITLE HAVING N>1 ORDER BY N DESC;
+
+Phrase the resulting cases so the entity resolves correctly: persons as
+"Tell me about <name>", series as "the TV series <title>" (several serie titles
+are also films), movies as "the movie <title>".
 """
 
 import argparse
@@ -128,6 +141,8 @@ CASES = [
      "note": "actor 1930 (Acting) vs director 1969 (Directing)"},
     {"q": "Tell me about Harrison Ford", "kind": "flag_person",
      "note": "modern star vs silent-era actor 1884-1957"},
+    {"q": "Tell me about John Williams", "kind": "flag_person",
+     "note": "6 homonyms (composer + others) -> count>2 person cluster"},
 
     # Apostrophe robustness: literal 'Ocean''s Eleven' must parse/un-escape.
     {"q": "Tell me about the movie Ocean's Eleven", "kind": "flag_soft",
