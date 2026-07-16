@@ -104,7 +104,7 @@ def _is_retryable_quota_error_text(error_text: str) -> bool:
     return bool(retry_metadata.get("is_retryable") and str(retry_metadata.get("error_code") or "") == "429")
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.17"
+strapiversion = "1.1.18"
 # Convert API version to XXX.YYY.ZZZ format
 strapiversionformatted = format_api_version(strapiversion)
 
@@ -2952,46 +2952,19 @@ def _member_matches(r, entity_type, entity_id):
     return r["ENTITY_TYPE"] == entity_type and r.get(id_key) == entity_id
 
 
-def _collection_context(cursor, entity_type, entity_id, ui_language="en"):
-    """Cross-type collection context (FASTAPI-TEXT2SQL-152) for a movie or a series.
-    A T2S collection can hold BOTH movies and series (e.g. Star Trek), so the rail unions
-    ``T_WC_T2S_MOVIE_COLLECTION`` + ``T_WC_T2S_SERIE_COLLECTION``. ``entity_type`` is
-    'movie' or 'serie', ``entity_id`` its id.
-    Returns ``(collection_name, collection_items, collection_previous, collection_next)``:
-    ``collection_items`` is every member (film AND series) of the chosen collection in
+def _collection_context_for(cursor, entity_type, entity_id, cid, ui_language="en"):
+    """One cross-type collection context (FASTAPI-TEXT2SQL-152) for ``entity`` within the
+    single collection ``cid``, or ``None`` if the entity is not a member. Returns a dict:
+    ``{ID_T2S_COLLECTION, collection_name, collection_movies, collection_previous,
+    collection_next}``. ``collection_movies`` is every member (film AND series) in
     release-date order, each with its native id/title keys, an ``ENTITY_TYPE`` tag and an
-    ``IS_CURRENT`` flag on the requested entity (``[]`` when standalone); prev/next are the
-    release-date neighbours (or ``None``) and MAY be of the OTHER type. If the entity is in
-    several collections, the one whose *next* member releases soonest is chosen (else the
-    first non-empty).
+    ``IS_CURRENT`` flag on the requested entity; prev/next are the release-date neighbours
+    (or ``None``) and MAY be of the OTHER type. Name localized to ``ui_language``.
     """
-    membership_table = "T_WC_T2S_MOVIE_COLLECTION" if entity_type == "movie" else "T_WC_T2S_SERIE_COLLECTION"
-    membership_id = "ID_MOVIE" if entity_type == "movie" else "ID_SERIE"
-    cursor.execute(
-        f"SELECT ID_T2S_COLLECTION FROM {membership_table} WHERE {membership_id} = %s AND DELETED = 0",
-        (entity_id,),
-    )
-    collection_ids = [r["ID_T2S_COLLECTION"] for r in cursor.fetchall()]
-    chosen = None       # (cid, members, idx)
-    fallback = None     # (cid, members, idx) — first collection the entity is in
-    best_next_date = None
-    for cid in collection_ids:
-        members = _collection_members(cursor, cid)
-        idx = next((i for i, r in enumerate(members) if _member_matches(r, entity_type, entity_id)), -1)
-        if idx < 0:
-            continue
-        if fallback is None:
-            fallback = (cid, members, idx)
-        if idx < len(members) - 1:  # this collection has a "next"
-            nd = members[idx + 1].get("DAT_RELEASE")
-            if chosen is None or (nd is not None and (best_next_date is None or nd < best_next_date)):
-                chosen = (cid, members, idx)
-                best_next_date = nd
-    if chosen is None:
-        chosen = fallback
-    if not chosen:
-        return None, [], None, None
-    cid, members, idx = chosen
+    members = _collection_members(cursor, cid)
+    idx = next((i for i, r in enumerate(members) if _member_matches(r, entity_type, entity_id)), -1)
+    if idx < 0:
+        return None
     cursor.execute(
         "SELECT COLLECTION_NAME, COLLECTION_NAME_FR FROM T_WC_T2S_COLLECTION WHERE ID_T2S_COLLECTION = %s",
         (cid,),
@@ -3005,9 +2978,79 @@ def _collection_context(cursor, entity_type, entity_id, ui_language="en"):
         item = dict(r)
         item["IS_CURRENT"] = (i == idx)
         collection_items.append(item)
-    collection_previous = collection_items[idx - 1] if idx > 0 else None
-    collection_next = collection_items[idx + 1] if idx < len(members) - 1 else None
-    return collection_name, collection_items, collection_previous, collection_next
+    return {
+        "ID_T2S_COLLECTION": cid,
+        "collection_name": collection_name,
+        "collection_movies": collection_items,
+        "collection_previous": collection_items[idx - 1] if idx > 0 else None,
+        "collection_next": collection_items[idx + 1] if idx < len(members) - 1 else None,
+    }
+
+
+def _all_collection_contexts(cursor, entity_type, entity_id, ui_language="en"):
+    """Every T2S collection the (movie|serie) belongs to, one cross-type chronological
+    context each (FASTAPI-TEXT2SQL-153). A movie/serie can be in SEVERAL collections
+    (visible on ``movie.php``/``serie.php``); this returns them all so a consumer can render
+    one rail per collection. Each item is the dict from :func:`_collection_context_for`.
+
+    Ordered **primary-first**: the collection whose *next* member releases soonest leads
+    (a collection with no upcoming next sinks), matching the historical single-collection
+    choice that the backward-compat ``collection_*`` fields still expose. ``[]`` when the
+    entity is in no collection.
+    """
+    membership_table = "T_WC_T2S_MOVIE_COLLECTION" if entity_type == "movie" else "T_WC_T2S_SERIE_COLLECTION"
+    membership_id = "ID_MOVIE" if entity_type == "movie" else "ID_SERIE"
+    cursor.execute(
+        f"SELECT ID_T2S_COLLECTION FROM {membership_table} WHERE {membership_id} = %s AND DELETED = 0",
+        (entity_id,),
+    )
+    collection_ids = [r["ID_T2S_COLLECTION"] for r in cursor.fetchall()]
+    contexts = [
+        ctx for cid in collection_ids
+        if (ctx := _collection_context_for(cursor, entity_type, entity_id, cid, ui_language)) is not None
+    ]
+    if not contexts:
+        return []
+    # Move the PRIMARY collection to the front, replicating the pre-153 single-choice logic
+    # EXACTLY (backward-compat for the collection_* fields): among collections that have an
+    # upcoming "next" member, the one whose next has the soonest known release date; else the
+    # first collection that has a next at all; else the first the entity is in. Remaining
+    # collections keep their membership order behind the primary.
+    primary_i = None
+    first_with_next = None
+    best_next_date = None
+    for i, ctx in enumerate(contexts):
+        nxt = ctx.get("collection_next")
+        if nxt is None:
+            continue
+        if first_with_next is None:
+            first_with_next = i
+        next_date = nxt.get("DAT_RELEASE")
+        if next_date is not None and (best_next_date is None or next_date < best_next_date):
+            best_next_date = next_date
+            primary_i = i
+    if primary_i is None:
+        primary_i = first_with_next if first_with_next is not None else 0
+    return [contexts[primary_i]] + [c for i, c in enumerate(contexts) if i != primary_i]
+
+
+def _collection_context(cursor, entity_type, entity_id, ui_language="en"):
+    """Backward-compat single-collection context: the PRIMARY of
+    :func:`_all_collection_contexts` (the collection whose next member releases soonest,
+    else the first the entity is in). Returns
+    ``(collection_name, collection_items, collection_previous, collection_next)``, all
+    empty/None when the entity is in no collection.
+    """
+    contexts = _all_collection_contexts(cursor, entity_type, entity_id, ui_language)
+    if not contexts:
+        return None, [], None, None
+    primary = contexts[0]
+    return (
+        primary["collection_name"],
+        primary["collection_movies"],
+        primary["collection_previous"],
+        primary["collection_next"],
+    )
 
 
 def _hoist_collection_next_into_similar(data, pagination, collection_next, entity_type):
@@ -3073,6 +3116,13 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
     collection_next is forced to the #1 position of similar ONLY when it is a movie
     (same-type); a cross-type next (a series) is left as collection_next only, flagged
     IS_COLLECTION_NEXT, never injected into the movie similar list.
+
+    A movie can belong to SEVERAL T2S collections. collections_context is a list with one
+    entry PER collection the movie is in, each carrying ID_T2S_COLLECTION, collection_name,
+    collection_movies (cross-type members with IS_CURRENT), collection_previous and
+    collection_next — so a consumer can render one rail per collection. The list is
+    primary-first: entry [0] is the same collection the single collection_* fields above
+    describe (backward-compat). collections_context is [] when the movie is standalone.
 
     Each nested list element carries the canonical image path of its related entity:
     PROFILE_PATH for cast/crew (persons); LOGO_PATH for companies; POSTER_PATH for
@@ -3263,7 +3313,12 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
                 wikipedia_images = _fetch_wikipedia_images(cursor, movie.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, movie.get("ID_WIKIDATA"), ui_language)
                 videos = _fetch_tmdb_videos(cursor, "movie", id) + _fetch_wikidata_videos(cursor, movie.get("ID_WIKIDATA"))
-                collection_name, collection_movies, collection_previous, collection_next = _collection_context(cursor, "movie", id, ui_language)
+                collection_contexts = _all_collection_contexts(cursor, "movie", id, ui_language)
+                _primary_collection = collection_contexts[0] if collection_contexts else None
+                collection_name = _primary_collection["collection_name"] if _primary_collection else None
+                collection_movies = _primary_collection["collection_movies"] if _primary_collection else []
+                collection_previous = _primary_collection["collection_previous"] if _primary_collection else None
+                collection_next = _primary_collection["collection_next"] if _primary_collection else None
                 _hoist_collection_next_into_similar(data, pagination, collection_next, "movie")
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
@@ -3288,6 +3343,9 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
             "collection_movies": collection_movies,
             "collection_previous": collection_previous,
             "collection_next": collection_next,
+            # FASTAPI-TEXT2SQL-153: one context per collection the entity belongs to (the
+            # collection_* fields above remain the PRIMARY one, for backward-compat).
+            "collections_context": collection_contexts,
             "posters": list(posters),
             "backdrops": list(backdrops),
             "wikipedia_images": wikipedia_images,
@@ -3330,6 +3388,13 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
     the #1 position of similar ONLY when it is a series (same-type); a cross-type next (a
     movie) is left as collection_next only, flagged IS_COLLECTION_NEXT, never injected into
     the series similar list.
+
+    A series can belong to SEVERAL T2S collections. collections_context is a list with one
+    entry PER collection the series is in, each carrying ID_T2S_COLLECTION, collection_name,
+    collection_movies (cross-type members with IS_CURRENT), collection_previous and
+    collection_next — so a consumer can render one rail per collection. The list is
+    primary-first: entry [0] is the same collection the single collection_* fields above
+    describe (backward-compat). collections_context is [] when the series is standalone.
 
     Each nested list element carries the canonical image path of its related entity:
     PROFILE_PATH for cast/crew (persons); LOGO_PATH for companies and networks;
@@ -3524,7 +3589,12 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
                 wikipedia_images = _fetch_wikipedia_images(cursor, serie.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, serie.get("ID_WIKIDATA"), ui_language)
                 videos = _fetch_tmdb_videos(cursor, "serie", id) + _fetch_wikidata_videos(cursor, serie.get("ID_WIKIDATA"))
-                collection_name, collection_movies, collection_previous, collection_next = _collection_context(cursor, "serie", id, ui_language)
+                collection_contexts = _all_collection_contexts(cursor, "serie", id, ui_language)
+                _primary_collection = collection_contexts[0] if collection_contexts else None
+                collection_name = _primary_collection["collection_name"] if _primary_collection else None
+                collection_movies = _primary_collection["collection_movies"] if _primary_collection else []
+                collection_previous = _primary_collection["collection_previous"] if _primary_collection else None
+                collection_next = _primary_collection["collection_next"] if _primary_collection else None
                 _hoist_collection_next_into_similar(data, pagination, collection_next, "serie")
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
@@ -3549,6 +3619,9 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
             "collection_movies": collection_movies,
             "collection_previous": collection_previous,
             "collection_next": collection_next,
+            # FASTAPI-TEXT2SQL-153: one context per collection the entity belongs to (the
+            # collection_* fields above remain the PRIMARY one, for backward-compat).
+            "collections_context": collection_contexts,
             "posters": list(posters),
             "backdrops": list(backdrops),
             "seasons": data["seasons"],
