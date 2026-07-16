@@ -2993,10 +2993,11 @@ def _all_collection_contexts(cursor, entity_type, entity_id, ui_language="en"):
     (visible on ``movie.php``/``serie.php``); this returns them all so a consumer can render
     one rail per collection. Each item is the dict from :func:`_collection_context_for`.
 
-    Ordered **primary-first**: the collection whose *next* member releases soonest leads
-    (a collection with no upcoming next sinks), matching the historical single-collection
-    choice that the backward-compat ``collection_*`` fields still expose. ``[]`` when the
-    entity is in no collection.
+    Ordered **most-specific-first** (FASTAPI-TEXT2SQL-159): the collection with the FEWEST
+    members leads — a trilogy (3) before a franchise before a universe (109) — so the tight,
+    useful collection is the primary the backward-compat ``collection_*`` fields expose.
+    Ties break by the soonest upcoming *next* release, then by membership order. ``[]`` when
+    the entity is in no collection.
     """
     membership_table = "T_WC_T2S_MOVIE_COLLECTION" if entity_type == "movie" else "T_WC_T2S_SERIE_COLLECTION"
     membership_id = "ID_MOVIE" if entity_type == "movie" else "ID_SERIE"
@@ -3011,33 +3012,24 @@ def _all_collection_contexts(cursor, entity_type, entity_id, ui_language="en"):
     ]
     if not contexts:
         return []
-    # Move the PRIMARY collection to the front, replicating the pre-153 single-choice logic
-    # EXACTLY (backward-compat for the collection_* fields): among collections that have an
-    # upcoming "next" member, the one whose next has the soonest known release date; else the
-    # first collection that has a next at all; else the first the entity is in. Remaining
-    # collections keep their membership order behind the primary.
-    primary_i = None
-    first_with_next = None
-    best_next_date = None
-    for i, ctx in enumerate(contexts):
+    # Most-specific-first (FASTAPI-TEXT2SQL-159): fewest members leads, so the primary
+    # (contexts[0] = the backward-compat collection_* fields) is the tightest collection —
+    # the Dark Knight trilogy (3), not the Batman universe (109). Tie-break: soonest upcoming
+    # "next" (a missing/NULL next sinks within the tie), then stable membership order. The
+    # bool guard on `next_date is None` keeps NULLs from being compared against date strings.
+    def _specificity_key(ctx):
+        member_count = len(ctx.get("collection_movies") or [])
         nxt = ctx.get("collection_next")
-        if nxt is None:
-            continue
-        if first_with_next is None:
-            first_with_next = i
-        next_date = nxt.get("DAT_RELEASE")
-        if next_date is not None and (best_next_date is None or next_date < best_next_date):
-            best_next_date = next_date
-            primary_i = i
-    if primary_i is None:
-        primary_i = first_with_next if first_with_next is not None else 0
-    return [contexts[primary_i]] + [c for i, c in enumerate(contexts) if i != primary_i]
+        next_date = nxt.get("DAT_RELEASE") if nxt else None
+        return (member_count, next_date is None, next_date)
+    contexts.sort(key=_specificity_key)
+    return contexts
 
 
 def _collection_context(cursor, entity_type, entity_id, ui_language="en"):
     """Backward-compat single-collection context: the PRIMARY of
-    :func:`_all_collection_contexts` (the collection whose next member releases soonest,
-    else the first the entity is in). Returns
+    :func:`_all_collection_contexts` (the MOST SPECIFIC collection — fewest members —
+    FASTAPI-TEXT2SQL-159). Returns
     ``(collection_name, collection_items, collection_previous, collection_next)``, all
     empty/None when the entity is in no collection.
     """
