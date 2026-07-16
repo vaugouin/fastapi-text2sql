@@ -505,6 +505,19 @@ def _extract_year(value):
     return int(match.group(0)) if match else None
 
 
+def _iso_date(value):
+    """Full YYYY-MM-DD from a DATE / date-string / datetime; None if not derivable.
+
+    Used by the name_ambiguity discriminator so two same-year candidates (e.g. The
+    Odyssey's two 2026 films) expose distinct dates and a "most recent" pick can
+    resolve to a single candidate (year alone reads as an unresolvable tie).
+    """
+    if value is None:
+        return None
+    match = re.search(r"\d{4}-\d{2}-\d{2}", str(value))
+    return match.group(0) if match else None
+
+
 def _where_pure_name_equality_anchor(sql_query, columns):
     """Return the single anchor literal L when the WHERE clause is composed ONLY of
     exact-equality predicates ``col = 'L'`` on the given name/title ``columns`` (all
@@ -590,7 +603,10 @@ def compute_name_ambiguity(sql_query, result_entity, query_results):
                 "role": data.get("KNOWN_FOR_DEPARTMENT"),
             }
         else:
-            discriminator = {"year": year}
+            # Keep the year for human phrasing ("the 1969 one") and add the full
+            # release date as a tiebreaker: two same-year candidates then differ
+            # (FASTAPI-TEXT2SQL-160). spec["year"] is DAT_RELEASE / DAT_FIRST_AIR.
+            discriminator = {"year": year, "release_date": _iso_date(data.get(spec["year"]))}
         # Collapse ONLY true duplicates: rows sharing a non-empty external id (ID_IMDB)
         # are the same work double-recorded. Never collapse on (title, year) — distinct
         # films share those (two different "Dracula" from 2025: tt31434030 vs tt32448239).
