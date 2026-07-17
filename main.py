@@ -573,6 +573,29 @@ def _where_pure_name_equality_anchor(sql_query, columns):
     return next(iter(unescaped))
 
 
+def _candidate_chrono_key(candidate):
+    """Sort key ordering name_ambiguity candidates oldest -> newest.
+
+    FASTAPI-TEXT2SQL-161. The rows come back in DB order, which is neither chronological
+    nor meaningful (The Odyssey returned 1969, 1991, 2016, 2004, 2012, 2026-07-15,
+    2026-07-03). That misleads a consumer twice: an agent enumerating the candidates reads
+    them out of order, and a *positional* reading of a superlative ("the latest one" = the
+    last item) lands on the wrong film. Ordering by date makes position agree with time.
+
+    Uses the full release_date when known, else the year (placed at the start of its year),
+    with undated candidates last. Python's sort is stable, so ties keep DB order.
+    """
+    discriminator = candidate.get("discriminator") or {}
+    release_date = discriminator.get("release_date")
+    if release_date:
+        return (0, str(release_date))
+    # movie/serie carry "year"; person carries "birth_year".
+    year = discriminator.get("year") or discriminator.get("birth_year")
+    if year:
+        return (0, f"{int(year):04d}-00-00")
+    return (1, "")
+
+
 def compute_name_ambiguity(sql_query, result_entity, query_results):
     """Neutral name/title-ambiguity flag, or None. See _NAME_AMBIGUITY_ENTITIES.
 
@@ -626,6 +649,9 @@ def compute_name_ambiguity(sql_query, result_entity, query_results):
         })
     if len(candidates) < 2:
         return None
+    # Oldest -> newest, so an enumerating agent reads them in order and a positional
+    # "the latest one" lands on the actual latest (FASTAPI-TEXT2SQL-161).
+    candidates.sort(key=_candidate_chrono_key)
     return {
         "entity": (result_entity or "").strip().lower(),
         "anchor": anchor,
