@@ -962,6 +962,102 @@ def _fetch_localized_main_image_paths(cursor, image_table, id_column, type_image
     return paths
 
 
+def _overwrite_localized_field(data: dict, key: str, value) -> None:
+    """Overwrite an existing search-row field with a localized value (English fallback per field).
+
+    Rewrites ``data[key]`` only when the key is already present (never adds a key, so the
+    result shape stays identical to the English contract) and the localized ``value`` is
+    non-empty, applying the same ``html.unescape`` the search assembly applies to strings.
+    """
+    if key not in data or value is None:
+        return
+    if isinstance(value, str):
+        if value.strip() == "":
+            return
+        value = html.unescape(value)
+    data[key] = value
+
+
+def _localize_search_rows(cursor, rows_by_id, ui_language, base_table, lang_table, image_table, id_column, title_column) -> None:
+    """Localize one entity type's search rows in place: title + tagline (one join) + poster.
+
+    ``rows_by_id`` maps an id to the list of ``(data, title_key)`` search rows carrying it.
+    Two batched lookups per type: the localized title (``title_column`` on ``base_table``)
+    and tagline (``lang_table``) in a single LEFT JOIN, then the main localized poster via
+    ``_fetch_localized_main_image_paths``. Only fields already present in a row are
+    overwritten. Table/column names are trusted internal constants (interpolated like the
+    other DB helpers); ids and language are bound as parameters.
+    """
+    ids = [v for v in rows_by_id if v is not None]
+    if not ids:
+        return
+    placeholders = ",".join(["%s"] * len(ids))
+    title_fr, tagline_fr = {}, {}
+    cursor.execute(
+        f"""SELECT b.{id_column} AS ID_KEY, b.{title_column} AS TITLE_FR, l.TAGLINE AS TAGLINE_FR
+            FROM {base_table} b
+            LEFT JOIN {lang_table} l ON l.{id_column} = b.{id_column} AND l.LANG = %s
+            WHERE b.{id_column} IN ({placeholders})""",
+        (ui_language, *ids),
+    )
+    for row in cursor.fetchall():
+        title_fr[row.get("ID_KEY")] = row.get("TITLE_FR")
+        tagline_fr[row.get("ID_KEY")] = row.get("TAGLINE_FR")
+    poster_fr = _fetch_localized_main_image_paths(cursor, image_table, id_column, "poster", ids, ui_language)
+    for id_value, rows in rows_by_id.items():
+        for data, title_key in rows:
+            _overwrite_localized_field(data, title_key, title_fr.get(id_value))
+            _overwrite_localized_field(data, "TAGLINE", tagline_fr.get(id_value))
+            _overwrite_localized_field(data, "POSTER_PATH", poster_fr.get(id_value))
+
+
+def localize_search_results(query_results, ui_language: str, conn) -> None:
+    """Localize the movie/serie rows of a /search result set in place, for non-default languages.
+
+    The generated SQL projects English columns (title / tagline / poster) whatever the
+    ui_language, and the search path applies no other localization. Here each movie/serie
+    row is rehydrated BY ID from its localized siblings (``MOVIE_TITLE_FR`` / ``SERIE_TITLE_FR``
+    on the base table, ``TAGLINE`` from ``T_WC_T2S_*_LANG``, the main FR poster from
+    ``T_WC_T2S_*_IMAGE``) WITHOUT touching the prompt or the generated SQL. Rows are typed by
+    the id column the search contract guarantees: ``ID_MOVIE`` / ``ID_SERIE`` for a
+    single-type result, or ``ID_CONTENT`` + ``CONTENT_TYPE`` ('movie'|'serie') with
+    ``CONTENT_TITLE`` for a movie+serie UNION. Every other row kind (person, topic, image
+    rows, scalar answers, ...) is left untouched. Only fields already present are overwritten
+    (shape unchanged), only with a non-empty value. The English default path is a no-op, and a
+    lookup failure degrades silently to the English rows. Mutates the rows in place.
+    """
+    if ui_language == DEFAULT_UI_LANGUAGE or not query_results:
+        return
+    movie_rows, serie_rows = {}, {}
+    for item in query_results:
+        data = item.get("data") if isinstance(item, dict) else None
+        if not isinstance(data, dict):
+            continue
+        content_type = str(data.get("CONTENT_TYPE") or "").strip().lower()
+        if "ID_CONTENT" in data and content_type in ("movie", "serie"):
+            entity_type, id_value, title_key = content_type, data.get("ID_CONTENT"), "CONTENT_TITLE"
+        elif "ID_MOVIE" in data:
+            entity_type, id_value, title_key = "movie", data.get("ID_MOVIE"), "MOVIE_TITLE"
+        elif "ID_SERIE" in data:
+            entity_type, id_value, title_key = "serie", data.get("ID_SERIE"), "SERIE_TITLE"
+        else:
+            continue
+        if id_value is None:
+            continue
+        (movie_rows if entity_type == "movie" else serie_rows).setdefault(id_value, []).append((data, title_key))
+    if not movie_rows and not serie_rows:
+        return
+    try:
+        with conn.cursor() as cursor:
+            _localize_search_rows(cursor, movie_rows, ui_language, "T_WC_T2S_MOVIE", "T_WC_T2S_MOVIE_LANG", "T_WC_T2S_MOVIE_IMAGE", "ID_MOVIE", "MOVIE_TITLE_FR")
+            _localize_search_rows(cursor, serie_rows, ui_language, "T_WC_T2S_SERIE", "T_WC_T2S_SERIE_LANG", "T_WC_T2S_SERIE_IMAGE", "ID_SERIE", "SERIE_TITLE_FR")
+    except Exception:
+        # Localization is an enhancement over the English rows already assembled; a lookup
+        # failure (e.g. a _LANG table missing on a fresh environment) must never break
+        # /search. Degrade silently to the English result.
+        return
+
+
 def apply_localized_related_images(conn, grouped_rows: dict, ui_language: str) -> None:
     """Localize the main picture path of nested related rows for non-default languages.
 
@@ -1460,6 +1556,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         justification_anonymized = justification
         answer_anonymized = answer
 
+        # FASTAPI-TEXT2SQL-162 (post-process variant): localize movie/serie rows by
+        # ui_language before closing the connection. No-op for English.
+        localize_search_results(fast_path_results, normalize_ui_language(request.ui_language), connection)
         try:
             connection.close()
         except Exception:
@@ -2656,8 +2755,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 )
                 print(f"Anonymized question added to embeddings cache with entity variables: {entity_vars_for_metadata}")
     
+    # FASTAPI-TEXT2SQL-162 (post-process variant): localize movie/serie result rows by
+    # ui_language WITHOUT touching the prompt or the generated SQL. No-op for English.
+    localize_search_results(query_results, normalize_ui_language(request.ui_language), connection)
     connection.close()
-    
+
     # Generate question hash if we have a question and no hash was provided
     response_question_hash = request.question_hashed
     if not response_question_hash and request.question:
