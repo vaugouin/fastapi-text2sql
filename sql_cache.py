@@ -130,7 +130,11 @@ def search_sql_cache_by_question_hash(connection, question_hash: str, api_versio
     """Look up the latest cache entry by hashed original question text."""
     return _fetch_latest_cache_entry(
         connection,
-        where_clause="QUESTION_HASHED = %s AND (UI_LANGUAGE = %s OR UI_LANGUAGE IS NULL)",
+        # FASTAPI-TEXT2SQL-163: a cache hit is served only for the SAME ui_language. The old
+        # `OR UI_LANGUAGE IS NULL` let a language-less legacy row match any language (a
+        # cross-language leak); verified in DB that 0 rows have UI_LANGUAGE IS NULL, so the
+        # clause was dead and is removed before multilingual serving makes the leak real.
+        where_clause="QUESTION_HASHED = %s AND UI_LANGUAGE = %s",
         where_params=(question_hash, ui_language),
         api_version=api_version,
     )
@@ -140,7 +144,8 @@ def search_sql_cache_by_question_text(connection, question_text: str, api_versio
     """Look up the latest cache entry by exact stored question text."""
     return _fetch_latest_cache_entry(
         connection,
-        where_clause="QUESTION = %s AND (UI_LANGUAGE = %s OR UI_LANGUAGE IS NULL)",
+        # FASTAPI-TEXT2SQL-163: same-ui_language-only (see the hash lookup above).
+        where_clause="QUESTION = %s AND UI_LANGUAGE = %s",
         where_params=(question_text, ui_language),
         api_version=api_version,
     )
