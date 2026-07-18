@@ -409,6 +409,46 @@ def apply_localized_main_image(entity: dict, image_rows, path_key: str, ui_langu
             return
 
 
+def apply_localized_text(entity: dict, conn, table: str, id_column: str, id_value, ui_language: str, columns=("OVERVIEW", "TAGLINE")) -> None:
+    """Override an entity's English display text with its localized row for non-default languages.
+
+    The T2S base tables (``T_WC_T2S_MOVIE`` / ``T_WC_T2S_SERIE``) carry English
+    ``OVERVIEW`` / ``TAGLINE`` only; the localized text lives in sibling
+    row-per-language tables (``T_WC_T2S_MOVIE_LANG`` / ``T_WC_T2S_SERIE_LANG``, one row
+    per ``(id, LANG)``, built by tmdb-movie-preprocess). For a non-default
+    ``ui_language`` look up the matching ``(id, LANG)`` row and overwrite each column
+    when its localized value is non-empty (never overwrite with a blank -- same
+    empty-guard as ``localize_row``). When no localized row exists (or the column is
+    empty there) the entity keeps its canonical English text as a fallback. For the
+    default language the entity is left untouched. Mutates ``entity`` in place.
+
+    ``table``, ``id_column`` and ``columns`` are fixed code-supplied identifiers (never
+    request input), so their interpolation into the query is safe; ``id_value`` and the
+    language are bound as parameters.
+    """
+    if ui_language == DEFAULT_UI_LANGUAGE or not isinstance(entity, dict):
+        return
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {', '.join(columns)} FROM {table} WHERE {id_column} = %s AND LANG = %s",
+                (id_value, ui_language),
+            )
+            localized = cursor.fetchone()
+    except Exception:
+        # Localized text is an enhancement over the English base already present in
+        # ``entity``; a lookup failure (e.g. the _LANG table not yet built on a fresh
+        # environment, since it is created by tmdb-movie-preprocess) must never break
+        # the detail response. Degrade silently to the English fallback.
+        return
+    if not localized:
+        return
+    for col in columns:
+        value = localized.get(col)
+        if value is not None and (not isinstance(value, str) or value.strip() != ""):
+            entity[col] = value
+
+
 # Nested related-entity kinds whose main picture can be localized, mapped to the
 # language-tagged image table that supplies the localized path:
 #   kind -> (image_table, id_column, type_image, path_key)
@@ -3390,6 +3430,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
         logs.log_usage("movies", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
+        apply_localized_text(result, conn, "T_WC_T2S_MOVIE_LANG", "ID_MOVIE", id, ui_language)
         localize_response(result, ui_language)
         return result
     finally:
@@ -3667,6 +3708,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
         logs.log_usage("series", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
+        apply_localized_text(result, conn, "T_WC_T2S_SERIE_LANG", "ID_SERIE", id, ui_language)
         localize_response(result, ui_language)
         return result
     finally:
