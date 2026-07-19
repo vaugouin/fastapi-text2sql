@@ -3418,6 +3418,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
                        MAX(pm.CREDIT_TYPE) AS CREDIT_TYPE,
                        GROUP_CONCAT(DISTINCT pm.CAST_CHARACTER SEPARATOR ', ') AS CAST_CHARACTER,
                        GROUP_CONCAT(DISTINCT pm.CREW_DEPARTMENT SEPARATOR ', ') AS CREW_DEPARTMENT,
+                       GROUP_CONCAT(DISTINCT pm.CREW_JOB SEPARATOR ', ') AS CREW_JOB,
                        MIN(pm.DISPLAY_ORDER) AS DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_PERSON_MOVIE pm
@@ -3431,6 +3432,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
                        MAX(pm.CREDIT_TYPE) AS CREDIT_TYPE,
                        GROUP_CONCAT(DISTINCT pm.CAST_CHARACTER SEPARATOR ', ') AS CAST_CHARACTER,
                        GROUP_CONCAT(DISTINCT pm.CREW_DEPARTMENT SEPARATOR ', ') AS CREW_DEPARTMENT,
+                       GROUP_CONCAT(DISTINCT pm.CREW_JOB SEPARATOR ', ') AS CREW_JOB,
                        MIN(pm.DISPLAY_ORDER) AS DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
                 FROM T_WC_T2S_PERSON_MOVIE pm
