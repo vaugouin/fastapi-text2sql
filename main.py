@@ -2967,8 +2967,15 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # its own guard so a hydration error still returns the (unhydrated) ambiguity flag.
         if name_ambiguity and name_ambiguity.get("entity") in ("movie", "serie", "person"):
             try:
-                with connection.cursor() as _na_cursor:
-                    hydrate_name_ambiguity_candidates(_na_cursor, name_ambiguity)
+                # `connection` is already closed by this point (see connection.close()
+                # above); compute_name_ambiguity is a pure function so it did not need it,
+                # but hydration queries the DB, so open a fresh short-lived connection.
+                _na_conn = get_db_connection()
+                try:
+                    with _na_conn.cursor() as _na_cursor:
+                        hydrate_name_ambiguity_candidates(_na_cursor, name_ambiguity)
+                finally:
+                    _na_conn.close()
             except Exception as _na_hydrate_exc:
                 print(
                     f"name_ambiguity hydration skipped (entity="
