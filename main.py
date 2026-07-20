@@ -700,6 +700,129 @@ def compute_name_ambiguity(sql_query, result_entity, query_results):
     }
 
 
+def _fetch_credit_names(cursor, table, id_col, ids, credit_where, limit_per_id):
+    """Return ``{entity_id: [PERSON_NAME, ...]}`` for one credit filter, at most
+    ``limit_per_id`` DISTINCT persons per entity, ordered by billing (DISPLAY_ORDER,
+    NULLs last). ``credit_where`` is a static SQL fragment (no user input). Used to
+    hydrate name_ambiguity candidates (FASTAPI-TEXT2SQL-176)."""
+    if not ids:
+        return {}
+    placeholders = ",".join(["%s"] * len(ids))
+    sql = f"""
+        SELECT eid, PERSON_NAME FROM (
+            SELECT c.{id_col} AS eid, p.PERSON_NAME AS PERSON_NAME,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY c.{id_col}
+                       ORDER BY MIN(c.DISPLAY_ORDER) IS NULL ASC,
+                                MIN(c.DISPLAY_ORDER) ASC, p.ID_PERSON ASC
+                   ) AS rn
+            FROM {table} c
+            JOIN T_WC_T2S_PERSON p ON c.ID_PERSON = p.ID_PERSON
+            WHERE c.{id_col} IN ({placeholders}) {credit_where}
+            GROUP BY c.{id_col}, p.ID_PERSON, p.PERSON_NAME
+        ) t
+        WHERE t.rn <= %s
+        ORDER BY eid, t.rn
+    """
+    cursor.execute(sql, (*ids, limit_per_id))
+    result = {}
+    for row in cursor.fetchall():
+        result.setdefault(row["eid"], []).append(row["PERSON_NAME"])
+    return result
+
+
+def _hydrate_person_candidates(cursor, candidates, ids):
+    """Enrich person name_ambiguity candidates with full birth/death dates, country of
+    birth, and the 3 best-rated known-for titles (movies + series, by IMDB_RATING_WEIGHTED),
+    so two homonyms (e.g. Steve McQueen the actor 1930-1980 vs the director b. 1969) can be
+    told apart. FASTAPI-TEXT2SQL-176."""
+    placeholders = ",".join(["%s"] * len(ids))
+    cursor.execute(
+        f"SELECT ID_PERSON, BIRTHDAY, DEATHDAY, COUNTRY_OF_BIRTH "
+        f"FROM T_WC_T2S_PERSON WHERE ID_PERSON IN ({placeholders})",
+        tuple(ids),
+    )
+    base = {row["ID_PERSON"]: row for row in cursor.fetchall()}
+    # Known-for = the 3 highest IMDB_RATING_WEIGHTED titles across the person's movies AND
+    # series, deduped by title. Window function runs after the GROUP BY collapse.
+    cursor.execute(
+        f"""
+        SELECT ID_PERSON, title FROM (
+            SELECT u.ID_PERSON AS ID_PERSON, u.title AS title,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY u.ID_PERSON ORDER BY MAX(u.rating) DESC, u.title ASC
+                   ) AS rn
+            FROM (
+                SELECT pm.ID_PERSON AS ID_PERSON, m.MOVIE_TITLE AS title,
+                       m.IMDB_RATING_WEIGHTED AS rating
+                FROM T_WC_T2S_PERSON_MOVIE pm
+                JOIN T_WC_T2S_MOVIE m ON pm.ID_MOVIE = m.ID_MOVIE
+                WHERE pm.ID_PERSON IN ({placeholders}) AND m.IMDB_RATING_WEIGHTED IS NOT NULL
+                UNION ALL
+                SELECT ps.ID_PERSON, s.SERIE_TITLE, s.IMDB_RATING_WEIGHTED
+                FROM T_WC_T2S_PERSON_SERIE ps
+                JOIN T_WC_T2S_SERIE s ON ps.ID_SERIE = s.ID_SERIE
+                WHERE ps.ID_PERSON IN ({placeholders}) AND s.IMDB_RATING_WEIGHTED IS NOT NULL
+            ) u
+            GROUP BY u.ID_PERSON, u.title
+        ) t
+        WHERE t.rn <= 3
+        ORDER BY ID_PERSON, t.rn
+        """,
+        (*ids, *ids),
+    )
+    known_for = {}
+    for row in cursor.fetchall():
+        known_for.setdefault(row["ID_PERSON"], []).append(row["title"])
+    for candidate in candidates:
+        pid = candidate.get("id")
+        discriminator = candidate.setdefault("discriminator", {})
+        row = base.get(pid) or {}
+        discriminator["birth_date"] = _iso_date(row.get("BIRTHDAY"))
+        discriminator["death_date"] = _iso_date(row.get("DEATHDAY"))
+        discriminator["country_of_birth"] = row.get("COUNTRY_OF_BIRTH")
+        discriminator["known_for"] = known_for.get(pid, [])
+
+
+def hydrate_name_ambiguity_candidates(cursor, name_ambiguity):
+    """Enrich name_ambiguity candidates with disambiguating fields (FASTAPI-TEXT2SQL-176),
+    so twins that share title+year (movies/series) or a name (persons) can be told apart:
+      - movie: director(s) + top-3 cast;
+      - serie: director(s) + creator(s) + top-3 cast;
+      - person: full birth/death dates + country of birth + top-3 known-for titles.
+    Best-effort; the caller guards it so a failure still returns the (unhydrated) flag."""
+    entity = name_ambiguity.get("entity")
+    candidates = name_ambiguity.get("candidates") or []
+    ids = [c["id"] for c in candidates if c.get("id") is not None]
+    if not ids:
+        return
+    if entity == "person":
+        _hydrate_person_candidates(cursor, candidates, ids)
+        return
+    cfg = {
+        "movie": {"table": "T_WC_T2S_PERSON_MOVIE", "id_col": "ID_MOVIE", "creators": False},
+        "serie": {"table": "T_WC_T2S_PERSON_SERIE", "id_col": "ID_SERIE", "creators": True},
+    }.get(entity)
+    if not cfg:
+        return
+    table, id_col = cfg["table"], cfg["id_col"]
+    directors = _fetch_credit_names(
+        cursor, table, id_col, ids, "AND c.CREDIT_TYPE = 'crew' AND c.CREW_JOB = 'Director'", 3)
+    creators = (
+        _fetch_credit_names(
+            cursor, table, id_col, ids, "AND c.CREDIT_TYPE = 'crew' AND c.CREW_JOB = 'Creator'", 3)
+        if cfg["creators"] else {})
+    top_cast = _fetch_credit_names(
+        cursor, table, id_col, ids, "AND c.CREDIT_TYPE = 'cast'", 3)
+    for candidate in candidates:
+        cid = candidate.get("id")
+        discriminator = candidate.setdefault("discriminator", {})
+        discriminator["directors"] = directors.get(cid, [])
+        if cfg["creators"]:
+            discriminator["creators"] = creators.get(cid, [])
+        discriminator["top_cast"] = top_cast.get(cid, [])
+
+
 # --- Bare-identifier fast path (FASTAPI-TEXT2SQL-137) -------------------------
 # A question that is JUST a self-identifying id (tt… / nm… / Q…) is answered with
 # a direct indexed SQL lookup, skipping the entire LLM pipeline (entity extraction
@@ -2829,6 +2952,15 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         except Exception as _name_ambiguity_exc:
             print(f"name_ambiguity computation skipped: {_name_ambiguity_exc}")
             name_ambiguity = None
+        # FASTAPI-TEXT2SQL-176: hydrate movie/serie candidates with director(s), creator(s)
+        # and top-3 cast, so same-title/same-year twins can be told apart by name. Kept in
+        # its own guard so a hydration error still returns the (unhydrated) ambiguity flag.
+        if name_ambiguity and name_ambiguity.get("entity") in ("movie", "serie", "person"):
+            try:
+                with connection.cursor() as _na_cursor:
+                    hydrate_name_ambiguity_candidates(_na_cursor, name_ambiguity)
+            except Exception as _na_hydrate_exc:
+                print(f"name_ambiguity hydration skipped: {_na_hydrate_exc}")
 
     response = Text2SQLResponse(
         question=input_text,
