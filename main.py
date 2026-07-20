@@ -708,21 +708,28 @@ def _fetch_credit_names(cursor, table, id_col, ids, credit_where, limit_per_id):
     if not ids:
         return {}
     placeholders = ",".join(["%s"] * len(ids))
+    # Aggregate (MIN billing) in an inner GROUP BY subquery, then ROW_NUMBER over plain
+    # columns: some MariaDB versions reject a window function whose OVER(...ORDER BY...)
+    # references an aggregate directly (FASTAPI-TEXT2SQL-176). Plain `COUNT(*) OVER()` is
+    # supported, so windowing over already-grouped columns is safe.
     sql = f"""
         SELECT eid, PERSON_NAME FROM (
-            SELECT c.{id_col} AS eid, p.PERSON_NAME AS PERSON_NAME,
+            SELECT g.eid AS eid, g.PERSON_NAME AS PERSON_NAME,
                    ROW_NUMBER() OVER (
-                       PARTITION BY c.{id_col}
-                       ORDER BY MIN(c.DISPLAY_ORDER) IS NULL ASC,
-                                MIN(c.DISPLAY_ORDER) ASC, p.ID_PERSON ASC
+                       PARTITION BY g.eid
+                       ORDER BY (g.dorder IS NULL) ASC, g.dorder ASC, g.id_person ASC
                    ) AS rn
-            FROM {table} c
-            JOIN T_WC_T2S_PERSON p ON c.ID_PERSON = p.ID_PERSON
-            WHERE c.{id_col} IN ({placeholders}) {credit_where}
-            GROUP BY c.{id_col}, p.ID_PERSON, p.PERSON_NAME
+            FROM (
+                SELECT c.{id_col} AS eid, p.ID_PERSON AS id_person,
+                       p.PERSON_NAME AS PERSON_NAME, MIN(c.DISPLAY_ORDER) AS dorder
+                FROM {table} c
+                JOIN T_WC_T2S_PERSON p ON c.ID_PERSON = p.ID_PERSON
+                WHERE c.{id_col} IN ({placeholders}) {credit_where}
+                GROUP BY c.{id_col}, p.ID_PERSON, p.PERSON_NAME
+            ) g
         ) t
         WHERE t.rn <= %s
-        ORDER BY eid, t.rn
+        ORDER BY eid, rn
     """
     cursor.execute(sql, (*ids, limit_per_id))
     result = {}
@@ -748,26 +755,29 @@ def _hydrate_person_candidates(cursor, candidates, ids):
     cursor.execute(
         f"""
         SELECT ID_PERSON, title FROM (
-            SELECT u.ID_PERSON AS ID_PERSON, u.title AS title,
+            SELECT g.ID_PERSON AS ID_PERSON, g.title AS title,
                    ROW_NUMBER() OVER (
-                       PARTITION BY u.ID_PERSON ORDER BY MAX(u.rating) DESC, u.title ASC
+                       PARTITION BY g.ID_PERSON ORDER BY g.rating DESC, g.title ASC
                    ) AS rn
             FROM (
-                SELECT pm.ID_PERSON AS ID_PERSON, m.MOVIE_TITLE AS title,
-                       m.IMDB_RATING_WEIGHTED AS rating
-                FROM T_WC_T2S_PERSON_MOVIE pm
-                JOIN T_WC_T2S_MOVIE m ON pm.ID_MOVIE = m.ID_MOVIE
-                WHERE pm.ID_PERSON IN ({placeholders}) AND m.IMDB_RATING_WEIGHTED IS NOT NULL
-                UNION ALL
-                SELECT ps.ID_PERSON, s.SERIE_TITLE, s.IMDB_RATING_WEIGHTED
-                FROM T_WC_T2S_PERSON_SERIE ps
-                JOIN T_WC_T2S_SERIE s ON ps.ID_SERIE = s.ID_SERIE
-                WHERE ps.ID_PERSON IN ({placeholders}) AND s.IMDB_RATING_WEIGHTED IS NOT NULL
-            ) u
-            GROUP BY u.ID_PERSON, u.title
+                SELECT u.ID_PERSON AS ID_PERSON, u.title AS title, MAX(u.rating) AS rating
+                FROM (
+                    SELECT pm.ID_PERSON AS ID_PERSON, m.MOVIE_TITLE AS title,
+                           m.IMDB_RATING_WEIGHTED AS rating
+                    FROM T_WC_T2S_PERSON_MOVIE pm
+                    JOIN T_WC_T2S_MOVIE m ON pm.ID_MOVIE = m.ID_MOVIE
+                    WHERE pm.ID_PERSON IN ({placeholders}) AND m.IMDB_RATING_WEIGHTED IS NOT NULL
+                    UNION ALL
+                    SELECT ps.ID_PERSON, s.SERIE_TITLE, s.IMDB_RATING_WEIGHTED
+                    FROM T_WC_T2S_PERSON_SERIE ps
+                    JOIN T_WC_T2S_SERIE s ON ps.ID_SERIE = s.ID_SERIE
+                    WHERE ps.ID_PERSON IN ({placeholders}) AND s.IMDB_RATING_WEIGHTED IS NOT NULL
+                ) u
+                GROUP BY u.ID_PERSON, u.title
+            ) g
         ) t
         WHERE t.rn <= 3
-        ORDER BY ID_PERSON, t.rn
+        ORDER BY ID_PERSON, rn
         """,
         (*ids, *ids),
     )
@@ -2960,7 +2970,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 with connection.cursor() as _na_cursor:
                     hydrate_name_ambiguity_candidates(_na_cursor, name_ambiguity)
             except Exception as _na_hydrate_exc:
-                print(f"name_ambiguity hydration skipped: {_na_hydrate_exc}")
+                print(
+                    f"name_ambiguity hydration skipped (entity="
+                    f"{name_ambiguity.get('entity')}): {type(_na_hydrate_exc).__name__}: "
+                    f"{_na_hydrate_exc}")
 
     response = Text2SQLResponse(
         question=input_text,
@@ -5584,6 +5597,12 @@ async def _mcp_sql_search(
     the requested `ui_language`. Supported `ui_language` values are "en" (English,
     the default) and "fr" (French); any other value falls back to English. Use the
     entity tools below to fetch full details.
+
+    When one name matches several entities (a homonym person, a duplicate title), the
+    response also carries `name_ambiguity`: a neutral list of `candidates`, each with a
+    `discriminator` (year, release_date, directors and top_cast for movies/series, plus
+    creators for series; birth/death dates, country_of_birth and known-for titles for
+    persons). Use it to ask the user which one they mean before drilling in.
 
     Optional model overrides (each defaults to "default" = the server's configured
     model, currently gpt-4o): llm_model_entity_extraction, llm_model_text2sql, and
