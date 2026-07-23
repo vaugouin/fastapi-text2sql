@@ -3381,43 +3381,6 @@ def _collection_context(cursor, entity_type, entity_id, ui_language="en"):
     )
 
 
-def _hoist_collection_next_into_similar(data, pagination, collection_next, entity_type):
-    """Belt-and-suspenders (FASTAPI-TEXT2SQL-150/-152): force the next member of the
-    collection to the #1 entry of ``similar`` — but ONLY when it is the SAME type as the
-    page entity, because ``similar`` is a same-type neighbour list. A cross-type next
-    (e.g. a series next on a movie page) is left as ``collection_next`` only, flagged
-    ``IS_COLLECTION_NEXT``, for the front to surface separately; it is never injected into
-    the same-type list. Hoist if TMDb already lists it as similar, else prepend and bump
-    the pagination total. Shapes only the response; the read-model tables are untouched.
-    """
-    if not collection_next or collection_next.get("ENTITY_TYPE") != entity_type:
-        return
-    similar = data.get("similar")
-    if not isinstance(similar, list):
-        return
-    id_key = "ID_MOVIE" if entity_type == "movie" else "ID_SERIE"
-    title_key = "MOVIE_TITLE" if entity_type == "movie" else "SERIE_TITLE"
-    title_fr_key = "MOVIE_TITLE_FR" if entity_type == "movie" else "SERIE_TITLE_FR"
-    date_key = "DAT_RELEASE" if entity_type == "movie" else "DAT_FIRST_AIR"
-    next_id = collection_next.get(id_key)
-    remaining = [r for r in similar if r.get(id_key) != next_id]
-    was_present = len(remaining) != len(similar)
-    injected = {
-        id_key: next_id,
-        title_key: collection_next.get(title_key),
-        title_fr_key: collection_next.get(title_fr_key),
-        date_key: collection_next.get("DAT_RELEASE"),
-        "IMDB_RATING_WEIGHTED": collection_next.get("IMDB_RATING_WEIGHTED"),
-        "POSTER_PATH": collection_next.get("POSTER_PATH"),
-        "DISPLAY_ORDER": 0,
-        "IS_COLLECTION_NEXT": True,
-    }
-    data["similar"] = [injected] + remaining
-    if not was_present and isinstance(pagination, dict) and isinstance(pagination.get("similar"), dict):
-        pagination["similar"]["total"] = (pagination["similar"].get("total") or 0) + 1
-        pagination["similar"]["returned"] = len(data["similar"])
-
-
 @app.get("/movies/{id}", summary="Movie full detail")
 async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a movie plus embedded relations: genres, production
@@ -3440,10 +3403,9 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
     + localized SERIE_TITLE (series), DAT_RELEASE (series first-air aliased), POSTER_PATH,
     IMDB_RATING_WEIGHTED and an IS_CURRENT flag on this movie (collection_movies is [] when
     standalone). collection_previous and collection_next are the adjacent members (or null
-    at the ends) and may themselves be a series. As a franchise belt-and-suspenders,
-    collection_next is forced to the #1 position of similar ONLY when it is a movie
-    (same-type); a cross-type next (a series) is left as collection_next only, flagged
-    IS_COLLECTION_NEXT, never injected into the movie similar list.
+    at the ends) and may themselves be a series. They are reported as their own fields only:
+    similar stays a pure TMDb neighbour list, never re-ordered or extended with a
+    collection member.
 
     A movie can belong to SEVERAL T2S collections. collections_context is a list with one
     entry PER collection the movie is in, each carrying ID_T2S_COLLECTION, collection_name,
@@ -3649,7 +3611,6 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
                 collection_movies = _primary_collection["collection_movies"] if _primary_collection else []
                 collection_previous = _primary_collection["collection_previous"] if _primary_collection else None
                 collection_next = _primary_collection["collection_next"] if _primary_collection else None
-                _hoist_collection_next_into_similar(data, pagination, collection_next, "movie")
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {
@@ -3715,10 +3676,8 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
     DAT_RELEASE (series first-air aliased), POSTER_PATH, IMDB_RATING_WEIGHTED and an
     IS_CURRENT flag on this series (collection_movies is [] when standalone).
     collection_previous and collection_next are the adjacent members (or null at the ends)
-    and may themselves be a movie. As a belt-and-suspenders, collection_next is forced to
-    the #1 position of similar ONLY when it is a series (same-type); a cross-type next (a
-    movie) is left as collection_next only, flagged IS_COLLECTION_NEXT, never injected into
-    the series similar list.
+    and may themselves be a movie. They are reported as their own fields only: similar stays
+    a pure TMDb neighbour list, never re-ordered or extended with a collection member.
 
     A series can belong to SEVERAL T2S collections. collections_context is a list with one
     entry PER collection the series is in, each carrying ID_T2S_COLLECTION, collection_name,
@@ -3926,7 +3885,6 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
                 collection_movies = _primary_collection["collection_movies"] if _primary_collection else []
                 collection_previous = _primary_collection["collection_previous"] if _primary_collection else None
                 collection_next = _primary_collection["collection_next"] if _primary_collection else None
-                _hoist_collection_next_into_similar(data, pagination, collection_next, "serie")
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {
@@ -5703,8 +5661,8 @@ async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[
     series, e.g. Star Trek): each item carries ENTITY_TYPE ('movie' | 'serie') with
     ID_MOVIE/MOVIE_TITLE or ID_SERIE/SERIE_TITLE, plus IS_CURRENT on this movie ([] when
     standalone). collection_previous and collection_next are the adjacent members (null at
-    the ends) and may be a series; collection_next is forced to the #1 spot of similar only
-    when it is a movie (same-type), flagged IS_COLLECTION_NEXT.
+    the ends) and may be a series; they are their own fields only, never injected into
+    similar (which stays a pure TMDb neighbour list).
     Each related company, topic, list, collection, and movement carries its own POSTER_PATH
     (LOGO_PATH for companies), WIKIPEDIA_IMAGE_PATH (when applicable),
     IMDB_RATING_WEIGHTED, and POPULARITY. Technicals (sound systems, color/film/sound
@@ -5747,8 +5705,8 @@ async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional
     is cross-type (holds both series AND movies, e.g. Star Trek), each item carrying
     ENTITY_TYPE ('movie' | 'serie') with ID_SERIE/SERIE_TITLE or ID_MOVIE/MOVIE_TITLE, plus
     IS_CURRENT ([] when standalone); collection_previous/collection_next are the adjacent
-    members (null at the ends, may be a movie), and a same-type next is forced to the #1
-    spot of similar and flagged IS_COLLECTION_NEXT. Each related company, topic, list,
+    members (null at the ends, may be a movie), reported as their own fields only and never
+    injected into similar (which stays a pure TMDb neighbour list). Each related company, topic, list,
     collection, and movement carries its own POSTER_PATH (LOGO_PATH for companies and
     networks), WIKIPEDIA_IMAGE_PATH (when applicable), IMDB_RATING_WEIGHTED, and
     POPULARITY. Also returns top-level posters and backdrops (all poster / backdrop
