@@ -2,6 +2,30 @@
 
 Design notes and pending decisions for exposing TV-series **seasons** and **episodes** as first-class entities in the API.
 
+> **Status update (2026-07-26) — the §4 prerequisite tables now EXIST.** `T_WC_T2S_SEASON`
+> and `T_WC_T2S_EPISODE` are built by `tmdb-movie-preprocess` Processes 27 and 28, and
+> `T_WC_T2S_EPISODE` carries `IMDB_RATING`, `IMDB_RATING_WEIGHTED` and (since
+> TMDB-MOVIE-PREPROCESS-033) `IMDB_VOTES`. The statements below claiming they "do not exist
+> yet" are stale and are kept only as the historical record of §6.1.
+>
+> **Partial migration done (FASTAPI-TEXT2SQL-177):** `/seasons/…` and `/episodes/…` now
+> `LEFT JOIN T_WC_T2S_EPISODE` to expose `IMDB_RATING` / `IMDB_VOTES`. The **row source is
+> deliberately still `T_WC_TMDB_*`**, which is a knowing deviation from the load-bearing
+> migration rule below, taken under a publication deadline. Two things must be settled
+> before the full swap, and neither is cosmetic:
+> 1. **Scope.** `T_WC_T2S_SERIE` qualifies on `ADULT = 0 AND ID_IMDB <> '' AND ID_IMDB IS
+>    NOT NULL`, and `T_WC_T2S_EPISODE` requires the parent serie **and** season to be in
+>    T2S. Switching the row source therefore stops serving seasons/episodes of series that
+>    have no IMDb id. In practice those series are already unreachable (`GET /series/{id}`
+>    reads `T_WC_T2S_SERIE`, so it 404s on them), which makes the swap defensible, but it
+>    is a behaviour change that must be measured, not assumed.
+> 2. **Field rename.** `T_WC_T2S_EPISODE` stores the title as `EPISODE_TITLE` where
+>    `T_WC_TMDB_EPISODE` uses `TITLE`. The response field would change name and break the
+>    front, which reads `item.TITLE`. Either alias it in the SELECT or coordinate the
+>    rename with `voice-agent`.
+>
+> Tracked as FASTAPI-TEXT2SQL-179. Do not close §6.1 until the row sources are swapped.
+
 **Status (2026-05-25):** `/seasons/{id_serie}/{season_number}` and `/episodes/{id_serie}/{season_number}/{episode_number}` have shipped as TMDb-sourced endpoints. They satisfy the API shape proposed in §3 (with the documented signature change: composite key on `(ID_SERIE, SEASON_NUMBER[, EPISODE_NUMBER])` rather than the surrogate `ID_SEASON` / `ID_EPISODE`). They will be migrated to the T2S read model once the prerequisite tables in §4 land — see §6.1 for the registered call sites. Outstanding work: the §4 prerequisite tables, the §5.x open questions (videos / translations / `IMDB_RATING_WEIGHTED` retrofit), and MCP `get_season` / `get_episode` tool wrappers per §5.x.
 
 > **Migration rule (load-bearing):** every place in the codebase that currently reads from a `T_WC_TMDB_*` table because no T2S equivalent exists **must** be migrated to the equivalent `T_WC_T2S_*` table as soon as that table is available. This is a hard requirement, not a follow-up question. The known call sites are tracked in §6.1; when the corresponding T2S table lands, every row keyed to it must be migrated and the affected README sections updated in the same change. The same rule applies to any new endpoint we ship before the prerequisites in §4 are met — if you have to reach into `T_WC_TMDB_*` to ship, add the call site to §6.1 so the migration sweep catches it.

@@ -3979,10 +3979,19 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     VIDEO_SITE + VIDEO_KEY (YouTube and Vimeo). Sorted OFFICIAL DESC then
     DISPLAY_ORDER ASC.
 
-    Note: this endpoint reads from T_WC_TMDB_SEASON, T_WC_TMDB_PERSON_SEASON,
-    T_WC_TMDB_SEASON_IMAGE, and T_WC_TMDB_EPISODE because the T_WC_T2S_*
-    equivalents do not exist yet. Registered as migration sites in
-    SEASONS_AND_EPISODES.md section 6.1."""
+    Each element of `episodes` also carries IMDB_RATING and IMDB_VOTES, the IMDb
+    rating and vote count read from T_WC_T2S_EPISODE (populated by
+    tmdb-movie-preprocess Process 28). Both are NULL when the episode has no IMDb id,
+    no rating yet (typically an episode that has not aired), or is outside the T2S
+    scope. They do NOT replace VOTE_AVERAGE / VOTE_COUNT, which remain the TMDb
+    figures: the two sources coexist and are not comparable.
+
+    Note: the row sources are still T_WC_TMDB_SEASON, T_WC_TMDB_PERSON_SEASON,
+    T_WC_TMDB_SEASON_IMAGE and T_WC_TMDB_EPISODE. T_WC_T2S_EPISODE now exists and is
+    LEFT JOINed for the IMDb fields only, deliberately not used as the row source: it
+    holds only episodes whose parent serie AND season are themselves in T2S, so
+    switching would silently narrow this endpoint. Full migration remains a
+    registered site in SEASONS_AND_EPISODES.md section 6.1."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -4029,15 +4038,24 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                 GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
                 ORDER BY MIN(ps.DISPLAY_ORDER) ASC, p.ID_PERSON ASC
             """, (id_season,), "person"),
+            # FASTAPI-TEXT2SQL-177: IMDb rating / vote count come from the T2S read-model
+            # (T_WC_T2S_EPISODE, populated by tmdb-movie-preprocess Process 28); the TMDb
+            # source table carries no IMDb rating. LEFT JOIN, not a switch of row source:
+            # T_WC_T2S_EPISODE only holds episodes whose parent serie AND season are
+            # themselves in T2S, so reading from it would silently narrow this endpoint.
+            # Unmatched rows keep NULL ratings, which is the correct answer for an episode
+            # that has not aired yet.
             "episodes": ("""
-                SELECT ID_EPISODE, EPISODE_NUMBER, TITLE, OVERVIEW, DAT_AIR,
-                       AIR_YEAR, AIR_MONTH, AIR_DAY, RUNTIME, EPISODE_TYPE,
-                       STILL_PATH, VOTE_AVERAGE, VOTE_COUNT,
-                       ID_IMDB, ID_WIKIDATA, ID_TVDB,
+                SELECT e.ID_EPISODE, e.EPISODE_NUMBER, e.TITLE, e.OVERVIEW, e.DAT_AIR,
+                       e.AIR_YEAR, e.AIR_MONTH, e.AIR_DAY, e.RUNTIME, e.EPISODE_TYPE,
+                       e.STILL_PATH, e.VOTE_AVERAGE, e.VOTE_COUNT,
+                       e.ID_IMDB, e.ID_WIKIDATA, e.ID_TVDB,
+                       t2s.IMDB_RATING, t2s.IMDB_VOTES,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_TMDB_EPISODE
-                WHERE ID_SEASON = %s
-                ORDER BY EPISODE_NUMBER ASC
+                FROM T_WC_TMDB_EPISODE e
+                LEFT JOIN T_WC_T2S_EPISODE t2s ON t2s.ID_EPISODE = e.ID_EPISODE
+                WHERE e.ID_SEASON = %s
+                ORDER BY e.EPISODE_NUMBER ASC
             """, (id_season,), None),
         }
         with conn.cursor() as cursor:
@@ -4160,17 +4178,30 @@ async def get_episode(
     VIDEO_SITE + VIDEO_KEY (YouTube and Vimeo). Sorted OFFICIAL DESC then
     DISPLAY_ORDER ASC.
 
-    Note: this endpoint reads from T_WC_TMDB_EPISODE, T_WC_TMDB_PERSON_EPISODE, and
-    T_WC_TMDB_EPISODE_IMAGE because the T_WC_T2S_* equivalents do not exist yet.
-    Registered as a migration site in SEASONS_AND_EPISODES.md section 6.1."""
+    IMDB_RATING and IMDB_VOTES are the IMDb rating and vote count for this episode,
+    read from T_WC_T2S_EPISODE (populated by tmdb-movie-preprocess Process 28 from
+    T_WC_IMDB_MOVIE_RATING_IMPORT). They are NULL when the episode has no IMDb id,
+    no rating yet (typically an episode that has not aired), or is outside the T2S
+    scope. They do NOT replace VOTE_AVERAGE / VOTE_COUNT, which remain the TMDb
+    figures: the two sources coexist and are not comparable, TMDb episode votes
+    routinely sit in the dozens where IMDb is in the tens of thousands.
+
+    Note: the row source is still T_WC_TMDB_EPISODE, plus T_WC_TMDB_PERSON_EPISODE
+    and T_WC_TMDB_EPISODE_IMAGE. T_WC_T2S_EPISODE now exists and is LEFT JOINed for
+    the IMDb fields only, deliberately not used as the row source: it holds only
+    episodes whose parent serie AND season are themselves in T2S, so switching would
+    silently narrow what this endpoint returns. Full migration remains a registered
+    site in SEASONS_AND_EPISODES.md section 6.1."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT * FROM T_WC_TMDB_EPISODE
-                WHERE ID_SERIE = %s AND SEASON_NUMBER = %s AND EPISODE_NUMBER = %s
+                SELECT e.*, t2s.IMDB_RATING, t2s.IMDB_VOTES
+                FROM T_WC_TMDB_EPISODE e
+                LEFT JOIN T_WC_T2S_EPISODE t2s ON t2s.ID_EPISODE = e.ID_EPISODE
+                WHERE e.ID_SERIE = %s AND e.SEASON_NUMBER = %s AND e.EPISODE_NUMBER = %s
                 """,
                 (id_serie, season_number, episode_number),
             )

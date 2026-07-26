@@ -593,7 +593,7 @@ Pagination covers only the related-entity lists. Image arrays (`posters`, `backd
 | `GET` | `/movies/{id}` | `ID_MOVIE` | `T_WC_T2S_MOVIE` | Movie detail |
 | `GET` | `/series/{id}` | `ID_SERIE` | `T_WC_T2S_SERIE` | TV series detail |
 | `GET` | `/seasons/{id_serie}/{season_number}` | `(ID_SERIE, SEASON_NUMBER)` | `T_WC_TMDB_SEASON` (TMDb source — no T2S equivalent yet) | TV series season detail |
-| `GET` | `/episodes/{id_serie}/{season_number}/{episode_number}` | `(ID_SERIE, SEASON_NUMBER, EPISODE_NUMBER)` | `T_WC_TMDB_EPISODE` (TMDb source — no T2S equivalent yet) | TV series episode detail |
+| `GET` | `/episodes/{id_serie}/{season_number}/{episode_number}` | `(ID_SERIE, SEASON_NUMBER, EPISODE_NUMBER)` | `T_WC_TMDB_EPISODE` (row source) + `T_WC_T2S_EPISODE` (IMDb rating fields) | TV series episode detail |
 | `GET` | `/persons/{id}` | `ID_PERSON` | `T_WC_T2S_PERSON` | Person detail |
 | `GET` | `/companies/{id}` | `ID_COMPANY` | `T_WC_T2S_COMPANY` | Production company detail |
 | `GET` | `/networks/{id}` | `ID_NETWORK` | `T_WC_T2S_NETWORK` | TV network detail |
@@ -672,7 +672,7 @@ Returns all `T_WC_TMDB_SEASON` fields for a single season of a TV series, identi
 
 Example: `GET /seasons/1396/5` returns season 5 of *Breaking Bad* (ID_SERIE 1396).
 
-The endpoint currently reads from the TMDb source tables `T_WC_TMDB_SEASON`, `T_WC_TMDB_PERSON_SEASON`, and `T_WC_TMDB_SEASON_IMAGE` because the `T_WC_T2S_SEASON` read-model table does not yet exist. Field set will broaden (and field names may shift slightly) once the T2S equivalent is created — see [SEASONS_AND_EPISODES.md](SEASONS_AND_EPISODES.md) §6.1.
+The endpoint reads its rows from the TMDb source tables `T_WC_TMDB_SEASON`, `T_WC_TMDB_PERSON_SEASON`, `T_WC_TMDB_SEASON_IMAGE` and `T_WC_TMDB_EPISODE`, and `LEFT JOIN`s `T_WC_T2S_EPISODE` for the IMDb rating fields on each episode row. The `T_WC_T2S_SEASON` / `T_WC_T2S_EPISODE` read-model tables **now exist** (tmdb-movie-preprocess Processes 27/28); the row source has deliberately not been swapped yet because the T2S scope filter and the `TITLE` → `EPISODE_TITLE` rename are behaviour changes — see [SEASONS_AND_EPISODES.md](SEASONS_AND_EPISODES.md) §6.1 and the 2026-07-26 status note.
 
 | Field | Shape |
 |---|---|
@@ -681,7 +681,7 @@ The endpoint currently reads from the TMDb source tables `T_WC_TMDB_SEASON`, `T_
 | `posters` | Array of `{ ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER }` from `T_WC_TMDB_SEASON_IMAGE` where `TYPE_IMAGE = 'poster'`, ordered by `DISPLAY_ORDER` |
 | `backdrops` | Array of `{ ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER }` from `T_WC_TMDB_SEASON_IMAGE` where `TYPE_IMAGE = 'backdrop'`, ordered by `DISPLAY_ORDER`. Most TMDb seasons only have posters, so this list is frequently empty |
 | `series` | Object `{ ID_SERIE, SERIE_TITLE, POSTER_PATH }` for the parent series — navigation stub so the frontend can render breadcrumbs without a second `/series/{id}` round trip |
-| `episodes` | Array of `{ ID_EPISODE, EPISODE_NUMBER, TITLE, OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH, AIR_DAY, RUNTIME, EPISODE_TYPE, STILL_PATH, VOTE_AVERAGE, VOTE_COUNT, ID_IMDB, ID_WIKIDATA, ID_TVDB }` from `T_WC_TMDB_EPISODE`, ordered by `EPISODE_NUMBER ASC`. Length matches the season's `EPISODE_COUNT`. Each row is a **summary**: episode cast/crew, additional stills, and Wikipedia payloads live on `/episodes/{id_serie}/{season_number}/{episode_number}` and are not duplicated here to keep the season payload bounded. To open a specific episode, call `/episodes/{id_serie}/{season_number}/{EPISODE_NUMBER}` (the path key is `EPISODE_NUMBER`, not the surrogate `ID_EPISODE`) |
+| `episodes` | Array of `{ ID_EPISODE, EPISODE_NUMBER, TITLE, OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH, AIR_DAY, RUNTIME, EPISODE_TYPE, STILL_PATH, VOTE_AVERAGE, VOTE_COUNT, ID_IMDB, ID_WIKIDATA, ID_TVDB, IMDB_RATING, IMDB_VOTES }` from `T_WC_TMDB_EPISODE` `LEFT JOIN`ed to `T_WC_T2S_EPISODE` for the two IMDb fields, ordered by `EPISODE_NUMBER ASC`. `IMDB_RATING` / `IMDB_VOTES` are `NULL` when the episode has no IMDb id, has no rating yet (typically not aired), or falls outside the T2S scope; they do **not** replace `VOTE_AVERAGE` / `VOTE_COUNT`, which stay the TMDb figures and are not comparable (TMDb episode votes are routinely in the dozens where IMDb is in the tens of thousands). Length matches the season's `EPISODE_COUNT`. Each row is a **summary**: episode cast/crew, additional stills, and Wikipedia payloads live on `/episodes/{id_serie}/{season_number}/{episode_number}` and are not duplicated here to keep the season payload bounded. To open a specific episode, call `/episodes/{id_serie}/{season_number}/{EPISODE_NUMBER}` (the path key is `EPISODE_NUMBER`, not the surrogate `ID_EPISODE`) |
 | `wikipedia_images` | Array of `{ ID_ROW, LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE, FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER }` from `T_WC_WIKIPEDIA_PAGE_LANG_IMAGE` joined on the season's `ID_WIKIDATA`, filtered to `LANG IN ('en','fr')`, `DELETED = 0`, and `HTTP_STATUS = 200 OR HTTP_STATUS IS NULL`. Ordered by `IS_MAIN_IMAGE DESC, LANG ASC, DISPLAY_ORDER ASC`. Empty when `ID_WIKIDATA` is NULL — common for seasons |
 | `wikipedia_content` | Array of `{ title, content }` from `T_WC_WIKIPEDIA_PAGE_LANG_SECTION` joined on the season's `ID_WIKIDATA`, filtered to `LANG = 'en'` and `DELETED = 0`, ordered by `DISPLAY_ORDER ASC`. Empty when `ID_WIKIDATA` is NULL |
 | `videos` | Array of TMDb-sourced videos (`SOURCE='tmdb'`) for this season from `T_WC_TMDB_SEASON_VIDEO`, ordered by `OFFICIAL DESC, DISPLAY_ORDER ASC`. Wikidata media is not modeled at the season level. Field shape matches the `/movies/{id}` `videos` row (Wikidata-only fields like `DURATION_SECONDS` are always null here) |
@@ -694,7 +694,7 @@ Returns all `T_WC_TMDB_EPISODE` fields for a single episode, identified by the c
 
 Example: `GET /episodes/1396/5/14` returns "Ozymandias" — *Breaking Bad* season 5, episode 14.
 
-The endpoint currently reads from the TMDb source tables `T_WC_TMDB_EPISODE`, `T_WC_TMDB_PERSON_EPISODE`, and `T_WC_TMDB_EPISODE_IMAGE` because the `T_WC_T2S_EPISODE` read-model table does not yet exist. Field set will broaden (and field names may shift slightly) once the T2S equivalent is created — see [SEASONS_AND_EPISODES.md](SEASONS_AND_EPISODES.md) §6.1.
+The endpoint reads its rows from the TMDb source tables `T_WC_TMDB_EPISODE`, `T_WC_TMDB_PERSON_EPISODE` and `T_WC_TMDB_EPISODE_IMAGE`, and `LEFT JOIN`s `T_WC_T2S_EPISODE` for `IMDB_RATING` / `IMDB_VOTES`. The `T_WC_T2S_EPISODE` read-model table **now exists** (tmdb-movie-preprocess Process 28); the row source has deliberately not been swapped yet — see [SEASONS_AND_EPISODES.md](SEASONS_AND_EPISODES.md) §6.1 and the 2026-07-26 status note.
 
 | Field | Shape |
 |---|---|
