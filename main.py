@@ -3101,6 +3101,96 @@ def _fetch_wikipedia_content(cursor, id_wikidata, ui_language="en"):
     return rows
 
 
+def _fetch_wikipedia_freshness(cursor, id_wikidata, ui_language="en"):
+    """Return when the Wikipedia page backing an entity was last crawled.
+
+    Mirrors the language resolution of ``_fetch_wikipedia_content`` / ``_fetch_wikipedia_images``:
+    the page row for ``ui_language`` wins when that language actually has sections, English
+    otherwise (and the requested language as a last resort when neither has sections).
+
+    Keys: ``lang`` (the language the dates describe), ``updated_at`` (LAST_SUCCESS_AT, the
+    data date of the served wikipedia_content / wikipedia_images: last time the page was
+    fetched *successfully*), ``crawled_at`` (LAST_CRAWLED_AT, last attempt, successful or
+    not; later than updated_at means recent attempts failed and the content is older than
+    the attempt). All None when id_wikidata is missing or no page row exists.
+    """
+    empty = {"lang": None, "updated_at": None, "crawled_at": None}
+    if not id_wikidata:
+        return empty
+    lang = normalize_ui_language(ui_language)
+    cursor.execute("""
+        SELECT p.LANG, p.LAST_SUCCESS_AT, p.LAST_CRAWLED_AT,
+               (SELECT COUNT(*)
+                  FROM T_WC_WIKIPEDIA_PAGE_LANG_SECTION s
+                 WHERE s.ID_WIKIDATA = p.ID_WIKIDATA AND s.LANG = p.LANG AND s.DELETED = 0
+               ) AS SECTION_COUNT
+        FROM T_WC_WIKIPEDIA_PAGE_LANG p
+        WHERE p.ID_WIKIDATA = %s
+          AND p.LANG IN (%s, %s)
+          AND (p.DELETED IS NULL OR p.DELETED = 0)
+    """, (id_wikidata, lang, DEFAULT_UI_LANGUAGE))
+    rows = {row["LANG"]: row for row in cursor.fetchall()}
+    if not rows:
+        return empty
+
+    def _shape(row):
+        return {
+            "lang": row["LANG"],
+            "updated_at": row["LAST_SUCCESS_AT"],
+            "crawled_at": row["LAST_CRAWLED_AT"],
+        }
+
+    for candidate in (lang, DEFAULT_UI_LANGUAGE):
+        row = rows.get(candidate)
+        if row and (row["SECTION_COUNT"] or 0) > 0:
+            return _shape(row)
+    # Page row(s) exist but carry no sections (crawled and empty, or never successful):
+    # still date what we have rather than claiming we know nothing.
+    fallback = rows.get(lang) or rows.get(DEFAULT_UI_LANGUAGE) or next(iter(rows.values()))
+    return _shape(fallback)
+
+
+# Provenance of an entity detail endpoint's base row, used by _build_data_freshness to
+# label TIM_UPDATED. 'tmdb': the read-model row copies TIM_UPDATED verbatim from the
+# T_WC_TMDB_* source row (tmdb-movie-preprocess), so it IS the TMDb refresh datetime.
+# 'wikidata': the row is built from Wikidata, so TIM_UPDATED is the Wikidata-side refresh
+# and TMDb has no say in it. 'reference': static closed-vocabulary table with no timestamps.
+RECORD_SOURCE_TMDB = "tmdb"
+RECORD_SOURCE_WIKIDATA = "wikidata"
+RECORD_SOURCE_REFERENCE = "reference"
+
+
+def _build_data_freshness(cursor, row, record_source, ui_language="en"):
+    """Build the ``data_freshness`` block that tells a client how old the served data is.
+
+    A consumer (voice-agent, front-end) has no other way to date the payload: every value is
+    served from the read-model, not fetched live. Fields:
+
+    - ``record_source``: where the base row comes from (see RECORD_SOURCE_* above).
+    - ``record_updated_at``: the base row's TIM_UPDATED; always the age of the record itself.
+    - ``tmdb_updated_at``: the same value, exposed under its real meaning when the row is
+      TMDb-sourced; None otherwise so a client never dates Wikidata data as TMDb data.
+    - ``wikidata_updated_at``: TIM_WIKIDATA_COMPLETED when the base table carries it (the
+      Wikidata-derived entities plus seasons/episodes); None otherwise.
+    - ``wikipedia_updated_at`` / ``wikipedia_crawled_at`` / ``wikipedia_lang``: these date the
+      wikipedia_content and wikipedia_images arrays of the same response, in the language
+      those arrays were actually served in. All None for entities without an ID_WIKIDATA
+      (companies, networks, genres).
+    """
+    row = row or {}
+    wikipedia = _fetch_wikipedia_freshness(cursor, row.get("ID_WIKIDATA"), ui_language)
+    record_updated_at = row.get("TIM_UPDATED")
+    return {
+        "record_source": record_source,
+        "record_updated_at": record_updated_at,
+        "tmdb_updated_at": record_updated_at if record_source == RECORD_SOURCE_TMDB else None,
+        "wikidata_updated_at": row.get("TIM_WIKIDATA_COMPLETED"),
+        "wikipedia_updated_at": wikipedia["updated_at"],
+        "wikipedia_crawled_at": wikipedia["crawled_at"],
+        "wikipedia_lang": wikipedia["lang"],
+    }
+
+
 _TMDB_VIDEO_SOURCE_TABLES = {
     "movie": ("T_WC_TMDB_MOVIE_VIDEO", "ID_MOVIE"),
     "serie": ("T_WC_TMDB_SERIE_VIDEO", "ID_SERIE"),
@@ -3454,7 +3544,20 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
     first (OFFICIAL DESC, DISPLAY_ORDER ASC), then Wikidata rows
     (IS_PREFERRED_RESOURCE DESC, SOURCE_PRIORITY ASC); TMDb YouTube/Vimeo URLs are
     synthesized from VIDEO_SITE + VIDEO_KEY, Wikidata URLs are pivoted from
-    T_WC_WIKIDATA_MEDIA_RESOURCE_URL by URL_TYPE."""
+    T_WC_WIKIDATA_MEDIA_RESOURCE_URL by URL_TYPE.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live from TMDb or Wikipedia). It
+    carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
+    row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh datetime, copied verbatim from the
+    TMDb source row by the preprocess; null when the record is not TMDb-sourced),
+    wikidata_updated_at (TIM_WIKIDATA_COMPLETED, when the base table carries it), and
+    wikipedia_updated_at / wikipedia_crawled_at / wikipedia_lang, respectively the last
+    *successful* Wikipedia fetch (the data date of wikipedia_content and wikipedia_images),
+    the last crawl attempt (later than wikipedia_updated_at means recent attempts failed),
+    and the language those two arrays were actually served in. The wikipedia_* fields are
+    null when the entity has no ID_WIKIDATA. Returned on the full response only, not on a
+    ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -3604,6 +3707,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
                 backdrops = cursor.fetchall()
                 wikipedia_images = _fetch_wikipedia_images(cursor, movie.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, movie.get("ID_WIKIDATA"), ui_language)
+                data_freshness = _build_data_freshness(cursor, movie, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_tmdb_videos(cursor, "movie", id) + _fetch_wikidata_videos(cursor, movie.get("ID_WIKIDATA"))
                 collection_contexts = _all_collection_contexts(cursor, "movie", id, ui_language)
                 _primary_collection = collection_contexts[0] if collection_contexts else None
@@ -3643,6 +3747,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
             "wikipedia_content": wikipedia_content,
             "videos": videos,
             "pagination": pagination,
+            "data_freshness": data_freshness,
         }
         logs.log_usage("movies", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
@@ -3729,7 +3834,20 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
     first (OFFICIAL DESC, DISPLAY_ORDER ASC), then Wikidata rows
     (IS_PREFERRED_RESOURCE DESC, SOURCE_PRIORITY ASC); TMDb YouTube/Vimeo URLs are
     synthesized from VIDEO_SITE + VIDEO_KEY, Wikidata URLs are pivoted from
-    T_WC_WIKIDATA_MEDIA_RESOURCE_URL by URL_TYPE."""
+    T_WC_WIKIDATA_MEDIA_RESOURCE_URL by URL_TYPE.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live from TMDb or Wikipedia). It
+    carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
+    row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh datetime, copied verbatim from the
+    TMDb source row by the preprocess; null when the record is not TMDb-sourced),
+    wikidata_updated_at (TIM_WIKIDATA_COMPLETED, when the base table carries it), and
+    wikipedia_updated_at / wikipedia_crawled_at / wikipedia_lang, respectively the last
+    *successful* Wikipedia fetch (the data date of wikipedia_content and wikipedia_images),
+    the last crawl attempt (later than wikipedia_updated_at means recent attempts failed),
+    and the language those two arrays were actually served in. The wikipedia_* fields are
+    null when the entity has no ID_WIKIDATA. Returned on the full response only, not on a
+    ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -3878,6 +3996,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
                 backdrops = cursor.fetchall()
                 wikipedia_images = _fetch_wikipedia_images(cursor, serie.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, serie.get("ID_WIKIDATA"), ui_language)
+                data_freshness = _build_data_freshness(cursor, serie, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_tmdb_videos(cursor, "serie", id) + _fetch_wikidata_videos(cursor, serie.get("ID_WIKIDATA"))
                 collection_contexts = _all_collection_contexts(cursor, "serie", id, ui_language)
                 _primary_collection = collection_contexts[0] if collection_contexts else None
@@ -3918,6 +4037,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
             "wikipedia_content": wikipedia_content,
             "videos": videos,
             "pagination": pagination,
+            "data_freshness": data_freshness,
         }
         logs.log_usage("series", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
@@ -3991,7 +4111,20 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     LEFT JOINed for the IMDb fields only, deliberately not used as the row source: it
     holds only episodes whose parent serie AND season are themselves in T2S, so
     switching would silently narrow this endpoint. Full migration remains a
-    registered site in SEASONS_AND_EPISODES.md section 6.1."""
+    registered site in SEASONS_AND_EPISODES.md section 6.1.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live from TMDb or Wikipedia). It
+    carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
+    row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh datetime, copied verbatim from the
+    TMDb source row by the preprocess; null when the record is not TMDb-sourced),
+    wikidata_updated_at (TIM_WIKIDATA_COMPLETED, when the base table carries it), and
+    wikipedia_updated_at / wikipedia_crawled_at / wikipedia_lang, respectively the last
+    *successful* Wikipedia fetch (the data date of wikipedia_content and wikipedia_images),
+    the last crawl attempt (later than wikipedia_updated_at means recent attempts failed),
+    and the language those two arrays were actually served in. The wikipedia_* fields are
+    null when the entity has no ID_WIKIDATA. Returned on the full response only, not on a
+    ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -4084,6 +4217,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                 series = cursor.fetchone()
                 wikipedia_images = _fetch_wikipedia_images(cursor, season.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, season.get("ID_WIKIDATA"), ui_language)
+                data_freshness = _build_data_freshness(cursor, season, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_tmdb_videos(cursor, "season", id_season)
         if collection is not None:
             return _targeted_collection_response(
@@ -4101,6 +4235,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
             "wikipedia_content": wikipedia_content,
             "videos": videos,
             "pagination": pagination,
+            "data_freshness": data_freshness,
         }
         logs.log_usage(
             "seasons",
@@ -4191,7 +4326,20 @@ async def get_episode(
     the IMDb fields only, deliberately not used as the row source: it holds only
     episodes whose parent serie AND season are themselves in T2S, so switching would
     silently narrow what this endpoint returns. Full migration remains a registered
-    site in SEASONS_AND_EPISODES.md section 6.1."""
+    site in SEASONS_AND_EPISODES.md section 6.1.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live from TMDb or Wikipedia). It
+    carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
+    row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh datetime, copied verbatim from the
+    TMDb source row by the preprocess; null when the record is not TMDb-sourced),
+    wikidata_updated_at (TIM_WIKIDATA_COMPLETED, when the base table carries it), and
+    wikipedia_updated_at / wikipedia_crawled_at / wikipedia_lang, respectively the last
+    *successful* Wikipedia fetch (the data date of wikipedia_content and wikipedia_images),
+    the last crawl attempt (later than wikipedia_updated_at means recent attempts failed),
+    and the language those two arrays were actually served in. The wikipedia_* fields are
+    null when the entity has no ID_WIKIDATA. Returned on the full response only, not on a
+    ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -4269,6 +4417,7 @@ async def get_episode(
                 series = cursor.fetchone()
                 wikipedia_images = _fetch_wikipedia_images(cursor, episode.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, episode.get("ID_WIKIDATA"), ui_language)
+                data_freshness = _build_data_freshness(cursor, episode, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_tmdb_videos(cursor, "episode", id_episode)
         if collection is not None:
             return _targeted_collection_response(
@@ -4287,6 +4436,7 @@ async def get_episode(
             "wikipedia_content": wikipedia_content,
             "videos": videos,
             "pagination": pagination,
+            "data_freshness": data_freshness,
         }
         logs.log_usage(
             "episodes",
@@ -4347,7 +4497,20 @@ async def get_person(id: int, ui_language: Optional[str] = "en", collection: Opt
     VIDEO_SITE (SOURCE_PLATFORM), VIDEO_TYPE (CONTENT_ROLE), LANG, DURATION_SECONDS,
     WATCH_URL, EMBED_URL, FILE_URL, THUMBNAIL_URL. URLs are pivoted from
     T_WC_WIKIDATA_MEDIA_RESOURCE_URL by URL_TYPE. Sorted IS_PREFERRED_RESOURCE DESC
-    then SOURCE_PRIORITY ASC."""
+    then SOURCE_PRIORITY ASC.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live from TMDb or Wikipedia). It
+    carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
+    row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh datetime, copied verbatim from the
+    TMDb source row by the preprocess; null when the record is not TMDb-sourced),
+    wikidata_updated_at (TIM_WIKIDATA_COMPLETED, when the base table carries it), and
+    wikipedia_updated_at / wikipedia_crawled_at / wikipedia_lang, respectively the last
+    *successful* Wikipedia fetch (the data date of wikipedia_content and wikipedia_images),
+    the last crawl attempt (later than wikipedia_updated_at means recent attempts failed),
+    and the language those two arrays were actually served in. The wikipedia_* fields are
+    null when the entity has no ID_WIKIDATA. Returned on the full response only, not on a
+    ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -4437,6 +4600,7 @@ async def get_person(id: int, ui_language: Optional[str] = "en", collection: Opt
                 portraits = cursor.fetchall()
                 wikipedia_images = _fetch_wikipedia_images(cursor, person.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, person.get("ID_WIKIDATA"), ui_language)
+                data_freshness = _build_data_freshness(cursor, person, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_wikidata_videos(cursor, person.get("ID_WIKIDATA"))
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
@@ -4455,6 +4619,7 @@ async def get_person(id: int, ui_language: Optional[str] = "en", collection: Opt
             "wikipedia_content": wikipedia_content,
             "videos": videos,
             "pagination": pagination,
+            "data_freshness": data_freshness,
         }
         logs.log_usage("persons", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, portraits, "PROFILE_PATH", ui_language)
@@ -4472,7 +4637,15 @@ async def get_company(id: int, ui_language: Optional[str] = "en", collection: Op
 
     The company itself includes LOGO_PATH, MOVIE_COUNT, SERIE_COUNT,
     IMDB_RATING_WEIGHTED, and POPULARITY. Each nested list element carries
-    POSTER_PATH for the related movie or TV series."""
+    POSTER_PATH for the related movie or TV series.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live). It carries record_source,
+    record_updated_at (the base row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh
+    datetime, copied verbatim from the TMDb source row by the preprocess; null when the
+    record is not TMDb-sourced) and wikidata_updated_at. The wikipedia_* fields are always
+    null here because this base table has no ID_WIKIDATA. Returned on the full response
+    only, not on a ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -4499,9 +4672,11 @@ async def get_company(id: int, ui_language: Optional[str] = "en", collection: Op
         }
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                data_freshness = _build_data_freshness(cursor, company, RECORD_SOURCE_TMDB, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
-        result = {**company, "movies": data["movies"], "series": data["series"], "pagination": pagination}
+        result = {**company, "movies": data["movies"], "series": data["series"], "pagination": pagination, "data_freshness": data_freshness}
         logs.log_usage("companies", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -4515,7 +4690,15 @@ async def get_network(id: int, ui_language: Optional[str] = "en", collection: Op
     """Return all fields for a TV network plus associated TV series, ordered by
     adjusted IMDb rating. The id is ID_NETWORK.
 
-    Each nested series carries POSTER_PATH."""
+    Each nested series carries POSTER_PATH.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live). It carries record_source,
+    record_updated_at (the base row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh
+    datetime, copied verbatim from the TMDb source row by the preprocess; null when the
+    record is not TMDb-sourced) and wikidata_updated_at. The wikipedia_* fields are always
+    null here because this base table has no ID_WIKIDATA. Returned on the full response
+    only, not on a ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -4535,9 +4718,11 @@ async def get_network(id: int, ui_language: Optional[str] = "en", collection: Op
         }
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                data_freshness = _build_data_freshness(cursor, network, RECORD_SOURCE_TMDB, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
-        result = {**network, "series": data["series"], "pagination": pagination}
+        result = {**network, "series": data["series"], "pagination": pagination, "data_freshness": data_freshness}
         logs.log_usage("networks", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -4562,7 +4747,20 @@ async def get_collection(id: int, ui_language: Optional[str] = "en", collection:
 
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
-    section title and content, ordered by DISPLAY_ORDER."""
+    section title and content, ordered by DISPLAY_ORDER.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live from TMDb or Wikipedia). It
+    carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
+    row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh datetime, copied verbatim from the
+    TMDb source row by the preprocess; null when the record is not TMDb-sourced),
+    wikidata_updated_at (TIM_WIKIDATA_COMPLETED, when the base table carries it), and
+    wikipedia_updated_at / wikipedia_crawled_at / wikipedia_lang, respectively the last
+    *successful* Wikipedia fetch (the data date of wikipedia_content and wikipedia_images),
+    the last crawl attempt (later than wikipedia_updated_at means recent attempts failed),
+    and the language those two arrays were actually served in. The wikipedia_* fields are
+    null when the entity has no ID_WIKIDATA. Returned on the full response only, not on a
+    ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -4592,9 +4790,10 @@ async def get_collection(id: int, ui_language: Optional[str] = "en", collection:
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, collection_row.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, collection_row.get("ID_WIKIDATA"), ui_language)
+                data_freshness = _build_data_freshness(cursor, collection_row, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
-        result = {**collection_row, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
+        result = {**collection_row, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         logs.log_usage("collections", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -4619,7 +4818,20 @@ async def get_topic(id: int, ui_language: Optional[str] = "en", collection: Opti
 
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
-    section title and content, ordered by DISPLAY_ORDER."""
+    section title and content, ordered by DISPLAY_ORDER.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live from TMDb or Wikipedia). It
+    carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
+    row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh datetime, copied verbatim from the
+    TMDb source row by the preprocess; null when the record is not TMDb-sourced),
+    wikidata_updated_at (TIM_WIKIDATA_COMPLETED, when the base table carries it), and
+    wikipedia_updated_at / wikipedia_crawled_at / wikipedia_lang, respectively the last
+    *successful* Wikipedia fetch (the data date of wikipedia_content and wikipedia_images),
+    the last crawl attempt (later than wikipedia_updated_at means recent attempts failed),
+    and the language those two arrays were actually served in. The wikipedia_* fields are
+    null when the entity has no ID_WIKIDATA. Returned on the full response only, not on a
+    ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -4649,9 +4861,10 @@ async def get_topic(id: int, ui_language: Optional[str] = "en", collection: Opti
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, topic.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, topic.get("ID_WIKIDATA"), ui_language)
+                data_freshness = _build_data_freshness(cursor, topic, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
-        result = {**topic, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
+        result = {**topic, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         logs.log_usage("topics", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -4676,7 +4889,20 @@ async def get_list(id: int, ui_language: Optional[str] = "en", collection: Optio
 
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
-    section title and content, ordered by DISPLAY_ORDER."""
+    section title and content, ordered by DISPLAY_ORDER.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live from TMDb or Wikipedia). It
+    carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
+    row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh datetime, copied verbatim from the
+    TMDb source row by the preprocess; null when the record is not TMDb-sourced),
+    wikidata_updated_at (TIM_WIKIDATA_COMPLETED, when the base table carries it), and
+    wikipedia_updated_at / wikipedia_crawled_at / wikipedia_lang, respectively the last
+    *successful* Wikipedia fetch (the data date of wikipedia_content and wikipedia_images),
+    the last crawl attempt (later than wikipedia_updated_at means recent attempts failed),
+    and the language those two arrays were actually served in. The wikipedia_* fields are
+    null when the entity has no ID_WIKIDATA. Returned on the full response only, not on a
+    ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -4706,9 +4932,10 @@ async def get_list(id: int, ui_language: Optional[str] = "en", collection: Optio
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, lst.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, lst.get("ID_WIKIDATA"), ui_language)
+                data_freshness = _build_data_freshness(cursor, lst, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
-        result = {**lst, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
+        result = {**lst, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         logs.log_usage("lists", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -4733,7 +4960,20 @@ async def get_movement(id: int, ui_language: Optional[str] = "en", collection: O
 
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
-    section title and content, ordered by DISPLAY_ORDER."""
+    section title and content, ordered by DISPLAY_ORDER.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live from TMDb or Wikipedia). It
+    carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
+    row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh datetime, copied verbatim from the
+    TMDb source row by the preprocess; null when the record is not TMDb-sourced),
+    wikidata_updated_at (TIM_WIKIDATA_COMPLETED, when the base table carries it), and
+    wikipedia_updated_at / wikipedia_crawled_at / wikipedia_lang, respectively the last
+    *successful* Wikipedia fetch (the data date of wikipedia_content and wikipedia_images),
+    the last crawl attempt (later than wikipedia_updated_at means recent attempts failed),
+    and the language those two arrays were actually served in. The wikipedia_* fields are
+    null when the entity has no ID_WIKIDATA. Returned on the full response only, not on a
+    ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -4763,9 +5003,10 @@ async def get_movement(id: int, ui_language: Optional[str] = "en", collection: O
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, movement.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, movement.get("ID_WIKIDATA"), ui_language)
+                data_freshness = _build_data_freshness(cursor, movement, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
-        result = {**movement, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
+        result = {**movement, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         logs.log_usage("movements", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -4794,7 +5035,20 @@ async def get_technical(id: int, ui_language: Optional[str] = "en", collection: 
 
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
-    section title and content, ordered by DISPLAY_ORDER."""
+    section title and content, ordered by DISPLAY_ORDER.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live from TMDb or Wikipedia). It
+    carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
+    row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh datetime, copied verbatim from the
+    TMDb source row by the preprocess; null when the record is not TMDb-sourced),
+    wikidata_updated_at (TIM_WIKIDATA_COMPLETED, when the base table carries it), and
+    wikipedia_updated_at / wikipedia_crawled_at / wikipedia_lang, respectively the last
+    *successful* Wikipedia fetch (the data date of wikipedia_content and wikipedia_images),
+    the last crawl attempt (later than wikipedia_updated_at means recent attempts failed),
+    and the language those two arrays were actually served in. The wikipedia_* fields are
+    null when the entity has no ID_WIKIDATA. Returned on the full response only, not on a
+    ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -4825,9 +5079,10 @@ async def get_technical(id: int, ui_language: Optional[str] = "en", collection: 
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, technical.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, technical.get("ID_WIKIDATA"), ui_language)
+                data_freshness = _build_data_freshness(cursor, technical, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
-        result = {**technical, "movies": data["movies"], "siblings": data["siblings"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
+        result = {**technical, "movies": data["movies"], "siblings": data["siblings"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         logs.log_usage("technicals", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -4851,7 +5106,15 @@ async def get_genre(id: int, ui_language: Optional[str] = "en", collection: Opti
     ordered by IMDB_RATING_WEIGHTED DESC — best-rated first. A TV-only genre yields an
     empty movies array and vice versa. Each nested movie/serie carries a localized
     POSTER_PATH. There is no wikipedia_images / wikipedia_content block because
-    T_WC_TMDB_GENRE has no ID_WIKIDATA."""
+    T_WC_TMDB_GENRE has no ID_WIKIDATA.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live). It carries record_source,
+    record_updated_at (the base row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh
+    datetime, copied verbatim from the TMDb source row by the preprocess; null when the
+    record is not TMDb-sourced) and wikidata_updated_at. The wikipedia_* fields are always
+    null here because this base table has no ID_WIKIDATA. Returned on the full response
+    only, not on a ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -4886,9 +5149,11 @@ async def get_genre(id: int, ui_language: Optional[str] = "en", collection: Opti
         }
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                data_freshness = _build_data_freshness(cursor, genre, RECORD_SOURCE_REFERENCE, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
-        result = {**genre, "movies": data["movies"], "series": data["series"], "pagination": pagination}
+        result = {**genre, "movies": data["movies"], "series": data["series"], "pagination": pagination, "data_freshness": data_freshness}
         logs.log_usage("genres", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -4912,7 +5177,20 @@ async def get_group(id: int, ui_language: Optional[str] = "en", collection: Opti
 
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
-    section title and content, ordered by DISPLAY_ORDER."""
+    section title and content, ordered by DISPLAY_ORDER.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live from TMDb or Wikipedia). It
+    carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
+    row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh datetime, copied verbatim from the
+    TMDb source row by the preprocess; null when the record is not TMDb-sourced),
+    wikidata_updated_at (TIM_WIKIDATA_COMPLETED, when the base table carries it), and
+    wikipedia_updated_at / wikipedia_crawled_at / wikipedia_lang, respectively the last
+    *successful* Wikipedia fetch (the data date of wikipedia_content and wikipedia_images),
+    the last crawl attempt (later than wikipedia_updated_at means recent attempts failed),
+    and the language those two arrays were actually served in. The wikipedia_* fields are
+    null when the entity has no ID_WIKIDATA. Returned on the full response only, not on a
+    ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -4935,9 +5213,10 @@ async def get_group(id: int, ui_language: Optional[str] = "en", collection: Opti
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, group.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, group.get("ID_WIKIDATA"), ui_language)
+                data_freshness = _build_data_freshness(cursor, group, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
-        result = {**group, "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
+        result = {**group, "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         logs.log_usage("groups", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -4961,7 +5240,20 @@ async def get_death(id: int, ui_language: Optional[str] = "en", collection: Opti
 
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
-    section title and content, ordered by DISPLAY_ORDER."""
+    section title and content, ordered by DISPLAY_ORDER.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live from TMDb or Wikipedia). It
+    carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
+    row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh datetime, copied verbatim from the
+    TMDb source row by the preprocess; null when the record is not TMDb-sourced),
+    wikidata_updated_at (TIM_WIKIDATA_COMPLETED, when the base table carries it), and
+    wikipedia_updated_at / wikipedia_crawled_at / wikipedia_lang, respectively the last
+    *successful* Wikipedia fetch (the data date of wikipedia_content and wikipedia_images),
+    the last crawl attempt (later than wikipedia_updated_at means recent attempts failed),
+    and the language those two arrays were actually served in. The wikipedia_* fields are
+    null when the entity has no ID_WIKIDATA. Returned on the full response only, not on a
+    ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -4984,9 +5276,10 @@ async def get_death(id: int, ui_language: Optional[str] = "en", collection: Opti
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, death.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, death.get("ID_WIKIDATA"), ui_language)
+                data_freshness = _build_data_freshness(cursor, death, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
-        result = {**death, "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
+        result = {**death, "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         logs.log_usage("deaths", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -5011,7 +5304,20 @@ async def get_award(id: int, ui_language: Optional[str] = "en", collection: Opti
 
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
-    section title and content, ordered by DISPLAY_ORDER."""
+    section title and content, ordered by DISPLAY_ORDER.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live from TMDb or Wikipedia). It
+    carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
+    row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh datetime, copied verbatim from the
+    TMDb source row by the preprocess; null when the record is not TMDb-sourced),
+    wikidata_updated_at (TIM_WIKIDATA_COMPLETED, when the base table carries it), and
+    wikipedia_updated_at / wikipedia_crawled_at / wikipedia_lang, respectively the last
+    *successful* Wikipedia fetch (the data date of wikipedia_content and wikipedia_images),
+    the last crawl attempt (later than wikipedia_updated_at means recent attempts failed),
+    and the language those two arrays were actually served in. The wikipedia_* fields are
+    null when the entity has no ID_WIKIDATA. Returned on the full response only, not on a
+    ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -5048,9 +5354,10 @@ async def get_award(id: int, ui_language: Optional[str] = "en", collection: Opti
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, award.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, award.get("ID_WIKIDATA"), ui_language)
+                data_freshness = _build_data_freshness(cursor, award, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
-        result = {**award, "movies": data["movies"], "series": data["series"], "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
+        result = {**award, "movies": data["movies"], "series": data["series"], "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         logs.log_usage("awards", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -5075,7 +5382,20 @@ async def get_nomination(id: int, ui_language: Optional[str] = "en", collection:
 
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
-    section title and content, ordered by DISPLAY_ORDER."""
+    section title and content, ordered by DISPLAY_ORDER.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live from TMDb or Wikipedia). It
+    carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
+    row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh datetime, copied verbatim from the
+    TMDb source row by the preprocess; null when the record is not TMDb-sourced),
+    wikidata_updated_at (TIM_WIKIDATA_COMPLETED, when the base table carries it), and
+    wikipedia_updated_at / wikipedia_crawled_at / wikipedia_lang, respectively the last
+    *successful* Wikipedia fetch (the data date of wikipedia_content and wikipedia_images),
+    the last crawl attempt (later than wikipedia_updated_at means recent attempts failed),
+    and the language those two arrays were actually served in. The wikipedia_* fields are
+    null when the entity has no ID_WIKIDATA. Returned on the full response only, not on a
+    ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -5112,9 +5432,10 @@ async def get_nomination(id: int, ui_language: Optional[str] = "en", collection:
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, nomination.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, nomination.get("ID_WIKIDATA"), ui_language)
+                data_freshness = _build_data_freshness(cursor, nomination, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
-        result = {**nomination, "movies": data["movies"], "series": data["series"], "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
+        result = {**nomination, "movies": data["movies"], "series": data["series"], "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         logs.log_usage("nominations", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -5139,7 +5460,20 @@ async def get_location(wikidata_id: str, ui_language: Optional[str] = "en", coll
 
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
-    section title and content, ordered by DISPLAY_ORDER."""
+    section title and content, ordered by DISPLAY_ORDER.
+
+    data_freshness dates this payload so a caller can state how current the answer is (every
+    value is served from the read-model, never fetched live from TMDb or Wikipedia). It
+    carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
+    row's TIM_UPDATED), tmdb_updated_at (the TMDb refresh datetime, copied verbatim from the
+    TMDb source row by the preprocess; null when the record is not TMDb-sourced),
+    wikidata_updated_at (TIM_WIKIDATA_COMPLETED, when the base table carries it), and
+    wikipedia_updated_at / wikipedia_crawled_at / wikipedia_lang, respectively the last
+    *successful* Wikipedia fetch (the data date of wikipedia_content and wikipedia_images),
+    the last crawl attempt (later than wikipedia_updated_at means recent attempts failed),
+    and the language those two arrays were actually served in. The wikipedia_* fields are
+    null when the entity has no ID_WIKIDATA. Returned on the full response only, not on a
+    ?collection= targeted page."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -5171,9 +5505,10 @@ async def get_location(wikidata_id: str, ui_language: Optional[str] = "en", coll
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, wikidata_id, ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, wikidata_id, ui_language)
+                data_freshness = _build_data_freshness(cursor, location, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"wikidata_id": wikidata_id}, collection, data, pagination, kinds, ui_language)
-        result = {**location, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination}
+        result = {**location, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         logs.log_usage("locations", {"wikidata_id": wikidata_id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -5717,7 +6052,15 @@ async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[
     capped to its first 50 rows and a top-level `pagination` block reports each
     list's total. To fetch more of one list, set `collection` to its name (e.g.
     'cast') with `page` / `rows_per_page`; the response then contains just that
-    list's requested page."""
+    list's requested page.
+
+    data_freshness dates the payload: record_source ('tmdb' | 'wikidata' | 'reference'),
+    record_updated_at, tmdb_updated_at (the TMDb refresh datetime; null when the record is
+    not TMDb-sourced), wikidata_updated_at, and wikipedia_updated_at / wikipedia_crawled_at /
+    wikipedia_lang (last successful Wikipedia fetch, which is the data date of
+    wikipedia_content and wikipedia_images; last crawl attempt; and the language those
+    arrays were served in). Use it to tell the user how current the data is instead of
+    implying it is live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/movies/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -5754,7 +6097,15 @@ async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional
     collections, movements, awards, nominations, seasons, similar, recommendations) are paginated: by default
     each is capped to its first 50 rows and a top-level `pagination` block reports
     each list's total. To fetch more of one list, set `collection` to its name with
-    `page` / `rows_per_page`; the response then contains just that list's page."""
+    `page` / `rows_per_page`; the response then contains just that list's page.
+
+    data_freshness dates the payload: record_source ('tmdb' | 'wikidata' | 'reference'),
+    record_updated_at, tmdb_updated_at (the TMDb refresh datetime; null when the record is
+    not TMDb-sourced), wikidata_updated_at, and wikipedia_updated_at / wikipedia_crawled_at /
+    wikipedia_lang (last successful Wikipedia fetch, which is the data date of
+    wikipedia_content and wikipedia_images; last crawl attempt; and the language those
+    arrays were served in). Use it to tell the user how current the data is instead of
+    implying it is live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/series/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -5776,7 +6127,15 @@ async def _mcp_get_person(id: int, ui_language: str = "en", collection: Optional
     first 50 rows and a top-level `pagination` block reports each list's total. A
     prolific person can have thousands of credits — to fetch more of one list, set
     `collection` to its name (e.g. 'movie_cast') with `page` / `rows_per_page`; the
-    response then contains just that list's requested page."""
+    response then contains just that list's requested page.
+
+    data_freshness dates the payload: record_source ('tmdb' | 'wikidata' | 'reference'),
+    record_updated_at, tmdb_updated_at (the TMDb refresh datetime; null when the record is
+    not TMDb-sourced), wikidata_updated_at, and wikipedia_updated_at / wikipedia_crawled_at /
+    wikipedia_lang (last successful Wikipedia fetch, which is the data date of
+    wikipedia_content and wikipedia_images; last crawl attempt; and the language those
+    arrays were served in). Use it to tell the user how current the data is instead of
+    implying it is live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/persons/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -5787,7 +6146,15 @@ async def _mcp_get_collection(id: int, ui_language: str = "en", collection: Opti
     includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
-    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_T2S_COLLECTION."""
+    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_T2S_COLLECTION.
+
+    data_freshness dates the payload: record_source ('tmdb' | 'wikidata' | 'reference'),
+    record_updated_at, tmdb_updated_at (the TMDb refresh datetime; null when the record is
+    not TMDb-sourced), wikidata_updated_at, and wikipedia_updated_at / wikipedia_crawled_at /
+    wikipedia_lang (last successful Wikipedia fetch, which is the data date of
+    wikipedia_content and wikipedia_images; last crawl attempt; and the language those
+    arrays were served in). Use it to tell the user how current the data is instead of
+    implying it is live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/collections/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -5798,7 +6165,15 @@ async def _mcp_get_topic(id: int, ui_language: str = "en", collection: Optional[
     POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
-    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_TOPIC."""
+    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_TOPIC.
+
+    data_freshness dates the payload: record_source ('tmdb' | 'wikidata' | 'reference'),
+    record_updated_at, tmdb_updated_at (the TMDb refresh datetime; null when the record is
+    not TMDb-sourced), wikidata_updated_at, and wikipedia_updated_at / wikipedia_crawled_at /
+    wikipedia_lang (last successful Wikipedia fetch, which is the data date of
+    wikipedia_content and wikipedia_images; last crawl attempt; and the language those
+    arrays were served in). Use it to tell the user how current the data is instead of
+    implying it is live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/topics/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -5809,7 +6184,15 @@ async def _mcp_get_list(id: int, ui_language: str = "en", collection: Optional[s
     POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
-    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_T2S_LIST."""
+    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_T2S_LIST.
+
+    data_freshness dates the payload: record_source ('tmdb' | 'wikidata' | 'reference'),
+    record_updated_at, tmdb_updated_at (the TMDb refresh datetime; null when the record is
+    not TMDb-sourced), wikidata_updated_at, and wikipedia_updated_at / wikipedia_crawled_at /
+    wikipedia_lang (last successful Wikipedia fetch, which is the data date of
+    wikipedia_content and wikipedia_images; last crawl attempt; and the language those
+    arrays were served in). Use it to tell the user how current the data is instead of
+    implying it is live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/lists/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -5820,7 +6203,15 @@ async def _mcp_get_movement(id: int, ui_language: str = "en", collection: Option
     POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
-    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_MOVEMENT."""
+    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_MOVEMENT.
+
+    data_freshness dates the payload: record_source ('tmdb' | 'wikidata' | 'reference'),
+    record_updated_at, tmdb_updated_at (the TMDb refresh datetime; null when the record is
+    not TMDb-sourced), wikidata_updated_at, and wikipedia_updated_at / wikipedia_crawled_at /
+    wikipedia_lang (last successful Wikipedia fetch, which is the data date of
+    wikipedia_content and wikipedia_images; last crawl attempt; and the language those
+    arrays were served in). Use it to tell the user how current the data is instead of
+    implying it is live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/movements/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -5833,7 +6224,15 @@ async def _mcp_get_technical(id: int, ui_language: str = "en", collection: Optio
     carries MOVIE_COUNT for ranking. Also returns top-level wikipedia_images (ui_language-specific
     Wikipedia image metadata) and wikipedia_content (Wikipedia section in the requested ui_language,
     title/content pairs from T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA.
-    id = ID_TECHNICAL."""
+    id = ID_TECHNICAL.
+
+    data_freshness dates the payload: record_source ('tmdb' | 'wikidata' | 'reference'),
+    record_updated_at, tmdb_updated_at (the TMDb refresh datetime; null when the record is
+    not TMDb-sourced), wikidata_updated_at, and wikipedia_updated_at / wikipedia_crawled_at /
+    wikipedia_lang (last successful Wikipedia fetch, which is the data date of
+    wikipedia_content and wikipedia_images; last crawl attempt; and the language those
+    arrays were served in). Use it to tell the user how current the data is instead of
+    implying it is live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/technicals/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -5843,7 +6242,13 @@ async def _mcp_get_genre(id: int, ui_language: str = "en", collection: Optional[
     member movies and TV series ordered best-rated first. The genre itself carries
     ID_GENRE, GENRE_NAME (localized to ui_language), and the APPLIES_TO_MOVIE /
     APPLIES_TO_SERIE flags. id = ID_GENRE, the TMDb genre code (e.g. 28 = Action,
-    878 = Science Fiction, 18 = Drama). No Wikipedia block (genres have no ID_WIKIDATA)."""
+    878 = Science Fiction, 18 = Drama). No Wikipedia block (genres have no ID_WIKIDATA).
+
+    data_freshness dates the payload: record_source, record_updated_at, tmdb_updated_at (the
+    TMDb refresh datetime; null when the record is not TMDb-sourced) and
+    wikidata_updated_at; the wikipedia_* fields are null because this entity has no
+    ID_WIKIDATA. Use it to tell the user how current the data is instead of implying it is
+    live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/genres/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -5853,7 +6258,15 @@ async def _mcp_get_group(id: int, ui_language: str = "en", collection: Optional[
     associated persons ordered by their position. Also returns top-level
     wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and wikipedia_content (en
     Wikipedia section title/content pairs from T_WC_WIKIPEDIA_PAGE_LANG_SECTION)
-    keyed off ID_WIKIDATA. id = ID_GROUP."""
+    keyed off ID_WIKIDATA. id = ID_GROUP.
+
+    data_freshness dates the payload: record_source ('tmdb' | 'wikidata' | 'reference'),
+    record_updated_at, tmdb_updated_at (the TMDb refresh datetime; null when the record is
+    not TMDb-sourced), wikidata_updated_at, and wikipedia_updated_at / wikipedia_crawled_at /
+    wikipedia_lang (last successful Wikipedia fetch, which is the data date of
+    wikipedia_content and wikipedia_images; last crawl attempt; and the language those
+    arrays were served in). Use it to tell the user how current the data is instead of
+    implying it is live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/groups/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -5863,7 +6276,15 @@ async def _mcp_get_death(id: int, ui_language: str = "en", collection: Optional[
     ordered by their position. Also returns top-level wikipedia_images (ui_language-specific
     Wikipedia image metadata) and wikipedia_content (Wikipedia section in the requested ui_language,
     title/content pairs from T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA.
-    id = ID_DEATH."""
+    id = ID_DEATH.
+
+    data_freshness dates the payload: record_source ('tmdb' | 'wikidata' | 'reference'),
+    record_updated_at, tmdb_updated_at (the TMDb refresh datetime; null when the record is
+    not TMDb-sourced), wikidata_updated_at, and wikipedia_updated_at / wikipedia_crawled_at /
+    wikipedia_lang (last successful Wikipedia fetch, which is the data date of
+    wikipedia_content and wikipedia_images; last crawl attempt; and the language those
+    arrays were served in). Use it to tell the user how current the data is instead of
+    implying it is live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/deaths/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -5872,7 +6293,15 @@ async def _mcp_get_award(id: int, ui_language: str = "en", collection: Optional[
     """Get all fields for an award plus associated movies, TV series, and persons.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
-    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_AWARD."""
+    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_AWARD.
+
+    data_freshness dates the payload: record_source ('tmdb' | 'wikidata' | 'reference'),
+    record_updated_at, tmdb_updated_at (the TMDb refresh datetime; null when the record is
+    not TMDb-sourced), wikidata_updated_at, and wikipedia_updated_at / wikipedia_crawled_at /
+    wikipedia_lang (last successful Wikipedia fetch, which is the data date of
+    wikipedia_content and wikipedia_images; last crawl attempt; and the language those
+    arrays were served in). Use it to tell the user how current the data is instead of
+    implying it is live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/awards/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -5881,7 +6310,15 @@ async def _mcp_get_nomination(id: int, ui_language: str = "en", collection: Opti
     """Get all fields for an award nomination plus associated movies, TV series, and persons.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
-    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_NOMINATION."""
+    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA. id = ID_NOMINATION.
+
+    data_freshness dates the payload: record_source ('tmdb' | 'wikidata' | 'reference'),
+    record_updated_at, tmdb_updated_at (the TMDb refresh datetime; null when the record is
+    not TMDb-sourced), wikidata_updated_at, and wikipedia_updated_at / wikipedia_crawled_at /
+    wikipedia_lang (last successful Wikipedia fetch, which is the data date of
+    wikipedia_content and wikipedia_images; last crawl attempt; and the language those
+    arrays were served in). Use it to tell the user how current the data is instead of
+    implying it is live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/nominations/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -5889,13 +6326,25 @@ async def _mcp_get_nomination(id: int, ui_language: str = "en", collection: Opti
 async def _mcp_get_company(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a production company plus associated movies and TV series. The
     company itself includes LOGO_PATH, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING_WEIGHTED,
-    and POPULARITY. id = ID_COMPANY."""
+    and POPULARITY. id = ID_COMPANY.
+
+    data_freshness dates the payload: record_source, record_updated_at, tmdb_updated_at (the
+    TMDb refresh datetime; null when the record is not TMDb-sourced) and
+    wikidata_updated_at; the wikipedia_* fields are null because this entity has no
+    ID_WIKIDATA. Use it to tell the user how current the data is instead of implying it is
+    live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/companies/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_network")
 async def _mcp_get_network(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
-    """Get all fields for a TV network plus associated TV series. id = ID_NETWORK."""
+    """Get all fields for a TV network plus associated TV series. id = ID_NETWORK.
+
+    data_freshness dates the payload: record_source, record_updated_at, tmdb_updated_at (the
+    TMDb refresh datetime; null when the record is not TMDb-sourced) and
+    wikidata_updated_at; the wikipedia_* fields are null because this entity has no
+    ID_WIKIDATA. Use it to tell the user how current the data is instead of implying it is
+    live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/networks/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -5905,7 +6354,15 @@ async def _mcp_get_location(wikidata_id: str, ui_language: str = "en", collectio
     and series where it is a narrative location (P840) or filming location (P915).
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
-    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off the route's Wikidata ID."""
+    T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off the route's Wikidata ID.
+
+    data_freshness dates the payload: record_source ('tmdb' | 'wikidata' | 'reference'),
+    record_updated_at, tmdb_updated_at (the TMDb refresh datetime; null when the record is
+    not TMDb-sourced), wikidata_updated_at, and wikipedia_updated_at / wikipedia_crawled_at /
+    wikipedia_lang (last successful Wikipedia fetch, which is the data date of
+    wikipedia_content and wikipedia_images; last crawl attempt; and the language those
+    arrays were served in). Use it to tell the user how current the data is instead of
+    implying it is live. Absent from a ?collection= targeted page."""
     return await _mcp_get(f"/locations/{wikidata_id}", ui_language, collection, page, rows_per_page)
 
 
