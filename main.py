@@ -3961,7 +3961,8 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
                 FROM T_WC_TMDB_SEASON s
                 LEFT JOIN T_WC_T2S_SEASON t2s ON t2s.ID_SEASON = s.ID_SEASON
                 WHERE s.ID_SERIE = %s
-                ORDER BY s.SEASON_NUMBER ASC
+                ORDER BY CASE WHEN s.SEASON_NUMBER = 0 THEN 1 ELSE 0 END,
+                         s.SEASON_NUMBER ASC
             """, (id,), "season"),
             "similar": ("""
                 SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, ss.DISPLAY_ORDER,
@@ -4226,6 +4227,32 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                 WHERE e.ID_SEASON = %s
                 ORDER BY e.EPISODE_NUMBER ASC
             """, (id_season,), None),
+            # FASTAPI-TEXT2SQL-182: the sibling seasons, so a season sheet can offer the
+            # same rail a movie gets for its collection. Same shape as the `seasons` array
+            # of /series/{id} on purpose, IMDb fields included, so a season card looks
+            # identical wherever it is rendered. IS_CURRENT marks the season being viewed:
+            # season posters of one show are often near-identical, so without it a rail of
+            # four lookalike cards leaves the viewer unsure where they are.
+            # Specials (SEASON_NUMBER = 0) are relegated to the END rather than hidden or
+            # left first: they are real content, but opening a show on "Specials" as the
+            # leading card makes no sense. Same CASE ordering as the Criterion spine rule.
+            "seasons": ("""
+                SELECT s.ID_SEASON, s.SEASON_NUMBER, s.TITLE, s.OVERVIEW, s.DAT_AIR,
+                       s.AIR_YEAR, s.AIR_MONTH, s.AIR_DAY, s.POSTER_PATH, s.EPISODE_COUNT,
+                       s.VOTE_AVERAGE, s.ID_IMDB, s.ID_WIKIDATA, s.ID_TVDB,
+                       s.ID_SERIE,
+                       t2s.IMDB_RATING,
+                       (SELECT COUNT(*) FROM T_WC_T2S_EPISODE e
+                         WHERE e.ID_SEASON = s.ID_SEASON AND e.IMDB_RATING IS NOT NULL
+                       ) AS IMDB_RATED_EPISODES,
+                       (s.ID_SEASON = %s) AS IS_CURRENT,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_TMDB_SEASON s
+                LEFT JOIN T_WC_T2S_SEASON t2s ON t2s.ID_SEASON = s.ID_SEASON
+                WHERE s.ID_SERIE = %s
+                ORDER BY CASE WHEN s.SEASON_NUMBER = 0 THEN 1 ELSE 0 END,
+                         s.SEASON_NUMBER ASC
+            """, (id_season, id_serie), "season"),
         }
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
@@ -4255,6 +4282,22 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                 wikipedia_content = _fetch_wikipedia_content(cursor, season.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, season, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_tmdb_videos(cursor, "season", id_season)
+                # FASTAPI-TEXT2SQL-182: previous / next season, the pendant of
+                # collection_previous / collection_next on a movie. Computed from its own
+                # query rather than from data["seasons"], which is a paginated PAGE and
+                # would silently drop the neighbour on a long-running show. Specials are
+                # excluded from the chain entirely: "the season after the specials" means
+                # nothing, so both neighbours are null when viewing season 0.
+                cursor.execute("""
+                    SELECT ID_SEASON, SEASON_NUMBER, TITLE, POSTER_PATH, ID_SERIE
+                    FROM T_WC_TMDB_SEASON
+                    WHERE ID_SERIE = %s AND SEASON_NUMBER > 0
+                    ORDER BY SEASON_NUMBER ASC
+                """, (id_serie,))
+                numbered = cursor.fetchall()
+                pos = next((i for i, r in enumerate(numbered) if r["ID_SEASON"] == id_season), -1)
+                season_previous = numbered[pos - 1] if pos > 0 else None
+                season_next = numbered[pos + 1] if 0 <= pos < len(numbered) - 1 else None
         if collection is not None:
             return _targeted_collection_response(
                 conn, {"id_serie": id_serie, "season_number": season_number}, collection, data, pagination, kinds, ui_language
@@ -4266,6 +4309,9 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
             "posters": list(posters),
             "backdrops": list(backdrops),
             "series": series,
+            "seasons": data["seasons"],
+            "season_previous": season_previous,
+            "season_next": season_next,
             "episodes": data["episodes"],
             "wikipedia_images": wikipedia_images,
             "wikipedia_content": wikipedia_content,
