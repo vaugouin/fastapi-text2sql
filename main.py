@@ -3823,7 +3823,11 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
     The seasons list contains every season of this series from T_WC_TMDB_SEASON,
     ordered by SEASON_NUMBER ASC; each element carries ID_SEASON, SEASON_NUMBER, TITLE,
     OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH, AIR_DAY, POSTER_PATH, EPISODE_COUNT,
-    VOTE_AVERAGE, ID_IMDB, ID_WIKIDATA, ID_TVDB.
+    VOTE_AVERAGE, ID_IMDB, ID_WIKIDATA, ID_TVDB, plus IMDB_RATING and
+    IMDB_RATED_EPISODES LEFT JOINed from T_WC_T2S_SEASON. That rating is DERIVED, the
+    plain mean of the season's rated episodes rolled up by tmdb-movie-preprocess
+    Process 28: IMDb rates titles and episodes but never seasons, so never present it as
+    IMDb's own verdict on a season. NULL until the rollup has run.
 
     The videos list merges TMDb-sourced videos (T_WC_TMDB_SERIE_VIDEO) and
     Wikidata-sourced videos (T_WC_WIKIDATA_MEDIA_RESOURCE with RESOURCE_KIND='video',
@@ -3938,14 +3942,26 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
                 GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
                 ORDER BY MIN(ps.DISPLAY_ORDER) ASC, p.ID_PERSON ASC
             """, (id,), "person"),
+            # FASTAPI-TEXT2SQL-180: IMDB_RATING is the season's rating rolled up from its
+            # episodes by tmdb-movie-preprocess Process 28 (IMDb rates titles and episodes,
+            # never seasons). IMDB_RATED_EPISODES is its honest denominator: a running
+            # season is scored on the episodes that have aired, and summing episode votes
+            # would count the same viewers several times. LEFT JOIN, same reasoning as the
+            # episode endpoints: T_WC_TMDB_SEASON stays the row source so the returned
+            # scope does not change.
             "seasons": ("""
-                SELECT ID_SEASON, SEASON_NUMBER, TITLE, OVERVIEW, DAT_AIR,
-                       AIR_YEAR, AIR_MONTH, AIR_DAY, POSTER_PATH, EPISODE_COUNT,
-                       VOTE_AVERAGE, ID_IMDB, ID_WIKIDATA, ID_TVDB,
+                SELECT s.ID_SEASON, s.SEASON_NUMBER, s.TITLE, s.OVERVIEW, s.DAT_AIR,
+                       s.AIR_YEAR, s.AIR_MONTH, s.AIR_DAY, s.POSTER_PATH, s.EPISODE_COUNT,
+                       s.VOTE_AVERAGE, s.ID_IMDB, s.ID_WIKIDATA, s.ID_TVDB,
+                       t2s.IMDB_RATING,
+                       (SELECT COUNT(*) FROM T_WC_T2S_EPISODE e
+                         WHERE e.ID_SEASON = s.ID_SEASON AND e.IMDB_RATING IS NOT NULL
+                       ) AS IMDB_RATED_EPISODES,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_TMDB_SEASON
-                WHERE ID_SERIE = %s
-                ORDER BY SEASON_NUMBER ASC
+                FROM T_WC_TMDB_SEASON s
+                LEFT JOIN T_WC_T2S_SEASON t2s ON t2s.ID_SEASON = s.ID_SEASON
+                WHERE s.ID_SERIE = %s
+                ORDER BY s.SEASON_NUMBER ASC
             """, (id,), "season"),
             "similar": ("""
                 SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, ss.DISPLAY_ORDER,
@@ -4106,6 +4122,14 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     scope. They do NOT replace VOTE_AVERAGE / VOTE_COUNT, which remain the TMDb
     figures: the two sources coexist and are not comparable.
 
+    The season row itself carries IMDB_RATING and IMDB_RATED_EPISODES. IMDb rates titles
+    and episodes but NEVER seasons, so this rating is DERIVED: it is the plain mean of the
+    season's rated episodes, rolled up by Process 28. Present it as such, never as "IMDb's
+    rating for this season". IMDB_RATED_EPISODES is how many episodes back that mean, which
+    is the honest denominator for a season still airing (summing episode votes would count
+    the same viewers once per episode). IMDB_RATING is NULL until the rollup has run for
+    that season, or when none of its episodes carry a rating.
+
     Note: the row sources are still T_WC_TMDB_SEASON, T_WC_TMDB_PERSON_SEASON,
     T_WC_TMDB_SEASON_IMAGE and T_WC_TMDB_EPISODE. T_WC_T2S_EPISODE now exists and is
     LEFT JOINed for the IMDb fields only, deliberately not used as the row source: it
@@ -4130,7 +4154,19 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     try:
         with conn.cursor() as cursor:
             cursor.execute(
-                "SELECT * FROM T_WC_TMDB_SEASON WHERE ID_SERIE = %s AND SEASON_NUMBER = %s",
+                # FASTAPI-TEXT2SQL-180: see the `seasons` array on /series for the reasoning.
+                # IMDB_RATING is rolled up from the season's episodes, IMDB_RATED_EPISODES is
+                # how many of them carry a rating, which is the honest denominator for a
+                # season still airing.
+                """
+                SELECT s.*, t2s.IMDB_RATING,
+                       (SELECT COUNT(*) FROM T_WC_T2S_EPISODE e
+                         WHERE e.ID_SEASON = s.ID_SEASON AND e.IMDB_RATING IS NOT NULL
+                       ) AS IMDB_RATED_EPISODES
+                FROM T_WC_TMDB_SEASON s
+                LEFT JOIN T_WC_T2S_SEASON t2s ON t2s.ID_SEASON = s.ID_SEASON
+                WHERE s.ID_SERIE = %s AND s.SEASON_NUMBER = %s
+                """,
                 (id_serie, season_number),
             )
             season = cursor.fetchone()
