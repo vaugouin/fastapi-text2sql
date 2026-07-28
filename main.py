@@ -4403,6 +4403,12 @@ async def get_episode(
     figures: the two sources coexist and are not comparable, TMDb episode votes
     routinely sit in the dozens where IMDb is in the tens of thousands.
 
+    FASTAPI-TEXT2SQL-184: `episodes` lists every episode of this episode's own season,
+    ordered by EPISODE_NUMBER, each carrying IS_CURRENT so a consumer can mark the one being
+    viewed. episode_previous / episode_next are its neighbours WITHIN the season and are null
+    at each end: they never cross into another season, since "the episode after the finale"
+    would silently change context.
+
     Note: the row source is still T_WC_TMDB_EPISODE, plus T_WC_TMDB_PERSON_EPISODE
     and T_WC_TMDB_EPISODE_IMAGE. T_WC_T2S_EPISODE now exists and is LEFT JOINed for
     the IMDb fields only, deliberately not used as the row source: it holds only
@@ -4475,6 +4481,27 @@ async def get_episode(
                 GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
                 ORDER BY MIN(pe.DISPLAY_ORDER) ASC, p.ID_PERSON ASC
             """, (id_episode,), "person"),
+            # FASTAPI-TEXT2SQL-184: the sibling episodes of this season, so an episode sheet
+            # gets the rail a season sheet got in -183 and a movie has had for its
+            # collection. Same shape as the `episodes` array of /seasons/... on purpose,
+            # IMDb fields included, so an episode card is identical wherever it is rendered.
+            # IS_CURRENT marks the one being viewed: episode stills within a season look
+            # alike far more than film posters do, so without the marker a rail of lookalike
+            # frames leaves the viewer unsure where they are.
+            "episodes": ("""
+                SELECT e.ID_EPISODE, e.EPISODE_NUMBER, e.TITLE, e.OVERVIEW, e.DAT_AIR,
+                       e.AIR_YEAR, e.AIR_MONTH, e.AIR_DAY, e.RUNTIME, e.EPISODE_TYPE,
+                       e.STILL_PATH, e.VOTE_AVERAGE, e.VOTE_COUNT,
+                       e.ID_IMDB, e.ID_WIKIDATA, e.ID_TVDB,
+                       e.ID_SERIE, e.SEASON_NUMBER,
+                       t2s.IMDB_RATING, t2s.IMDB_VOTES,
+                       (e.ID_EPISODE = %s) AS IS_CURRENT,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_TMDB_EPISODE e
+                LEFT JOIN T_WC_T2S_EPISODE t2s ON t2s.ID_EPISODE = e.ID_EPISODE
+                WHERE e.ID_SEASON = %s
+                ORDER BY e.EPISODE_NUMBER ASC
+            """, (id_episode, id_season), None),
         }
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
@@ -4501,6 +4528,22 @@ async def get_episode(
                 wikipedia_content = _fetch_wikipedia_content(cursor, episode.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, episode, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_tmdb_videos(cursor, "episode", id_episode)
+                # FASTAPI-TEXT2SQL-184: previous / next episode WITHIN this season, the
+                # pendant of season_previous / season_next. Own query rather than a slice of
+                # data["episodes"], which is a paginated PAGE: a 24-episode season would lose
+                # the neighbour that falls off page one. Deliberately does NOT cross the
+                # season boundary, "the episode after the finale" belongs to another season
+                # and would make the arrows jump context without warning.
+                cursor.execute("""
+                    SELECT ID_EPISODE, EPISODE_NUMBER, TITLE, STILL_PATH, ID_SERIE, SEASON_NUMBER
+                    FROM T_WC_TMDB_EPISODE
+                    WHERE ID_SEASON = %s
+                    ORDER BY EPISODE_NUMBER ASC
+                """, (id_season,))
+                siblings = cursor.fetchall()
+                pos = next((i for i, r in enumerate(siblings) if r["ID_EPISODE"] == id_episode), -1)
+                episode_previous = siblings[pos - 1] if pos > 0 else None
+                episode_next = siblings[pos + 1] if 0 <= pos < len(siblings) - 1 else None
         if collection is not None:
             return _targeted_collection_response(
                 conn,
@@ -4513,6 +4556,9 @@ async def get_episode(
             "crew": data["crew"],
             "stills": list(stills),
             "season": season,
+            "episodes": data["episodes"],
+            "episode_previous": episode_previous,
+            "episode_next": episode_next,
             "series": series,
             "wikipedia_images": wikipedia_images,
             "wikipedia_content": wikipedia_content,
