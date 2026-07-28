@@ -4227,7 +4227,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                 WHERE e.ID_SEASON = %s
                 ORDER BY e.EPISODE_NUMBER ASC
             """, (id_season,), None),
-            # FASTAPI-TEXT2SQL-182: the sibling seasons, so a season sheet can offer the
+            # FASTAPI-TEXT2SQL-183: the sibling seasons, so a season sheet can offer the
             # same rail a movie gets for its collection. Same shape as the `seasons` array
             # of /series/{id} on purpose, IMDb fields included, so a season card looks
             # identical wherever it is rendered. IS_CURRENT marks the season being viewed:
@@ -4282,7 +4282,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                 wikipedia_content = _fetch_wikipedia_content(cursor, season.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, season, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_tmdb_videos(cursor, "season", id_season)
-                # FASTAPI-TEXT2SQL-182: previous / next season, the pendant of
+                # FASTAPI-TEXT2SQL-183: previous / next season, the pendant of
                 # collection_previous / collection_next on a movie. Computed from its own
                 # query rather than from data["seasons"], which is a paginated PAGE and
                 # would silently drop the neighbour on a long-running show. Specials are
