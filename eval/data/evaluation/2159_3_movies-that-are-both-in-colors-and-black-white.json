@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2159,
+  "evaluation_category_id": 3,
+  "question_en": "Movies that are both in colors and black & white",
+  "question_fr": "Films à la fois en couleur et en noir et blanc",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (424, 13, 73, 496243, 77, 35572, 40998, 194, 24, 20803, 872585, 630, 120467, 28162, 895, 642, 393, 1675, 187, 49106, 1394, 144, 113833, 27064, 6075, 3060, 11049, 3116, 19354, 16328, 499, 792307, 14836, 273481, 18329, 556984, 22490, 3577, 3580, 11030, 12584, 32558)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-02-09",
+  "tim_updated": "2026-04-28T12:58:20"
+}

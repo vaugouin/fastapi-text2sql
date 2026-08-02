@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 100,
+  "evaluation_category_id": 4,
+  "question_en": "Film adaptations of Bram Stoker",
+  "question_fr": "Les adaptations de Bram Stoker au cinéma",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (74036, 653, 6114, 6404, 1324818, 448683, 3073, 138, 1269640, 11868, 50448, 426063, 565252, 436617, 39259, 13509, 55616, 17102, 23220, 752350, 17278, 364003, 33521, 29778, 649609, 108545, 22440, 29748, 86889, 3103, 1246049, 49017, 109118, 32023, 18966, 635910, 11347, 7131, 25944, 34479, 204411, 1078318, 262187, 7092, 12110, 1249037, 26480, 30566, 42466, 30793)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-18T14:56:29"
+}

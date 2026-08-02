@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2297,
+  "evaluation_category_id": 45,
+  "question_en": "List movies in the Danny Peary's Cult Movies list",
+  "question_fr": "Les films cultes de Danny Peary",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (2000, 705, 66489, 3133, 648, 43371, 5722, 21142, 27632, 28942, 42617, 39775, 289, 15, 31965, 32196, 59408, 20367, 3063, 13041, 24402, 9461, 985, 756, 830, 26744, 3062, 136, 42839, 73604, 18671, 948, 704, 7514, 343, 10237, 18573, 43117, 27130, 11549, 28001, 1585, 11533, 26596, 247, 244, 17685, 18030, 4484, 42564)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-03-30",
+  "tim_updated": "2026-04-19T18:42:31"
+}

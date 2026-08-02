@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2341,
+  "evaluation_category_id": 44,
+  "question_en": "What was the age of Joan Crawford when she starred in Sudden Fear?",
+  "question_fr": "Quel âge avait Joan Crawford lorsqu'elle a joué dans Sudden Fear ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "COUNT(*) == 1 AND CELL(0, 0) == 46"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-05-09",
+  "tim_updated": "2026-05-19T11:18:26"
+}

@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2304,
+  "evaluation_category_id": 49,
+  "question_en": "List persons rewarded at the 84th Academy Awards",
+  "question_fr": "Liste des personnes récompensées lors de la 84e cérémonie des Oscars",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_PERSON IN (290, 1243, 5064, 13235, 56024, 472101, 20674, 2589, 40471, 1638, 105648, 935043, 1445972, 32491, 9026, 964726, 240740, 2366, 6944, 67717, 1704, 1402031, 1395713, 161932, 13309)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-04-13",
+  "tim_updated": "2026-04-18T14:56:17"
+}

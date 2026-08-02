@@ -1,0 +1,13 @@
+{
+  "evaluation_category_id": 54,
+  "description": "Persons - Questions with no answer",
+  "description_fr": "Personnes - Questions sans réponse",
+  "lang": null,
+  "id_parent": 1,
+  "comment": "The purpose of this category is to have questions where there are no answer and it is correct because these are in a way silly questions \r\nBecause the regular workflow will find no answer, the complex model will be involved and it may hallucinate so the assertions on these questions will spot the hallucinations",
+  "keywords": null,
+  "keywords_auto": null,
+  "display_order": 55,
+  "dat_creat": "2026-04-27",
+  "tim_updated": "2026-07-11T16:23:43"
+}

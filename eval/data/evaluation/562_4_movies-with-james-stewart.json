@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 562,
+  "evaluation_category_id": 4,
+  "question_en": "Movies with james Stewart",
+  "question_fr": "Films avec James Stewart",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (43961, 50941, 28303, 426, 280677, 20442, 18776, 177937, 18702, 43828, 18264, 37380, 2006, 26038, 111732, 42734, 1580, 32619, 38800, 14551, 41521, 567, 363000, 1585, 21027, 50231, 43882, 4934, 18721, 3083, 132928, 43440, 10243, 17729, 33031, 127727, 37292, 503635, 65502, 32634, 25381, 38732, 41857, 574, 312917, 102165, 45241, 11787)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-28T13:24:50"
+}

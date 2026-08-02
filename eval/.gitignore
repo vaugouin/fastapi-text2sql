@@ -66,6 +66,8 @@ logs/
 citizenphilsecrets.py
 
 # Evaluation data
-data/
+#data/
+data/evaluation_execution/
+data/harness/
 claude/
 codex/

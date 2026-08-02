@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2167,
+  "evaluation_category_id": 6,
+  "question_en": "List all crime miniseries",
+  "question_fr": "Énumérez toutes les mini-séries criminelles.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_SERIE IN (39651, 210491, 226329, 111188, 124407, 273921, 31750, 301703, 306114, 90621, 128218, 95251, 60549, 302945, 279142, 225008, 126563, 257838, 301278, 286432, 75182, 304848, 47774, 121253, 110695, 240143, 7361, 307174, 194764, 93866)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-02-09",
+  "tim_updated": "2026-04-01T21:56:55"
+}

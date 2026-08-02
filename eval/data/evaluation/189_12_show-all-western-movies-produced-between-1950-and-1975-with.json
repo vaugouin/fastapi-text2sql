@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 189,
+  "evaluation_category_id": 12,
+  "question_en": "Show all Western movies produced between 1950 and 1975 with the highest IMDb rankings first",
+  "question_fr": "Afficher tous les films western produits entre 1950 et 1975 avec les classements IMDb les plus élevés en premier",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (1021997, 429, 1374274, 335, 1373950, 159250, 285961, 993420, 487052, 301650, 486237, 1374279, 1550100, 1076338, 938, 792754, 369393, 362019, 422380, 306808, 11697, 307282, 85063, 535492, 411458, 42488, 642, 40732, 301, 418245, 576, 391, 288, 364526, 895809, 427654, 534283, 12501, 370843, 674146, 24748, 116986, 3114, 194785, 361819, 58897, 438261, 359038, 181484, 9028)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-01T21:45:53"
+}

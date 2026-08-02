@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2339,
+  "evaluation_category_id": 3,
+  "question_en": "What color movies used Technicolor technology in the forties?",
+  "question_fr": "Quels films en couleur ont utilisé la technologie Technicolor dans les années 40 ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": "(?is)(?=.*\\bID_TECHNICAL\\s*=\\s*4\\b)",
+    "query_result": null
+  },
+  "comment": "ID_CONTENT IN (1580, 19542, 28162, 25037, 10895, 16391, 4174, 909, 3170, 17645)",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-05-03",
+  "tim_updated": "2026-05-03T17:11:12"
+}

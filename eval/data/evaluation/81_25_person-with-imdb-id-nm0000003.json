@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 81,
+  "evaluation_category_id": 25,
+  "question_en": "Person with IMDb id nm0000003",
+  "question_fr": "Personne avec l'identifiant IMDb nm0000003",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_PERSON == 3783"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2025-12-29",
+  "tim_updated": "2026-04-19T18:47:24"
+}

@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2196,
+  "evaluation_category_id": 21,
+  "question_en": "In the Criterion Collection, display only documentaries",
+  "question_fr": "Dans la Collection Criterion, afficher uniquement les documentaires.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (669, 20423, 132, 27375, 17346, 66133, 57283, 36665, 43618, 42449, 42632, 803, 66131, 42124, 43003, 14275, 33324, 54194, 47491, 37239, 87065, 26564, 33138, 26408, 50779, 32686, 11314, 24348, 21925, 57276, 84972, 42044, 215407, 1358, 13241, 24998, 30142, 14285, 135, 339790, 126423, 341106, 352197, 376534, 11779, 93553, 16247, 413765, 1430, 367453)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-02-11",
+  "tim_updated": "2026-04-01T21:57:13"
+}

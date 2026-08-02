@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 7,
+  "evaluation_category_id": 3,
+  "question_en": "Which movies were shot using Franscope technology?",
+  "question_fr": "Quels films ont été tournés en utilisant la technologie Franscope ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (43001, 1628, 2798, 266, 36245, 25866, 31522, 4311, 204198, 422897, 442269, 82950, 38421, 245787, 75525, 123330, 1871, 1870, 33436, 4729, 1875, 53386, 33361, 74878, 65978, 46655, 199189, 2462, 276517, 11696, 69729, 78222, 11912, 70449, 4728, 79299, 70440, 66906, 390824, 115108, 76745, 80571, 412528, 83663, 95456, 341880, 359230, 111480, 115333, 210644)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2025-09-02",
+  "tim_updated": "2026-04-01T21:41:18"
+}

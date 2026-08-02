@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 39,
+  "evaluation_category_id": 11,
+  "question_en": "Movies who got an Academy award",
+  "question_fr": "Films qui ont reçu un Oscar",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (1064213, 872585, 545611, 776503, 581734, 496243, 490132, 399055, 376867, 314365, 194662, 76203, 68734, 74643, 45269, 12405, 12162, 6977, 1422, 1640, 70, 122, 12, 1574, 453, 98, 14, 1934, 597, 409, 197, 13, 424, 33, 274, 581, 403, 380, 746, 792, 606, 279, 11050, 783, 9443, 16619, 12102, 11778, 703, 1366)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2025-10-30",
+  "tim_updated": "2026-04-01T21:43:42"
+}

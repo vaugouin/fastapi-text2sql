@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 564,
+  "evaluation_category_id": 4,
+  "question_en": "Movies with anthony perkins",
+  "question_fr": "Des films avec Anthony Perkins",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (245787, 40377, 74399, 172340, 107240, 455637, 3009, 343243, 91683, 28179, 91496, 12662, 71944, 169836, 32969, 1381878, 125413, 305733, 39999, 10576, 539, 40814, 84207, 263080, 9570, 200502, 30054, 66869, 4479, 15469, 999915, 43250, 86297, 390253, 84796, 225223, 48110, 4679, 89366, 77960, 43141, 358515, 84119, 49411, 3554, 42178, 43258, 103132, 98364, 35412)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-18T11:32:40"
+}

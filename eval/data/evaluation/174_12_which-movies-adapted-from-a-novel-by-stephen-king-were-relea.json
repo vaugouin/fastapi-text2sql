@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 174,
+  "evaluation_category_id": 12,
+  "question_en": "Which movies adapted from a novel by Stephen King were released after 2000?",
+  "question_fr": "Quels films adaptés d'un roman de Stephen King ont été sortis après 2000 ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (1181630, 812498, 1326230, 1326446, 1505715, 1531361, 737342, 747048, 1512524, 1525923, 1550921, 1310668, 527714, 1310678, 1333211, 213431, 982134, 1309231, 1530251, 1513650, 1310383, 1528847, 1336741, 1369466, 639991, 1335973, 1513637, 1310002, 1537232, 1310375, 488192, 1488897, 1047135, 1062960, 1369472, 1333177, 432809, 1272268, 409627, 544360, 1339529, 1325964, 974320, 346364, 1312121, 1068436, 36204, 671260, 479284, 1310396)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-01T21:45:40"
+}

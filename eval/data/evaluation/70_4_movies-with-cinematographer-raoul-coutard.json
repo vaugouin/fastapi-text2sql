@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 70,
+  "evaluation_category_id": 4,
+  "question_en": "Movies with cinematographer Raoul Coutard",
+  "question_fr": "Films avec le directeur de la photographie Raoul Coutard",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (2721, 60859, 1626, 269, 8073, 1628, 1719, 1818, 256, 266, 40641, 2786, 31344, 31522, 4191, 50785, 11670, 8773, 40652, 125320, 8072, 86727, 103692, 1629, 8075, 84003, 595103, 52705, 396972, 267100, 46088, 8074, 179045, 281291, 363295, 32689, 32692, 29369, 64097, 140249, 344860, 4529, 78786, 406406, 295333, 78405, 4287, 476493, 61862, 142932)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2025-10-31",
+  "tim_updated": "2026-04-01T21:44:05"
+}

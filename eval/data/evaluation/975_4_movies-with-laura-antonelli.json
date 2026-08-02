@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 975,
+  "evaluation_category_id": 4,
+  "question_en": "Movies with Laura Antonelli",
+  "question_fr": "Films avec Laura Antonelli",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (4286, 42147, 164777, 42224, 75293, 4279, 614239, 150587, 44741, 58203, 71778, 69470, 341680, 180719, 82471, 410244, 67904, 70387, 73839, 68972, 280039, 168040, 44926, 48935, 38262, 30552, 80987, 454597, 118390, 161497, 197343, 345714, 268564, 58613, 117144, 82867, 64513, 82080, 79762, 49725, 292592, 77076, 165600)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-01T21:54:49"
+}

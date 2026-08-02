@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 1123,
+  "evaluation_category_id": 4,
+  "question_en": "List movies adapted from Tolkien's work",
+  "question_fr": "Liste des films adaptés de l'œuvre de Tolkien",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (122, 120, 121, 49051, 57158, 122917, 300566, 1362, 839033, 123, 1361, 774376, 774358, 362889, 274711, 99457, 814413, 211047, 1090869)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-28T15:42:05"
+}

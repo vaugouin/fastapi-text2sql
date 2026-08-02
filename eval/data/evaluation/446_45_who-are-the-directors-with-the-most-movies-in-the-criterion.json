@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 446,
+  "evaluation_category_id": 45,
+  "question_en": "Who are the directors with the most movies in the Criterion Collection and give the count of movies for each one",
+  "question_fr": "Quels sont les réalisateurs avec le plus de films dans la collection Criterion et indique le nombre de films pour chacun",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_PERSON IN (6648, 5026, 119294, 6817, 95501, 15389, 4415, 3776, 3583, 2725, 5970, 2303, 11528, 18598, 4410, 12160, 68424, 28615, 5655, 793, 2428, 2891, 10249, 97202, 80702, 12238, 3831, 1650, 13848, 46230, 16767, 224, 37846, 40, 30561, 15189, 5983, 1032, 2636, 20025, 26959, 130030, 9888, 82461, 10346, 5602, 83199, 76978, 1034489, 12453)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-19T18:42:31"
+}

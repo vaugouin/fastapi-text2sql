@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 585,
+  "evaluation_category_id": 4,
+  "question_en": "Movies directed by federico fellini",
+  "question_fr": "Films réalisés par Federico Fellini",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (19426, 307, 439, 422, 405, 12548, 7857, 8429, 36102, 5622, 19120, 11035, 42021, 43361, 47850, 43389, 42590, 45267, 42236, 47715, 43444, 11936, 11163, 185078, 31293, 41225, 59050, 876319)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-28T13:26:16"
+}

@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 208,
+  "evaluation_category_id": 12,
+  "question_en": "What are the best sci-fi movies from the Criterion Collection?",
+  "question_fr": "Quels sont les meilleurs films de science-fiction de la collection Criterion ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (5548, 8072, 36819, 95, 68, 9063, 8851, 29347, 593, 837, 991, 28955, 37467, 29452, 7348, 53898, 3031, 1678, 13820, 3596, 20620, 9538, 985, 28942, 228426, 16306, 1398, 9314, 10341, 19759, 8974, 31682, 387426, 10681, 18289, 36832, 11542, 21259, 662, 844, 878608, 43636, 1811, 914206, 15766, 1682, 53026, 3107, 67429, 1680)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-01T21:46:07"
+}

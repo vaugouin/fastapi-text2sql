@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 108,
+  "evaluation_category_id": 4,
+  "question_en": "films with John Travolta",
+  "question_fr": "films avec John Travolta",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (1149167, 529983, 9494, 11009, 1116490, 474214, 9440, 10805, 9356, 49370, 10782, 139126, 32644, 17496, 2928, 11982, 38299, 1252, 754, 9953, 22949, 680, 1458215, 829799, 13053, 31611, 9208, 9705, 1125604, 509853, 26389, 55699, 4551, 466411, 9422, 50677, 10783, 9294, 339103, 25674, 2275, 398289, 8012, 332411, 11644, 1477199, 979275, 9878, 255157, 11456)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-18T14:56:31"
+}

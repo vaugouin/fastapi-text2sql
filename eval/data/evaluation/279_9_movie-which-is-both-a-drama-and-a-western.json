@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 279,
+  "evaluation_category_id": 9,
+  "question_en": "Movie which is both a drama and a western",
+  "question_fr": "Film qui est à la fois drame et western",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (1246685, 1504030, 1601022, 1123294, 1210370, 586408, 1021997, 858220, 736762, 1589530, 1123296, 895130, 1291719, 68718, 1535097, 1490510, 335, 1237359, 1373950, 69866, 1083455, 1495629, 1374279, 486237, 1076338, 1279793, 1508815, 369393, 362019, 422380, 3090, 291574, 1220802, 280289, 792754, 307282, 1129114, 480708, 453454, 1122816, 31416, 1476895, 42488, 281957, 40732, 263850, 891811, 980, 642, 342148)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-14T11:18:30"
+}

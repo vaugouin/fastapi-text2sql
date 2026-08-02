@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 984,
+  "evaluation_category_id": 4,
+  "question_en": "Films par Andrei konchalovsky",
+  "question_fr": "Films d'Andrei Konchalovsky",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (753250, 31442, 895, 68553, 48676, 753221, 38311, 587609, 262991, 73100, 289447, 275253, 143887, 275255, 72996, 73376, 408539, 283703, 753227, 497835, 52964, 69040, 36108, 275254, 149170, 77985, 260817, 159479, 63403, 1273863, 64264, 549455, 44663, 49852)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-01T21:54:55"
+}

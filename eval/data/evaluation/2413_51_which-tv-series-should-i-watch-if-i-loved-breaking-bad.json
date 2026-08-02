@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2413,
+  "evaluation_category_id": 51,
+  "question_en": "Which TV series should I watch if I loved Breaking Bad?",
+  "question_fr": "Quelles séries regarder si j'ai adoré Breaking Bad ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_SERIE IN (60059, 80968, 71694, 63351, 128904, 66025, 66676, 81358)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 0,
+  "is_sample": 1,
+  "display_order": 10,
+  "dat_creat": "2026-07-11",
+  "tim_updated": "2026-07-11T16:21:56"
+}

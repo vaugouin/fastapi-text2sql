@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 52,
+  "evaluation_category_id": 33,
+  "question_en": "What are the most famous persons born in New Zealand?",
+  "question_fr": "Quelles sont les personnes les plus célèbres nées en Nouvelle-Zélande ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_PERSON IN (1572883, 227099, 1236969, 1193834, 1514713, 60373, 934, 1525900, 1356758, 7248, 26291, 87699, 20982, 1314, 1949148, 63934, 1372, 1139349, 53485, 1869912, 1692447, 4483561, 1680339, 1399806, 1508911, 1280248, 1529718, 20584, 1460978, 1434487, 102721, 91400, 15091, 1422673, 1512482, 1663633, 1831256, 110515, 2397922, 92172, 55936, 37618, 1952743, 1753341, 7242, 1393127, 1126669, 108, 1399812, 1019226)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2025-10-30",
+  "tim_updated": "2026-04-15T23:07:12"
+}

@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2215,
+  "evaluation_category_id": 32,
+  "question_en": "List all actors that played the role of Sherlock Holmes in movies",
+  "question_fr": "Listez tous les acteurs qui ont joué le rôle de Sherlock Holmes dans des films.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": "eq($.question, &quot;List all actors that played the role of {{Character_name1}} in movies&quot;) AND eq($.Character_name1, &quot;Sherlock Holmes&quot;) AND seteq(entity_keys($), [&quot;Character_name1&quot;])",
+    "sql_query": null,
+    "query_result": "ID_PERSON IN (22462, 3223, 73968, 119460, 290, 23659, 71580, 1327, 3895, 27906)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-02-12",
+  "tim_updated": "2026-04-01T21:57:28"
+}

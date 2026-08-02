@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 702,
+  "evaluation_category_id": 4,
+  "question_en": "Movies with cinematographer Darius Khondji",
+  "question_fr": "Films avec le directeur de la photographie Darius Khondji",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (807, 22125, 1317288, 86837, 563219, 610120, 59436, 892, 902, 473033, 387426, 347999, 236028, 4547, 63659, 696506, 685691, 622, 314095, 152599, 648878, 1907, 282984, 1989, 8461, 14553, 229297, 11823, 615952, 179, 81836, 10739, 8818, 196926, 8078, 22215, 722815, 11152, 355097, 66546, 534200, 28902)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-01T21:51:51"
+}

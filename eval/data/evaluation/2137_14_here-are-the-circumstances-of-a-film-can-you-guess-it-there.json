@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2137,
+  "evaluation_category_id": 14,
+  "question_en": "Here are the circumstances of a film — can you guess it?\r\n- There is a dance competition\r\n- Happens in Los Angeles \r\n- There is violence and blood\r\n- It is an American film\r\n- It has a soundtrack featuring very well-known songs",
+  "question_fr": "Voici les circonstances d'un film — pouvez-vous le deviner ?  \n- Il y a une compétition de danse  \n- Se déroule à Los Angeles  \n- Il y a de la violence et du sang  \n- C'est un film américain  \n- Il a une bande sonore avec des chansons très connues",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (680)"
+  },
+  "comment": "Not yet implemented in API version 1.1.11",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-01-04",
+  "tim_updated": "2026-04-01T21:56:35"
+}

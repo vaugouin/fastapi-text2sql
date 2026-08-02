@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 474,
+  "evaluation_category_id": 12,
+  "question_en": "Who are the French movie directors with more cumulated revenue on movies they directed?",
+  "question_fr": "Quels sont les réalisateurs français ayant généré le plus de revenus cumulés avec les films qu'ils ont réalisés ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_PERSON IN (59, 84425, 84426, 37627, 8392, 1855806, 225142, 1631516, 1177814, 1512798, 2284332, 21647, 2352, 1900934, 4275, 2419, 67717, 64909, 2260577, 18525, 24886, 47826, 38507, 64575, 20674, 18865, 1876112, 1186076, 1828860, 18532, 61985, 16919, 1397397, 8296, 133271, 113610, 37626, 43993, 56147, 11201, 1553688, 4387, 544653, 19866, 1942679, 586300, 1562548, 17520, 57558, 58255)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-01T21:49:17"
+}

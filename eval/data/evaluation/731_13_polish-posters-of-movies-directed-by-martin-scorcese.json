@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 731,
+  "evaluation_category_id": 13,
+  "question_en": "Polish posters of movies directed by Martin scorcese",
+  "question_fr": "Affiches polonaises de films réalisés par Martin Scorsese",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (103, 16153, 106646, 11324, 769, 466420, 8649, 262, 1422, 3131, 524, 1598, 2567, 398978, 10436, 203, 68730, 9746, 1578, 11051, 11873)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-19T18:47:54"
+}

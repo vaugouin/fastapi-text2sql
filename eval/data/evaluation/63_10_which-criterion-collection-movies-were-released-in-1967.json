@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 63,
+  "evaluation_category_id": 10,
+  "question_en": "Which Criterion Collection movies were released in 1967?",
+  "question_fr": "Quels films de la Collection Criterion ont été sortis en 1967 ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": "(?is)\\bWHERE\\b(?=.*\\bID_CRITERION\\s+IS\\s+NOT\\s+NULL\\b)(?=.*\\bID_CRITERION\\s*&gt;\\s*0\\b)",
+    "query_result": "ID_MOVIE IN (17905, 10227, 68442, 42695)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2025-10-30",
+  "tim_updated": "2026-05-06T16:36:11"
+}

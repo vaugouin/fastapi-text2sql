@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 483,
+  "evaluation_category_id": 4,
+  "question_en": "Movie with stan laurel and oliver hardy",
+  "question_fr": "Film avec Stan Laurel et Oliver Hardy",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (44892, 50927, 48649, 49008, 42299, 25599, 50914, 50912, 50908, 168380, 43128, 48734, 43841, 42736, 48889, 48755, 50928, 50862, 48672, 50829, 48827, 46026, 50910, 44891, 48890, 48671, 50828, 50830, 50856, 50865, 48905, 50909, 50907, 50916, 48830, 33810, 48816, 48756, 44775, 25898, 48562, 48822, 50859, 46260, 1316176, 48903, 48736, 548646, 440406)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-28T13:22:10"
+}

@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2162,
+  "evaluation_category_id": 12,
+  "question_en": "Give me the 50 highest-rated on IMDb English-language feature-length comedies from the 1950s",
+  "question_fr": "Donne-moi les 50 comédies de long métrage de langue anglaise sorties dans les années 50 avec les notes IMDb les plus hautes",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": "(?is)(?=.*\\bID_GENRE\\s*=\\s*35\\b)\r\n(?=.*\\bORIGINAL_LANGUAGE\\s*=\\s*[&#039;&quot;‘&#039;]en[&#039;&quot;‘&#039;])\r\n(?=.*\\bRELEASE_YEAR\\s+BETWEEN\\s+1950\\s+AND\\s+1959\\b)\r\n(?=.*\\bIS_SHORT_FILM\\s*=\\s*0\\b)\r\n(?=.*\\bIS_MOVIE\\s*=\\s*1\\b)",
+    "query_result": null
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-02-09",
+  "tim_updated": "2026-04-07T11:23:18"
+}

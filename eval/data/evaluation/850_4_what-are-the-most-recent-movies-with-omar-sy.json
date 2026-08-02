@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 850,
+  "evaluation_category_id": 4,
+  "question_en": "What are the most recent movies with omar sy?",
+  "question_fr": "Quels sont les films les plus récents d'Omar Sy ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (1375187, 1193128, 1289888, 1494244, 757725, 1193115, 970347, 976584, 967874, 507086, 785985, 735716, 739246, 726649, 679989, 660330, 656191, 481848, 520725, 416153, 484468, 515818, 495673, 528779, 438348, 335988, 423453, 382591, 207932, 414711, 369778, 295964, 135397, 323661, 269148, 262338, 127585, 157820, 146375, 139374, 133469, 77338, 66129, 74731, 71904, 50668, 455593, 105698, 52613)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-28T15:37:35"
+}

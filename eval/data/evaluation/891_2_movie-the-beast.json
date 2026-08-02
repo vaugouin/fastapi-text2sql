@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 891,
+  "evaluation_category_id": 2,
+  "question_en": "Movie the beast",
+  "question_fr": "Film the beast",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (412852, 362808, 15267, 639459, 756229, 403025, 78067, 1109615, 914206, 199461, 575754, 44132, 549311, 654905, 91993, 122967, 341487, 459410, 102943, 1185344, 248641, 1433011, 982233, 952041, 1269492)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2025-12-30",
+  "tim_updated": "2026-04-19T14:43:22"
+}
