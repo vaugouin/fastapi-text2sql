@@ -454,6 +454,7 @@ ASSERTIONS_ENTITY_EXTRACTION: PASS
 | [T2S_EVALUATION-tables-with-data.sql](T2S_EVALUATION-tables-with-data.sql) | DDL + seed question bank |
 | [how-many-samples-evals-by-category.ipynb](how-many-samples-evals-by-category.ipynb) | Coverage-by-category reporting notebook — reads the Phase 30/31 JSON exports under [data/evaluation_category/](data/evaluation_category/) and [data/evaluation/](data/evaluation/), aggregates `is_sample` / `is_eval` per category, and saves a dated horizontal bar chart `how-many-samples-evals-by-category-<YYYYMMDD>.png`. Figure height auto-scales with the number of categories. |
 | [how-many-samples-evals-by-category.sql](how-many-samples-evals-by-category.sql) | Equivalent direct-DB query (legacy CSV source, kept for reference) |
+| [assertions-year-bounds.sql](assertions-year-bounds.sql) | One-shot batch (FASTAPI-TEXT2SQL-187): SQL-regex assertions on the 18 bank questions that name a year, a decade or an interval, plus two new person-decade evaluations. Written because `ID_MOVIE IN (...)` accepts extra rows and so cannot catch a widened year bound. Run once against the DB, then re-run the evaluator to refresh the JSON exports |
 | [lib/](lib/) | PHP scripts that read the evaluation tables and render interactive graphs / drill-downs in a browser — see [§11 Interactive Web UI (PHP)](#11-interactive-web-ui-php) |
 | [data/](data/) | Ancillary fixtures / export dumps |
 

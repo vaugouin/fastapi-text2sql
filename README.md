@@ -1294,6 +1294,8 @@ The full pipeline is implemented in [entity.py](entity.py) (resolver dispatch, r
 
 If the user provides a disambiguation pattern like `<movie_title> (YYYY)`, entity extraction returns a `{{Release_yearN}}` placeholder alongside the `{{Movie_titleN}}` placeholder so the SQL can disambiguate same-titled films by release year.
 
+**Year semantics: one tolerant case, everything else strict.** A year attached to a named title (`<title> (YYYY)`, "the X movie of 1936") is a *discriminant*, and it is the only case where the generated SQL widens the year to `RELEASE_YEAR BETWEEN Y-1 AND Y+1`: a film can legitimately be dated by its closing-credits copyright, by a festival premiere a year earlier, or by a theatrical release that varies per country, and the ±1 absorbs that gap. Every other year is a *filter* and keeps strict bounds. A decade ("the seventies", "les années 70") becomes `BETWEEN 1970 AND 1979` and never 1969/1980, "before 1960" and "after 2010" stay plain inequalities, and person years (`BIRTH_YEAR`, `DEATH_YEAR`) are never widened since a birth date has only one version. The rules, the column map (`RELEASE_YEAR`, `FIRST_AIR_YEAR`, `BIRTH_YEAR`, `DEATH_YEAR`) and the phrasing tables live in the "Years, decades and date ranges" section of [data/text_to_sql.md](data/text_to_sql.md).
+
 ### Vector Search Integration
 
 ChromaDB collections for entity matching (15 entity collections + 1 cache collection — see [main.py:124-150](main.py#L124-L150)):

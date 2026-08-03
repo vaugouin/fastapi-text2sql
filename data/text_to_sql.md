@@ -764,12 +764,12 @@ CREATE TABLE T_WC_T2S_SERIE_RECOMMENDATION (
   This means the user is searching for a movie by its title and is providing a release year to disambiguate.
   In that case:
   - Always filter by exact title equality: T_WC_T2S_MOVIE.MOVIE_TITLE = '<movie_title>'
-  - Also apply the release year rule below (BETWEEN Y-1 AND Y+1)
-- If the user specifies a release year Y (e.g. (<movie title> (1973)) or “released in 1973”), do not filter with equality.
-  Always filter with a broader range: RELEASE_YEAR BETWEEN (Y - 1) AND (Y + 1)
+  - Also apply the ±1 tolerance on the year (BETWEEN Y-1 AND Y+1). This is the ONLY case where a year is widened.
   Example:
   Input: The Exorcist (1973)
-  SQL: ... WHERE T_WC_T2S_MOVIE.RELEASE_YEAR BETWEEN 1972 AND 1974
+  SQL: ... WHERE T_WC_T2S_MOVIE.MOVIE_TITLE = 'The Exorcist' AND T_WC_T2S_MOVIE.RELEASE_YEAR BETWEEN 1972 AND 1974
+- Every other year in a question (a lone year, a decade, an interval, a birth or death year) is a **filter**, and its
+  bounds are strict. Read the dedicated "Years, decades and date ranges" section below before emitting any year predicate.
 - If the question contains only a template placeholder, for instance '{{Movie_title1}}' without an actual movie title or question, search for this content in the corresponding column of the table related to this placeholder
 - ORIGINAL_LANGUAGE, SPOKEN_LANGUAGE and LANG is a lower case 2-letters language code telling the spoken language in a movie or serie
 - RUNTIME is the movie duration in minutes 
@@ -807,6 +807,57 @@ CREATE TABLE T_WC_T2S_SERIE_RECOMMENDATION (
 - When searching for a content (movie or serie) **with** a specific person, make sure to search the person as a cast member
 - Before returning the final SQL, perform a self-check to ensure every predicate, join condition, comparison, sort expression, grouping expression, and function argument is compatible with the schema and the declared field types.
 - If a requested filter requires a label-to-code or text-to-ID conversion, only use a mapping explicitly defined in this prompt/schema. Otherwise, do not invent one.
+
+### Years, decades and date ranges
+
+#### Which column carries the year
+
+Filter on the integer year column, never on the DATE column, and never with `YEAR(...)`:
+
+| What the question dates | Column to filter | Date column it comes from |
+|---|---|---|
+| A movie release | `T_WC_T2S_MOVIE.RELEASE_YEAR` | `DAT_RELEASE` |
+| A series start / end | `T_WC_T2S_SERIE.FIRST_AIR_YEAR` / `LAST_AIR_YEAR` | `DAT_FIRST_AIR` / `DAT_LAST_AIR` |
+| A person's birth / death | `T_WC_T2S_PERSON.BIRTH_YEAR` / `DEATH_YEAR` | (none, the year column is the reference) |
+
+`RELEASE_YEAR` is the year part of `DAT_RELEASE`, and `DAT_RELEASE` is the column returned in the Movies result columns, so the year filtered and the date displayed to the user come from the same release date. Same for `FIRST_AIR_YEAR` and `DAT_FIRST_AIR` on series.
+
+#### Two different gestures, two different treatments
+
+Read what the year is *doing* in the question.
+
+1. **A year that disambiguates a named title** (the pattern `<title> (<year>)`, or prose such as "the X movie of 1936", "le film X de 1936") is a **discriminant**, not a boundary. Only there: `RELEASE_YEAR BETWEEN (Y - 1) AND (Y + 1)`.
+   **Why this tolerance exists and must not be removed:** a film legitimately carries up to three different dates, the production year in the closing-credits copyright, the year of its first screening (often a festival, sometimes a full year earlier), and the year of first theatrical release, which itself varies by country. The database keeps one of them, the user may remember another. Widening by one year on each side absorbs that gap, and it is what makes `the lower depths (1936)` return Renoir's film rather than nothing, and `The Exorcist (1973)` still match a record dated 1974.
+2. **A year, a decade or an interval used as a filter** (no title to disambiguate) takes **strict bounds, never widened**. The user is stating boundaries and expects them respected. This covers "movies released in 1973", "the seventies", "before 1960", "between 1970 and 1979", and every question about a person or a series.
+
+**Never widen a person's year.** A person has one birth year and one death year: no festival date, no per-country release, nothing to absorb. Widening `BIRTH_YEAR` or `DEATH_YEAR` only adds wrong people.
+
+#### Decades: the bounds are exactly the ten years named
+
+| Question form | SQL |
+|---|---|
+| "the seventies", "the 70s", "the 1970s", "les années 70", "les années 1970" | `RELEASE_YEAR BETWEEN 1970 AND 1979` |
+| "the 2000s", "les années 2000" | `RELEASE_YEAR BETWEEN 2000 AND 2009` |
+| "directors born in the fifties", "réalisateurs nés dans les années 50" | `BIRTH_YEAR BETWEEN 1950 AND 1959` |
+| "people who died in the nineties", "morts dans les années 90" | `DEATH_YEAR BETWEEN 1990 AND 1999` |
+| "series that started in the 2000s", "séries commencées dans les années 2000" | `FIRST_AIR_YEAR BETWEEN 2000 AND 2009` |
+
+Never emit `BETWEEN 1969 AND 1980` (nor 1969/1981, nor any other widened pair) for a decade: 1969 and 1980 are not in the seventies, and a result dated outside the decade the user named reads as a bug. A two-digit decade ("the 70s", "les années 70") means the 20th-century one (1970-1979) unless the question says otherwise.
+
+#### Other intervals: inclusive, strict, never widened
+
+| Question form | SQL |
+|---|---|
+| "released in 1973", "sorti en 1973" (no title given) | `RELEASE_YEAR = 1973` |
+| "before 1960", "avant 1960" | `RELEASE_YEAR < 1960` |
+| "after 2010", "après 2010" | `RELEASE_YEAR > 2010` |
+| "since 2010", "depuis 2010", "from 2010 on" | `RELEASE_YEAR >= 2010` |
+| "until 1960", "jusqu'en 1960" | `RELEASE_YEAR <= 1960` |
+| "between 1970 and 1979", "entre 1970 et 1979", "from 1970 to 1979" | `RELEASE_YEAR BETWEEN 1970 AND 1979` |
+
+The same forms apply to `FIRST_AIR_YEAR`, `LAST_AIR_YEAR`, `BIRTH_YEAR` and `DEATH_YEAR`: pick the column from what the question is dating (a release, a first broadcast, a birth, a death). Adding another filter (a genre, a curated list, black and white, a country) never moves the bounds.
+
+Year placeholders follow the same rule: `{{Release_yearN}}` is widened only in the title-disambiguation case above; `{{Birth_yearN}}` and `{{Death_yearN}}` are always compared with equality (`BIRTH_YEAR = '{{Birth_year1}}'`).
 
 ### Technical format filtering and detail
 
