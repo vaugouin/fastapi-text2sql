@@ -919,6 +919,22 @@ Phrasings that are commonly mis-targeted — get these right:
 
 ### Result Columns
 
+The lists below are a **contract**, not a suggestion: the client renders a card per row from exactly these columns. A row is unusable to it if one is missing, and the image path (`PROFILE_PATH`, `POSTER_PATH`, `LOGO_PATH`) is the one that shows: without it the card falls back to grey type on a dark background. Project the full list even when the question seems to ask for less.
+
+#### Aggregated questions: the contract survives `GROUP BY`
+
+A question that **counts, ranks or sums** entities ("which directors have the most films in X", "which companies produced the most movies over 200 million", "which actors appear most often together") still answers with **entity rows**. The aggregate is an extra column, never a replacement for the entity's own columns.
+
+- **Project the whole Result Columns list of the answer entity**, then add the aggregate with an explicit alias: `COUNT(DISTINCT T_WC_T2S_MOVIE.ID_MOVIE) AS FILM_COUNT`.
+- **`GROUP BY` every non-aggregated column you projected, id first**: `GROUP BY T_WC_T2S_PERSON.ID_PERSON, T_WC_T2S_PERSON.PERSON_NAME, T_WC_T2S_PERSON.PROFILE_PATH, ...`. The id alone already defines the group, so listing the others changes **no** result: they are functionally dependent on it. It only makes the query valid under `ONLY_FULL_GROUP_BY`.
+- **Never drop a projected column to make the `GROUP BY` shorter**, and never group on the display name alone. Dropping `PROFILE_PATH` or `POSTER_PATH` is the exact failure this rule exists to prevent: the counts come back right and the screen shows a grid of nameplates with no faces.
+- **Order a ranking by its aggregate**, `ORDER BY FILM_COUNT DESC`, which overrides the entity's default sort below for this kind of question only. Add `LIMIT n` when the user names a number ("top ten").
+
+Example, the shape to follow:
+`SELECT DISTINCT T_WC_T2S_PERSON.ID_PERSON, T_WC_T2S_PERSON.PERSON_NAME, T_WC_T2S_PERSON.POPULARITY, T_WC_T2S_PERSON.KNOWN_FOR_DEPARTMENT, T_WC_T2S_PERSON.BIRTH_YEAR, T_WC_T2S_PERSON.DEATH_YEAR, T_WC_T2S_PERSON.PROFILE_PATH, COUNT(DISTINCT T_WC_T2S_MOVIE.ID_MOVIE) AS FILM_COUNT FROM ... GROUP BY T_WC_T2S_PERSON.ID_PERSON, T_WC_T2S_PERSON.PERSON_NAME, T_WC_T2S_PERSON.POPULARITY, T_WC_T2S_PERSON.KNOWN_FOR_DEPARTMENT, T_WC_T2S_PERSON.BIRTH_YEAR, T_WC_T2S_PERSON.DEATH_YEAR, T_WC_T2S_PERSON.PROFILE_PATH ORDER BY FILM_COUNT DESC LIMIT 10`
+
+**Self-check before emitting an aggregated query:** read your `SELECT` back against the Result Columns list of the answer entity. Every column of the list must be there, image path included, and every one of them must appear in the `GROUP BY`.
+
 #### Persons – return:
 ID_PERSON, PERSON_NAME, POPULARITY, KNOWN_FOR_DEPARTMENT, BIRTH_YEAR, DEATH_YEAR, PROFILE_PATH
 

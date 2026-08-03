@@ -211,7 +211,7 @@ When working on either side, scan the other for divergence and **surface any dis
 - **Filter predicates** — e.g. the `CAST_CHARACTER NOT IN (...)` exclusion for non-documentary movie cast ([data/text_to_sql.md:850-851](data/text_to_sql.md#L850-L851)), `IS_DOCUMENTARY` / `IS_MOVIE` toggles, Criterion Collection criteria, technical / genre / aspect-ratio filters.
 - **Sort order** — the "Default Sorting" section (around line 876+) governs both: `ORDER BY` inside endpoint SQL, and the directional rules (e.g. movies-for-a-person vs persons-for-a-movie) that drive what the text-to-SQL prompt emits.
 - **Included related lists and their key order** — the order in which related-entity lists appear in entity detail responses should track the order of rules in the "Default Sorting" section.
-- **Result columns** — the `Result Columns` section (around line 768+) specifies which columns each entity surface should expose.
+- **Result columns**: the `Result Columns` section of [data/text_to_sql.md](data/text_to_sql.md) specifies which columns each entity surface should expose. Its opening subsection, *Aggregated questions: the contract survives `GROUP BY`*, is the one to re-read before touching anything about counting or ranking: a `COUNT` query that drops the entity's image column (`PROFILE_PATH` / `POSTER_PATH` / `LOGO_PATH`) returns correct rows the client cannot render, and one that omits `GROUP BY` entirely collapses the ranking to a single arbitrary row (FASTAPI-TEXT2SQL-191 and -186).
 
 When you spot a divergence, describe it (which side has which behavior, where in the spec/code), and let the user decide which side is authoritative for the fix.
 
