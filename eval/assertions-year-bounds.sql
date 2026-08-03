@@ -1,5 +1,13 @@
 -- Year-bound assertions for the evaluation bank (FASTAPI-TEXT2SQL-187).
 --
+-- ALREADY APPLIED on 2026-08-03. The 18 UPDATEs landed, and the INSERT created
+-- evaluations 2444 ("List movie directors born in the fifties") and 2445 ("Which
+-- actors died in the nineties?"). Kept in the repo as the record of what was
+-- written and why.
+-- DO NOT RE-RUN AS IS: the UPDATEs are idempotent, the INSERT is not. It carries
+-- no guard, so a second run would create a duplicate pair of evaluations. To
+-- replay only the assertions, run the file down to section 5 and stop there.
+--
 -- WHY THIS FILE EXISTS
 -- The prompt used to widen every year by one on each side, so "the seventies"
 -- generated RELEASE_YEAR BETWEEN 1969 AND 1980. The bank already held 29 questions
