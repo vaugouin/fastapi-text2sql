@@ -1336,6 +1336,9 @@ def _localized_image_groups(data, kinds):
     return groups
 
 
+_TMDB_RATING_FIELDS = ("VOTE_AVERAGE", "VOTE_COUNT")
+
+
 def _strip_tmdb_rating(value):
     """Remove TMDb CONTENT ratings from a payload, keeping TMDb IMAGE scores.
 
@@ -1353,11 +1356,17 @@ def _strip_tmdb_rating(value):
     how the IMDb import gets checked after each run. Dropping the columns is the one step
     that is expensive to undo, and it buys nothing this filter does not already buy.
 
-    ⚠️ `VOTE_AVERAGE` on an IMAGE row is a different measure entirely: TMDb's poster and
-    backdrop quality score, which is what orders the images (see the image ORDER BY rules in
-    ``data/text_to_sql.md``). It is preserved. The test is structural rather than a list of
-    field names to keep in sync: an object carrying ``TYPE_IMAGE`` or ``IMAGE_PATH`` is an
-    image, anything else is content.
+    ``VOTE_COUNT`` goes with it (Philippe, same day): it is TMDb data too, and a vote count
+    left alone is not neutral — it is the one number that would let a consumer rank works "by
+    how many people voted" and read that as quality, while ``POPULARITY`` already exists for
+    that job. The IMDb pair ``IMDB_RATING`` / ``IMDB_VOTES`` is unaffected and is now the only
+    audience signal the API exposes on a work.
+
+    ⚠️ `VOTE_AVERAGE` and `VOTE_COUNT` on an IMAGE row are a different measure entirely:
+    TMDb's poster and backdrop quality score and its vote count, which is what orders the
+    images (see the image ORDER BY rules in ``data/text_to_sql.md``). They are preserved. The
+    test is structural rather than a list of field names to keep in sync: an object carrying
+    ``TYPE_IMAGE`` or ``IMAGE_PATH`` is an image, anything else is content.
     """
     if isinstance(value, list):
         return [_strip_tmdb_rating(item) for item in value]
@@ -1367,7 +1376,7 @@ def _strip_tmdb_rating(value):
     return {
         key: _strip_tmdb_rating(item)
         for key, item in value.items()
-        if key != "VOTE_AVERAGE" or is_image_row
+        if key not in _TMDB_RATING_FIELDS or is_image_row
     }
 
 
@@ -4129,7 +4138,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     The episodes list contains every episode of this season from T_WC_TMDB_EPISODE,
     ordered by EPISODE_NUMBER ASC. Each element is a summary row that carries
     ID_EPISODE, EPISODE_NUMBER, TITLE, OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH,
-    AIR_DAY, RUNTIME, EPISODE_TYPE, STILL_PATH, VOTE_AVERAGE, VOTE_COUNT, ID_IMDB,
+    AIR_DAY, RUNTIME, EPISODE_TYPE, STILL_PATH, ID_IMDB,
     ID_WIKIDATA, and ID_TVDB. Episode cast/crew, additional stills, and Wikipedia
     payloads live on /episodes/{id_serie}/{season_number}/{episode_number} to keep
     the season payload bounded.
@@ -4155,8 +4164,10 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     rating and vote count read from T_WC_T2S_EPISODE (populated by
     tmdb-movie-preprocess Process 28). Both are NULL when the episode has no IMDb id,
     no rating yet (typically an episode that has not aired), or is outside the T2S
-    scope. They do NOT replace VOTE_AVERAGE / VOTE_COUNT, which remain the TMDb
-    figures: the two sources coexist and are not comparable.
+    scope. They are the ONLY audience figures the API returns for an episode:
+    FASTAPI-TEXT2SQL-194 removed the TMDb pair (VOTE_AVERAGE / VOTE_COUNT) from every
+    detail response, so a NULL IMDb rating means no rating at all, never a signal to
+    fall back on another source.
 
     The season row itself carries IMDB_RATING and IMDB_RATED_EPISODES. IMDb rates titles
     and episodes but NEVER seasons, so this rating is DERIVED: it is the plain mean of the
