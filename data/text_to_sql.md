@@ -79,7 +79,6 @@ CREATE TABLE T_WC_T2S_MOVIE (
   REVENUE DOUBLE,
   TAGLINE MEDIUMTEXT,
   VIDEO INT,
-  VOTE_AVERAGE DOUBLE,
   VOTE_COUNT INT,
   IS_COLOR INT,
   IS_BLACK_AND_WHITE INT,
@@ -120,7 +119,6 @@ CREATE TABLE T_WC_T2S_SERIE (
   STATUS VARCHAR(100),
   BACKDROP_PATH VARCHAR(200),
   TAGLINE MEDIUMTEXT,
-  VOTE_AVERAGE DOUBLE,
   VOTE_COUNT INT,
   NUMBER_OF_EPISODES INT,
   NUMBER_OF_SEASONS INT,
@@ -790,7 +788,15 @@ CREATE TABLE T_WC_T2S_SERIE_RECOMMENDATION (
 - ID_IMDB format: IMDb identifier for the record:
   Movies / TV series: starts with tt followed by 7–9 digits (example: tt0038355 or the {{IMDb_ID1}} placeholder)
   People: starts with nm followed by 7–9 digits (example: nm0000007 or the {{IMDb_person_ID1}} placeholder)
-- IMDB_RATING is the IMDb rating of the movie or serie
+- IMDB_RATING is the IMDb rating of the movie or serie. **It is the ONLY rating.** There is no
+  TMDb rating column on `T_WC_T2S_MOVIE` or `T_WC_T2S_SERIE`: never write `VOTE_AVERAGE` against
+  those two tables, in a SELECT, a WHERE or an ORDER BY, whatever you may remember of the TMDb
+  schema. Any question about how good, how well rated, or best/worst a movie or serie is, is
+  answered with `IMDB_RATING` (or `IMDB_RATING_WEIGHTED` as a sort key). When a title has no
+  `IMDB_RATING`, it has no rating at all: return it as NULL, never substitute another column.
+  `VOTE_AVERAGE` still exists, and only, on the IMAGE tables (`T_WC_T2S_MOVIE_IMAGE`,
+  `T_WC_T2S_SERIE_IMAGE`, `T_WC_T2S_PERSON_IMAGE`, `T_WC_T2S_COMPANY_IMAGE`,
+  `T_WC_T2S_NETWORK_IMAGE`), where it scores the picture, not the work.
 - ID_WIKIDATA is the Wikidata ID of the movie, serie or person: starts with Q followed by digits
 - POSTER_PATH is the poster path of the movie or serie
 - POPULARITY is the popularity of the movie, serie or person

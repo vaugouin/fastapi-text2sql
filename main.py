@@ -1336,12 +1336,47 @@ def _localized_image_groups(data, kinds):
     return groups
 
 
+def _strip_tmdb_rating(value):
+    """Remove TMDb CONTENT ratings from a payload, keeping TMDb IMAGE scores.
+
+    FASTAPI-TEXT2SQL-194, Philippe's call on 2026-08-06: the API never exposes a TMDb
+    rating. He never reads them, they rest on far too few voters, and the cost was measured
+    the same day — the voice agent read House of the Dragon season 3 at **5.9** and told the
+    viewer the season was collapsing, while the IMDb episode ratings average **8.29** and say
+    it is the second best season of the show. Two sources, opposite stories, and the thin one
+    won because it was in the payload. IMDb is now the single rating source; where it is
+    absent the honest answer is "no rating", never a fallback to a number built on a dozen
+    votes.
+
+    ⚠️ The columns stay in the database on purpose. The harm is exposure, not storage, and
+    holding both is exactly what made the divergence visible in the first place — it is also
+    how the IMDb import gets checked after each run. Dropping the columns is the one step
+    that is expensive to undo, and it buys nothing this filter does not already buy.
+
+    ⚠️ `VOTE_AVERAGE` on an IMAGE row is a different measure entirely: TMDb's poster and
+    backdrop quality score, which is what orders the images (see the image ORDER BY rules in
+    ``data/text_to_sql.md``). It is preserved. The test is structural rather than a list of
+    field names to keep in sync: an object carrying ``TYPE_IMAGE`` or ``IMAGE_PATH`` is an
+    image, anything else is content.
+    """
+    if isinstance(value, list):
+        return [_strip_tmdb_rating(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    is_image_row = "TYPE_IMAGE" in value or "IMAGE_PATH" in value
+    return {
+        key: _strip_tmdb_rating(item)
+        for key, item in value.items()
+        if key != "VOTE_AVERAGE" or is_image_row
+    }
+
+
 def _targeted_collection_response(conn, ident, collection, data, pagination, kinds, ui_language):
     """Assemble and localize the lean payload for a targeted single-collection request."""
     result = {**ident, "collection": collection, collection: data[collection], "pagination": pagination}
     apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
     localize_response(result, ui_language)
-    return result
+    return _strip_tmdb_rating(result)
 
 
 class TextExpr(BaseModel):
@@ -3754,7 +3789,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         apply_localized_text(result, conn, "T_WC_T2S_MOVIE_LANG", "ID_MOVIE", id, ui_language)
         localize_response(result, ui_language)
-        return result
+        return _strip_tmdb_rating(result)
     finally:
         conn.close()
 
@@ -4061,7 +4096,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         apply_localized_text(result, conn, "T_WC_T2S_SERIE_LANG", "ID_SERIE", id, ui_language)
         localize_response(result, ui_language)
-        return result
+        return _strip_tmdb_rating(result)
     finally:
         conn.close()
 
@@ -4329,7 +4364,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
         groups.setdefault("serie", []).append(result["series"])
         apply_localized_related_images(conn, groups, ui_language)
         localize_response(result, ui_language)
-        return result
+        return _strip_tmdb_rating(result)
     finally:
         conn.close()
 
@@ -4581,7 +4616,7 @@ async def get_episode(
         groups.setdefault("serie", []).append(result["series"])
         apply_localized_related_images(conn, groups, ui_language)
         localize_response(result, ui_language)
-        return result
+        return _strip_tmdb_rating(result)
     finally:
         conn.close()
 
