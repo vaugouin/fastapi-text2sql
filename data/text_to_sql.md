@@ -950,15 +950,24 @@ Example, the shape to follow:
 ID_PERSON, PERSON_NAME, POPULARITY, KNOWN_FOR_DEPARTMENT, BIRTH_YEAR, DEATH_YEAR, PROFILE_PATH
 
 #### Movies – return:
-ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH, RUNTIME, TAGLINE
+ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, IMDB_VOTES, POSTER_PATH, RUNTIME, TAGLINE
 
 ### Series - return:
-ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES, TAGLINE
+ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, IMDB_VOTES, POSTER_PATH, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES, TAGLINE
+
+> **Why `IMDB_VOTES` is in both lists** (added 2026-08-07). A rating without its denominator is
+> an opinion of unknown weight, and this whole app now rests on one rating: the TMDb figures were
+> removed precisely because too few people produce them. The count is what makes the rating
+> readable — 8.4 from a dozen voters and 8.4 from a million are not the same claim. The client is
+> already built for it and renders `8.4 (1.2M)` as soon as the column arrives. It is also the
+> column the model sorts and filters on ("the most voted", `IMDB_VOTES > 10000` for "not
+> obscure"), and **a ranking whose criterion is invisible on screen is the defect FASTAPI-TEXT2SQL-191
+> already documented**: the rows came back ordered by a number the viewer could not see.
 
 ### Movies AND Series (UNION) - return for a movie and for a serie:
-CRITICAL: both SELECT sides of the UNION must have exactly the same number of columns (13). Use NULL placeholders for columns that do not exist on one side. Never use the Movies-only or Series-only column lists above for a UNION query.
-Movie side: ID_MOVIE AS ID_CONTENT, 'movie' AS CONTENT_TYPE, MOVIE_TITLE AS CONTENT_TITLE, DAT_RELEASE AS DAT_FIRST_AIR, DAT_RELEASE AS DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH, RUNTIME, TAGLINE, NULL AS NUMBER_OF_SEASONS, NULL AS NUMBER_OF_EPISODES
-Serie side: ID_SERIE AS ID_CONTENT, 'serie' AS CONTENT_TYPE, SERIE_TITLE AS CONTENT_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH, NULL AS RUNTIME, TAGLINE, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES
+CRITICAL: both SELECT sides of the UNION must have exactly the same number of columns (14). Use NULL placeholders for columns that do not exist on one side. Never use the Movies-only or Series-only column lists above for a UNION query.
+Movie side: ID_MOVIE AS ID_CONTENT, 'movie' AS CONTENT_TYPE, MOVIE_TITLE AS CONTENT_TITLE, DAT_RELEASE AS DAT_FIRST_AIR, DAT_RELEASE AS DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, IMDB_VOTES, POSTER_PATH, RUNTIME, TAGLINE, NULL AS NUMBER_OF_SEASONS, NULL AS NUMBER_OF_EPISODES
+Serie side: ID_SERIE AS ID_CONTENT, 'serie' AS CONTENT_TYPE, SERIE_TITLE AS CONTENT_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, IMDB_VOTES, POSTER_PATH, NULL AS RUNTIME, TAGLINE, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES
 
 #### Topics – return:
 ID_TOPIC, TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG, ID_RECORD, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING
