@@ -89,6 +89,7 @@ CREATE TABLE T_WC_T2S_MOVIE (
   TIM_UPDATED DATETIME,
   IMDB_RATING DOUBLE,
   IMDB_RATING_WEIGHTED DOUBLE,
+  IMDB_VOTES INT,
   WIKIDATA_TITLE VARCHAR(250),
   ALIASES MEDIUMTEXT,
   PLEX_MEDIA_KEY VARCHAR(50),
@@ -125,6 +126,7 @@ CREATE TABLE T_WC_T2S_SERIE (
   TIM_UPDATED DATETIME,
   IMDB_RATING DOUBLE,
   IMDB_RATING_WEIGHTED DOUBLE,
+  IMDB_VOTES INT,
   WIKIDATA_TITLE VARCHAR(250),
   ALIASES MEDIUMTEXT,
   PLEX_MEDIA_KEY VARCHAR(50),
@@ -790,10 +792,13 @@ CREATE TABLE T_WC_T2S_SERIE_RECOMMENDATION (
   TMDb rating column on `T_WC_T2S_MOVIE` or `T_WC_T2S_SERIE`: never write `VOTE_AVERAGE` or
   `VOTE_COUNT` against those two tables, in a SELECT, a WHERE or an ORDER BY, whatever you may
   remember of the TMDb schema. Any question about how good, how well rated, or best/worst a
-  movie or serie is, is answered with `IMDB_RATING` (or `IMDB_RATING_WEIGHTED` as a sort key).
-  These two tables carry **no vote count at all** any more: for "the most popular" use
-  `POPULARITY`, and never approximate a vote count from another column. When a title has
-  no `IMDB_RATING`, it has no rating at all: return it as NULL, never substitute another column.
+  movie or serie is, is answered with `IMDB_RATING` (or `IMDB_RATING_WEIGHTED` as a sort key),
+  and any question about **how many people voted** is answered with `IMDB_VOTES` — the IMDb vote
+  count, never a TMDb one. Use it for "the most voted", "the most watched by voters", or as a
+  minimum-audience filter (`IMDB_VOTES > 10000`) when a question asks for well-known titles rather
+  than obscure ones. For "the most popular" keep `POPULARITY`, which measures something else.
+  When a title has no `IMDB_RATING`, it has no rating at all: return it as NULL, never substitute
+  another column.
   `VOTE_AVERAGE` and `VOTE_COUNT` still exist, and only, on the IMAGE tables
   (`T_WC_T2S_MOVIE_IMAGE`, `T_WC_T2S_SERIE_IMAGE`, `T_WC_T2S_PERSON_IMAGE`,
   `T_WC_T2S_COMPANY_IMAGE`, `T_WC_T2S_NETWORK_IMAGE`), where they score the picture, not the work.
