@@ -48,7 +48,7 @@ CREATE TABLE `T_WC_T2S_AWARD` (
   KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
   KEY `IMDB_RATING_WEIGHTED` (`IMDB_RATING_WEIGHTED`),
   KEY `TIM_WIKIDATA_COMPLETED` (`TIM_WIKIDATA_COMPLETED`)
-) ENGINE=InnoDB AUTO_INCREMENT=52071 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -95,7 +95,21 @@ CREATE TABLE `T_WC_T2S_CACHE` (
   KEY `IS_ANONYMIZED` (`IS_ANONYMIZED`),
   KEY `UI_LANGUAGE` (`UI_LANGUAGE`),
   KEY `RESULT_ENTITY` (`RESULT_ENTITY`)
-) ENGINE=InnoDB AUTO_INCREMENT=9416 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_T2S_CACHE_PURGE_20260803` (
+  `ID_ROW` int(11) NOT NULL,
+  `VERDICT` varchar(60) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_T2S_CACHE_PURGE_AGG_20260803` (
+  `ID_ROW` int(11) NOT NULL,
+  `VERDICT` varchar(63) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -203,7 +217,7 @@ CREATE TABLE `T_WC_T2S_COLLECTION` (
   KEY `IDX_T2S_COLLECTION_NAME_NORM` (`COLLECTION_NAME_NORM`),
   KEY `IDX_T2S_COLLECTION_NAME_KEY` (`COLLECTION_NAME_KEY`),
   FULLTEXT KEY `ft_collection_name_norm` (`COLLECTION_NAME_NORM`)
-) ENGINE=InnoDB AUTO_INCREMENT=4977 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -280,7 +294,7 @@ CREATE TABLE `T_WC_T2S_COMPANY_IMAGE` (
   KEY `HEIGHT` (`HEIGHT`),
   KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
   KEY `VOTE_COUNT` (`VOTE_COUNT`)
-) ENGINE=InnoDB AUTO_INCREMENT=28075 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -324,7 +338,7 @@ CREATE TABLE `T_WC_T2S_DEATH` (
   KEY `POPULARITY` (`POPULARITY`),
   KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
   KEY `TIM_WIKIDATA_COMPLETED` (`TIM_WIKIDATA_COMPLETED`)
-) ENGINE=InnoDB AUTO_INCREMENT=454 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -363,7 +377,7 @@ CREATE TABLE `T_WC_T2S_ENTITY_IMAGE` (
   KEY `ID_OWNER` (`ID_OWNER`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`)
-) ENGINE=InnoDB AUTO_INCREMENT=21627 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -464,7 +478,7 @@ CREATE TABLE `T_WC_T2S_EPISODE_IMAGE` (
   KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
   KEY `LANG` (`LANG`),
   KEY `IMAGE_PATH` (`IMAGE_PATH`)
-) ENGINE=InnoDB AUTO_INCREMENT=1082445 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -507,7 +521,7 @@ CREATE TABLE `T_WC_T2S_EPISODE_VIDEO` (
   KEY `VIDEO_KEY` (`VIDEO_KEY`),
   KEY `VIDEO_TYPE` (`VIDEO_TYPE`),
   KEY `OFFICIAL` (`OFFICIAL`)
-) ENGINE=InnoDB AUTO_INCREMENT=14260 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -548,7 +562,7 @@ CREATE TABLE `T_WC_T2S_EVALUATION` (
   KEY `IS_EVAL` (`IS_EVAL`),
   KEY `IDX_T2S_EVALUATION_ASSERTION_REFRESH_LAST` (`ASSERTION_REFRESH_LAST`),
   KEY `IS_SHOWCASE` (`IS_SHOWCASE`)
-) ENGINE=InnoDB AUTO_INCREMENT=2444 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -580,7 +594,7 @@ CREATE TABLE `T_WC_T2S_EVALUATION_CATEGORY` (
   KEY `DESCRIPTION` (`DESCRIPTION`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DESCRIPTION_FR` (`DESCRIPTION_FR`)
-) ENGINE=InnoDB AUTO_INCREMENT=59 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -641,7 +655,7 @@ CREATE TABLE `T_WC_T2S_EVALUATION_EXECUTION` (
   KEY `ASSERTIONS_TOTAL_SCORE` (`ASSERTIONS_TOTAL_SCORE`),
   KEY `COMPLEX_MODEL` (`COMPLEX_MODEL`),
   KEY `LANG` (`LANG`)
-) ENGINE=InnoDB AUTO_INCREMENT=5333 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -685,7 +699,7 @@ CREATE TABLE `T_WC_T2S_GROUP` (
   KEY `POPULARITY` (`POPULARITY`),
   KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
   KEY `TIM_WIKIDATA_COMPLETED` (`TIM_WIKIDATA_COMPLETED`)
-) ENGINE=InnoDB AUTO_INCREMENT=8158 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -771,7 +785,7 @@ CREATE TABLE `T_WC_T2S_LIST` (
   KEY `IMDB_RATING_WEIGHTED` (`IMDB_RATING_WEIGHTED`),
   KEY `POPULARITY` (`POPULARITY`),
   KEY `TIM_WIKIDATA_COMPLETED` (`TIM_WIKIDATA_COMPLETED`)
-) ENGINE=InnoDB AUTO_INCREMENT=71 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -823,7 +837,7 @@ CREATE TABLE `T_WC_T2S_MOVEMENT` (
   KEY `IMDB_RATING_WEIGHTED` (`IMDB_RATING_WEIGHTED`),
   KEY `POPULARITY` (`POPULARITY`),
   KEY `TIM_WIKIDATA_COMPLETED` (`TIM_WIKIDATA_COMPLETED`)
-) ENGINE=InnoDB AUTO_INCREMENT=22 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -946,7 +960,7 @@ CREATE TABLE `T_WC_T2S_MOVIE_AWARD` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=23593 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -996,7 +1010,7 @@ CREATE TABLE `T_WC_T2S_MOVIE_COLLECTION` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=21924 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1021,7 +1035,7 @@ CREATE TABLE `T_WC_T2S_MOVIE_COMPANY` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=1107254 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1046,7 +1060,7 @@ CREATE TABLE `T_WC_T2S_MOVIE_GENRE` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=1493652 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1085,7 +1099,7 @@ CREATE TABLE `T_WC_T2S_MOVIE_IMAGE` (
   KEY `HEIGHT` (`HEIGHT`),
   KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
   KEY `VOTE_COUNT` (`VOTE_COUNT`)
-) ENGINE=InnoDB AUTO_INCREMENT=5232016 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1122,7 +1136,7 @@ CREATE TABLE `T_WC_T2S_MOVIE_LIST` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=20554 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1147,7 +1161,7 @@ CREATE TABLE `T_WC_T2S_MOVIE_MOVEMENT` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=4775 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1172,7 +1186,7 @@ CREATE TABLE `T_WC_T2S_MOVIE_NOMINATION` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=56040 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1197,7 +1211,7 @@ CREATE TABLE `T_WC_T2S_MOVIE_PRODUCTION_COUNTRY` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=952471 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1218,7 +1232,7 @@ CREATE TABLE `T_WC_T2S_MOVIE_RECOMMENDATION` (
   KEY `DELETED` (`DELETED`),
   KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=2162656 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1239,7 +1253,7 @@ CREATE TABLE `T_WC_T2S_MOVIE_SIMILAR` (
   KEY `DELETED` (`DELETED`),
   KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=1703911 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1264,7 +1278,7 @@ CREATE TABLE `T_WC_T2S_MOVIE_SPOKEN_LANGUAGE` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=992201 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1289,7 +1303,7 @@ CREATE TABLE `T_WC_T2S_MOVIE_TECHNICAL` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=2834255 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1314,7 +1328,7 @@ CREATE TABLE `T_WC_T2S_MOVIE_TOPIC` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=34285382 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1359,7 +1373,7 @@ CREATE TABLE `T_WC_T2S_MOVIE_VIDEO` (
   KEY `DAT_PUBLISHED` (`DAT_PUBLISHED`),
   KEY `ID_CREDIT` (`ID_CREDIT`),
   KEY `OFFICIAL` (`OFFICIAL`)
-) ENGINE=InnoDB AUTO_INCREMENT=340404 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1425,7 +1439,7 @@ CREATE TABLE `T_WC_T2S_NETWORK_IMAGE` (
   KEY `HEIGHT` (`HEIGHT`),
   KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
   KEY `VOTE_COUNT` (`VOTE_COUNT`)
-) ENGINE=InnoDB AUTO_INCREMENT=5605 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1477,7 +1491,7 @@ CREATE TABLE `T_WC_T2S_NOMINATION` (
   KEY `ID_WIKIDATA` (`ID_WIKIDATA`),
   KEY `IMDB_RATING_WEIGHTED` (`IMDB_RATING_WEIGHTED`),
   KEY `TIM_WIKIDATA_COMPLETED` (`TIM_WIKIDATA_COMPLETED`)
-) ENGINE=InnoDB AUTO_INCREMENT=38081 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1565,7 +1579,7 @@ CREATE TABLE `T_WC_T2S_PERSON_AWARD` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=191034 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1615,7 +1629,7 @@ CREATE TABLE `T_WC_T2S_PERSON_DEATH` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=169217 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1686,7 +1700,7 @@ CREATE TABLE `T_WC_T2S_PERSON_GROUP` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=67661 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1725,7 +1739,7 @@ CREATE TABLE `T_WC_T2S_PERSON_IMAGE` (
   KEY `HEIGHT` (`HEIGHT`),
   KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
   KEY `VOTE_COUNT` (`VOTE_COUNT`)
-) ENGINE=InnoDB AUTO_INCREMENT=858665 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1788,7 +1802,7 @@ CREATE TABLE `T_WC_T2S_PERSON_NOMINATION` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=91653 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1904,7 +1918,7 @@ CREATE TABLE `T_WC_T2S_REPRESENTATION` (
   KEY `ID_OWNER` (`ID_OWNER`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`)
-) ENGINE=InnoDB AUTO_INCREMENT=40 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -1992,7 +2006,7 @@ CREATE TABLE `T_WC_T2S_SEASON_IMAGE` (
   KEY `TYPE_IMAGE` (`TYPE_IMAGE`),
   KEY `LANG` (`LANG`),
   KEY `IMAGE_PATH` (`IMAGE_PATH`)
-) ENGINE=InnoDB AUTO_INCREMENT=189294 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2033,7 +2047,7 @@ CREATE TABLE `T_WC_T2S_SEASON_VIDEO` (
   KEY `VIDEO_KEY` (`VIDEO_KEY`),
   KEY `VIDEO_TYPE` (`VIDEO_TYPE`),
   KEY `OFFICIAL` (`OFFICIAL`)
-) ENGINE=InnoDB AUTO_INCREMENT=10049 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2136,7 +2150,7 @@ CREATE TABLE `T_WC_T2S_SERIE_AWARD` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=2379 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2186,7 +2200,7 @@ CREATE TABLE `T_WC_T2S_SERIE_COLLECTION` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=95 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2211,7 +2225,7 @@ CREATE TABLE `T_WC_T2S_SERIE_COMPANY` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=154935 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2236,7 +2250,7 @@ CREATE TABLE `T_WC_T2S_SERIE_GENRE` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=229281 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2275,7 +2289,7 @@ CREATE TABLE `T_WC_T2S_SERIE_IMAGE` (
   KEY `HEIGHT` (`HEIGHT`),
   KEY `VOTE_AVERAGE` (`VOTE_AVERAGE`),
   KEY `VOTE_COUNT` (`VOTE_COUNT`)
-) ENGINE=InnoDB AUTO_INCREMENT=1305651 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2312,7 +2326,7 @@ CREATE TABLE `T_WC_T2S_SERIE_LIST` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=652 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2337,7 +2351,7 @@ CREATE TABLE `T_WC_T2S_SERIE_MOVEMENT` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=68 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2362,7 +2376,7 @@ CREATE TABLE `T_WC_T2S_SERIE_NETWORK` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=163781 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2387,7 +2401,7 @@ CREATE TABLE `T_WC_T2S_SERIE_NOMINATION` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=1304 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2412,7 +2426,7 @@ CREATE TABLE `T_WC_T2S_SERIE_PRODUCTION_COUNTRY` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=129241 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2433,7 +2447,7 @@ CREATE TABLE `T_WC_T2S_SERIE_RECOMMENDATION` (
   KEY `DELETED` (`DELETED`),
   KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=524281 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2454,7 +2468,7 @@ CREATE TABLE `T_WC_T2S_SERIE_SIMILAR` (
   KEY `DELETED` (`DELETED`),
   KEY `DISPLAY_ORDER` (`DISPLAY_ORDER`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=589816 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2479,7 +2493,7 @@ CREATE TABLE `T_WC_T2S_SERIE_SPOKEN_LANGUAGE` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=172767 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2504,7 +2518,7 @@ CREATE TABLE `T_WC_T2S_SERIE_TOPIC` (
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `DAT_CREAT` (`DAT_CREAT`)
-) ENGINE=InnoDB AUTO_INCREMENT=8467448 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2549,7 +2563,7 @@ CREATE TABLE `T_WC_T2S_SERIE_VIDEO` (
   KEY `DAT_PUBLISHED` (`DAT_PUBLISHED`),
   KEY `ID_CREDIT` (`ID_CREDIT`),
   KEY `OFFICIAL` (`OFFICIAL`)
-) ENGINE=InnoDB AUTO_INCREMENT=50039 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2606,7 +2620,7 @@ CREATE TABLE `T_WC_T2S_SYNTHETIC_IMAGE` (
   KEY `TIM_UPDATED` (`TIM_UPDATED`),
   KEY `ID_USER_UPDATED` (`ID_USER_UPDATED`),
   KEY `TIM_GENERATED` (`TIM_GENERATED`)
-) ENGINE=InnoDB AUTO_INCREMENT=21627 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2658,7 +2672,7 @@ CREATE TABLE `T_WC_T2S_TECHNICAL` (
   KEY `CONFIDENCE` (`CONFIDENCE`),
   KEY `TIM_WIKIPEDIA_SEARCH` (`TIM_WIKIPEDIA_SEARCH`),
   KEY `TIM_WIKIDATA_COMPLETED` (`TIM_WIKIDATA_COMPLETED`)
-) ENGINE=InnoDB AUTO_INCREMENT=74 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
@@ -2710,5 +2724,5 @@ CREATE TABLE `T_WC_T2S_TOPIC` (
   KEY `IMDB_RATING_WEIGHTED` (`IMDB_RATING_WEIGHTED`),
   KEY `POPULARITY` (`POPULARITY`),
   KEY `TIM_WIKIDATA_COMPLETED` (`TIM_WIKIDATA_COMPLETED`)
-) ENGINE=InnoDB AUTO_INCREMENT=33051 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
