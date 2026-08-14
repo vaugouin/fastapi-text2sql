@@ -169,6 +169,7 @@ RELATION_KEYS = {
 }
 
 MAX_EXTRA_HOSTS = 4  # how many neighbours to walk per kind before giving up
+PROBE_IDS = range(1, 13)  # last-resort id probe for the small controlled vocabularies
 
 
 def _harvest(paths, payload):
@@ -183,6 +184,29 @@ def _harvest(paths, payload):
 
 def _missing(paths):
     return [name for name in RELATION_KEYS if name not in paths]
+
+
+def _probe_missing(checker, paths):
+    """Last resort for the types no relation walk reached: probe low ids directly.
+
+    `movements` (film movements) and `deaths` (causes of death) are small controlled
+    vocabularies whose ids start at 1, and nothing links them to an arbitrary film: a movie
+    only carries a movement when someone classified it, and a cast has a death entry only
+    once one of its members has died. Widening the walk therefore cannot guarantee them.
+
+    A probe is not a guess: an id is adopted only because the API answered 200 for it, and a
+    404 is discarded silently. The output says which ids were probed rather than walked, so
+    the reader can tell a discovered fixture from a found one.
+    """
+    for name in _missing(paths):
+        for candidate in PROBE_IDS:
+            try:
+                checker.get(f"/{name}/{candidate}")
+            except httpx.HTTPStatusError:
+                continue
+            paths[name] = f"/{name}/{candidate}"
+            print(f"  probed {name}: id {candidate} answers, using it")
+            break
 
 
 def discover(checker, movie_id, location_id):
@@ -232,6 +256,8 @@ def discover(checker, movie_id, location_id):
             break
         _harvest(paths, checker.get(f"/movies/{neighbour_id}", ui_language="en"))
 
+    _probe_missing(checker, paths)
+
     if location_id:
         paths["locations"] = f"/locations/{location_id}"
     return paths
@@ -259,8 +285,8 @@ def main():
         if name in paths:
             checker.check_endpoint(name, paths[name])
         else:
-            checker.skip(name, "no live id found on the seed movie, its cast, its series or "
-                               "its neighbours"
+            checker.skip(name, "no live id found by walking the seed movie, its cast, its "
+                               "series and its neighbours, nor by probing low ids"
                                + (" (reachable only by Q-number: pass --location-id)"
                                   if name == "locations" else
                                   " (try another --movie-id)"))
