@@ -21,11 +21,14 @@ What it checks, endpoint by endpoint:
    `ui_language=de`, which the API does not serve, falls back to `en` server-side.
 5. **Payload cost**: a targeted `?collection=<name>` page carries no `wikipedia_page`.
 
-Entity ids are **discovered from the seed movie** (its cast, topics, lists, collections,
-movements, technicals, awards, nominations; then a person's groups and deaths; then a series,
-its seasons and episodes) so the script stays valid as the database changes. What cannot be
-discovered is reported as SKIPPED, never counted as a pass: `/locations` is only reachable by
-a Wikidata Q-number, so pass one with `--location-id` to cover it.
+Entity ids are **discovered**, not hardcoded, so the script stays valid as the database
+changes: the walk starts at the seed movie (topics, lists, collections, movements, technicals,
+awards, nominations), then widens to several cast members (groups, deaths, and the way to a
+series), to that series and its seasons and episodes, and finally to neighbour films, stopping
+for each entity type as soon as one id is found. Widening matters: a recent release carries no
+award and no collection, and a living actor no cause-of-death entry, so a single seed silently
+under-covers. What is still missing is reported as SKIPPED, never counted as a pass.
+`/locations` is reachable only by a Wikidata Q-number, so pass one with `--location-id`.
 """
 import argparse
 import os
@@ -155,42 +158,79 @@ def _first_id(rows, key):
     return None
 
 
-def discover(checker, movie_id, location_id):
-    """Walk the relations of one movie to find a live id for every other entity type."""
-    paths = {"movies": f"/movies/{movie_id}"}
-    movie = checker.get(f"/movies/{movie_id}", ui_language="en")
+# Each related list exposes the target entity's OWN primary key, and every detail route takes
+# that integer id, never the Wikidata Q-number. These names are read off the endpoints'
+# `pcollections` SELECTs, not guessed: guessing is what made the first run skip eight
+# endpoints while cheerfully reporting no failure.
+RELATION_KEYS = {
+    "collections": "ID_T2S_COLLECTION", "topics": "ID_TOPIC", "lists": "ID_T2S_LIST",
+    "movements": "ID_MOVEMENT", "technicals": "ID_TECHNICAL", "awards": "ID_AWARD",
+    "nominations": "ID_NOMINATION", "groups": "ID_GROUP", "deaths": "ID_DEATH",
+}
 
-    for name, key in (
-        ("collections", "ID_T2S_COLLECTION"), ("topics", "ID_WIKIDATA"),
-        ("lists", "ID_WIKIDATA"), ("movements", "ID_WIKIDATA"),
-        ("technicals", "ID_TECHNICAL"), ("awards", "ID_WIKIDATA"),
-        ("nominations", "ID_WIKIDATA"),
-    ):
-        value = _first_id(movie.get(name), key)
+MAX_EXTRA_HOSTS = 4  # how many neighbours to walk per kind before giving up
+
+
+def _harvest(paths, payload):
+    """Take an id for every entity type this payload can supply and we still lack."""
+    for name, key in RELATION_KEYS.items():
+        if name in paths:
+            continue
+        value = _first_id(payload.get(name), key)
         if value:
             paths[name] = f"/{name}/{value}"
 
-    person_id = _first_id(movie.get("cast"), "ID_PERSON") or _first_id(movie.get("crew"), "ID_PERSON")
-    if person_id:
-        paths["persons"] = f"/persons/{person_id}"
+
+def _missing(paths):
+    return [name for name in RELATION_KEYS if name not in paths]
+
+
+def discover(checker, movie_id, location_id):
+    """Walk outward from one movie until every entity type has a live id.
+
+    One film is not enough on its own: a recent release has no award, no nomination and
+    often no collection, and a living actor has no cause-of-death entry. So the walk widens
+    to the film's neighbours (`similar`), to several cast members, and to a series, stopping
+    for each entity type as soon as one id is found. What is still missing at the end is
+    reported as SKIPPED, never counted as a pass.
+    """
+    paths = {"movies": f"/movies/{movie_id}"}
+    movie = checker.get(f"/movies/{movie_id}", ui_language="en")
+    _harvest(paths, movie)
+
+    # Cast members: the only source of groups and deaths, and the way to a series.
+    arrpersons = [row["ID_PERSON"] for row in (movie.get("cast") or []) if row.get("ID_PERSON")]
+    arrpersons += [row["ID_PERSON"] for row in (movie.get("crew") or []) if row.get("ID_PERSON")]
+    serie_id = None
+    for person_id in arrpersons[:MAX_EXTRA_HOSTS]:
         person = checker.get(f"/persons/{person_id}", ui_language="en")
-        for name in ("groups", "deaths"):
-            value = _first_id(person.get(name), "ID_WIKIDATA")
-            if value:
-                paths[name] = f"/{name}/{value}"
-        serie_id = _first_id(person.get("series_cast"), "ID_SERIE") or \
+        paths.setdefault("persons", f"/persons/{person_id}")
+        _harvest(paths, person)
+        serie_id = serie_id or _first_id(person.get("series_cast"), "ID_SERIE") or \
             _first_id(person.get("series_crew"), "ID_SERIE")
-        if serie_id:
-            paths["series"] = f"/series/{serie_id}"
-            serie = checker.get(f"/series/{serie_id}", ui_language="en")
-            season = (serie.get("seasons") or [None])[0]
-            if season and season.get("SEASON_NUMBER") is not None:
-                paths["seasons"] = f"/seasons/{serie_id}/{season['SEASON_NUMBER']}"
-                detail = checker.get(paths["seasons"], ui_language="en")
-                episode = (detail.get("episodes") or [None])[0]
-                if episode and episode.get("EPISODE_NUMBER") is not None:
-                    paths["episodes"] = (f"/episodes/{serie_id}/{season['SEASON_NUMBER']}"
-                                         f"/{episode['EPISODE_NUMBER']}")
+        if not _missing(paths) and serie_id:
+            break
+
+    if serie_id:
+        paths["series"] = f"/series/{serie_id}"
+        serie = checker.get(f"/series/{serie_id}", ui_language="en")
+        _harvest(paths, serie)  # a series carries the same Wikidata-keyed relations as a film
+        season = (serie.get("seasons") or [None])[0]
+        if season and season.get("SEASON_NUMBER") is not None:
+            paths["seasons"] = f"/seasons/{serie_id}/{season['SEASON_NUMBER']}"
+            detail = checker.get(paths["seasons"], ui_language="en")
+            episode = (detail.get("episodes") or [None])[0]
+            if episode and episode.get("EPISODE_NUMBER") is not None:
+                paths["episodes"] = (f"/episodes/{serie_id}/{season['SEASON_NUMBER']}"
+                                     f"/{episode['EPISODE_NUMBER']}")
+
+    # Neighbour films: an older one is likely to carry the awards and collections a recent
+    # seed lacks. Only walked while something is still missing.
+    arrneighbours = [row["ID_MOVIE"] for row in (movie.get("similar") or []) if row.get("ID_MOVIE")]
+    for neighbour_id in arrneighbours[:MAX_EXTRA_HOSTS]:
+        if not _missing(paths):
+            break
+        _harvest(paths, checker.get(f"/movies/{neighbour_id}", ui_language="en"))
 
     if location_id:
         paths["locations"] = f"/locations/{location_id}"
@@ -219,8 +259,11 @@ def main():
         if name in paths:
             checker.check_endpoint(name, paths[name])
         else:
-            checker.skip(name, "no live id discovered from the seed movie"
-                               + (" (pass --location-id)" if name == "locations" else ""))
+            checker.skip(name, "no live id found on the seed movie, its cast, its series or "
+                               "its neighbours"
+                               + (" (reachable only by Q-number: pass --location-id)"
+                                  if name == "locations" else
+                                  " (try another --movie-id)"))
 
     print(f"\n{'-' * 70}")
     print(f"{checker.checks} checks passed, {len(checker.failures)} failed, "
