@@ -3145,25 +3145,27 @@ def _fetch_wikipedia_content(cursor, id_wikidata, ui_language="en"):
     return rows
 
 
-def _fetch_wikipedia_freshness(cursor, id_wikidata, ui_language="en"):
-    """Return when the Wikipedia page backing an entity was last crawled.
+def _resolve_wikipedia_page_row(cursor, id_wikidata, ui_language="en"):
+    """Return the T_WC_WIKIPEDIA_PAGE_LANG row that backs the served Wikipedia content.
 
-    Mirrors the language resolution of ``_fetch_wikipedia_content`` / ``_fetch_wikipedia_images``:
-    the page row for ``ui_language`` wins when that language actually has sections, English
-    otherwise (and the requested language as a last resort when neither has sections).
+    Single home of the Wikipedia language resolution, shared by ``_fetch_wikipedia_freshness``
+    (which *dates* the served content) and ``_fetch_wikipedia_page`` (which *credits* it). It
+    mirrors ``_fetch_wikipedia_content`` / ``_fetch_wikipedia_images``: the page row for
+    ``ui_language`` wins when that language actually has sections, English otherwise (and the
+    requested language as a last resort when neither has sections, so we still report what we
+    have rather than claiming we know nothing).
 
-    Keys: ``lang`` (the language the dates describe), ``updated_at`` (LAST_SUCCESS_AT, the
-    data date of the served wikipedia_content / wikipedia_images: last time the page was
-    fetched *successfully*), ``crawled_at`` (LAST_CRAWLED_AT, last attempt, successful or
-    not; later than updated_at means recent attempts failed and the content is older than
-    the attempt). All None when id_wikidata is missing or no page row exists.
+    Keeping the two consumers on one resolution is the point: if the dates described one
+    language and the credit another, the client would attribute prose to the wrong article.
+
+    Returns None when id_wikidata is missing or no page row exists.
     """
-    empty = {"lang": None, "updated_at": None, "crawled_at": None}
     if not id_wikidata:
-        return empty
+        return None
     lang = normalize_ui_language(ui_language)
     cursor.execute("""
         SELECT p.LANG, p.LAST_SUCCESS_AT, p.LAST_CRAWLED_AT,
+               p.WIKIPEDIA_PAGE_TITLE, p.WIKIPEDIA_PAGE_URL,
                (SELECT COUNT(*)
                   FROM T_WC_WIKIPEDIA_PAGE_LANG_SECTION s
                  WHERE s.ID_WIKIDATA = p.ID_WIKIDATA AND s.LANG = p.LANG AND s.DELETED = 0
@@ -3175,23 +3177,76 @@ def _fetch_wikipedia_freshness(cursor, id_wikidata, ui_language="en"):
     """, (id_wikidata, lang, DEFAULT_UI_LANGUAGE))
     rows = {row["LANG"]: row for row in cursor.fetchall()}
     if not rows:
-        return empty
-
-    def _shape(row):
-        return {
-            "lang": row["LANG"],
-            "updated_at": row["LAST_SUCCESS_AT"],
-            "crawled_at": row["LAST_CRAWLED_AT"],
-        }
-
+        return None
     for candidate in (lang, DEFAULT_UI_LANGUAGE):
         row = rows.get(candidate)
         if row and (row["SECTION_COUNT"] or 0) > 0:
-            return _shape(row)
-    # Page row(s) exist but carry no sections (crawled and empty, or never successful):
-    # still date what we have rather than claiming we know nothing.
-    fallback = rows.get(lang) or rows.get(DEFAULT_UI_LANGUAGE) or next(iter(rows.values()))
-    return _shape(fallback)
+            return row
+    # Page row(s) exist but carry no sections (crawled and empty, or never successful).
+    return rows.get(lang) or rows.get(DEFAULT_UI_LANGUAGE) or next(iter(rows.values()))
+
+
+def _fetch_wikipedia_freshness(cursor, id_wikidata, ui_language="en"):
+    """Return when the Wikipedia page backing an entity was last crawled.
+
+    Language resolution is delegated to ``_resolve_wikipedia_page_row`` (requested language
+    when it actually has sections, English otherwise), so these dates always describe the
+    same page row the ``wikipedia_page`` credit points at.
+
+    Keys: ``lang`` (the language the dates describe), ``updated_at`` (LAST_SUCCESS_AT, the
+    data date of the served wikipedia_content / wikipedia_images: last time the page was
+    fetched *successfully*), ``crawled_at`` (LAST_CRAWLED_AT, last attempt, successful or
+    not; later than updated_at means recent attempts failed and the content is older than
+    the attempt). All None when id_wikidata is missing or no page row exists.
+    """
+    row = _resolve_wikipedia_page_row(cursor, id_wikidata, ui_language)
+    if not row:
+        return {"lang": None, "updated_at": None, "crawled_at": None}
+    return {
+        "lang": row["LANG"],
+        "updated_at": row["LAST_SUCCESS_AT"],
+        "crawled_at": row["LAST_CRAWLED_AT"],
+    }
+
+
+def _fetch_wikipedia_page(cursor, id_wikidata, ui_language="en"):
+    """Return the source-article reference for the served Wikipedia content, or None.
+
+    Keys: ``lang`` (the language actually served, never merely the one requested), ``title``
+    (WIKIPEDIA_PAGE_TITLE, the article's own title, which is NOT the entity's title and
+    differs per language) and ``url`` (WIKIPEDIA_PAGE_URL, written by wikipedia-crawler from
+    the resolved sitelink).
+
+    A client holding only an ID_WIKIDATA cannot derive this URL, and it needs it: displaying
+    the wikipedia_content prose requires CC BY-SA attribution pointing at the exact article
+    the prose came from. Hence the language resolution runs here rather than client-side, and
+    ``lang`` reports what was returned so the UI can label it honestly.
+
+    Returns None when the entity has no page row, or when the row carries no title or no URL:
+    a credit with no link (or no label) cannot be rendered, and an absent key is more honest
+    than a hollow one.
+    """
+    row = _resolve_wikipedia_page_row(cursor, id_wikidata, ui_language)
+    if not row:
+        return None
+    strtitle = row.get("WIKIPEDIA_PAGE_TITLE")
+    strurl = row.get("WIKIPEDIA_PAGE_URL")
+    if not strtitle or not strurl:
+        return None
+    return {"lang": row["LANG"], "title": strtitle, "url": strurl}
+
+
+def _attach_wikipedia_page(result, wikipedia_page):
+    """Add the ``wikipedia_page`` block to a detail response, or leave the key out entirely.
+
+    Deliberately absent rather than null-filled when the entity has no Wikipedia article: a
+    null-filled object invites a client to render an empty credit, while a missing key says
+    plainly that there is nothing to attribute. Call it after the response dict is built and
+    **before** ``logs.log_usage`` so the logged payload matches what was served.
+    """
+    if wikipedia_page:
+        result["wikipedia_page"] = wikipedia_page
+    return result
 
 
 # Provenance of an entity detail endpoint's base row, used by _build_data_freshness to
@@ -3579,6 +3634,15 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
 
+    The wikipedia_page object is the source-article reference for that content: lang (the
+    language actually served, which is 'en' when the requested language has no sections),
+    title (WIKIPEDIA_PAGE_TITLE, the article's own title, which is not the entity's title
+    and differs per language) and url (WIKIPEDIA_PAGE_URL). It resolves to the same page row
+    that dates the content, so wikipedia_page.lang always equals data_freshness.wikipedia_lang.
+    The key is absent, not null, when the entity has no Wikipedia page. A client cannot derive
+    this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
+    attribution pointing at the exact article the prose came from.
+
     The videos list merges TMDb-sourced videos (T_WC_TMDB_MOVIE_VIDEO) and
     Wikidata-sourced videos (T_WC_WIKIDATA_MEDIA_RESOURCE with RESOURCE_KIND='video',
     joined via ID_WIKIDATA). Each element exposes a unified shape: SOURCE
@@ -3751,6 +3815,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
                 backdrops = cursor.fetchall()
                 wikipedia_images = _fetch_wikipedia_images(cursor, movie.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, movie.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, movie.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, movie, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_tmdb_videos(cursor, "movie", id) + _fetch_wikidata_videos(cursor, movie.get("ID_WIKIDATA"))
                 collection_contexts = _all_collection_contexts(cursor, "movie", id, ui_language)
@@ -3793,6 +3858,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
             "pagination": pagination,
             "data_freshness": data_freshness,
         }
+        _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage("movies", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
@@ -3863,6 +3929,15 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    The wikipedia_page object is the source-article reference for that content: lang (the
+    language actually served, which is 'en' when the requested language has no sections),
+    title (WIKIPEDIA_PAGE_TITLE, the article's own title, which is not the entity's title
+    and differs per language) and url (WIKIPEDIA_PAGE_URL). It resolves to the same page row
+    that dates the content, so wikipedia_page.lang always equals data_freshness.wikipedia_lang.
+    The key is absent, not null, when the entity has no Wikipedia page. A client cannot derive
+    this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
+    attribution pointing at the exact article the prose came from.
 
     The seasons list contains every season of this series from T_WC_TMDB_SEASON,
     ordered by SEASON_NUMBER ASC; each element carries ID_SEASON, SEASON_NUMBER, TITLE,
@@ -4057,6 +4132,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
                 backdrops = cursor.fetchall()
                 wikipedia_images = _fetch_wikipedia_images(cursor, serie.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, serie.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, serie.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, serie, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_tmdb_videos(cursor, "serie", id) + _fetch_wikidata_videos(cursor, serie.get("ID_WIKIDATA"))
                 collection_contexts = _all_collection_contexts(cursor, "serie", id, ui_language)
@@ -4100,6 +4176,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
             "pagination": pagination,
             "data_freshness": data_freshness,
         }
+        _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage("series", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
@@ -4151,6 +4228,15 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    The wikipedia_page object is the source-article reference for that content: lang (the
+    language actually served, which is 'en' when the requested language has no sections),
+    title (WIKIPEDIA_PAGE_TITLE, the article's own title, which is not the entity's title
+    and differs per language) and url (WIKIPEDIA_PAGE_URL). It resolves to the same page row
+    that dates the content, so wikipedia_page.lang always equals data_freshness.wikipedia_lang.
+    The key is absent, not null, when the entity has no Wikipedia page. A client cannot derive
+    this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
+    attribution pointing at the exact article the prose came from.
 
     The videos list contains TMDb-sourced videos for this season from
     T_WC_TMDB_SEASON_VIDEO (no Wikidata media is modeled at the season level). Each
@@ -4326,6 +4412,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                 series = cursor.fetchone()
                 wikipedia_images = _fetch_wikipedia_images(cursor, season.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, season.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, season.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, season, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_tmdb_videos(cursor, "season", id_season)
                 # FASTAPI-TEXT2SQL-183: previous / next season, the pendant of
@@ -4365,6 +4452,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
             "pagination": pagination,
             "data_freshness": data_freshness,
         }
+        _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage(
             "seasons",
             {"id_serie": id_serie, "season_number": season_number, "response": result},
@@ -4432,6 +4520,15 @@ async def get_episode(
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER. Empty when ID_WIKIDATA is
     NULL.
+
+    The wikipedia_page object is the source-article reference for that content: lang (the
+    language actually served, which is 'en' when the requested language has no sections),
+    title (WIKIPEDIA_PAGE_TITLE, the article's own title, which is not the entity's title
+    and differs per language) and url (WIKIPEDIA_PAGE_URL). It resolves to the same page row
+    that dates the content, so wikipedia_page.lang always equals data_freshness.wikipedia_lang.
+    The key is absent, not null, when the entity has no Wikipedia page. A client cannot derive
+    this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
+    attribution pointing at the exact article the prose came from.
 
     The videos list contains TMDb-sourced videos for this episode from
     T_WC_TMDB_EPISODE_VIDEO (no Wikidata media is modeled at the episode level). Each
@@ -4572,6 +4669,7 @@ async def get_episode(
                 series = cursor.fetchone()
                 wikipedia_images = _fetch_wikipedia_images(cursor, episode.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, episode.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, episode.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, episode, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_tmdb_videos(cursor, "episode", id_episode)
                 # FASTAPI-TEXT2SQL-184: previous / next episode WITHIN this season, the
@@ -4612,6 +4710,7 @@ async def get_episode(
             "pagination": pagination,
             "data_freshness": data_freshness,
         }
+        _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage(
             "episodes",
             {
@@ -4663,6 +4762,15 @@ async def get_person(id: int, ui_language: Optional[str] = "en", collection: Opt
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    The wikipedia_page object is the source-article reference for that content: lang (the
+    language actually served, which is 'en' when the requested language has no sections),
+    title (WIKIPEDIA_PAGE_TITLE, the article's own title, which is not the entity's title
+    and differs per language) and url (WIKIPEDIA_PAGE_URL). It resolves to the same page row
+    that dates the content, so wikipedia_page.lang always equals data_freshness.wikipedia_lang.
+    The key is absent, not null, when the entity has no Wikipedia page. A client cannot derive
+    this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
+    attribution pointing at the exact article the prose came from.
 
     The videos list contains Wikidata-sourced videos for this person from
     T_WC_WIKIDATA_MEDIA_RESOURCE (RESOURCE_KIND='video', joined via ID_WIKIDATA);
@@ -4774,6 +4882,7 @@ async def get_person(id: int, ui_language: Optional[str] = "en", collection: Opt
                 portraits = cursor.fetchall()
                 wikipedia_images = _fetch_wikipedia_images(cursor, person.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, person.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, person.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, person, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_wikidata_videos(cursor, person.get("ID_WIKIDATA"))
         if collection is not None:
@@ -4795,6 +4904,7 @@ async def get_person(id: int, ui_language: Optional[str] = "en", collection: Opt
             "pagination": pagination,
             "data_freshness": data_freshness,
         }
+        _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage("persons", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, portraits, "PROFILE_PATH", ui_language)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
@@ -4923,6 +5033,15 @@ async def get_collection(id: int, ui_language: Optional[str] = "en", collection:
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
 
+    The wikipedia_page object is the source-article reference for that content: lang (the
+    language actually served, which is 'en' when the requested language has no sections),
+    title (WIKIPEDIA_PAGE_TITLE, the article's own title, which is not the entity's title
+    and differs per language) and url (WIKIPEDIA_PAGE_URL). It resolves to the same page row
+    that dates the content, so wikipedia_page.lang always equals data_freshness.wikipedia_lang.
+    The key is absent, not null, when the entity has no Wikipedia page. A client cannot derive
+    this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
+    attribution pointing at the exact article the prose came from.
+
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It
     carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
@@ -4964,10 +5083,12 @@ async def get_collection(id: int, ui_language: Optional[str] = "en", collection:
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, collection_row.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, collection_row.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, collection_row.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, collection_row, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**collection_row, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
+        _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage("collections", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -4993,6 +5114,15 @@ async def get_topic(id: int, ui_language: Optional[str] = "en", collection: Opti
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    The wikipedia_page object is the source-article reference for that content: lang (the
+    language actually served, which is 'en' when the requested language has no sections),
+    title (WIKIPEDIA_PAGE_TITLE, the article's own title, which is not the entity's title
+    and differs per language) and url (WIKIPEDIA_PAGE_URL). It resolves to the same page row
+    that dates the content, so wikipedia_page.lang always equals data_freshness.wikipedia_lang.
+    The key is absent, not null, when the entity has no Wikipedia page. A client cannot derive
+    this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
+    attribution pointing at the exact article the prose came from.
 
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It
@@ -5035,10 +5165,12 @@ async def get_topic(id: int, ui_language: Optional[str] = "en", collection: Opti
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, topic.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, topic.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, topic.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, topic, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**topic, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
+        _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage("topics", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -5064,6 +5196,15 @@ async def get_list(id: int, ui_language: Optional[str] = "en", collection: Optio
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    The wikipedia_page object is the source-article reference for that content: lang (the
+    language actually served, which is 'en' when the requested language has no sections),
+    title (WIKIPEDIA_PAGE_TITLE, the article's own title, which is not the entity's title
+    and differs per language) and url (WIKIPEDIA_PAGE_URL). It resolves to the same page row
+    that dates the content, so wikipedia_page.lang always equals data_freshness.wikipedia_lang.
+    The key is absent, not null, when the entity has no Wikipedia page. A client cannot derive
+    this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
+    attribution pointing at the exact article the prose came from.
 
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It
@@ -5106,10 +5247,12 @@ async def get_list(id: int, ui_language: Optional[str] = "en", collection: Optio
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, lst.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, lst.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, lst.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, lst, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**lst, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
+        _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage("lists", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -5135,6 +5278,15 @@ async def get_movement(id: int, ui_language: Optional[str] = "en", collection: O
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    The wikipedia_page object is the source-article reference for that content: lang (the
+    language actually served, which is 'en' when the requested language has no sections),
+    title (WIKIPEDIA_PAGE_TITLE, the article's own title, which is not the entity's title
+    and differs per language) and url (WIKIPEDIA_PAGE_URL). It resolves to the same page row
+    that dates the content, so wikipedia_page.lang always equals data_freshness.wikipedia_lang.
+    The key is absent, not null, when the entity has no Wikipedia page. A client cannot derive
+    this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
+    attribution pointing at the exact article the prose came from.
 
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It
@@ -5177,10 +5329,12 @@ async def get_movement(id: int, ui_language: Optional[str] = "en", collection: O
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, movement.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, movement.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, movement.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, movement, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**movement, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
+        _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage("movements", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -5210,6 +5364,15 @@ async def get_technical(id: int, ui_language: Optional[str] = "en", collection: 
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    The wikipedia_page object is the source-article reference for that content: lang (the
+    language actually served, which is 'en' when the requested language has no sections),
+    title (WIKIPEDIA_PAGE_TITLE, the article's own title, which is not the entity's title
+    and differs per language) and url (WIKIPEDIA_PAGE_URL). It resolves to the same page row
+    that dates the content, so wikipedia_page.lang always equals data_freshness.wikipedia_lang.
+    The key is absent, not null, when the entity has no Wikipedia page. A client cannot derive
+    this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
+    attribution pointing at the exact article the prose came from.
 
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It
@@ -5253,10 +5416,12 @@ async def get_technical(id: int, ui_language: Optional[str] = "en", collection: 
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, technical.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, technical.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, technical.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, technical, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**technical, "movies": data["movies"], "siblings": data["siblings"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
+        _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage("technicals", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -5353,6 +5518,15 @@ async def get_group(id: int, ui_language: Optional[str] = "en", collection: Opti
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
 
+    The wikipedia_page object is the source-article reference for that content: lang (the
+    language actually served, which is 'en' when the requested language has no sections),
+    title (WIKIPEDIA_PAGE_TITLE, the article's own title, which is not the entity's title
+    and differs per language) and url (WIKIPEDIA_PAGE_URL). It resolves to the same page row
+    that dates the content, so wikipedia_page.lang always equals data_freshness.wikipedia_lang.
+    The key is absent, not null, when the entity has no Wikipedia page. A client cannot derive
+    this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
+    attribution pointing at the exact article the prose came from.
+
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It
     carries record_source ('tmdb' | 'wikidata' | 'reference'), record_updated_at (the base
@@ -5387,10 +5561,12 @@ async def get_group(id: int, ui_language: Optional[str] = "en", collection: Opti
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, group.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, group.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, group.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, group, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**group, "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
+        _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage("groups", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -5415,6 +5591,15 @@ async def get_death(id: int, ui_language: Optional[str] = "en", collection: Opti
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    The wikipedia_page object is the source-article reference for that content: lang (the
+    language actually served, which is 'en' when the requested language has no sections),
+    title (WIKIPEDIA_PAGE_TITLE, the article's own title, which is not the entity's title
+    and differs per language) and url (WIKIPEDIA_PAGE_URL). It resolves to the same page row
+    that dates the content, so wikipedia_page.lang always equals data_freshness.wikipedia_lang.
+    The key is absent, not null, when the entity has no Wikipedia page. A client cannot derive
+    this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
+    attribution pointing at the exact article the prose came from.
 
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It
@@ -5450,10 +5635,12 @@ async def get_death(id: int, ui_language: Optional[str] = "en", collection: Opti
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, death.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, death.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, death.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, death, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**death, "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
+        _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage("deaths", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -5479,6 +5666,15 @@ async def get_award(id: int, ui_language: Optional[str] = "en", collection: Opti
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    The wikipedia_page object is the source-article reference for that content: lang (the
+    language actually served, which is 'en' when the requested language has no sections),
+    title (WIKIPEDIA_PAGE_TITLE, the article's own title, which is not the entity's title
+    and differs per language) and url (WIKIPEDIA_PAGE_URL). It resolves to the same page row
+    that dates the content, so wikipedia_page.lang always equals data_freshness.wikipedia_lang.
+    The key is absent, not null, when the entity has no Wikipedia page. A client cannot derive
+    this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
+    attribution pointing at the exact article the prose came from.
 
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It
@@ -5528,10 +5724,12 @@ async def get_award(id: int, ui_language: Optional[str] = "en", collection: Opti
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, award.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, award.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, award.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, award, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**award, "movies": data["movies"], "series": data["series"], "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
+        _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage("awards", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -5557,6 +5755,15 @@ async def get_nomination(id: int, ui_language: Optional[str] = "en", collection:
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    The wikipedia_page object is the source-article reference for that content: lang (the
+    language actually served, which is 'en' when the requested language has no sections),
+    title (WIKIPEDIA_PAGE_TITLE, the article's own title, which is not the entity's title
+    and differs per language) and url (WIKIPEDIA_PAGE_URL). It resolves to the same page row
+    that dates the content, so wikipedia_page.lang always equals data_freshness.wikipedia_lang.
+    The key is absent, not null, when the entity has no Wikipedia page. A client cannot derive
+    this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
+    attribution pointing at the exact article the prose came from.
 
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It
@@ -5606,10 +5813,12 @@ async def get_nomination(id: int, ui_language: Optional[str] = "en", collection:
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, nomination.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, nomination.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, nomination.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, nomination, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**nomination, "movies": data["movies"], "series": data["series"], "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
+        _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage("nominations", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -5635,6 +5844,15 @@ async def get_location(wikidata_id: str, ui_language: Optional[str] = "en", coll
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    The wikipedia_page object is the source-article reference for that content: lang (the
+    language actually served, which is 'en' when the requested language has no sections),
+    title (WIKIPEDIA_PAGE_TITLE, the article's own title, which is not the entity's title
+    and differs per language) and url (WIKIPEDIA_PAGE_URL). It resolves to the same page row
+    that dates the content, so wikipedia_page.lang always equals data_freshness.wikipedia_lang.
+    The key is absent, not null, when the entity has no Wikipedia page. A client cannot derive
+    this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
+    attribution pointing at the exact article the prose came from.
 
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It
@@ -5679,10 +5897,12 @@ async def get_location(wikidata_id: str, ui_language: Optional[str] = "en", coll
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, wikidata_id, ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, wikidata_id, ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, wikidata_id, ui_language)
                 data_freshness = _build_data_freshness(cursor, location, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"wikidata_id": wikidata_id}, collection, data, pagination, kinds, ui_language)
         result = {**location, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
+        _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage("locations", {"wikidata_id": wikidata_id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -6234,7 +6454,13 @@ async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[
     wikipedia_lang (last successful Wikipedia fetch, which is the data date of
     wikipedia_content and wikipedia_images; last crawl attempt; and the language those
     arrays were served in). Use it to tell the user how current the data is instead of
-    implying it is live. Absent from a ?collection= targeted page."""
+    implying it is live. Absent from a ?collection= targeted page.
+
+    wikipedia_page is the source article behind wikipedia_content: lang (the language
+    actually served, always the same as wikipedia_lang above), title (the article's own
+    title, which is not the entity's title and differs per language) and url. The key is
+    absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
+    requires CC BY-SA attribution pointing at this url."""
     return await _mcp_get(f"/movies/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -6279,7 +6505,13 @@ async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional
     wikipedia_lang (last successful Wikipedia fetch, which is the data date of
     wikipedia_content and wikipedia_images; last crawl attempt; and the language those
     arrays were served in). Use it to tell the user how current the data is instead of
-    implying it is live. Absent from a ?collection= targeted page."""
+    implying it is live. Absent from a ?collection= targeted page.
+
+    wikipedia_page is the source article behind wikipedia_content: lang (the language
+    actually served, always the same as wikipedia_lang above), title (the article's own
+    title, which is not the entity's title and differs per language) and url. The key is
+    absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
+    requires CC BY-SA attribution pointing at this url."""
     return await _mcp_get(f"/series/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -6309,7 +6541,13 @@ async def _mcp_get_person(id: int, ui_language: str = "en", collection: Optional
     wikipedia_lang (last successful Wikipedia fetch, which is the data date of
     wikipedia_content and wikipedia_images; last crawl attempt; and the language those
     arrays were served in). Use it to tell the user how current the data is instead of
-    implying it is live. Absent from a ?collection= targeted page."""
+    implying it is live. Absent from a ?collection= targeted page.
+
+    wikipedia_page is the source article behind wikipedia_content: lang (the language
+    actually served, always the same as wikipedia_lang above), title (the article's own
+    title, which is not the entity's title and differs per language) and url. The key is
+    absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
+    requires CC BY-SA attribution pointing at this url."""
     return await _mcp_get(f"/persons/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -6328,7 +6566,13 @@ async def _mcp_get_collection(id: int, ui_language: str = "en", collection: Opti
     wikipedia_lang (last successful Wikipedia fetch, which is the data date of
     wikipedia_content and wikipedia_images; last crawl attempt; and the language those
     arrays were served in). Use it to tell the user how current the data is instead of
-    implying it is live. Absent from a ?collection= targeted page."""
+    implying it is live. Absent from a ?collection= targeted page.
+
+    wikipedia_page is the source article behind wikipedia_content: lang (the language
+    actually served, always the same as wikipedia_lang above), title (the article's own
+    title, which is not the entity's title and differs per language) and url. The key is
+    absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
+    requires CC BY-SA attribution pointing at this url."""
     return await _mcp_get(f"/collections/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -6347,7 +6591,13 @@ async def _mcp_get_topic(id: int, ui_language: str = "en", collection: Optional[
     wikipedia_lang (last successful Wikipedia fetch, which is the data date of
     wikipedia_content and wikipedia_images; last crawl attempt; and the language those
     arrays were served in). Use it to tell the user how current the data is instead of
-    implying it is live. Absent from a ?collection= targeted page."""
+    implying it is live. Absent from a ?collection= targeted page.
+
+    wikipedia_page is the source article behind wikipedia_content: lang (the language
+    actually served, always the same as wikipedia_lang above), title (the article's own
+    title, which is not the entity's title and differs per language) and url. The key is
+    absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
+    requires CC BY-SA attribution pointing at this url."""
     return await _mcp_get(f"/topics/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -6366,7 +6616,13 @@ async def _mcp_get_list(id: int, ui_language: str = "en", collection: Optional[s
     wikipedia_lang (last successful Wikipedia fetch, which is the data date of
     wikipedia_content and wikipedia_images; last crawl attempt; and the language those
     arrays were served in). Use it to tell the user how current the data is instead of
-    implying it is live. Absent from a ?collection= targeted page."""
+    implying it is live. Absent from a ?collection= targeted page.
+
+    wikipedia_page is the source article behind wikipedia_content: lang (the language
+    actually served, always the same as wikipedia_lang above), title (the article's own
+    title, which is not the entity's title and differs per language) and url. The key is
+    absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
+    requires CC BY-SA attribution pointing at this url."""
     return await _mcp_get(f"/lists/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -6385,7 +6641,13 @@ async def _mcp_get_movement(id: int, ui_language: str = "en", collection: Option
     wikipedia_lang (last successful Wikipedia fetch, which is the data date of
     wikipedia_content and wikipedia_images; last crawl attempt; and the language those
     arrays were served in). Use it to tell the user how current the data is instead of
-    implying it is live. Absent from a ?collection= targeted page."""
+    implying it is live. Absent from a ?collection= targeted page.
+
+    wikipedia_page is the source article behind wikipedia_content: lang (the language
+    actually served, always the same as wikipedia_lang above), title (the article's own
+    title, which is not the entity's title and differs per language) and url. The key is
+    absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
+    requires CC BY-SA attribution pointing at this url."""
     return await _mcp_get(f"/movements/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -6406,7 +6668,13 @@ async def _mcp_get_technical(id: int, ui_language: str = "en", collection: Optio
     wikipedia_lang (last successful Wikipedia fetch, which is the data date of
     wikipedia_content and wikipedia_images; last crawl attempt; and the language those
     arrays were served in). Use it to tell the user how current the data is instead of
-    implying it is live. Absent from a ?collection= targeted page."""
+    implying it is live. Absent from a ?collection= targeted page.
+
+    wikipedia_page is the source article behind wikipedia_content: lang (the language
+    actually served, always the same as wikipedia_lang above), title (the article's own
+    title, which is not the entity's title and differs per language) and url. The key is
+    absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
+    requires CC BY-SA attribution pointing at this url."""
     return await _mcp_get(f"/technicals/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -6440,7 +6708,13 @@ async def _mcp_get_group(id: int, ui_language: str = "en", collection: Optional[
     wikipedia_lang (last successful Wikipedia fetch, which is the data date of
     wikipedia_content and wikipedia_images; last crawl attempt; and the language those
     arrays were served in). Use it to tell the user how current the data is instead of
-    implying it is live. Absent from a ?collection= targeted page."""
+    implying it is live. Absent from a ?collection= targeted page.
+
+    wikipedia_page is the source article behind wikipedia_content: lang (the language
+    actually served, always the same as wikipedia_lang above), title (the article's own
+    title, which is not the entity's title and differs per language) and url. The key is
+    absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
+    requires CC BY-SA attribution pointing at this url."""
     return await _mcp_get(f"/groups/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -6458,7 +6732,13 @@ async def _mcp_get_death(id: int, ui_language: str = "en", collection: Optional[
     wikipedia_lang (last successful Wikipedia fetch, which is the data date of
     wikipedia_content and wikipedia_images; last crawl attempt; and the language those
     arrays were served in). Use it to tell the user how current the data is instead of
-    implying it is live. Absent from a ?collection= targeted page."""
+    implying it is live. Absent from a ?collection= targeted page.
+
+    wikipedia_page is the source article behind wikipedia_content: lang (the language
+    actually served, always the same as wikipedia_lang above), title (the article's own
+    title, which is not the entity's title and differs per language) and url. The key is
+    absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
+    requires CC BY-SA attribution pointing at this url."""
     return await _mcp_get(f"/deaths/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -6475,7 +6755,13 @@ async def _mcp_get_award(id: int, ui_language: str = "en", collection: Optional[
     wikipedia_lang (last successful Wikipedia fetch, which is the data date of
     wikipedia_content and wikipedia_images; last crawl attempt; and the language those
     arrays were served in). Use it to tell the user how current the data is instead of
-    implying it is live. Absent from a ?collection= targeted page."""
+    implying it is live. Absent from a ?collection= targeted page.
+
+    wikipedia_page is the source article behind wikipedia_content: lang (the language
+    actually served, always the same as wikipedia_lang above), title (the article's own
+    title, which is not the entity's title and differs per language) and url. The key is
+    absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
+    requires CC BY-SA attribution pointing at this url."""
     return await _mcp_get(f"/awards/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -6492,7 +6778,13 @@ async def _mcp_get_nomination(id: int, ui_language: str = "en", collection: Opti
     wikipedia_lang (last successful Wikipedia fetch, which is the data date of
     wikipedia_content and wikipedia_images; last crawl attempt; and the language those
     arrays were served in). Use it to tell the user how current the data is instead of
-    implying it is live. Absent from a ?collection= targeted page."""
+    implying it is live. Absent from a ?collection= targeted page.
+
+    wikipedia_page is the source article behind wikipedia_content: lang (the language
+    actually served, always the same as wikipedia_lang above), title (the article's own
+    title, which is not the entity's title and differs per language) and url. The key is
+    absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
+    requires CC BY-SA attribution pointing at this url."""
     return await _mcp_get(f"/nominations/{id}", ui_language, collection, page, rows_per_page)
 
 
@@ -6536,7 +6828,13 @@ async def _mcp_get_location(wikidata_id: str, ui_language: str = "en", collectio
     wikipedia_lang (last successful Wikipedia fetch, which is the data date of
     wikipedia_content and wikipedia_images; last crawl attempt; and the language those
     arrays were served in). Use it to tell the user how current the data is instead of
-    implying it is live. Absent from a ?collection= targeted page."""
+    implying it is live. Absent from a ?collection= targeted page.
+
+    wikipedia_page is the source article behind wikipedia_content: lang (the language
+    actually served, always the same as wikipedia_lang above), title (the article's own
+    title, which is not the entity's title and differs per language) and url. The key is
+    absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
+    requires CC BY-SA attribution pointing at this url."""
     return await _mcp_get(f"/locations/{wikidata_id}", ui_language, collection, page, rows_per_page)
 
 
