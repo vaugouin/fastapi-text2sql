@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2446,
+  "evaluation_category_id": 7,
+  "question_en": "Which production companies produced the most movies with a budget over 200 million dollars?",
+  "question_fr": "Quelles sociétés de production ont produit le plus de films avec un budget supérieur à 200 millions de dollars ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": "(?is)(?=.*\\bCOUNT\\s*\\()(?=.*\\bGROUP\\s+BY\\b)(?=.*\\bID_COMPANY\\b)(?=.*\\bLOGO_PATH\\b)",
+    "query_result": "COUNT(*) &gt; 0"
+  },
+  "comment": "FASTAPI-TEXT2SQL-191. A ranking on companies, so the rule is verified on LOGO_PATH and not only on PROFILE_PATH. A company card with no logo is the same defect as a person card with no portrait.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-08-03",
+  "tim_updated": "2026-08-03T17:57:35"
+}

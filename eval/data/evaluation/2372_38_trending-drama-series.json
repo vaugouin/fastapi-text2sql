@@ -7,7 +7,7 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_SERIE IN (243206, 9323, 94997, 124364, 317270, 2734, 125988, 316540)"
+    "query_result": "ID_SERIE IN (108978, 94997, 5920, 317270, 113962, 2734, 125988, 1416)"
   },
   "comment": null,
   "keywords": null,

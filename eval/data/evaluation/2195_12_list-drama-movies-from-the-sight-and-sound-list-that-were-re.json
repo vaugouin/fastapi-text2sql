@@ -6,7 +6,7 @@
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": null,
-    "sql_query": null,
+    "sql_query": "(?is)(?=.*\\bRELEASE_YEAR\\s+BETWEEN\\s+1970\\s+AND\\s+1979\\b)",
     "query_result": "ID_MOVIE IN (238, 28, 103, 3175, 216, 1398, 1396, 4495, 44012, 27432, 27019, 80560, 77771)"
   },
   "comment": null,
@@ -16,5 +16,5 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-02-11",
-  "tim_updated": "2026-04-01T21:57:13"
+  "tim_updated": "2026-08-03T11:44:16"
 }

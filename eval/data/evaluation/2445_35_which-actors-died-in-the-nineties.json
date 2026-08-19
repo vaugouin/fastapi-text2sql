@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2445,
+  "evaluation_category_id": 35,
+  "question_en": "Which actors died in the nineties?",
+  "question_fr": "Quels acteurs sont morts dans les années 90 ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": "(?is)(?=.*\\bDEATH_YEAR\\s+BETWEEN\\s+1990\\s+AND\\s+1999\\b)",
+    "query_result": "COUNT(*) &gt; 0"
+  },
+  "comment": "FASTAPI-TEXT2SQL-187. Same gesture on a death year, the other column the bank never measured under this angle.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-08-03",
+  "tim_updated": "2026-08-03T17:57:26"
+}

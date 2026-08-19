@@ -7,7 +7,7 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "COUNT(*) &gt; 0"
+    "query_result": "ID_MOVIE IN (2011, 8885, 823219, 441130, 9662, 51739, 393559, 309809)"
   },
   "comment": null,
   "keywords": null,
@@ -16,5 +16,5 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-02-15",
-  "tim_updated": "2026-04-01T21:57:33"
+  "tim_updated": "2026-07-14T00:09:22"
 }

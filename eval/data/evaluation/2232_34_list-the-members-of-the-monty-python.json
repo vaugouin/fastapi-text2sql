@@ -7,7 +7,7 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_PERSON IN (8930, 10713, 280, 383, 10707, 10722)"
+    "query_result": "ID_PERSON IN (383, 8930, 10713, 280, 10722, 10707)"
   },
   "comment": null,
   "keywords": null,

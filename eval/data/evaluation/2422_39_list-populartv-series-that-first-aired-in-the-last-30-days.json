@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2422,
+  "evaluation_category_id": 39,
+  "question_en": "List populartv series that first aired in the last 30 days",
+  "question_fr": "Listez les séries télévisées populaires qui ont été diffusées pour la première fois au cours des 30 derniers jours.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_SERIE IN (291496, 283297, 287620, 289139, 298168, 95350, 287238, 284753)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 0,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-07-13",
+  "tim_updated": "2026-08-17T09:18:43"
+}

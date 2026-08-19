@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2433,
+  "evaluation_category_id": 12,
+  "question_en": "Give me the best English-language feature-length comedies from the 1950s",
+  "question_fr": "Donnez-moi les meilleures comédies de long métrage en langue anglaise des années 1950.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (872, 284, 239, 804, 11787, 632, 11898, 28971)"
+  },
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 0,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-07-14",
+  "tim_updated": "2026-08-17T09:18:53"
+}

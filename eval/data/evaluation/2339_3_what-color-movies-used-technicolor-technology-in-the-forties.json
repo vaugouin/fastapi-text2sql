@@ -6,7 +6,7 @@
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": null,
-    "sql_query": "(?is)(?=.*\\bID_TECHNICAL\\s*=\\s*4\\b)",
+    "sql_query": "(?is)(?=.*\\bID_TECHNICAL\\s*=\\s*4\\b)(?=.*\\bRELEASE_YEAR\\s+BETWEEN\\s+1940\\s+AND\\s+1949\\b)",
     "query_result": null
   },
   "comment": "ID_CONTENT IN (1580, 19542, 28162, 25037, 10895, 16391, 4174, 909, 3170, 17645)",
@@ -16,5 +16,5 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-05-03",
-  "tim_updated": "2026-05-03T17:11:12"
+  "tim_updated": "2026-08-03T11:44:17"
 }

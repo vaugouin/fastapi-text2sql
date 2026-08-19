@@ -1866,6 +1866,15 @@ CREATE TABLE `T_WC_TMDB_PLEX_MOVIE` (
   `PLEX_SLUG` varchar(255) DEFAULT NULL,
   `DATA_TYPE` int(5) DEFAULT NULL,
   `QUALITY_MAX` int(5) DEFAULT NULL,
+  `ID_PLEX_PARENT` int(11) DEFAULT NULL COMMENT 'metadata_items.parent_id : NULL pour un film et une serie, serie pour une saison, saison pour un episode',
+  `SEASON_NUMBER` int(5) DEFAULT NULL COMMENT 'metadata_items.index d une saison, recopie sur ses episodes',
+  `EPISODE_NUMBER` int(5) DEFAULT NULL COMMENT 'metadata_items.index d un episode',
+  `FILE_SEASON_NUMBER` int(5) DEFAULT NULL COMMENT 'numero de saison lu dans le nom de fichier, a confronter a SEASON_NUMBER',
+  `FILE_EPISODE_NUMBER` int(5) DEFAULT NULL COMMENT 'numero d episode lu dans le nom de fichier, a confronter a EPISODE_NUMBER',
+  `ID_SERIE` int(11) DEFAULT NULL COMMENT 'cle TMDb, denormalisee sur la saison et l episode',
+  `ID_SEASON` int(11) DEFAULT NULL COMMENT 'cle TMDb, denormalisee sur l episode',
+  `ID_EPISODE` int(11) DEFAULT NULL COMMENT 'cle TMDb',
+  `EPISODE_COUNT_PLEX` int(5) DEFAULT NULL COMMENT 'sur une saison : episodes reellement presents dans Plex, a confronter a T_WC_TMDB_SEASON.EPISODE_COUNT',
   PRIMARY KEY (`ID_PLEX_MOVIE`),
   KEY `ID_MOVIE` (`ID_MOVIE`),
   KEY `DELETED` (`DELETED`),
@@ -1892,7 +1901,18 @@ CREATE TABLE `T_WC_TMDB_PLEX_MOVIE` (
   KEY `PLEX_GUID` (`PLEX_GUID`),
   KEY `PLEX_SLUG` (`PLEX_SLUG`),
   KEY `DATA_TYPE` (`DATA_TYPE`),
-  KEY `QUALITY_MAX` (`QUALITY_MAX`)
+  KEY `QUALITY_MAX` (`QUALITY_MAX`),
+  KEY `ID_PLEX_PARENT` (`ID_PLEX_PARENT`),
+  KEY `SEASON_NUMBER` (`SEASON_NUMBER`),
+  KEY `EPISODE_NUMBER` (`EPISODE_NUMBER`),
+  KEY `FILE_SEASON_NUMBER` (`FILE_SEASON_NUMBER`),
+  KEY `FILE_EPISODE_NUMBER` (`FILE_EPISODE_NUMBER`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `ID_SEASON` (`ID_SEASON`),
+  KEY `ID_EPISODE` (`ID_EPISODE`),
+  KEY `EPISODE_COUNT_PLEX` (`EPISODE_COUNT_PLEX`),
+  KEY `DATA_TYPE_ID_SERIE` (`DATA_TYPE`,`ID_SERIE`),
+  KEY `DATA_TYPE_ID_PLEX_PARENT` (`DATA_TYPE`,`ID_PLEX_PARENT`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;

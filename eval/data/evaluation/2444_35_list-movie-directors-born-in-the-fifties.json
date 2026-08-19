@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2444,
+  "evaluation_category_id": 35,
+  "question_en": "List movie directors born in the fifties",
+  "question_fr": "Listez les réalisateurs de films nés dans les années 50",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": "(?is)(?=.*\\bBIRTH_YEAR\\s+BETWEEN\\s+1950\\s+AND\\s+1959\\b)",
+    "query_result": "COUNT(*) &gt; 0"
+  },
+  "comment": "FASTAPI-TEXT2SQL-187. A decade on a birth year. The +-1 tolerance written for movie release years has no justification here: a person has one birth date, so a director born in 1949 or in 1960 is simply a wrong answer.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-08-03",
+  "tim_updated": "2026-08-03T17:57:31"
+}

@@ -6,7 +6,7 @@
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": null,
-    "sql_query": null,
+    "sql_query": "(?is)(?=.*\\bRELEASE_YEAR\\s+BETWEEN\\s+1950\\s+AND\\s+1959\\b)",
     "query_result": "ID_MOVIE IN (567, 872, 213, 426, 826, 665, 301, 12501, 6844, 3114, 3109, 488, 10178, 5506, 43316, 3110, 830, 3111, 33454, 78331, 27029, 20324, 4412, 574, 381, 5996, 29376, 18264, 17729, 11224, 43253, 20442, 12092, 45213, 69605, 10339, 173, 11848, 61934, 43350, 38732, 14117, 50363, 18776, 43008, 43390, 37292, 11570, 759, 16514)"
   },
   "comment": null,
@@ -16,5 +16,5 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-02-09",
-  "tim_updated": "2026-04-01T21:56:56"
+  "tim_updated": "2026-08-03T11:44:17"
 }
