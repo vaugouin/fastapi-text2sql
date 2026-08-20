@@ -126,26 +126,51 @@ def _fetch_latest_cache_entry(connection, *, where_clause: str, where_params: tu
     return _normalize_cache_row(row)
 
 
-def search_sql_cache_by_question_hash(connection, question_hash: str, api_version: str, ui_language: str = "en") -> dict[str, Any]:
-    """Look up the latest cache entry by hashed original question text."""
+# A lookup must target one side of the cache and only that side. Without this clause, a raw
+# question and its anonymized form that happen to be the SAME string (entity extraction
+# extracted nothing, so `input_text_anonymized == question`) produce two rows sharing QUESTION
+# and QUESTION_HASHED, and `ORDER BY TIM_UPDATED DESC LIMIT 1` cannot separate them: both are
+# written in the same request and TIM_UPDATED is a second-granularity datetime, so the row
+# served depends on the execution plan. Harmless while the twins are byte-identical, a coin
+# toss the day anything makes the two payloads diverge before the write.
+#
+# NULL is treated as non-anonymized: the writer has always passed 0 or 1 explicitly, so a NULL
+# can only be a legacy row predating the column, and those are raw questions. Tighten to a bare
+# `IS_ANONYMIZED = 0` once a count confirms no NULL remains (same method as -163 for UI_LANGUAGE).
+_ANONYMIZED_CLAUSE = {
+    False: "(IS_ANONYMIZED = 0 OR IS_ANONYMIZED IS NULL)",
+    True: "IS_ANONYMIZED = 1",
+}
+
+
+def search_sql_cache_by_question_hash(connection, question_hash: str, api_version: str, ui_language: str = "en", is_anonymized: bool = False) -> dict[str, Any]:
+    """Look up the latest cache entry by hashed original question text.
+
+    ``is_anonymized`` selects which side of the cache to read: the raw questions (default)
+    or the anonymized ones. See ``_ANONYMIZED_CLAUSE`` for why the two must never mix.
+    """
     return _fetch_latest_cache_entry(
         connection,
         # FASTAPI-TEXT2SQL-163: a cache hit is served only for the SAME ui_language. The old
         # `OR UI_LANGUAGE IS NULL` let a language-less legacy row match any language (a
         # cross-language leak); verified in DB that 0 rows have UI_LANGUAGE IS NULL, so the
         # clause was dead and is removed before multilingual serving makes the leak real.
-        where_clause="QUESTION_HASHED = %s AND UI_LANGUAGE = %s",
+        where_clause=f"QUESTION_HASHED = %s AND UI_LANGUAGE = %s AND {_ANONYMIZED_CLAUSE[bool(is_anonymized)]}",
         where_params=(question_hash, ui_language),
         api_version=api_version,
     )
 
 
-def search_sql_cache_by_question_text(connection, question_text: str, api_version: str, ui_language: str = "en") -> dict[str, Any]:
-    """Look up the latest cache entry by exact stored question text."""
+def search_sql_cache_by_question_text(connection, question_text: str, api_version: str, ui_language: str = "en", is_anonymized: bool = False) -> dict[str, Any]:
+    """Look up the latest cache entry by exact stored question text.
+
+    ``is_anonymized`` selects which side of the cache to read: the raw questions (default)
+    or the anonymized ones. See ``_ANONYMIZED_CLAUSE`` for why the two must never mix.
+    """
     return _fetch_latest_cache_entry(
         connection,
         # FASTAPI-TEXT2SQL-163: same-ui_language-only (see the hash lookup above).
-        where_clause="QUESTION = %s AND UI_LANGUAGE = %s",
+        where_clause=f"QUESTION = %s AND UI_LANGUAGE = %s AND {_ANONYMIZED_CLAUSE[bool(is_anonymized)]}",
         where_params=(question_text, ui_language),
         api_version=api_version,
     )

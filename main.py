@@ -1810,6 +1810,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 request.question_hashed,
                 strapiversionformatted,
                 ui_language=request.ui_language,
+                is_anonymized=False,
             )
             if not cache_result_exact.get("found"):
                 print("Exact question hash not found in the SQL cache")
@@ -1830,6 +1831,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 request.question,
                 strapiversionformatted,
                 ui_language=request.ui_language,
+                is_anonymized=False,
             )
             if not cache_result_exact.get("found"):
                 print("Exact question not found in the SQL cache")
@@ -1994,6 +1996,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 input_text_anonymized,
                 strapiversionformatted,
                 ui_language=request.ui_language,
+                is_anonymized=True,
             )
             
             if cache_result_anonymized.get("found"):
@@ -2862,10 +2865,24 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 result_entity=result_entity or "",
             )
 
-        # Store to SQL cache if requested and not already stored as exact question or anonymized question
-        if request.store_to_cache and not cached_exact_question and not cached_anonymized_question and not sql_execution_failed and request.question:
+        # Store to SQL cache if requested and not already stored as exact question or anonymized question.
+        # When entity extraction extracted nothing, input_text_anonymized IS request.question and
+        # question_hashed is the same hash, so this row would be a byte-identical twin of the exact
+        # row above (the _anonymized payloads only diverge from their siblings when entity resolution
+        # substitutes placeholders). Such a twin can never be reached by a DIFFERENT question, which
+        # is the only reason an anonymized row exists, and it is served by the exact-question lookup
+        # at the top of the pipeline anyway. Skip it: it costs a row and makes the cache lookup
+        # ambiguous between two rows sharing the same QUESTION and QUESTION_HASHED.
+        if (
+            request.store_to_cache
+            and not cached_exact_question
+            and not cached_anonymized_question
+            and not sql_execution_failed
+            and request.question
+            and input_text_anonymized != request.question
+        ):
             messages.append(TextMessage(
-                position=position_counter, 
+                position=position_counter,
                 text="Storing anonymized question and SQL query to cache."
             ))
             position_counter += 1
@@ -2887,7 +2904,19 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 ui_language=request.ui_language,
                 result_entity=result_entity or "",
             )
-        
+        elif (
+            request.store_to_cache
+            and not cached_exact_question
+            and not cached_anonymized_question
+            and not sql_execution_failed
+            and request.question
+        ):
+            messages.append(TextMessage(
+                position=position_counter,
+                text="Anonymized question is identical to the original (entity extraction extracted nothing); skipping the redundant anonymized cache row."
+            ))
+            position_counter += 1
+
         if USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE and request.store_to_cache and not cached_anonymized_question_embedding and not sql_execution_failed and input_text_anonymized:
             messages.append(TextMessage(
                 position=position_counter, 
