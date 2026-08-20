@@ -54,6 +54,14 @@ CREATE TABLE `T_WC_T2S_AWARD` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_T2S_AWARD_CLASS` (
+  `ID_CLASS` varchar(50) NOT NULL,
+  `DAT_CREAT` datetime DEFAULT current_timestamp(),
+  PRIMARY KEY (`ID_CLASS`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_T2S_CACHE` (
   `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
   `QUESTION` mediumtext DEFAULT NULL,
