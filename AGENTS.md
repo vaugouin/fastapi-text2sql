@@ -94,6 +94,8 @@ Edit at the right layer; the architecture is intentionally split.
 - `entity_resolution.json` — per-placeholder resolution strategy list (loaded by [entity.py](entity.py))
 - `closed_vocabularies.json` — alias dictionaries (loaded by [closed_vocab.py](closed_vocab.py))
 
+**[maintenance/](maintenance/)** — one-shot operational SQL, run by hand against the production DB, no code path loads it. Distinct from `doc/sql/` (reference DDL, read-only) and from `eval/assertions-*.sql` (which writes to the evaluation bank): this folder writes to operational tables, `T_WC_T2S_CACHE` first among them. Conventions and the cache facts a cleanup relies on are in [maintenance/AGENTS.md](maintenance/AGENTS.md); read it before adding or running anything there.
+
 ---
 
 ## Runtime dependencies
