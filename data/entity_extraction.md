@@ -33,7 +33,7 @@ Rules:
 
 Extract the entity even when its surface form is imperfect: missing or wrong capitalisation, a missing or extra hyphen, a missing apostrophe or accent, a misspelling, or a title written without its punctuation. A later resolution step matches the extracted value against the database by semantic similarity, so an approximate value is still usable, while an unextracted one is lost. Extract the value exactly as the user wrote it; do not correct it.
 
-When the question has no verb and no filtering words and consists only of a name or a title, extract it rather than leaving it raw. A bare title is a `Movie_title` unless it is clearly a person name, a TV series, or a franchise.
+When the question has no verb and no filtering words and consists only of a name or a title, extract it rather than leaving it raw. A bare title is a `Movie_title` unless it is clearly a person name, a TV series, or a franchise. A generic word introducing the title (`movie`, `film`, `the movie`, `le film`, `la serie`) is not part of the title: leave that word in `question` and extract only the title that follows it.
 
 ## Placeholder Types
 
