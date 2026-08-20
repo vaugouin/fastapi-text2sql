@@ -24,10 +24,16 @@ Rules:
 - Do not use markdown or code fences
 - Do not add comments
 - Do not invent entities that are not clearly present in the user question
-- If uncertain, leave the text in `question` and do not extract it
+- If a fragment names no entity at all, leave it in `question`. If you can tell it names an entity but not which type fits best, choose the closest type and extract it anyway
 - For every placeholder used in `question`, include the corresponding key and value
 - Do not include entity keys that are not used in `question`
 - Preserve the original surface form of the extracted value unless a rule below says otherwise
+
+## Surface Form Tolerance
+
+Extract the entity even when its surface form is imperfect: missing or wrong capitalisation, a missing or extra hyphen, a missing apostrophe or accent, a misspelling, or a title written without its punctuation. A later resolution step matches the extracted value against the database by semantic similarity, so an approximate value is still usable, while an unextracted one is lost. Extract the value exactly as the user wrote it; do not correct it.
+
+When the question has no verb and no filtering words and consists only of a name or a title, extract it rather than leaving it raw. A bare title is a `Movie_title` unless it is clearly a person name, a TV series, or a franchise.
 
 ## Placeholder Types
 
