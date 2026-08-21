@@ -61,4 +61,10 @@ This folder writes to **operational** tables, `T_WC_T2S_CACHE` first among them.
 ## Files
 
 - `cache-jumelles-et-empoisonnees.sql` — twin rows, and the subset poisoned by an
-  empty extraction that still returns zero rows to users. Not yet applied.
+  empty extraction that still returns zero rows to users. Read sections run
+  2026-08-21, write sections deliberately not run: 0 poisoned entries, 1 twin
+  pair that the payload guard correctly refuses. Its section 1 doubles as a
+  regression check on the write-side guard, with a measured baseline of one pair.
+- `cache-jumelle-charges-divergentes.sql` — read-only diagnostic on that single
+  pair, whose two rows carry different payloads. That should not be possible
+  under the twin model, and reading the code did not explain it. Open question.

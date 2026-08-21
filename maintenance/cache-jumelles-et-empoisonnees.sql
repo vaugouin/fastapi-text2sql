@@ -1,9 +1,22 @@
 -- Cache maintenance: twin rows, and entries poisoned by an empty extraction.
 --
--- NOT YET APPLIED. Read-only sections first (0 to 3), writes last (4 to 6), and the two
--- cleanups must run in the order given: section 5 before section 6. Every write is a soft
--- delete (DELETED = 1), which every cache lookup already honours, so all of it is undone
--- with a single UPDATE.
+-- READ SECTIONS RUN 2026-08-21, WRITE SECTIONS DELIBERATELY NOT RUN: there was nothing to
+-- clean. Read-only sections first (0 to 3), writes last (4 to 6), and the two cleanups must
+-- run in the order given: section 5 before section 6. Every write is a soft delete
+-- (DELETED = 1), which every cache lookup already honours, so all of it is undone with a
+-- single UPDATE.
+--
+-- WHAT THE 2026-08-21 RUN FOUND
+--   1441 live raw rows, 972 anonymized, a single API_VERSION (001.001.017), oldest entry
+--   2026-06-29. That date is the answer to the obvious question, why the May-to-June
+--   regression left no poisoned entries: strapiversion moved to 1.1.17 on 2026-06-24 and
+--   invalidated everything older. The only two poisoned entries we knew of, "Les bas fonds"
+--   and "the big lebovski", were deleted by hand on 2026-08-20.
+--   Poisoned entries: 0. Twin pairs: 1, and its two rows do NOT carry the same payload, so
+--   the section 6 guard refuses it. Sections 4 to 6 are therefore no-ops today.
+--   No NULL bucket in IS_ANONYMIZED, which retires the legacy tolerance in sql_cache.py.
+--   That single anomalous pair is investigated in cache-jumelle-charges-divergentes.sql.
+--   It contradicts the model below and is not yet explained.
 --
 --
 -- 1. THE TWIN ROW, AND WHY IT IS THE MARKER
@@ -46,9 +59,11 @@
 --
 -- 3. A LASTING USE
 --
--- Section 1 should return zero from now on. If it ever returns rows again, the write-side
--- guard in main.py has regressed. Re-running it after a deploy costs nothing and is a
--- cheaper regression check than anything in eval/.
+-- Section 1 is a regression check on the write-side guard in main.py. The measured baseline
+-- on 2026-08-21 is ONE pair, the unexplained one from 2026-07-14, not zero. Any pair beyond
+-- that, or any pair with a TIM_UPDATED later than the guard landing in commit 3a86239, means
+-- the guard regressed. Re-running it after a deploy costs nothing and catches that faster
+-- than anything in eval/.
 
 
 -- ===========================================================================
