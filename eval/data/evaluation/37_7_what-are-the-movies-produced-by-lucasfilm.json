@@ -5,7 +5,7 @@
   "question_fr": "Quels sont les films produits par Lucasfilm ?",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Company_name1&quot;]) AND matches($.Company_name1, /^lucasfilm$/i)",
     "sql_query": null,
     "query_result": "ID_MOVIE IN (1891, 11, 85, 1892, 89, 51888, 42979, 42982, 27064, 184902, 330459, 140607, 1895, 87, 1183093, 838, 12144, 222065, 222064, 13597, 222041, 222063, 847, 222050, 136406, 222051, 222047, 222053, 222054, 70608, 222059, 47025, 222039, 348350, 222058, 36751, 28176, 222046, 139282, 181808, 222055, 222037, 222042, 222066, 222040, 222057, 222062, 417775, 1894, 335977)"
   },

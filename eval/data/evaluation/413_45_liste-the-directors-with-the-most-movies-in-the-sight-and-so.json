@@ -5,7 +5,7 @@
   "question_fr": "Listez les réalisateurs ayant le plus de films dans la liste Sight and Sound.",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Department_name1&quot;,&quot;List_name1&quot;])",
     "sql_query": "(?is)(?=.*\\bCOUNT\\s*\\()(?=.*\\bGROUP\\s+BY\\b)(?=.*\\bID_PERSON\\b)(?=.*\\bPROFILE_PATH\\b)",
     "query_result": "ID_PERSON IN (2636, 8452, 3776, 8471, 3146, 240, 83199, 10346, 5602, 608, 13848, 130030, 5026, 5015, 8635, 11572, 6817, 97202, 14438, 1776, 12453, 4415, 37846, 9956, 95501, 25801, 68424, 143035, 68, 143707, 1032, 1123022, 2653, 578, 213294, 37833, 975306, 8500, 1701297, 124137, 1106982, 30632, 1273295, 9084, 36188, 523675, 1835621, 1335417, 6935, 69759)"
   },

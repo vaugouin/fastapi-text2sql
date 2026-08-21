@@ -5,7 +5,7 @@
   "question_fr": "Liste des films tournés à Tokyo",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Location_name1&quot;]) AND matches($.Location_name1, /^Tokyo$/i)",
     "sql_query": null,
     "query_result": "ID_MOVIE IN (27205, 153, 28422, 14525, 44737, 42041, 1053460, 899139)"
   },

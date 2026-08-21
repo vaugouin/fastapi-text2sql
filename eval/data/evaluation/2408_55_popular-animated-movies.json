@@ -5,9 +5,9 @@
   "question_fr": "Films d'animation populaires",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Movie_genre1&quot;]) AND matches($.Movie_genre1, /^Animation$/i)",
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (1315772, 1084244, 980431, 1311031, 1084242, 1226863, 569094, 324857)"
+    "query_result": "ID_MOVIE IN (1084244, 1315772, 980431, 1311031, 1084242, 569094, 1226863, 324857)"
   },
   "comment": null,
   "keywords": null,

@@ -5,7 +5,7 @@
   "question_fr": "Répertoriez les films se déroulant à San Francisco.",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Location_name1&quot;]) AND matches($.Location_name1, /^San Francisco$/i)",
     "sql_query": null,
     "query_result": "ID_MOVIE IN (13, 299534, 426, 150540, 37247, 574074, 1402, 1405, 963, 678, 26022, 13475, 898, 43442, 343, 32488, 1879, 154, 19931, 2649, 1949, 984, 100343, 592, 54138, 86737, 14588, 571, 101504, 61791, 119450, 11610, 6949, 19171, 43522, 3766, 10139, 33931, 65215, 11093, 628, 16227, 10734, 20025, 11850, 9802, 549484)"
   },

@@ -5,7 +5,7 @@
   "question_fr": "Films dans le top 250 IMDb",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;List_name1&quot;]) AND matches($.List_name1, /^top 250 IMDb$/i)",
     "sql_query": null,
     "query_result": "ID_MOVIE IN (278, 238, 240, 155, 389, 424, 122, 680, 429, 120, 550, 13, 27205, 121, 1891, 603, 769, 510, 346, 807, 637, 598, 274, 1585, 11, 857, 129, 497, 496243, 157336, 101, 629, 14537, 8587, 105, 423, 280, 73, 3082, 539, 556574, 98, 901, 1422, 77338, 244786, 1124, 12477, 335, 289)"
   },

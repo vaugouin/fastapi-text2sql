@@ -5,7 +5,7 @@
   "question_fr": "Films ayant remporté le César du meilleur film",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Award_name1&quot;])",
     "sql_query": null,
     "query_result": "ID_MOVIE IN (21575, 18, 13635, 11042, 11439, 430424, 1716, 4202, 197082, 12652, 46334, 76482, 78376, 1549, 31353, 33491)"
   },

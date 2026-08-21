@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2470,
+  "evaluation_category_id": 49,
+  "question_en": "Which actors were nominated for the Golden Globe?",
+  "question_fr": "Quels acteurs ont été nommés au Golden Globe ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": "seteq(entity_keys($), [&quot;Nomination_name1&quot;]) AND matches($.Nomination_name1, /^Golden Globe$/i)",
+    "sql_query": null,
+    "query_result": null
+  },
+  "comment": "Same boundary on the person side.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-08-21",
+  "tim_updated": "2026-08-21T08:04:44"
+}

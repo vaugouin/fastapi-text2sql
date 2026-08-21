@@ -5,7 +5,7 @@
   "question_fr": "Quels films en couleur ont utilisé la technologie Technicolor dans les années 40 ?",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Technical_format1&quot;]) AND matches($.Technical_format1, /^Technicolor$/i)",
     "sql_query": "(?is)(?=.*\\bID_TECHNICAL\\s*=\\s*4\\b)(?=.*\\bRELEASE_YEAR\\s+BETWEEN\\s+1940\\s+AND\\s+1949\\b)",
     "query_result": null
   },

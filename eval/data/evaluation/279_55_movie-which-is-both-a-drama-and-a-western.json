@@ -5,7 +5,7 @@
   "question_fr": "Film qui est à la fois drame et western",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Movie_genre1&quot;,&quot;Movie_genre2&quot;])",
     "sql_query": null,
     "query_result": "ID_MOVIE IN (858220, 68718, 335, 3090, 280289, 792754, 31416, 42488, 281957, 40732, 980, 642)"
   },

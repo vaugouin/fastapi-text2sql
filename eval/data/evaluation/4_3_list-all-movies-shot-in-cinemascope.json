@@ -5,7 +5,7 @@
   "question_fr": "Listez tous les films tournés en CinemaScope.",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Technical_format1&quot;]) AND matches($.Technical_format1, /^CinemaScope$/i)",
     "sql_query": "(?is)(?=.*\\bID_TECHNICAL\\s*=\\s*5\\b)",
     "query_result": "ID_MOVIE IN (155, 680, 1891, 280, 11, 569094, 101, 49026, 299534, 85, 299536, 324857, 670, 194, 1892, 62, 272, 634649, 89, 24, 2062, 752, 11778, 22, 826, 263115, 15121, 10386, 118340, 9806, 313369, 281957, 1402, 393, 12104, 1372, 666, 1059, 293660, 18438, 146, 447365, 127585, 137113, 593, 8290, 5528)"
   },

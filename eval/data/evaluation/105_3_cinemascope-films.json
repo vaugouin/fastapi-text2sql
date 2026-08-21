@@ -5,7 +5,7 @@
   "question_fr": "Films en CinémaScope",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Technical_format1&quot;])",
     "sql_query": null,
     "query_result": "ID_MOVIE IN (155, 680, 1891, 280, 11, 569094, 101, 324857, 49026, 299534, 85, 299536, 1892, 670, 194, 62, 24, 634649, 272, 89, 10386, 752, 11778, 22, 2062, 826, 263115, 15121, 1059, 9806, 118340, 293660, 313369, 281957, 12104, 1402, 393, 1372, 666, 18438, 5528, 146, 447365, 127585, 137113, 1726, 593)"
   },

@@ -5,7 +5,7 @@
   "question_fr": "Quels films ont un format d'image de 2,39:1 ?",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Technical_format1&quot;])",
     "sql_query": null,
     "query_result": "ID_MOVIE IN (1333100, 155, 680, 603, 1891, 157336, 348, 98, 496243, 629, 1422, 1480382, 299534, 299536, 28, 85, 354912, 49026, 693134, 16869, 324857, 14, 1892, 194, 361743, 272, 24, 634649, 562, 89, 530915, 22, 78, 210577, 13223, 263115, 10191, 286217, 205596, 293660, 118340, 281957, 438631, 393, 127585, 8290, 447365, 146, 284053, 1726)"
   },

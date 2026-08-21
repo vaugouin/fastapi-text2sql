@@ -5,7 +5,7 @@
   "question_fr": "Quel acteur joue dans les deux films : \n- The Big Lebowski \n- Tron",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Movie_title1&quot;,&quot;Movie_title2&quot;]) AND matches($.Movie_title1, /^The Big Lebowski$/i) AND matches($.Movie_title2, /^Tron$/i)",
     "sql_query": null,
     "query_result": "ID_PERSON IN (1229)"
   },

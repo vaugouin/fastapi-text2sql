@@ -1,0 +1,20 @@
+{
+  "evaluation_id": 2464,
+  "evaluation_category_id": 25,
+  "question_en": "Who is nm0000151?",
+  "question_fr": "Qui est nm0000151 ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": "seteq(entity_keys($), [&quot;IMDb_person_ID1&quot;]) AND matches($.IMDb_person_ID1, /^nm0000151$/i)",
+    "sql_query": null,
+    "query_result": null
+  },
+  "comment": "Bare nm identifier, no surrounding vocabulary at all.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2026-08-21",
+  "tim_updated": "2026-08-21T05:57:19"
+}

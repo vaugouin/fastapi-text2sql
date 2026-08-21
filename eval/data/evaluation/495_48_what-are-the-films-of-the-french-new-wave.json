@@ -5,7 +5,7 @@
   "question_fr": "Quels sont les films de la Nouvelle Vague française ?",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Movement_name1&quot;])",
     "sql_query": null,
     "query_result": "ID_MOVIE IN (54436, 1093, 5562, 2574, 2363, 147, 5544, 45348, 269, 27419, 2546, 1818, 40641, 4024, 31522, 43026, 1628, 662, 499, 64414, 1626, 63880, 52705, 54563, 2593, 266, 5967, 1719, 8073, 53023, 8072, 2786, 4710, 4781, 42726, 1714, 90908, 4837, 2433, 8074, 42722, 1629, 5511, 8075, 4798, 255, 63401, 8286, 2721, 48831)"
   },

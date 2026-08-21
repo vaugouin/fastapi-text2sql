@@ -5,7 +5,7 @@
   "question_fr": "Dressez la liste des personnes décédées dans un accident de voiture.",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Death_name1&quot;])",
     "sql_query": null,
     "query_result": "ID_PERSON IN (2948491, 2749, 98040, 9906, 45001, 45469, 55069, 1306064)"
   },

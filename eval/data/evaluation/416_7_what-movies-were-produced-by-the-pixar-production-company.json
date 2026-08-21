@@ -5,7 +5,7 @@
   "question_fr": "Quels films ont été produits par la société de production Pixar ?",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Company_name1&quot;]) AND matches($.Company_name1, /^Pixar$/i)",
     "sql_query": null,
     "query_result": "ID_MOVIE IN (10681, 354912, 862, 399106, 10193, 877268, 14160, 13042, 12, 2062, 24480, 585, 150540, 508442, 574074, 9806, 40619, 13930, 863, 433471, 83564, 13929, 13060, 301528, 13933, 13413, 13932, 1022789, 200481, 260513, 514754, 706860, 585397, 508943, 355338, 13928, 213121, 747059, 508439, 920, 286192, 77887, 62211, 9487, 574093, 127380, 13925, 256835, 546728, 62177)"
   },

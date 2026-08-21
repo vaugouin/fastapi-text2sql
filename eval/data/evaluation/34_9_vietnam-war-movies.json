@@ -5,7 +5,7 @@
   "question_fr": "Films sur la guerre du Vietnam",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Topic_name1&quot;])",
     "sql_query": null,
     "query_result": "ID_MOVIE IN (77124, 520756, 320597, 37447, 11856, 967702, 726951, 200482, 1190713, 842531, 250761, 110138, 653366, 263086, 1414312, 20181, 2604, 315990, 33545, 11415, 1497305, 967680, 690525, 189696, 66569, 508664, 833136, 239566, 104884, 632660, 364742, 1545211, 18910, 1595, 1150369, 31941, 10654, 967664, 166898, 63951, 486296, 225413, 102699, 597922, 346880, 1468704, 18638, 1369, 1113583, 809374)"
   },

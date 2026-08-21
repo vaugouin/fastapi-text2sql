@@ -5,7 +5,7 @@
   "question_fr": "Liste de films sur le voyage dans le temps",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Topic_name1&quot;])",
     "sql_query": "(?i)\\bTOPIC_NAME\\s*=\\s*[&#039;&quot;‘’]time\\s+travel[&#039;&quot;‘’]",
     "query_result": null
   },

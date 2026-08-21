@@ -5,7 +5,7 @@
   "question_fr": "Liste des réalisateurs japonais",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Department_name1&quot;])",
     "sql_query": null,
     "query_result": "ID_PERSON IN (116371, 1149016, 117158, 1479591, 1165392, 1511843, 1572095, 82953, 133202, 125085, 77679, 1401527, 554492, 1254240, 1508420, 233669, 240845, 21491, 85309, 1269394, 1053634, 998534, 1307287, 1090056, 239339, 587603, 224409, 83762, 107045, 1115707, 1119393, 1074737, 1029270, 1541184, 1082623, 1077301, 89166, 1046090, 2046854, 608, 564863, 1084905, 84748, 1158128, 1533821, 2752335, 5026, 1810580, 2062219, 555340)"
   },

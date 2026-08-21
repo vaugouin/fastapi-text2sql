@@ -5,7 +5,7 @@
   "question_fr": "Des films d'aventure avec Harrison Ford",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": null,
+    "entity_extraction": "seteq(entity_keys($), [&quot;Movie_genre1&quot;,&quot;Person_name1&quot;]) AND matches($.Movie_genre1, /^Adventure$/i) AND matches($.Person_name1, /^Harrison Ford$/i)",
     "sql_query": null,
     "query_result": "ID_MOVIE IN (1891, 11, 85, 1892, 89, 140607, 87, 222064, 330012, 481848, 80274, 11120, 335977, 16972, 17339, 412117, 181812, 217, 138103, 1470789, 26659, 6068, 11375, 221373, 74849)"
   },
