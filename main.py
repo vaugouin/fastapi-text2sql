@@ -1452,6 +1452,7 @@ class Text2SQLResponse(BaseModel):
     question_anonymized: Optional[str] = None
     entity_extraction_processing_time: float
     text2sql_processing_time: float
+    result_entity_processing_time: float = 0.0
     embeddings_processing_time: float
     embeddings_cache_search_time: float = 0.0
     query_execution_time: float
@@ -1566,8 +1567,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             - cached_exact_question, cached_anonymized_question,
               cached_anonymized_question_embedding: Cache hit indicators.
             - entity_extraction_processing_time, text2sql_processing_time,
-              embeddings_processing_time, query_execution_time,
-              total_processing_time: Latency breakdown in seconds.
+              result_entity_processing_time, embeddings_processing_time,
+              query_execution_time, total_processing_time: Latency breakdown in
+              seconds. `result_entity_processing_time` is 0.0 when the
+              answer-entity classifier did not run (no SQL, or a text2sql error).
             - ambiguous_question_for_text2sql: True when the question was too vague to
               produce a SQL query.
             - messages (list): Ordered processing-step messages for debugging.
@@ -1637,6 +1640,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     entity_extraction = None
     entity_extraction_processing_time = 0.0
     text2sql_processing_time = 0.0
+    result_entity_processing_time = 0.0
     embeddings_processing_time = 0.0
     embeddings_cache_search_time = 0.0
     query_execution_time = 0.0
@@ -2225,9 +2229,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             # it. Empty -> fall back to the LLM's own result_entity (legacy behavior).
             expected_result_entity = ""
             if sql_query and not error_text2sql:
+                _result_entity_start_time = time.time()
                 expected_result_entity = t2s.f_classify_result_entity(
                     input_text, list(_RESULT_ENTITY_SOURCES.keys())
                 )
+                result_entity_processing_time = time.time() - _result_entity_start_time
                 if expected_result_entity and expected_result_entity != result_entity:
                     messages.append(TextMessage(
                         position=position_counter,
@@ -3075,6 +3081,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         question_anonymized=input_text_anonymized,
         entity_extraction_processing_time=entity_extraction_processing_time,
         text2sql_processing_time=text2sql_processing_time,
+        result_entity_processing_time=result_entity_processing_time,
         embeddings_processing_time=embeddings_processing_time,
         embeddings_cache_search_time=embeddings_cache_search_time,
         query_execution_time=query_execution_time,
