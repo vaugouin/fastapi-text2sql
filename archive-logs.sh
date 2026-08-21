@@ -20,7 +20,14 @@
 #
 # Cron (1st of each month, 03:30):
 #   30 3 1 * * /home/debian/docker/fastapi-text2sql-blue/archive-logs.sh \
-#     >> /home/debian/docker/fastapi-text2sql-blue/logs/archive/archive.log 2>&1
+#     >> /home/debian/docker/fastapi-text2sql-blue/logs/archive-run.log 2>&1
+#
+# The log of the run sits in logs/, NOT in logs/archive/. The earlier version of this line
+# redirected into logs/archive/archive.log and could never work: the shell opens the redirect
+# target before executing the command, so on a machine where logs/archive/ did not exist yet
+# cron failed with "No such file or directory" and the script never ran to create it. Found on
+# 2026-08-21 on the blue deployment: no archive/ directory, 17 842 loose files, 616 MB. The
+# missing executable bit (fixed in e5cb48b) was a second, independent reason it never ran.
 
 set -euo pipefail
 
