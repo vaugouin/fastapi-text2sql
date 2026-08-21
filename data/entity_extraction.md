@@ -174,6 +174,7 @@ Examples:
 ### Genre disambiguation
 - Picking the right placeholder is determined by what the question is filtering — movies use `Movie_genre`, series/shows/TV use `Serie_genre`. For example, `comedy movies` → `{{Movie_genre1}} = "comedy"`; `comedy series` → `{{Serie_genre1}} = "comedy"`. The two placeholders map to different ID spaces with some overlap (Animation, Comedy, Crime, Documentary, Drama, Family, Mystery, Western are valid on both sides).
 - If the user writes a simple word that matches a supported genre (e.g., `war movies`, `comedy series`), extract it as `Movie_genre` or `Serie_genre`, NOT as `Topic_name`.
+- If the user writes `documentary` or `documentaries` **without** an explicit series/TV or movie context (e.g., `List documentaries`, `best documentaries of 2020`), do **NOT** extract it as a genre at all. Leave the word in the question unchanged so the text-to-SQL step can handle it directly.
 - If the user writes a compound topic that includes a genre word but refers to a specific theme (e.g., `Vietnam war`, `World War II`, `cold war`), extract it as `Topic_name`, NOT as a genre.
 - Do NOT extract a genre when the genre word is part of an **audience or mood descriptor** rather than a genre filter. In `animated films the whole family loves`, `the whole family loves` is praise, NOT the `Family` genre — extract only `Animation`. In `action-packed thriller`, `action-packed` describes the thriller — extract only `Thriller`. Never emit two AND-ed genres from a single descriptor phrase.
 - If the surface form is not in the matching side's supported list above, do NOT extract it as a genre placeholder. Leave it in the anonymized question unchanged, or treat it as a topic if appropriate. In particular: `Action & Adventure`, `Kids`, `News`, `Reality`, `Sci-Fi & Fantasy`, `Soap`, `Talk`, `War & Politics` are TV-only; `Action`, `Adventure`, `Fantasy`, `History`, `Horror`, `Music`, `Romance`, `Science Fiction`, `TV Movie`, `Thriller`, `War` are movie-only.
@@ -194,18 +195,17 @@ Disambiguation:
 - Common synonyms ("cancelled", "annulé", "sorti", "post-production") are accepted at resolution time and resolve to the canonical value above.
 
 ### Serie_type
-Type of a TV series. The value MUST be one of exactly:
-- `Documentary`, `Miniseries`, `News`, `Reality`, `Scripted`, `Talk Show`, `Video`
+**Format** of a TV series, never its subject. The value MUST be one of exactly:
+- `Miniseries`, `Scripted`, `Video`
 
 Examples:
-- `Documentary`
 - `Miniseries`
-- `Talk Show`
+- `Scripted`
 
 Disambiguation:
-- Only extract `Serie_type = Documentary` when the question **explicitly** mentions a TV series, show, or series context (e.g., "documentary series", "documentary TV shows", "documentary shows").
-- If the user writes "documentary" or "documentaries" **without** explicit series/TV context (e.g., "List documentaries", "best documentaries of 2020"), do **NOT** extract it as `Serie_type`, `Movie_genre`, or `Serie_genre`. Leave the word in the question unchanged so the text-to-SQL step can handle it directly.
-- Common synonyms ("doc", "documentaire", "mini-série", "talk-show") are accepted at resolution time and resolve to the canonical value above.
+- `Serie_type` and `Serie_genre` are **disjoint**: no value belongs to both. A word naming what a series is *about* (`documentary`, `news`, `reality`, `talk`) is always a `Serie_genre`, never a `Serie_type`. A word naming how it is *shaped* is a `Serie_type`.
+- The two axes are orthogonal and can appear together: `documentary miniseries` is `Serie_genre = Documentary` AND `Serie_type = Miniseries`.
+- Common synonyms (`mini-série`, `miniserie`, `mini series`) are accepted at resolution time and resolve to the canonical value above.
 
 ### Department_name
 A film/TV **crew** department classification. **Crew-only — never Acting/Actors.** Cast (acting) credits are handled by a separate rule and never produce a `Department_name` placeholder.
@@ -656,8 +656,8 @@ Output:
 Input: `Best documentary series of all time`
 Output:
 {
-  "question": "Best {{Serie_type1}} series of all time",
-  "Serie_type1": "Documentary"
+  "question": "Best {{Serie_genre1}} series of all time",
+  "Serie_genre1": "Documentary"
 }
 
 Input: `What miniseries did HBO produce?`
