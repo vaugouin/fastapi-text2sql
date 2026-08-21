@@ -66,5 +66,22 @@ This folder writes to **operational** tables, `T_WC_T2S_CACHE` first among them.
   pair that the payload guard correctly refuses. Its section 1 doubles as a
   regression check on the write-side guard, with a measured baseline of one pair.
 - `cache-jumelle-charges-divergentes.sql` — read-only diagnostic on that single
-  pair, whose two rows carry different payloads. That should not be possible
-  under the twin model, and reading the code did not explain it. Open question.
+  pair, whose two rows carry different payloads. Explained on 2026-08-21: entity
+  extraction returned the key `Serie_genre1` **without** substituting the
+  placeholder into the question, which the prompt forbids. So a twin forms for
+  two reasons, not one: nothing extracted, or a key extracted without the
+  question being anonymized. The second case leaves an unresolved
+  `'{{Serie_genre1}}'` in the cached SQL, silently returning zero rows.
+- `eval-executions-retirer-1-1-17.sql` — retires the 1.1.17 execution rows so the
+  evaluation suite actually re-runs. Not housekeeping: `text2sql-eval.py` skips
+  any evaluation that already has a live execution row for the same version,
+  models and language, so a "full re-run" over a populated version runs almost
+  nothing. Read the trap section before choosing to keep recent rows.
+- `serie-type-contre-serie-genre.sql` — read-only, decides a modelling question
+  rather than cleaning anything. `Documentary`, `News`, `Reality` and `Talk` sit
+  in BOTH the `Serie_type` and `Serie_genre` vocabularies, so one word maps to
+  two placeholders and two columns with nothing to arbitrate. The agreed
+  direction is to make the vocabularies disjoint, dropping those four from
+  `Serie_type` and keeping `Miniseries`, which is a format no genre expresses.
+  These queries confirm the two columns cover the same series before anything
+  is routed from one to the other.
