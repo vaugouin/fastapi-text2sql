@@ -2,12 +2,18 @@
 #
 # Run the evaluation bank against the deployed API.
 #
-# BEFORE A FULL RE-RUN, RETIRE THE OLD EXECUTIONS
+# A VERSION THAT ALREADY HAS EXECUTIONS RUNS ALMOST NOTHING
 # text2sql-eval.py skips any evaluation that already has a live execution row for the same
 # API_VERSION, the same three models and the same LANG (the `strnotinbase` subquery, around
-# line 372). Re-running a version that already has executions therefore runs almost nothing.
-# Run maintenance/eval-executions-retirer-1-1-17.sql first, or this script will report a
-# suspiciously fast, suspiciously empty pass.
+# line 372). Two ways out. Either bump strapiversion, which opens a clean namespace and keeps
+# the previous version's runs as a comparison point, or retire the old rows with
+# maintenance/eval-executions-retirer-1-1-17.sql. The bump is simpler and is what the repo
+# convention asks for anyway once a data/ prompt has changed. Without either, this script
+# reports a suspiciously fast, suspiciously empty pass.
+#
+# BLUE OR GREEN IS DECIDED BY THE VERSION
+# An even patch targets BLUE, an odd one GREEN, in main.py for the MCP and in
+# text2sql-eval.py:563 for this run. 1.1.18 is even, so deploy on BLUE before launching.
 #
 # LANGUAGE
 # "*" runs English and French in the same pass, one row per evaluation and per language.
@@ -26,7 +32,7 @@
 
 set -u
 
-API_VERSION=${API_VERSION:-1.1.17}
+API_VERSION=${API_VERSION:-1.1.18}
 LANGUAGE=${LANGUAGE:-*}
 ENTITY_EXTRACTION_MODEL=${ENTITY_EXTRACTION_MODEL:-gpt-4o}
 TEXT2SQL_MODEL=${TEXT2SQL_MODEL:-gpt-4o}
@@ -51,9 +57,9 @@ echo "Cache       : $STORE_TO_CACHE"
 echo
 
 if [ "$LANGUAGE" = "*" ]; then
-    echo "Full two-language pass. Did you retire the old $API_VERSION executions first?"
-    echo "  maintenance/eval-executions-retirer-1-1-17.sql, section 3."
-    echo "Without that, evaluations that already have a live execution row are skipped."
+    echo "Full two-language pass. Does $API_VERSION already carry executions?"
+    echo "  If so, bump the version or retire them: any evaluation with a live"
+    echo "  execution row for this version, models and language is skipped."
     echo
 fi
 

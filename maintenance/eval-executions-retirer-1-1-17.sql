@@ -1,7 +1,14 @@
 -- Retire the 1.1.17 evaluation executions so the suite actually re-runs.
 --
--- NOT YET APPLIED. Read section 1 first. Section 3 is the one that writes, section 4 undoes
--- it. Soft delete only (DELETED = 1), which is what every evaluator query already filters on.
+-- NOT APPLIED, AND PROBABLY NEVER WILL BE. On 2026-08-21 the simpler path was taken instead:
+-- strapiversion moved to 1.1.18, which opens an empty execution namespace, needs no writes at
+-- all, and keeps the 1.1.17 runs intact as a comparison point rather than retiring them. The
+-- repo convention asks for that bump anyway once a data/ prompt has changed, and three had.
+-- This file is kept because the trap it documents is permanent and will bite again the day
+-- someone re-runs a version that already carries executions without bumping.
+--
+-- Read section 1 first. Section 3 is the one that writes, section 4 undoes it. Soft delete
+-- only (DELETED = 1), which is what every evaluator query already filters on.
 --
 -- WHY THIS IS NEEDED BEFORE A FULL RUN
 -- The run phase of eval/text2sql-eval.py excludes any evaluation that already has a LIVE
