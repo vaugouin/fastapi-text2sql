@@ -23,15 +23,36 @@ Deeper specs live in their own files:
 
 Pipeline stages:
 - **Infrastructure** — `python` (shared crawler base image), `chromadb` (vector service), `reverseproxy` (NGINX TLS ingress), `chromadb-security-test` (firewall validation).
-- **Acquisition** — `tmdb-crawler`, `imdb-crawler`, `sparql-crawler`, `sparql-movies-persons`, `wikidata-crawler`, `wikipedia-crawler`, `selenium-tmdb`, `download-images`, `sqlite-plex-to-tmdb`, `movieparadise`.
+- **Acquisition** — `tmdb-crawler`, `imdb-crawler`, `sparql-crawler`, `sparql-movies-persons`, `wikidata-crawler`, `wikipedia-crawler`, `selenium-tmdb`, `download-images`, `synthetic-images` (style-locked illustrations for entities with no real image), `sqlite-plex-to-tmdb`, `movieparadise`.
 - **Preprocessing → `T_WC_T2S_*`** — `tmdb-movie-preprocess`, `tmdb-person-preprocess`, `keywords-processing`.
 - **Semantic index & name resolution** — `embedding-update`, `embedding-query`, `rapidfuzz_query`.
 - **Serving** — `fastapi-text2sql` (NL→SQL API + MCP server), `voice-agent`, `tmdb-front` (PHP web front-end).
-- **Evaluation** — `eval-text2sql`, `extract-movie-questions`.
+- **Evaluation** — `extract-movie-questions`. (`eval-text2sql` was removed; the evaluator now lives in this repo under `eval/`.)
 - **Maintenance & tooling** — `plex-duplicates`, `subtitle-translate`, `powershell`, `playwright-test`.
 - **Monitoring & observability** — `data-monitoring`.
 
-**This repository's role:** Serving stage and the engine of the system. A REST API (plus an MCP server) that converts natural-language questions into SQL over the `T_WC_T2S_*` read-model, resolving entities via the ChromaDB collections (`embedding-update`) and the `rapidfuzz_query` person-name module. It is the backend behind `tmdb-front`'s `text2sql-search.php` and the `voice-agent` conversational client, and the target scored by `eval-text2sql`.
+**This repository's role:** Serving stage and the engine of the system. A REST API (plus an MCP server) that converts natural-language questions into SQL over the `T_WC_T2S_*` read-model, resolving entities via the ChromaDB collections (`embedding-update`) and the `rapidfuzz_query` person-name module. It is the backend behind `tmdb-front`'s `text2sql-search.php` and the `voice-agent` conversational client, and the target scored by the evaluator in `eval/`.
+
+---
+
+## Clients of this API — read before flipping Blue/Green
+
+Bumping `strapiversion` moves the deployment to the other colour (even patch → Blue, `API_PORT_BLUE`, 8186; odd → Green, 8187). **Only one client follows that parity on its own.** Every other client has to be pointed by hand, and each does it differently, so the list below is the thing to check before and after a bump. Verified 2026-08-21 while moving to 1.1.18 on Blue.
+
+| client | how it picks a colour | what to change |
+|---|---|---|
+| **evaluator** (`eval/text2sql-eval.py`) | derives the port from the parity of `--api-version`, [line 563](eval/text2sql-eval.py#L563), exactly like `main.py` does | nothing: pass the right `--api-version` |
+| **Claude, via MCP** | `https://www.vaugouin.com/mcp`, routed by **NGINX** | the `reverseproxy` repo, repoint the upstream port |
+| **tmdb-front** (PHP) | `$strtext2sqlapicolor`, **hard-coded** in `lib/global-light.inc.php` (~line 144); both URLs already sit in its `.env` as `TEXT2SQL_API_BLUE_URL` / `TEXT2SQL_API_GREEN_URL` | swap the two commented lines, then deploy the front |
+| **voice-agent** | `TEXT2SQL_BASE_URL` in its `.env`, port written in full | edit the port, restart the service |
+
+Two things worth knowing.
+
+**tmdb-front can be tested on the other colour without switching anyone.** It accepts `?apicolor=Blue` on the URL and remembers it in a cookie, so the new version can be exercised through the real front-end, for one browser only, while everyone else stays on the live colour. That is the cheapest validation available and it needs no deployment.
+
+**The evaluator's working copy on the VPS is `~/docker/text2sql-eval`, not a git checkout.** It holds its own `.env`, `Dockerfile` and copies of the `eval/*.py` files, which drift from this repo silently. Compare sizes before trusting a run. `~/docker/fastapi-text2sql-blue` had the same problem until 2026-08-21, when it was converted to a git clone.
+
+**Not clients, despite appearances:** `data-monitoring` (one mention, a design analogy in its `AGENTS.md`), `extract-movie-questions` (no reference at all). `eval-text2sql` no longer exists, 404 on GitHub.
 
 ---
 
