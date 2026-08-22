@@ -187,7 +187,7 @@ Phase 20 is pure offline scoring — re-runnable after assertion corrections wit
 ### Phase 30 — Export evaluation categories to JSON
 - Reads `T_WC_T2S_EVALUATION_CATEGORY` (full taxonomy, CLI-agnostic — every non-deleted row)
 - Writes one file per category to `/shared/evaluation_category/<evalcatid>_<englishDescriptionSlug>.json`
-- **Skips files that already exist** (idempotent on re-run)
+- **Rewrites a file only when its content changed**, so a re-run with no DB change writes nothing
 - See [§10 JSON Exports for LLM Analysis](#10-json-exports-for-llm-analysis) for the file schema
 
 ### Phase 31 — Export evaluations to JSON
@@ -195,7 +195,7 @@ Phase 20 is pure offline scoring — re-runnable after assertion corrections wit
 - Writes one file per evaluation to `/shared/evaluation/<evalid>_<evalcatid>_<englishDescriptionSlug>.json`
 - Each file embeds the EN + FR question pair, the three assertion strings, the living-assertion pair (`ASSERTION_REFRESH_SQL` / `ASSERTION_REFRESH_LAST`), the originating category ID, and the `LONG_DESC` "why this evaluation was created" comment
 - **Every column of the table is exported**, curated fields under their chosen key and the rest under their lower-cased column name, so a column added later needs no code change. See [§10 Every column is exported](#every-column-is-exported-including-the-ones-added-later)
-- **Skips files that already exist**
+- **Rewrites a file only when its content changed**, so a re-run with no DB change writes nothing
 
 ### Phase 32 — Export evaluation executions to JSON
 - Reads `T_WC_T2S_EVALUATION_EXECUTION` **filtered by the same CLI tuple as Phase 20** (`--api-version`, `--entity-extraction-model`, `--text2sql-model`, `--complex-model`, `--language`)
@@ -205,7 +205,7 @@ Phase 20 is pure offline scoring — re-runnable after assertion corrections wit
   - `YYYYMMDD` is taken from `TIM_EXECUTION` (falls back to `DAT_CREAT`, then today)
   - `evalid` is `ID_T2S_EVALUATION` (added on top of the original spec to disambiguate same-day runs)
 - Each file embeds the parsed `JSON_RESULT` (full API response, including `messages`, `entity_extraction`, `sql_query`, `result`, `answer`), the per-assertion scores, the detailed scoring trace, and the timing breakdown
-- **Skips files that already exist**
+- **Rewrites a file only when its content changed**, so a re-run with no DB change writes nothing
 
 ---
 
@@ -768,7 +768,7 @@ The full `api_output` is the parsed `JSON_RESULT` from the DB — it echoes ever
 
 ### Idempotence
 
-All three export phases **skip files that already exist on disk**. To force a re-export of a single execution row, delete the corresponding JSON file under its run subfolder in `/shared/evaluation_execution/<api_version>_<lang>_<eemodel>_<t2smodel>_<complexmodel>/` and re-run.
+All three export phases compare the serialized payload against what is on disk and **rewrite only when the content differs**; a file whose content is unchanged is reported as `skipped` and left untouched. The earlier wording here ("skip files that already exist") described a behaviour `write_json_if_changed()` never had, and it matters: after a schema or payload change, a plain re-run is enough to refresh every file, and deleting the exports first is neither needed nor useful. To force a rewrite of one execution row regardless, delete its JSON under `/shared/evaluation_execution/<api_version>_<lang>_<eemodel>_<t2smodel>_<complexmodel>/` and re-run.
 
 ### Per-phase summary line
 
