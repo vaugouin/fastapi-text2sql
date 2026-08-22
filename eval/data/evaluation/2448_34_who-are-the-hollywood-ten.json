@@ -9,6 +9,8 @@
     "sql_query": null,
     "query_result": "ID_PERSON IN (11993, 9791, 78158, 64114, 70940, 117850, 90370, 127777, 89084, 19322)"
   },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-08-07",
-  "tim_updated": "2026-08-07T22:27:35"
+  "tim_updated": "2026-08-07T22:27:35",
+  "is_showcase": 0,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

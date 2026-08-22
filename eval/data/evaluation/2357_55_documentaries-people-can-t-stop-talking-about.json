@@ -9,6 +9,8 @@
     "sql_query": null,
     "query_result": "ID_MOVIE IN (1612018, 440249, 1616131, 1173476, 426889, 1522126, 1087040, 78192)"
   },
+  "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.IS_DOCUMENTARY = 1 ORDER BY T_WC_T2S_MOVIE.POPULARITY DESC LIMIT 8",
+  "assertion_refresh_last": "2026-08-22T02:26:52",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-07-05",
-  "tim_updated": "2026-07-12T18:53:10"
+  "tim_updated": "2026-07-12T18:53:10",
+  "is_showcase": 1,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

@@ -9,5 +9,9 @@
   "keywords_auto": null,
   "display_order": 43,
   "dat_creat": "2025-10-30",
-  "tim_updated": "2026-07-11T16:23:43"
+  "tim_updated": "2026-07-11T16:23:43",
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

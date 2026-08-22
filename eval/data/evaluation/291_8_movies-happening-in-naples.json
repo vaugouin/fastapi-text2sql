@@ -9,6 +9,8 @@
     "sql_query": "(?is)(?=.*\\bID_PROPERTY\\s*=\\s*[&#039;&quot;]P840[&#039;&quot;])(?=.*\\b(?:ID_ITEM\\s*=\\s*[&#039;&quot;]Q2634[&#039;&quot;]|ITEM_LABEL\\s*=\\s*[&#039;&quot;‘&#039;]Naples[&#039;&quot;‘&#039;]))",
     "query_result": null
   },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 0,
   "display_order": null,
   "dat_creat": "2025-12-30",
-  "tim_updated": "2026-04-28T16:18:25"
+  "tim_updated": "2026-04-28T16:18:25",
+  "is_showcase": null,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

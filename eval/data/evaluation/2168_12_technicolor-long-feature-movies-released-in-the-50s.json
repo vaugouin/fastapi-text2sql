@@ -9,6 +9,8 @@
     "sql_query": "(?is)(?=.*\\bRELEASE_YEAR\\s+BETWEEN\\s+1950\\s+AND\\s+1959\\b)",
     "query_result": "ID_MOVIE IN (567, 872, 213, 426, 826, 665, 301, 12501, 6844, 3114, 3109, 488, 10178, 5506, 43316, 3110, 830, 3111, 33454, 78331, 27029, 20324, 4412, 574, 381, 5996, 29376, 18264, 17729, 11224, 43253, 20442, 12092, 45213, 69605, 10339, 173, 11848, 61934, 43350, 38732, 14117, 50363, 18776, 43008, 43390, 37292, 11570, 759, 16514)"
   },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-02-09",
-  "tim_updated": "2026-08-03T11:44:17"
+  "tim_updated": "2026-08-03T11:44:17",
+  "is_showcase": null,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

@@ -9,6 +9,8 @@
     "sql_query": null,
     "query_result": "ID_SERIE IN (39651, 210491, 226329, 111188, 124407, 273921, 31750, 301703, 306114, 90621, 128218, 95251, 60549, 302945, 279142, 225008, 126563, 257838, 301278, 286432, 75182, 304848, 47774, 121253, 110695, 240143, 7361, 307174, 194764, 93866)"
   },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-02-09",
-  "tim_updated": "2026-04-01T21:56:55"
+  "tim_updated": "2026-04-01T21:56:55",
+  "is_showcase": null,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

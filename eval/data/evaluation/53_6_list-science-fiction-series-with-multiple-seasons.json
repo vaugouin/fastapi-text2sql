@@ -9,6 +9,8 @@
     "sql_query": null,
     "query_result": "ID_SERIE IN (246, 1399, 1429, 60625, 94605, 46298, 40075, 6357)"
   },
+  "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_SERIE.ID_SERIE FROM T_WC_T2S_SERIE JOIN T_WC_T2S_SERIE_GENRE ON T_WC_T2S_SERIE.ID_SERIE = T_WC_T2S_SERIE_GENRE.ID_SERIE WHERE T_WC_T2S_SERIE_GENRE.ID_GENRE = 10765 AND T_WC_T2S_SERIE.NUMBER_OF_SEASONS &gt; 1 ORDER BY T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED DESC LIMIT 8",
+  "assertion_refresh_last": "2026-08-22T02:26:36",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2025-10-30",
-  "tim_updated": "2026-07-11T20:18:23"
+  "tim_updated": "2026-07-11T20:18:23",
+  "is_showcase": 1,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

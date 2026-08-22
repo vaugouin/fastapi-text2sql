@@ -9,6 +9,8 @@
     "sql_query": "(?is)(?=.*\\bCOUNT\\s*\\()(?=.*\\bGROUP\\s+BY\\b)(?=.*\\bID_PERSON\\b)(?=.*\\bPROFILE_PATH\\b)",
     "query_result": "ID_PERSON IN (6648, 5026, 119294, 6817, 95501, 4415, 15389, 3776, 3583, 5970, 2725, 18598, 2303, 11528, 4410, 68424, 12160, 5655, 793, 28615, 80702, 1650, 13848, 46230, 16767, 2428, 12238, 2891, 10249, 3831, 97202, 1032, 130030, 224, 37846, 26959, 15189, 5983, 40, 30561, 2636, 20025, 12453, 76978, 11147, 9888, 82949, 10346, 83199, 82461)"
   },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2025-10-30",
-  "tim_updated": "2026-08-03T15:48:04"
+  "tim_updated": "2026-08-03T15:48:04",
+  "is_showcase": null,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

@@ -9,6 +9,8 @@
     "sql_query": "(?is)(?=.*\\bFIRST_AIR_YEAR\\s+BETWEEN\\s+1960\\s+AND\\s+1969\\b)",
     "query_result": "ID_SERIE IN (212608, 128062, 43808)"
   },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-03-18",
-  "tim_updated": "2026-08-03T11:44:17"
+  "tim_updated": "2026-08-03T11:44:17",
+  "is_showcase": null,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

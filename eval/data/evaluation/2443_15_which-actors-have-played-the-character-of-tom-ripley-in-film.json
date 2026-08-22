@@ -9,6 +9,8 @@
     "sql_query": null,
     "query_result": "ID_PERSON IN (15135, 1892, 6949, 12834, 2778)"
   },
+  "assertion_refresh_sql": "SELECT DISTINCT p.ID_PERSON FROM T_WC_T2S_PERSON p JOIN T_WC_T2S_PERSON_MOVIE pm ON pm.ID_PERSON = p.ID_PERSON WHERE pm.CAST_CHARACTER = &#039;Tom Ripley&#039; AND pm.CREDIT_TYPE = &#039;cast&#039; AND pm.CAST_CHARACTER NOT IN (&#039;Self&#039;, &#039;Himself&#039;, &#039;Herself&#039;, &#039;(archive footage)&#039;, &#039;Self (archive footage)&#039;, &#039;Self (archive footage) (uncredited)&#039;, &#039;Self (uncredited)&#039;, &#039;Self (archive footage) (uncredited)&#039;) ORDER BY pm.DISPLAY_ORDER ASC LIMIT 5",
+  "assertion_refresh_last": "2026-08-22T02:26:57",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-07-25",
-  "tim_updated": "2026-07-25T20:29:25"
+  "tim_updated": "2026-07-25T20:29:25",
+  "is_showcase": 1,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

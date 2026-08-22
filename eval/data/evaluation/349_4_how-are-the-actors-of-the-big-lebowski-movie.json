@@ -9,6 +9,8 @@
     "sql_query": null,
     "query_result": "ID_PERSON IN (1229, 1230, 1231, 884, 1232, 1233, 1234, 1235, 1236, 53, 1237, 1238, 1239, 1240, 1241, 58565, 16662, 41517, 60275, 11207, 162235, 154693, 16431, 116907, 4510, 1667649, 6329, 66210, 856, 169920, 4253, 4771, 1000228, 1775566, 177164)"
   },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 0,
   "display_order": null,
   "dat_creat": "2025-12-30",
-  "tim_updated": "2026-04-18T11:51:45"
+  "tim_updated": "2026-04-18T11:51:45",
+  "is_showcase": null,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

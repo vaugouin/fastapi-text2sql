@@ -9,6 +9,8 @@
     "sql_query": null,
     "query_result": "ID_SERIE IN (1396)"
   },
+  "assertion_refresh_sql": "SELECT T_WC_T2S_SERIE.ID_SERIE FROM T_WC_T2S_SERIE WHERE T_WC_T2S_SERIE.ID_IMDB = 'tt0903747' LIMIT 8",
+  "assertion_refresh_last": "2026-08-22T02:26:53",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 1,
   "display_order": 963,
   "dat_creat": "2026-07-06",
-  "tim_updated": null
+  "tim_updated": null,
+  "is_showcase": 0,
+  "deleted": 0,
+  "id_creator": null,
+  "id_owner": null,
+  "id_user_updated": null
 }

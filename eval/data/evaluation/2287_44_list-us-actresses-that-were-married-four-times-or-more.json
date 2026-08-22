@@ -9,6 +9,8 @@
     "sql_query": null,
     "query_result": "ID_PERSON IN (3635, 3380, 13637, 41689, 29623, 66776, 9066, 44715, 26662)"
   },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-03-18",
-  "tim_updated": "2026-04-01T21:58:21"
+  "tim_updated": "2026-04-01T21:58:21",
+  "is_showcase": null,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

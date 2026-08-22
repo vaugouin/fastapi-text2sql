@@ -9,6 +9,8 @@
     "sql_query": null,
     "query_result": "ID_MOVIE IN (44012, 426, 15, 18148, 843, 62, 14626, 1018, 26317, 872, 631, 238, 776, 499, 3114, 27040, 30017, 797, 28, 346, 780, 20530, 10227, 925, 20108, 3112, 42044, 46919, 103, 531428, 1396, 422, 539, 43904, 5801, 901, 832, 269, 239, 567, 5156, 548, 1398, 27432, 213, 17295, 3175, 80560, 48035, 147)"
   },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 0,
   "display_order": null,
   "dat_creat": "2025-12-30",
-  "tim_updated": "2026-04-19T18:42:31"
+  "tim_updated": "2026-04-19T18:42:31",
+  "is_showcase": null,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

@@ -9,6 +9,8 @@
     "sql_query": null,
     "query_result": "ID_SERIE IN (19885, 60574, 97546, 67070, 72, 65494, 4327, 2490)"
   },
+  "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_SERIE.ID_SERIE FROM T_WC_T2S_SERIE JOIN T_WC_WIKIDATA_ITEM_PROPERTY ON T_WC_T2S_SERIE.ID_WIKIDATA = T_WC_WIKIDATA_ITEM_PROPERTY.ID_WIKIDATA JOIN T_WC_T2S_ITEM ON T_WC_WIKIDATA_ITEM_PROPERTY.ID_ITEM = T_WC_T2S_ITEM.ID_WIKIDATA WHERE T_WC_WIKIDATA_ITEM_PROPERTY.ID_PROPERTY = &#039;P840&#039; AND T_WC_T2S_ITEM.ITEM_LABEL = &#039;London&#039; ORDER BY T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED DESC LIMIT 8",
+  "assertion_refresh_last": "2026-08-22T02:27:03",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-07-14",
-  "tim_updated": "2026-08-17T09:18:55"
+  "tim_updated": "2026-08-17T09:18:55",
+  "is_showcase": 1,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

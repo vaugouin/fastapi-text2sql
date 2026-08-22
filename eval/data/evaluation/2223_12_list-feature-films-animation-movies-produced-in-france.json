@@ -9,6 +9,8 @@
     "sql_query": null,
     "query_result": "ID_MOVIE IN (2011, 8885, 823219, 441130, 9662, 51739, 393559, 309809)"
   },
+  "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_MOVIE_GENRE ON T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_GENRE.ID_MOVIE JOIN T_WC_T2S_MOVIE_PRODUCTION_COUNTRY ON T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_PRODUCTION_COUNTRY.ID_MOVIE WHERE T_WC_T2S_MOVIE_GENRE.ID_GENRE = 16 AND T_WC_T2S_MOVIE_PRODUCTION_COUNTRY.COUNTRY_CODE = &#039;FR&#039; AND T_WC_T2S_MOVIE.IS_SHORT_FILM = 0 ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC LIMIT 8",
+  "assertion_refresh_last": "2026-08-22T02:26:51",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-02-15",
-  "tim_updated": "2026-07-14T00:09:22"
+  "tim_updated": "2026-07-14T00:09:22",
+  "is_showcase": 1,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

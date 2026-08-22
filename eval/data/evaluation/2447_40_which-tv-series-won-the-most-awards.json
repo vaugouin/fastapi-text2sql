@@ -9,6 +9,8 @@
     "sql_query": "(?is)(?=.*\\bCOUNT\\s*\\()(?=.*\\bGROUP\\s+BY\\b)(?=.*\\bID_SERIE\\b)(?=.*\\bPOSTER_PATH\\b)",
     "query_result": "COUNT(*) &gt; 0"
   },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
   "comment": "FASTAPI-TEXT2SQL-191. A ranking on series, for POSTER_PATH. Deliberately about awards and not about episode counts: NUMBER_OF_EPISODES is a column on the series row, so &quot;the most episodes&quot; needs no aggregation at all and would test nothing.",
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-08-03",
-  "tim_updated": "2026-08-03T17:57:08"
+  "tim_updated": "2026-08-03T17:57:08",
+  "is_showcase": 0,
+  "deleted": 0,
+  "id_creator": null,
+  "id_owner": null,
+  "id_user_updated": 1
 }

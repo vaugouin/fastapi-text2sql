@@ -9,6 +9,8 @@
     "sql_query": null,
     "query_result": "ID_SERIE IN (42084, 11095, 2294, 66625, 85443, 46977, 21335, 42799, 79774, 40238, 18995, 22849, 16493, 97523, 62811, 216089, 78704, 286788, 257945, 46434, 47694, 2119, 129398, 70428)"
   },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 0,
   "display_order": null,
   "dat_creat": "2025-12-30",
-  "tim_updated": "2026-04-18T11:42:10"
+  "tim_updated": "2026-04-18T11:42:10",
+  "is_showcase": null,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }

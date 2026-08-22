@@ -9,6 +9,8 @@
     "sql_query": "(?is)(?=.*\\bID_TECHNICAL\\s*=\\s*4\\b)(?=.*\\bRELEASE_YEAR\\s+BETWEEN\\s+1940\\s+AND\\s+1949\\b)",
     "query_result": null
   },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
   "comment": "ID_CONTENT IN (1580, 19542, 28162, 25037, 10895, 16391, 4174, 909, 3170, 17645)",
   "keywords": null,
   "keywords_auto": null,
@@ -16,5 +18,10 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-05-03",
-  "tim_updated": "2026-08-03T11:44:17"
+  "tim_updated": "2026-08-03T11:44:17",
+  "is_showcase": null,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
 }
