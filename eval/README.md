@@ -16,8 +16,8 @@ After scoring, the evaluator also exports the three evaluation tables (`T_WC_T2S
 1. [Architecture](#1-architecture)
 2. [Quick Start & CLI](#2-quick-start--cli)
 3. [Processes](#3-processes)
-4. [Assertion Types](#4-assertion-types)
-5. [Entity Extraction DSL](#5-entity-extraction-dsl)
+4. [Assertion Types & Authoring](#4-assertion-types--authoring)
+5. [Entity Extraction DSL](#5-entity-extraction-dsl--reference)
 6. [Database Schema](#6-database-schema)
 7. [Error Reporting](#7-error-reporting)
 8. [Source Files](#8-source-files)
@@ -193,7 +193,8 @@ Phase 20 is pure offline scoring — re-runnable after assertion corrections wit
 ### Phase 31 — Export evaluations to JSON
 - Reads `T_WC_T2S_EVALUATION` (full question bank, CLI-agnostic — every non-deleted row)
 - Writes one file per evaluation to `/shared/evaluation/<evalid>_<evalcatid>_<englishDescriptionSlug>.json`
-- Each file embeds the EN + FR question pair, the three assertion strings, the originating category ID, and the `LONG_DESC` "why this evaluation was created" comment
+- Each file embeds the EN + FR question pair, the three assertion strings, the living-assertion pair (`ASSERTION_REFRESH_SQL` / `ASSERTION_REFRESH_LAST`), the originating category ID, and the `LONG_DESC` "why this evaluation was created" comment
+- **Every column of the table is exported**, curated fields under their chosen key and the rest under their lower-cased column name, so a column added later needs no code change. See [§10 Every column is exported](#every-column-is-exported-including-the-ones-added-later)
 - **Skips files that already exist**
 
 ### Phase 32 — Export evaluation executions to JSON
@@ -208,7 +209,7 @@ Phase 20 is pure offline scoring — re-runnable after assertion corrections wit
 
 ---
 
-## 4. Assertion Types
+## 4. Assertion Types & Authoring
 
 Three assertion columns on `T_WC_T2S_EVALUATION`. Each is optional; omitting one stores `NULL` for that score and excludes it from `ASSERTIONS_TOTAL_SCORE`. HTML-escaped operators (`&gt;`, `&lt;`) are accepted — values are passed through `html.unescape()` before parsing.
 
@@ -299,6 +300,87 @@ Regression coverage: [test-unified-schema-bridge.py](test-unified-schema-bridge.
 ### 4.4 Aggregated score
 `ASSERTIONS_TOTAL_SCORE = 1` iff **all non-null** component scores are `1`. If only one assertion is provided, `TOTAL_SCORE` reflects just that one. If none are provided, it stays `NULL`.
 
+### 4.5 What to assert: the three levels
+
+The bank as of 2026-08-22, over 1445 evaluations: 838 (58.0 %) carry a result assertion, 350 (24.2 %) an entity-extraction one, 38 (2.6 %) a SQL regex, **559 (38.7 %) carry none at all**, and only 78 (5.4 %) say in `LONG_DESC` why they exist. An evaluation with no assertion spends two API calls per campaign and can neither pass nor fail.
+
+**An extraction assertion is an obligation of means; only the result set is an obligation of result.** Twenty-two evaluations added on 2026-08-21 carried extraction assertions alone. Twenty-one scored 1.0 on campaign 1.1.18 while four returned zero rows in both languages, one returned 100 rows in English and zero in French, one returned a single series nominated for the Primetime Emmy Award, and "actors who died of cancer" returned one name: Richard Feynman. None of it was caught, because none of it touches extraction.
+
+Hence three levels, to be considered in order for every new evaluation.
+
+**Level 1, the floor.** `COUNT(*) > 0`, or a higher bound when the true cardinality is known to be large. Catches the empty result set, the most common and most invisible failure. A justified higher bound is worth much more than zero: `COUNT(*) > 20` on "which series did AMC produce?" turns a 75-versus-6 gap between English and French into a visible failure, where `COUNT(*) > 0` calls both sides green.
+
+**Level 2, the anchor.** `ID_MOVIE IN (278, 238)`, one or two entities the answer must contain. Mind the semantics: `IN` is **coverage, not equality**, and extra rows never break it. An anchor alone therefore never detects a query that returns too much.
+
+**Level 3, the counter-example.** `ID_MOVIE NOT IN (155)`, an entity that must *not* appear. This is the level missing from the whole bank today and the only one that catches an over-broad query. On "movies nominated for the Academy Award for Best Picture", the counter-example is *The Dark Knight*, the famous 2009 snub: if the `NOMINATION_NAME` filter is ever dropped in favour of a rating ranking, the film climbs back in and the assertion falls. A counter-example also pins a named defect: `ID_PERSON NOT IN (1179099)` on "actresses born in 1934" holds Jiro Sakagami, a man who comes through because the query filters `KNOWN_FOR_DEPARTMENT = 'Acting'` and never touches `GENDER`.
+
+Two forms are under-used and worth reaching for. `COUNT(*) == 1` belongs on every identifier lookup, since without it a query that ignored the identifier and returned 100 rows including the right one still passes. And the every-row form (`CAST_CHARACTER == 'Han Solo'`) is stricter than any count when the question has one correct column value.
+
+### 4.6 Living assertions: `ASSERTION_REFRESH_SQL`
+
+Note the singular: the column is `ASSERTION_REFRESH_SQL`, beside `ASSERTION_REFRESH_LAST`, not `ASSERTIONS_*` like the three scored columns. The admin form labels it "Assertions refresh SQL".
+
+Some questions have no stable answer: "miniseries popular right now", "movies still in production", "canceled TV series". A hand-written ID list rots there in weeks and the evaluation becomes a permanent false negative everyone learns to ignore. This column holds a `SELECT` returning the identifiers the answer must contain at the time of the run:
+
+```sql
+SELECT DISTINCT T_WC_T2S_SERIE.ID_SERIE
+  FROM T_WC_T2S_SERIE
+ WHERE T_WC_T2S_SERIE.SERIE_TYPE = 'Miniseries'
+ ORDER BY T_WC_T2S_SERIE.POPULARITY DESC
+ LIMIT 8
+```
+
+**Who runs it:** not this harness, but `tmdb-movie-preprocess`, process index 70 (AES-05 / TMDB-MOVIE-PREPROCESS-026). It runs **last** in that pipeline, once `POPULARITY` is fresh, re-executes the stored `SELECT` and **rewrites** `ASSERTIONS_QUERY_RESULT` as `<ID_COL> IN (...)`, stamping `ASSERTION_REFRESH_LAST`. Counts land in the server variables `strtmdbmoviepreprocessassertionrefreshcount` and `...refreshskipped`.
+
+**The consequence that matters:** the rewrite *replaces the whole assertion*. A floor or a counter-example written by hand on an evaluation that also carries a refresh SQL is discarded at the next preprocess run. That is harmless when the generated list is stronger than what it replaces (`ID_MOVIE IN (...)` subsumes `COUNT(*) > 0`, since an empty DataFrame only ever satisfies `COUNT(*) == 0`). It is destructive when the value of the evaluation lies in its `NOT IN`. **Never give a refresh SQL to an evaluation whose point is the counter-example.**
+
+**Guardrails applied by the process.** A query failing any of them is skipped and logged, never run:
+
+- a single read-only `SELECT`, no interior semicolon, no `INTO OUTFILE` / `INTO DUMPFILE`
+- **exactly one** returned column, whose name starts with `ID_`
+- at least one usable integer id, and **at most 50** (the cap that catches a missing `LIMIT`)
+- `max_statement_time = 15` seconds
+
+HTML entities are unescaped before execution, so a value stored by the admin form with `&gt;` still runs.
+
+Write the query cheap (it runs every preprocess), bounded (`LIMIT 5` to `LIMIT 10`, well under the cap), aimed at the top of the ranking where membership moves least, and with table-qualified columns.
+
+### 4.7 Authoring checklist
+
+Beyond the assertions, a complete evaluation carries a category, both questions, and a rationale.
+
+**Category** (`ID_T2S_EVALUATION_CATEGORY`, required). 57 categories exist, 55 carry at least one question; 1 and 5 are roots and take none. Pick by **what the question exercises**, not by its apparent subject: "which series did AMC produce?" belongs in 7 (*Production Companies & Networks*) rather than 6 (*TV Series - Basic queries*), because what it tests is resolving a broadcaster name that is also a cinema chain. Check the load first: category 2 already holds 200 questions, category 14 holds 3, and a category with three questions yields no usable statistics.
+
+**Both questions** (`QUESTION` and `QUESTION_FR`, both required; all 1445 rows are bilingual, keep it that way). French is not a courtesy translation, it is a **second test case**: the harness calls the API twice with a different `ui_language`, and 59 evaluations passed in English while failing in French on campaign 1.1.18. Write the French as a French speaker would ask it, hyphens and accents included, because those are exactly the forms that break resolution. Beware when the French question contains a title: the `*_FR` columns are less populated than their English counterparts, so an assertion calibrated on English can punish a French answer that is merely narrower, not wrong.
+
+**Rationale** (`LONG_DESC`). One or two sentences naming **what the evaluation protects**, not what the question asks. Good: "AMC is also a cinema chain, so the domain matters." Bad, because it dates its own expiry: "Does not work with API version 1.1.11." Write the invariant, not the symptom.
+
+**Before writing anything, two go/no-go checks.**
+
+*Is it answerable?* "What is Wikidata property P161?" asks for a **definition**; the schema stores usages only, so no SQL answers it and the evaluation stays red forever without teaching anything. Rephrase ("which movies carry the Wikidata property P161?") or drop it.
+
+*Is it discriminating?* "Movies tagged with Wikidata property P136" names the *genre* property, which nearly every movie carries: a correct query and a broken one return the same thing. Prefer a rare property such as P840 (narrative location) or P915 (filming location).
+
+**Known traps.**
+
+- An empty DataFrame satisfies only `COUNT(*) == 0`, written exactly so. Every other assertion fails, which is why the floor works.
+- `LIMIT 100` plus an `ORDER BY` can legitimately eject an anchor. Take anchors from the top rows of an observed run, and no more than two.
+- `>` is stored HTML-escaped as `&gt;` and unescaped before parsing. Write `&gt;` in `.sql` files, for consistency with what is already in the column.
+- The unified-schema bridge (§4.3) synthesizes `ID_MOVIE` / `ID_SERIE` / `ID_PERSON` only when the result carries both `ID_CONTENT` and `CONTENT_TYPE`.
+- A red evaluation that exposes a real data gap is worth more than a neutralized one. "Criterion spine 42" emits correct SQL against `ID_CRITERION_SPINE`, a column that exists but is not populated; leaving it red keeps the debt visible.
+
+**The admin UI is faster than SQL for two of these steps.** "Execute English/French question" runs the question in the front and shows the real result set, which is the only honest way to choose an anchor. "Set assertions on result set" reopens that execution with `evalid=NNNN` and **generates the assertion from the observed result**, per language. A `.sql` file remains the right tool for batches and for everything the generator cannot produce: `COUNT(*)` floors, `NOT IN` counter-examples, and rationales. Of the three checkboxes, only `IS_EVAL` decides whether the evaluation is scored.
+
+**Batch template.** An idempotent guarded `UPDATE`, the form used by [assertions-query-result-24xx.sql](assertions-query-result-24xx.sql):
+
+```sql
+UPDATE T_WC_T2S_EVALUATION SET ASSERTIONS_QUERY_RESULT = 'COUNT(*) &gt; 0 AND ID_SERIE IN (4613, 87108)'
+  WHERE ID_T2S_EVALUATION = 2452
+    AND (ASSERTIONS_QUERY_RESULT IS NULL OR ASSERTIONS_QUERY_RESULT = '');
+```
+
+To change a value already set, guard on the **exact current value** instead of on emptiness: the statement applies once, does nothing on re-run, and withdraws itself if someone edited the value in between. After import, re-run **Phase 20 alone**: scoring is offline against the stored `JSON_RESULT`, so no API call and no LLM token is spent.
+
 ---
 
 ## 5. Entity Extraction DSL — Reference
@@ -331,6 +413,7 @@ Key columns:
 - `ID_T2S_EVALUATION_CATEGORY` — taxonomy FK
 - `IS_EVAL`, `IS_SAMPLE`, `DELETED`, `DISPLAY_ORDER`
 - `ASSERTIONS_QUERY_RESULT`, `ASSERTIONS_ENTITY_EXTRACTION`, `ASSERTIONS_SQL_QUERY` — the three assertion strings
+- `ASSERTION_REFRESH_SQL` (singular), `ASSERTION_REFRESH_LAST`, the living-assertion pair. The first holds a `SELECT` returning one `ID_*` column; `tmdb-movie-preprocess` process 70 re-runs it and **overwrites** `ASSERTIONS_QUERY_RESULT` with `<ID_COL> IN (...)`, stamping the second. See [§4.6](#46-living-assertions-assertion_refresh_sql) for the guardrails and for why a refresh SQL and a `NOT IN` assertion are mutually exclusive.
 - Metadata: `LONG_DESC`, `MOT_CLE`, `MOT_CLE_AUTO`, `DAT_CREAT`, `TIM_UPDATED`
 
 ### `T_WC_T2S_EVALUATION_CATEGORY` (taxonomy)
@@ -610,6 +693,8 @@ The `comment` field is sourced from `LONG_DESC` and is the "why this category wa
     "sql_query": "JOIN\\s+T_WC_T2S_PERSON_MOVIE",
     "query_result": "COUNT(*) == 1 AND CELL(0, 0) == 'Ken Russell'"
   },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
   "comment": "Misspelling regression: original 'Tommi (1975)' was returning the wrong row before v1.1.10.",
   "keywords": null,
   "keywords_auto": null,
@@ -617,9 +702,24 @@ The `comment` field is sourced from `LONG_DESC` and is the "why this category wa
   "is_sample": 0,
   "display_order": 487,
   "dat_creat": "2026-02-01",
-  "tim_updated": "2026-04-21T10:23:45"
+  "tim_updated": "2026-04-21T10:23:45",
+  "deleted": 0
 }
 ```
+
+`assertion_refresh_sql` / `assertion_refresh_last` are the living-assertion pair described in [§4.6](#46-living-assertions-assertion_refresh_sql). They are *not* inside `assertions`, because the first is a generator and not a scored check.
+
+#### Every column is exported, including the ones added later
+
+Phases 30 and 31 `SELECT *`. The fields named above keep their hand-chosen key, placement and normalisation; **every other column of the table is appended at the top level under its own lower-cased name**, in table order, by `add_extra_columns()` in [text2sql-eval.py](text2sql-eval.py). Empty strings become `null`, matching the curated fields.
+
+This exists because of a failure worth remembering. `ASSERTION_REFRESH_SQL` and `ASSERTION_REFRESH_LAST` were live in the table and driving the refresh in `tmdb-movie-preprocess`, while the export listed its columns one by one, a list written before those columns existed, which nobody thought to extend. Anyone reading `data/evaluation/` to learn the schema concluded the feature did not exist, and at least one agent proposed an `ALTER TABLE` to create a column that had been there for weeks. **The JSON export is now complete by construction, but treat any generated artefact as a partial view of a schema and check the table itself before concluding a column is missing.**
+
+Practical consequences when adding a column to `T_WC_T2S_EVALUATION`:
+
+- Nothing to change here. The next export carries it, and a diff shows one new field with nothing reordered.
+- Give it a curated key and placement only if the raw column name reads badly or the value needs shaping (unescaping, nesting). Add the column name to the `add_extra_columns()` tuple at the same time, otherwise it is exported twice.
+- `json_default()` covers `datetime`, `date`, `Decimal` and `bytes`. A column of some other exotic type would fail serialisation for that one file, reported as an export error rather than a crash.
 Use `comment` to capture the *reason* the evaluation was added — misspelling, API evolution, new data, known bug, education sample, entity-extraction edge case, etc.
 
 #### `evaluation_execution/<date>_<evalid>_<version>_<lang>_<...>.json`
@@ -758,6 +858,7 @@ Phase 11 only selects questions where at least one assertion column is non-empty
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.6 | 2026-08-22 | **Exports are now complete by construction.** Phases 30 and 31 `SELECT *` and pass the row through the new `add_extra_columns()` helper: curated fields keep their key and placement, every other column lands at the top level under its lower-cased name, and a column added to the table later needs no code change. `json_default()` gained `bytes` handling, since selecting every column widens the type surface. The trigger: `ASSERTION_REFRESH_SQL` and `ASSERTION_REFRESH_LAST` had been live in `T_WC_T2S_EVALUATION` for weeks, driving the living-assertion refresh in `tmdb-movie-preprocess` process 70, while the hand-listed export never mentioned them, so `data/evaluation/` read as if the feature did not exist. Both columns now have curated keys. Section 4 was renamed **Assertion Types & Authoring** and gained §4.5 (the three assertion levels: floor, anchor, counter-example), §4.6 (living assertions and their guardrails), and §4.7 (authoring checklist: category, bilingual question, rationale, the answerable/discriminating go-no-go, known traps, batch template). Written after campaign 1.1.18, where 21 of 22 new evaluations scored 1.0 on entity extraction while four returned zero rows. |
 | 2.5 | 2026-05-06 | Added the **unified-schema column bridge** to `evaluate_dataframe_assertions()` in [text2sql_eval_functions.py](text2sql_eval_functions.py): when a result DataFrame carries both `ID_CONTENT` and `CONTENT_TYPE` (the unified movie/serie/person shape prescribed in [data/text_to_sql.md](../data/text_to_sql.md)), virtual `ID_MOVIE` / `ID_SERIE` / `ID_PERSON` columns are synthesized so legacy `ID_MOVIE IN (...)` / `ID_SERIE IN (...)` / `ID_PERSON IN (...)` assertions resolve without any question-bank migration. Existing columns are never overwritten; non-matching rows become NaN. Fixed the systemic regression where ~621 evaluation rows scored 0 with `Column 'ID_MOVIE' does not exist in DataFrame`. Added [test-unified-schema-bridge.py](test-unified-schema-bridge.py) (12 cases: movies-only, mixed movies+series, ID_PERSON, mixed-case `Movie`, no-op when column already exists, no-op when `CONTENT_TYPE` is absent, `NOT IN` semantics). Documented the bridge in [§4.3 Unified-schema column bridge](#unified-schema-column-bridge) and the matching troubleshooting entry in §12. |
 | 2.4 | 2026-04-27 | Documented the [lib/](lib/) PHP web UI — `global-light.inc.php` (shared bootstrap), `t2sevalexecgraph.inc.php` (multi-layer comparison graph with selectable Y axis and per-layer color), `t2sevalexecdetails.inc.php` (per-`(layer, category)` drill-down with pagination and sort), and `t2sevalexecjson.inc.php` (`JSON_RESULT` viewer with `?format=json` switch). Added [§11 Interactive Web UI (PHP)](#11-interactive-web-ui-php) and a `lib/` row in the source files table; renumbered Troubleshooting (§12) and Version History (§13). Also rewrote [how-many-samples-evals-by-category.ipynb](how-many-samples-evals-by-category.ipynb) to read the Phase 30/31 JSON exports (replacing the legacy CSV source) and updated its source-files entry plus a downstream-consumer note in §10. |
 | 2.3 | 2026-04-25 | Phase 32 now writes execution JSON files into a per-run subfolder `<api_version>_<lang>_<eemodel>_<t2smodel>_<complexmodel>/` under `/shared/evaluation_execution/`, so successive runs across versions, languages, and model triples stay isolated instead of piling up in a single folder. |

@@ -166,12 +166,48 @@ def slug_for_filename(text, max_len=60):
 
 
 def json_default(obj):
-    """JSON serializer for date/datetime/Decimal coming out of pymysql rows."""
+    """JSON serializer for date/datetime/Decimal/bytes coming out of pymysql rows.
+
+    bytes is handled because the exports below select every column of their table: a BLOB or
+    a BINARY column added later would otherwise abort the whole file with a TypeError, and
+    the point of selecting everything is that a new column must never break the export.
+    """
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
     if isinstance(obj, Decimal):
         return float(obj)
+    if isinstance(obj, (bytes, bytearray)):
+        return obj.decode("utf-8", errors="replace")
     raise TypeError(f"Type {type(obj).__name__} not JSON serializable")
+
+
+def add_extra_columns(payload, row, curated):
+    """Append every row column the curated payload does not already carry, lowercased.
+
+    This is the forward-compatibility hook for the JSON exports. Phases 30 and 31 select
+    `*`, so the row carries whatever the table holds today; `curated` lists the columns that
+    already have a hand-chosen JSON key and placement, and everything else lands at the top
+    level under its own name in lower case.
+
+    Why it exists: ASSERTION_REFRESH_SQL and ASSERTION_REFRESH_LAST were live in the table
+    and driving the living-assertion refresh in tmdb-movie-preprocess, while the export
+    listed its columns one by one and so never mentioned them. Anyone reading
+    `eval/data/evaluation/` to learn the schema concluded the feature did not exist. A column
+    added to the table from now on reaches the JSON without touching this file.
+
+    Curated columns keep their chosen key so existing consumers are unaffected; extras follow
+    table order, so a diff between two exports shows the new field once and reorders nothing.
+    Empty strings become None, matching what the curated fields already do.
+    """
+    consumed = {str(c).upper() for c in curated}
+    for strcolumn in row.keys():
+        if str(strcolumn).upper() in consumed:
+            continue
+        value = row[strcolumn]
+        if isinstance(value, str):
+            value = value.strip() or None
+        payload[str(strcolumn).lower()] = value
+    return payload
 
 
 def ensure_export_dir(subfolder):
@@ -424,9 +460,9 @@ try:
                     # Export evaluation categories to /shared/evaluation_category/*.json (full taxonomy, CLI-agnostic)
                     strcurrentprocess = f"{intindex}: exporting evaluation categories to {EXPORT_BASE_DIR}/evaluation_category "
                     strsql = ""
-                    strsql += "SELECT ID_T2S_EVALUATION_CATEGORY AS id, DESCRIPTION, DESCRIPTION_FR, "
-                    strsql += "LONG_DESC, MOT_CLE, MOT_CLE_AUTO, ID_PARENT, LANG, DISPLAY_ORDER, "
-                    strsql += "DAT_CREAT, TIM_UPDATED "
+                    # SELECT * on purpose: every column of the taxonomy reaches the JSON, and a
+                    # column added later is exported by add_extra_columns() with no code change.
+                    strsql += "SELECT *, ID_T2S_EVALUATION_CATEGORY AS id "
                     strsql += "FROM T_WC_T2S_EVALUATION_CATEGORY "
                     strsql += "WHERE DELETED = 0 "
                     strsql += "ORDER BY ID_T2S_EVALUATION_CATEGORY ASC "
@@ -437,11 +473,13 @@ try:
                     # Export evaluation question bank to /shared/evaluation/*.json (full bank, CLI-agnostic)
                     strcurrentprocess = f"{intindex}: exporting evaluations to {EXPORT_BASE_DIR}/evaluation "
                     strsql = ""
-                    strsql += "SELECT ID_T2S_EVALUATION AS id, ID_T2S_EVALUATION_CATEGORY, "
-                    strsql += "QUESTION, QUESTION_FR, "
-                    strsql += "ASSERTIONS_ENTITY_EXTRACTION, ASSERTIONS_SQL_QUERY, ASSERTIONS_QUERY_RESULT, "
-                    strsql += "LONG_DESC, MOT_CLE, MOT_CLE_AUTO, IS_EVAL, IS_SAMPLE, "
-                    strsql += "DISPLAY_ORDER, DAT_CREAT, TIM_UPDATED "
+                    # SELECT * on purpose. The hand-listed column set is exactly how
+                    # ASSERTION_REFRESH_SQL and ASSERTION_REFRESH_LAST stayed invisible in the
+                    # export while being live in the table: the list was written before they
+                    # existed and nobody thought to extend it. Everything is selected now, the
+                    # curated fields below keep their names, and add_extra_columns() carries the
+                    # rest, including any column added after this line was written.
+                    strsql += "SELECT *, ID_T2S_EVALUATION AS id "
                     strsql += "FROM T_WC_T2S_EVALUATION "
                     strsql += "WHERE DELETED = 0 "
                     strsql += "ORDER BY ID_T2S_EVALUATION ASC "
@@ -920,6 +958,11 @@ try:
                                     "dat_creat": row.get('DAT_CREAT'),
                                     "tim_updated": row.get('TIM_UPDATED'),
                                 }
+                                add_extra_columns(payload, row, (
+                                    "id", "ID_T2S_EVALUATION_CATEGORY", "DESCRIPTION", "DESCRIPTION_FR",
+                                    "LANG", "ID_PARENT", "LONG_DESC", "MOT_CLE", "MOT_CLE_AUTO",
+                                    "DISPLAY_ORDER", "DAT_CREAT", "TIM_UPDATED",
+                                ))
                                 outcome = write_json_if_changed(output_dir, filename, payload)
                                 if outcome == "wrote":
                                     lng_export_wrote += 1
@@ -951,6 +994,13 @@ try:
                                         "sql_query": (row.get('ASSERTIONS_SQL_QUERY') or "").strip() or None,
                                         "query_result": (row.get('ASSERTIONS_QUERY_RESULT') or "").strip() or None,
                                     },
+                                    # Not a scored assertion but the SELECT that regenerates one:
+                                    # tmdb-movie-preprocess (process 70) re-runs it and rewrites
+                                    # ASSERTIONS_QUERY_RESULT as "<ID_COL> IN (...)", stamping
+                                    # ASSERTION_REFRESH_LAST. Kept beside the assertions rather
+                                    # than inside them, because it is a generator, not a check.
+                                    "assertion_refresh_sql": (row.get('ASSERTION_REFRESH_SQL') or "").strip() or None,
+                                    "assertion_refresh_last": row.get('ASSERTION_REFRESH_LAST'),
                                     "comment": (row.get('LONG_DESC') or "").strip() or None,
                                     "keywords": (row.get('MOT_CLE') or "").strip() or None,
                                     "keywords_auto": (row.get('MOT_CLE_AUTO') or "").strip() or None,
@@ -960,6 +1010,15 @@ try:
                                     "dat_creat": row.get('DAT_CREAT'),
                                     "tim_updated": row.get('TIM_UPDATED'),
                                 }
+                                add_extra_columns(payload, row, (
+                                    "id", "ID_T2S_EVALUATION", "ID_T2S_EVALUATION_CATEGORY",
+                                    "QUESTION", "QUESTION_FR",
+                                    "ASSERTIONS_ENTITY_EXTRACTION", "ASSERTIONS_SQL_QUERY",
+                                    "ASSERTIONS_QUERY_RESULT",
+                                    "ASSERTION_REFRESH_SQL", "ASSERTION_REFRESH_LAST",
+                                    "LONG_DESC", "MOT_CLE", "MOT_CLE_AUTO", "IS_EVAL", "IS_SAMPLE",
+                                    "DISPLAY_ORDER", "DAT_CREAT", "TIM_UPDATED",
+                                ))
                                 outcome = write_json_if_changed(output_dir, filename, payload)
                                 if outcome == "wrote":
                                     lng_export_wrote += 1
