@@ -1,20 +1,20 @@
 {
-  "evaluation_id": 2360,
-  "evaluation_category_id": 55,
-  "question_en": "Trending sci-fi movies",
-  "question_fr": "Films de science-fiction en vogue",
+  "evaluation_id": 2471,
+  "evaluation_category_id": 38,
+  "question_en": "List miniseries popular right now",
+  "question_fr": "Liste des mini-séries Populaires en ce moment",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": "seteq(entity_keys($), [&quot;Movie_genre1&quot;]) AND matches($.Movie_genre1, /^Science Fiction$/i)",
+    "entity_extraction": "seteq(entity_keys($), [&quot;Serie_type1&quot;])",
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (969681, 1323244, 634649, 1375646, 1284041, 1101383, 1275779, 1083381)"
+    "query_result": "ID_SERIE IN (204269, 278624, 291496, 95897, 299989, 113360, 276161)"
   },
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
-  "is_eval": 0,
+  "is_eval": 1,
   "is_sample": 1,
-  "display_order": 910,
-  "dat_creat": "2026-07-06",
-  "tim_updated": null
+  "display_order": null,
+  "dat_creat": "2026-08-22",
+  "tim_updated": "2026-08-22T04:50:57"
 }

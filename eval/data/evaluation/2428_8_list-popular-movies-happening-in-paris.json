@@ -7,7 +7,7 @@
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Location_name1&quot;]) AND matches($.Location_name1, /^Paris$/i)",
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (27205, 350, 2062, 127585, 49013, 16869, 1087891, 603692)"
+    "query_result": "ID_MOVIE IN (27205, 350, 2062, 127585, 49013, 16869, 1087891, 979)"
   },
   "comment": null,
   "keywords": null,

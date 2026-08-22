@@ -7,7 +7,7 @@
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Topic_name1&quot;])",
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (539, 1584215, 239, 848538, 181886, 11761, 48769, 97872)"
+    "query_result": "ID_MOVIE IN (539, 1584215, 848538, 239, 181886, 11761, 48769, 97872)"
   },
   "comment": null,
   "keywords": null,

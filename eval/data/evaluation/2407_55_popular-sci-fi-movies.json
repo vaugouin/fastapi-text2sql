@@ -7,7 +7,7 @@
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Movie_genre1&quot;]) AND matches($.Movie_genre1, /^Science Fiction$/i)",
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (969681, 634649, 1323244, 1375646, 1284041, 1101383, 1275779, 1081003)"
+    "query_result": "ID_MOVIE IN (969681, 1323244, 634649, 1375646, 1284041, 1101383, 1275779, 1083381)"
   },
   "comment": null,
   "keywords": null,

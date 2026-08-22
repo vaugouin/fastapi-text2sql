@@ -7,7 +7,7 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (1725074, 1021848, 1468229, 1465063, 1300738, 1596296, 1537518, 1517111)"
+    "query_result": "ID_MOVIE IN (1725074, 1021848, 1468229, 1465063, 1596296, 1300738, 1517111, 1383750)"
   },
   "comment": null,
   "keywords": null,
