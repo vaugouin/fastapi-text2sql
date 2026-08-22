@@ -7,7 +7,7 @@
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Wikidata_property_ID1&quot;]) AND matches($.Wikidata_property_ID1, /^P136$/i)",
     "sql_query": null,
-    "query_result": null
+    "query_result": "COUNT(*) &gt; 0"
   },
   "assertion_refresh_sql": null,
   "assertion_refresh_last": null,

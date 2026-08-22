@@ -7,7 +7,7 @@
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Status_name1&quot;])",
     "sql_query": null,
-    "query_result": null
+    "query_result": "COUNT(*) &gt; 0 AND ID_SERIE IN (1437)"
   },
   "assertion_refresh_sql": null,
   "assertion_refresh_last": null,

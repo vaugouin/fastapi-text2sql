@@ -7,7 +7,7 @@
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Death_name1&quot;]) AND matches($.Death_name1, /^cancer$/i)",
     "sql_query": null,
-    "query_result": "COUNT(*)&gt;10"
+    "query_result": "COUNT(*) &gt; 10 AND ID_PERSON NOT IN (127293)"
   },
   "assertion_refresh_sql": null,
   "assertion_refresh_last": null,

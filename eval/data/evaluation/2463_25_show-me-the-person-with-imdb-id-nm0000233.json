@@ -7,7 +7,7 @@
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;IMDb_person_ID1&quot;]) AND matches($.IMDb_person_ID1, /^nm0000233$/i)",
     "sql_query": null,
-    "query_result": null
+    "query_result": "COUNT(*) == 1 AND ID_PERSON IN (138)"
   },
   "assertion_refresh_sql": null,
   "assertion_refresh_last": null,
