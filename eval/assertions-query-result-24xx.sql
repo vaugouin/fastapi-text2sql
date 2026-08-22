@@ -32,6 +32,18 @@
 -- The > sign is stored HTML-escaped as &gt;, matching what is already in the column;
 -- evaluate_dataframe_assertions() calls html.unescape() before parsing.
 --
+-- NOTHING HERE OVERWRITES A HAND-WRITTEN VALUE
+-- Checked against the full export of 2026-08-22, once phase 31 started carrying every
+-- column. Every statement is guarded so that it withdraws itself rather than clobbering:
+--   SECTION A  guarded on an empty ASSERTIONS_QUERY_RESULT
+--   SECTION B  guarded on the EXACT current value, so an edit made since makes it a no-op
+--   SECTION C  guarded on an empty ASSERTION_REFRESH_SQL
+--   the three counter-examples (#2456, #2465, #2468) additionally refuse to write onto a row
+--   that carries a refresh SQL, because process 70 would destroy them at its next pass
+-- State observed on 2026-08-22 across 2449-2470: eight hand-written result assertions
+-- (#2452, #2458, #2459, #2460, #2461, #2462, #2464, #2468) and no refresh SQL at all. The
+-- one refresh SQL in the neighbourhood is #2471, which this file does not touch.
+--
 -- HOW TO RUN
 --   mysql <db> < eval/assertions-query-result-24xx.sql
 -- then re-run phase 20 only. Scoring is offline against the stored JSON_RESULT, so no API
@@ -82,7 +94,10 @@ UPDATE T_WC_T2S_EVALUATION SET ASSERTIONS_QUERY_RESULT = 'COUNT(*) &gt; 0 AND ID
 -- which is exactly what the first ten rows look like at a glance.
 UPDATE T_WC_T2S_EVALUATION SET ASSERTIONS_QUERY_RESULT = 'COUNT(*) &gt; 0 AND ID_MOVIE IN (278, 238) AND ID_MOVIE NOT IN (155)'
   WHERE ID_T2S_EVALUATION = 2456
-    AND (ASSERTIONS_QUERY_RESULT IS NULL OR ASSERTIONS_QUERY_RESULT = '');
+    AND (ASSERTIONS_QUERY_RESULT IS NULL OR ASSERTIONS_QUERY_RESULT = '')
+    -- A counter-example cannot survive a living refresh: process 70 replaces the whole
+    -- assertion. Refuse to write one onto a row that already carries a refresh SQL.
+    AND (ASSERTION_REFRESH_SQL IS NULL OR TRIM(ASSERTION_REFRESH_SQL) = '');
 
 -- #2457 Movies tagged with Wikidata property P136. P136 is "genre", which nearly every movie
 -- carries, so no anchor discriminates anything. Floor only. See SECTION D: this question
@@ -102,7 +117,10 @@ UPDATE T_WC_T2S_EVALUATION SET ASSERTIONS_QUERY_RESULT = 'COUNT(*) == 1 AND ID_P
 -- now because the SELECT does not return that column.
 UPDATE T_WC_T2S_EVALUATION SET ASSERTIONS_QUERY_RESULT = 'COUNT(*) &gt; 0 AND ID_PERSON NOT IN (1179099)'
   WHERE ID_T2S_EVALUATION = 2465
-    AND (ASSERTIONS_QUERY_RESULT IS NULL OR ASSERTIONS_QUERY_RESULT = '');
+    AND (ASSERTIONS_QUERY_RESULT IS NULL OR ASSERTIONS_QUERY_RESULT = '')
+    -- A counter-example cannot survive a living refresh: process 70 replaces the whole
+    -- assertion. Refuse to write one onto a row that already carries a refresh SQL.
+    AND (ASSERTION_REFRESH_SQL IS NULL OR TRIM(ASSERTION_REFRESH_SQL) = '');
 
 -- #2466 Directors who died in 2010. Membership drifts as death data is enriched; floor only.
 UPDATE T_WC_T2S_EVALUATION SET ASSERTIONS_QUERY_RESULT = 'COUNT(*) &gt; 0'
@@ -165,7 +183,10 @@ UPDATE T_WC_T2S_EVALUATION SET ASSERTIONS_QUERY_RESULT = 'COUNT(*) == 1 AND ID_P
 -- regression from coming back unnoticed.
 UPDATE T_WC_T2S_EVALUATION SET ASSERTIONS_QUERY_RESULT = 'COUNT(*) &gt; 10 AND ID_PERSON NOT IN (127293)'
   WHERE ID_T2S_EVALUATION = 2468
-    AND ASSERTIONS_QUERY_RESULT = 'COUNT(*)&gt;10';
+    AND ASSERTIONS_QUERY_RESULT = 'COUNT(*)&gt;10'
+    -- A counter-example cannot survive a living refresh: process 70 replaces the whole
+    -- assertion. Refuse to write one onto a row that already carries a refresh SQL.
+    AND (ASSERTION_REFRESH_SQL IS NULL OR TRIM(ASSERTION_REFRESH_SQL) = '');
 
 
 -- =====================================================================================
@@ -199,25 +220,43 @@ UPDATE T_WC_T2S_EVALUATION SET ASSERTIONS_QUERY_RESULT = 'COUNT(*) &gt; 10 AND I
 -- admin form as &gt; still runs.
 -- =====================================================================================
 
+-- THE ALIGNMENT RULE, learned from the 2026-08-22 export
+-- A refresh SQL must mirror the ORDER BY of the query being evaluated, not merely name a
+-- plausible ranking. The evaluated query is capped at LIMIT 100; if the refresh ranks by
+-- POPULARITY while the query ranks by IMDB_RATING_WEIGHTED, the generated top-8 can sit
+-- entirely outside the first 100 rows and the assertion fails on a query that is correct.
+-- All three evaluations below are ranked by IMDB_RATING_WEIGHTED DESC in 1.1.18, so that is
+-- what the refresh uses. Verify the pairing against a real execution before adding a new one.
+--
+-- Style follows the 98 refresh queries already in the bank: SELECT DISTINCT, table-qualified
+-- columns, LIMIT 8 (96 of the 98 use exactly that), the same joins as the evaluated query.
+
 -- #2449 and #2450: "in production" and "post-production" are moving targets by definition,
--- exactly the case the column exists for. Shape copied from the working example on #2471.
+-- exactly the case the column exists for. The COUNT(*) floor written in SECTION A scores
+-- until process 70 next runs, then gives way to the generated ID list, which subsumes it.
 UPDATE T_WC_T2S_EVALUATION SET ASSERTION_REFRESH_SQL =
-  'SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.STATUS = ''In Production'' ORDER BY T_WC_T2S_MOVIE.POPULARITY DESC LIMIT 8'
+  'SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.STATUS = ''In Production'' ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC LIMIT 8'
   WHERE ID_T2S_EVALUATION = 2449
     AND (ASSERTION_REFRESH_SQL IS NULL OR TRIM(ASSERTION_REFRESH_SQL) = '');
 
 UPDATE T_WC_T2S_EVALUATION SET ASSERTION_REFRESH_SQL =
-  'SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.STATUS = ''Post Production'' ORDER BY T_WC_T2S_MOVIE.POPULARITY DESC LIMIT 8'
+  'SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.STATUS = ''Post Production'' ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC LIMIT 8'
   WHERE ID_T2S_EVALUATION = 2450
     AND (ASSERTION_REFRESH_SQL IS NULL OR TRIM(ASSERTION_REFRESH_SQL) = '');
 
--- #2451 "Canceled TV series" is the third moving target of the batch: STATUS = 'Canceled' is
--- a documented value on the series side too. The ID_SERIE IN (1437) anchor set in SECTION A
--- will be replaced by the generated list, which is the intended upgrade.
+-- #2453 "What talk shows are in the database?". The evaluated query does not filter on
+-- SERIE_TYPE but joins T_WC_T2S_SERIE_GENRE on ID_GENRE = 10767, so the refresh joins the
+-- same way. Eight ranked anchors are worth more here than the single ID_SERIE IN (60694)
+-- from SECTION A, and they maintain themselves.
 UPDATE T_WC_T2S_EVALUATION SET ASSERTION_REFRESH_SQL =
-  'SELECT DISTINCT T_WC_T2S_SERIE.ID_SERIE FROM T_WC_T2S_SERIE WHERE T_WC_T2S_SERIE.STATUS = ''Canceled'' ORDER BY T_WC_T2S_SERIE.POPULARITY DESC LIMIT 8'
-  WHERE ID_T2S_EVALUATION = 2451
+  'SELECT DISTINCT T_WC_T2S_SERIE.ID_SERIE FROM T_WC_T2S_SERIE JOIN T_WC_T2S_SERIE_GENRE ON T_WC_T2S_SERIE.ID_SERIE = T_WC_T2S_SERIE_GENRE.ID_SERIE WHERE T_WC_T2S_SERIE_GENRE.ID_GENRE = 10767 ORDER BY T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED DESC LIMIT 8'
+  WHERE ID_T2S_EVALUATION = 2453
     AND (ASSERTION_REFRESH_SQL IS NULL OR TRIM(ASSERTION_REFRESH_SQL) = '');
+
+-- #2451 "Canceled TV series" deliberately gets NO refresh SQL, though it is nominally a
+-- moving target. Firefly (1437) is the canonical cancelled series and makes a permanent
+-- anchor; a popularity-ranked top-8 of cancellations would drift toward recent ones and
+-- could drop it. A certain anchor beats a self-maintaining but uncertain list.
 
 
 -- =====================================================================================

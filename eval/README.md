@@ -345,6 +345,12 @@ HTML entities are unescaped before execution, so a value stored by the admin for
 
 Write the query cheap (it runs every preprocess), bounded (`LIMIT 5` to `LIMIT 10`, well under the cap), aimed at the top of the ranking where membership moves least, and with table-qualified columns.
 
+**The alignment rule.** A refresh SQL must mirror the `ORDER BY` of the query being evaluated, not merely name a plausible ranking. The evaluated query is capped at `LIMIT 100`; if the refresh ranks by `POPULARITY` while the query ranks by `IMDB_RATING_WEIGHTED`, the generated top-8 can sit entirely outside the first hundred rows and the assertion fails against a query that is correct. Same for the filter: "what talk shows are in the database?" is answered by joining `T_WC_T2S_SERIE_GENRE` on `ID_GENRE = 10767`, not by `SERIE_TYPE = 'Talk Show'`, so its refresh joins the same way. Check the pairing against a real execution before adding one.
+
+**Do not give a refresh SQL to an evaluation with a good permanent anchor.** "Canceled TV series" looks like a moving target, but Firefly is the canonical answer and makes a stable anchor, where a popularity-ranked top-8 of cancellations would drift toward recent ones and could drop it. A certain anchor beats a self-maintaining but uncertain list.
+
+**State of the bank on 2026-08-22.** 98 evaluations carry a refresh SQL; all 98 pass the four guardrails, and 95 have a non-null `ASSERTION_REFRESH_LAST`, so the mechanism is doing real work. The house style, worth following: `SELECT DISTINCT`, table-qualified columns, the same joins as the evaluated query, and `LIMIT 8` (96 of the 98). The three that have never run are #2434, #2439 and #2471.
+
 ### 4.7 Authoring checklist
 
 Beyond the assertions, a complete evaluation carries a category, both questions, and a rationale.
