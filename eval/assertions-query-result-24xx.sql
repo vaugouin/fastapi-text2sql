@@ -221,12 +221,24 @@ UPDATE T_WC_T2S_EVALUATION SET ASSERTIONS_QUERY_RESULT = 'COUNT(*) &gt; 10 AND I
 -- =====================================================================================
 
 -- THE ALIGNMENT RULE, learned from the 2026-08-22 export
--- A refresh SQL must mirror the ORDER BY of the query being evaluated, not merely name a
--- plausible ranking. The evaluated query is capped at LIMIT 100; if the refresh ranks by
--- POPULARITY while the query ranks by IMDB_RATING_WEIGHTED, the generated top-8 can sit
--- entirely outside the first 100 rows and the assertion fails on a query that is correct.
--- All three evaluations below are ranked by IMDB_RATING_WEIGHTED DESC in 1.1.18, so that is
--- what the refresh uses. Verify the pairing against a real execution before adding a new one.
+-- A refresh SQL must mirror the ORDER BY and the joins of the query being evaluated, not
+-- merely name a plausible ranking. The evaluated query is capped at LIMIT 100; if the two
+-- rankings differ, the generated top-8 can sit entirely outside the first 100 rows and the
+-- assertion fails on a query that is correct.
+--
+-- There is NO single default sort to copy. It depends on the entity and on the question, and
+-- the canonical rule is the "Default Sorting" section of data/text_to_sql.md: movies and
+-- series rank by IMDB_RATING_WEIGHTED, persons by POPULARITY, anything trending or popular
+-- overrides both with POPULARITY, entities within a topic / list / collection / award /
+-- nomination use that junction's DISPLAY_ORDER, technicals use MOVIE_COUNT, and an aggregate
+-- ranking uses its own aggregate. The bank bears this out: of its 98 refresh queries, the 34
+-- asked in a trending or popular phrasing use POPULARITY without exception, while the other
+-- 64 spread across seven different sorts.
+--
+-- The three below were checked one by one against their 1.1.18 execution and all three do
+-- rank by IMDB_RATING_WEIGHTED DESC, which is the movie/series default and not a general
+-- rule. Read the sort from data/text_to_sql.md, then confirm it against a real execution,
+-- before storing any new refresh SQL.
 --
 -- Style follows the 98 refresh queries already in the bank: SELECT DISTINCT, table-qualified
 -- columns, LIMIT 8 (96 of the 98 use exactly that), the same joins as the evaluated query.

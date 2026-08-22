@@ -345,7 +345,24 @@ HTML entities are unescaped before execution, so a value stored by the admin for
 
 Write the query cheap (it runs every preprocess), bounded (`LIMIT 5` to `LIMIT 10`, well under the cap), aimed at the top of the ranking where membership moves least, and with table-qualified columns.
 
-**The alignment rule.** A refresh SQL must mirror the `ORDER BY` of the query being evaluated, not merely name a plausible ranking. The evaluated query is capped at `LIMIT 100`; if the refresh ranks by `POPULARITY` while the query ranks by `IMDB_RATING_WEIGHTED`, the generated top-8 can sit entirely outside the first hundred rows and the assertion fails against a query that is correct. Same for the filter: "what talk shows are in the database?" is answered by joining `T_WC_T2S_SERIE_GENRE` on `ID_GENRE = 10767`, not by `SERIE_TYPE = 'Talk Show'`, so its refresh joins the same way. Check the pairing against a real execution before adding one.
+**The alignment rule.** A refresh SQL must mirror the `ORDER BY` **and** the joins of the query it feeds, not merely name a plausible ranking. The evaluated query is capped at `LIMIT 100`: if the two rankings differ, the generated top-8 can sit entirely outside the first hundred rows and the assertion fails against a query that is correct. Same for the filter, "what talk shows are in the database?" is answered by joining `T_WC_T2S_SERIE_GENRE` on `ID_GENRE = 10767` rather than by filtering `SERIE_TYPE`, so its refresh joins the same way.
+
+**There is no single default sort to copy.** The ranking depends on the entity *and* on the question, and the canonical rule is the **Default Sorting** section of [data/text_to_sql.md](../data/text_to_sql.md). Read it there rather than generalising from a sample. Its shape, in brief:
+
+| the question is about | the sort |
+|---|---|
+| movies, series, collections, movements | `IMDB_RATING_WEIGHTED DESC` |
+| persons | `POPULARITY DESC` |
+| anything trending / popular / "what everyone is watching" | `POPULARITY DESC`, **overriding** the above |
+| entities *within* a topic, list, collection, movement, award or nomination | that junction table's `DISPLAY_ORDER ASC` |
+| technicals | `MOVIE_COUNT DESC` |
+| genres | name `ASC` |
+| a ranking by an aggregate ("directors with the most films") | the aggregate `DESC`, overriding the entity default |
+| a `UNION` of movies and series | `IMDB_RATING_WEIGHTED DESC` on the union, never a bare `DISPLAY_ORDER` |
+
+The bank follows this closely, which is the best evidence that it is worth following: of the 98 refresh queries, the **34** whose question carries a trending or popular phrasing rank by `POPULARITY` without a single exception, while the other 64 spread across seven different sorts, `IMDB_RATING_WEIGHTED` (33), `POPULARITY` for person questions (8), `DISPLAY_ORDER` (6), `DAT_RELEASE` (4), `REVENUE` (2), then `BUDGET`, `DEATH_YEAR` and `IMDB_RATING`. Seven have no `ORDER BY` at all, which is safe only where the result is small enough to fit inside the evaluated `LIMIT` whatever the order.
+
+In practice: derive the expected sort from that section, then **confirm it against a real execution** of the question before storing the refresh SQL. The stored `sql_query` of any run under `data/evaluation_execution/` gives the answer in one look.
 
 **Do not give a refresh SQL to an evaluation with a good permanent anchor.** "Canceled TV series" looks like a moving target, but Firefly is the canonical answer and makes a stable anchor, where a popularity-ranked top-8 of cancellations would drift toward recent ones and could drop it. A certain anchor beats a self-maintaining but uncertain list.
 
