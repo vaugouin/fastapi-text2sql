@@ -77,11 +77,16 @@ Edit at the right layer; the architecture is intentionally split.
 - Hot-reloads `text_to_sql.md` and `complex_question.md` via `data_watcher`.
 
 **[entity.py](entity.py)** — entity extraction + resolution.
-- `f_entity_extraction()` — LLM-based extraction + anonymization.
-- `resolve_entities()` — main resolver: regex-validated branch → closed-vocab branches → embeddings/RapidFuzz from `entity_resolution.json` → raw fallback.
+- `f_entity_extraction()` — LLM-based extraction + anonymization (single prompt).
+- `f_entity_extraction_split()` — the same contract from two concurrent prompts, open types and closed vocabularies, merged (FASTAPI-TEXT2SQL-200). Gated by `ENTITY_EXTRACTION_SPLIT`; see *Entity extraction: one prompt or two* below.
+- `merge_entity_extractions()` / `_anonymization_edits()` — splice the two passes' anonymized questions back onto the raw question.
+- `_run_extraction_prompt()` — the shared prompt-call + JSON-cleanup body behind all three.
+- `plan_entity_resolutions()` — the expensive, SQL-independent half of resolution (regex, closed vocab, ChromaDB, RapidFuzz, row lookups). Returns `{"entities": [...], "planning_time": float}`.
+- `apply_entity_resolutions()` — the cheap half: substitution into SQL / justification / answer, plus the recorded diagnostics.
+- `resolve_entities()` — the two back to back; unchanged signature, still the right call when there is nothing to overlap with.
 - `_match_regex_placeholder_rule()` — dispatch helper for regex placeholders.
 - `_REGEX_PLACEHOLDER_RULES` — list of `(prefix, regex, is_numeric)` tuples; **order matters** (uses `startswith()`).
-- Hot-reloads `entity_extraction.md` and `entity_resolution.json` via `data_watcher`.
+- Hot-reloads `entity_extraction.md`, `entity_extraction_open.md`, `entity_extraction_closed.md` and `entity_resolution.json` via `data_watcher`. All three prompt files must exist on disk at import time, `data_watcher.register()` reads them eagerly and raises if one is missing.
 
 **[closed_vocab.py](closed_vocab.py)** — closed-vocabulary lookups (DB canonicals + JSON aliases + RapidFuzz typo tolerance).
 - `init(connection)` — loads canonicals at startup. Called once from `main.py` startup.
@@ -111,7 +116,9 @@ Edit at the right layer; the architecture is intentionally split.
 **[data/](data/)** — hot-reloaded prompts and config:
 - `text_to_sql.md` — main Text2SQL prompt (loaded by [text2sql.py](text2sql.py))
 - `complex_question.md` — complex-question resolver prompt (loaded by [text2sql.py](text2sql.py))
-- `entity_extraction.md` — entity extraction prompt (loaded by [entity.py](entity.py))
+- `entity_extraction.md` — entity extraction prompt, single-prompt path (loaded by [entity.py](entity.py))
+- `entity_extraction_open.md` — split path, pass A: open types, years, identifiers
+- `entity_extraction_closed.md` — split path, pass B: the six closed vocabularies
 - `entity_resolution.json` — per-placeholder resolution strategy list (loaded by [entity.py](entity.py))
 - `closed_vocabularies.json` — alias dictionaries (loaded by [closed_vocab.py](closed_vocab.py))
 
@@ -128,6 +135,7 @@ The app loads environment variables from `.env` via `python-dotenv`.
 - LLMs: `OPENAI_API_KEY` for `gpt-*`, `o1*`, `o3*`, and embeddings; `ANTHROPIC_API_KEY` for `claude-*`; `GOOGLE_API_KEY` for `gemini-*`; `OPENROUTER_API_KEY` for OpenRouter-routed models.
 - ChromaDB: `CHROMADB_HOST`, `CHROMADB_PORT`.
 - Blue/Green and MCP: `API_PORT_BLUE`, `API_PORT_GREEN`, `MCP_API_KEY`, `MCP_INTERNAL_API_KEY`, `MCP_INTERNAL_BASE_URL`.
+- Pipeline shape: `BKTREE_ENABLED` (default 1), `ENTITY_EXTRACTION_SPLIT` (default **0**), `ENTITY_RESOLUTION_PARALLEL` (default 1). All three are read at import time, so changing one needs a restart.
 
 Important startup constraint: `OPENAI_API_KEY` is required at import/startup because `main.py` initializes the OpenAI embedding function for ChromaDB even if the request-time text model is Anthropic or Google.
 
@@ -144,7 +152,7 @@ The `anonymizedqueries` collection is separate and is used for the optional embe
 ## Hot-reloaded vs restart-required
 
 **Hot-reloaded (no restart)** — picked up within ~5 s of mtime change:
-- Anything under `data/` (the five files above).
+- Anything under `data/` (the seven files above).
 
 **Restart required** — consider whether a user-requested `strapiversion` bump is also needed so the cache key flips and the Blue/Green parity moves:
 - Any change to `*.py`.
@@ -189,10 +197,45 @@ Pick the right kind, then follow the canonical pattern:
 | Embeddings / RapidFuzz (open-vocab name) | new entry in `data/entity_resolution.json` (`search_list` with `embeddings` and/or `rapidfuzz` strategies) | nothing — config-driven | new ChromaDB collection + initialization in [main.py:124-143](main.py#L124-L143) for embeddings |
 
 Always also:
-1. Add the placeholder definition + examples to `data/entity_extraction.md`.
+1. Add the placeholder definition + examples to `data/entity_extraction.md`, **and** to whichever split prompt owns it (`data/entity_extraction_open.md` or `data/entity_extraction_closed.md`), **and** to the matching set in [entity.py](entity.py) (`_OPEN_PLACEHOLDER_BASES` / `_CLOSED_PLACEHOLDER_BASES`). A placeholder missing from those sets is silently dropped by the merge when `ENTITY_EXTRACTION_SPLIT=1`.
 2. Add a placeholder reference (and any column-picking rule) to `data/text_to_sql.md`.
 3. Update [closed-vocab-entity-checklist.csv](closed-vocab-entity-checklist.csv) if it's a closed-vocab entity.
 4. Bump `strapiversion` only when explicitly requested; otherwise warn that current-version cache rows may shadow the new behavior.
+
+---
+
+## Entity extraction: one prompt or two
+
+Two shapes behind one contract. Both return `{"question": "<anonymized>", "<Placeholder>": "<value>", ...}` or `{"error": ...}`, so nothing downstream can tell them apart. `ENTITY_EXTRACTION_SPLIT` picks (default **0**, the single prompt).
+
+**Why the split exists (FASTAPI-TEXT2SQL-200).** `entity_extraction.md` is 779 lines, 438 of them examples. Of its 61 examples, 26 serve the six closed vocabularies, which are fully enumerated in a 9.6 Ko JSON file; `Movie_title`, the type that regressed in May, had two. The attention budget was allocated in inverse proportion to the difficulty. The split cuts along **the nature of the decision, not the domain**: open types are world knowledge, closed vocabularies are bounded classification. They do not need the same prompt, and running them as one call makes them compete.
+
+**How the merge works.** The two passes read the same raw question and each anonymize their own spans of it. `_anonymization_edits()` recovers each pass's edits in raw-question coordinates by walking the literal text between its placeholders, and `merge_entity_extractions()` splices both edit sets onto the raw question. Three rules make it safe:
+
+1. An edit is kept only if every placeholder it carries belongs to that pass and has a non-empty value. A pass straying into the other's vocabulary has that edit dropped, not trusted.
+2. On overlapping spans the **open pass wins** (`war` inside `Vietnam war` is the known failure mode, in that direction).
+3. A pass that reworded the question instead of only substituting is discarded whole, and the other pass's output stands alone. Both unusable, and the merge falls back to a single pass's own payload.
+
+The merged question is always the raw question with spans replaced, never an LLM rewrite, so `placeholders(question)` and `entity_keys()` match by construction (the evaluator's Layer 1 gate).
+
+**Ownership is fixed in code**, `_OPEN_PLACEHOLDER_BASES` and `_CLOSED_PLACEHOLDER_BASES` in [entity.py](entity.py). Years and the six identifiers live with the open pass: they co-occur with titles (`Title (Year)`), and `_extract_year_context()` needs `Release_yearN` to be numbered alongside the title it dates. **A new placeholder must be added to one of the two sets and to the matching prompt**, or the merge will silently drop it in split mode.
+
+**Do not judge the split by reading it.** `eval/bench-entity-extraction-split.py` runs both shapes over the scored question bank in one process and reports the delta, what each gained, what each lost. That is the gate the ticket asks for; run it before flipping the flag.
+
+---
+
+## Pipeline scheduling: what runs in parallel
+
+`/search/text2sql` used to be an `async def` that never awaited anything, so every LLM call blocked the event loop and requests serialized. Three calls now go through `asyncio.to_thread`: `f_text2sql`, `f_classify_result_entity` and the answer-entity guard's regeneration. Consequences worth knowing:
+
+- **Requests now genuinely interleave.** Per-request state (the DB connection, the messages list) is local; module state touched at request time is either read-only after startup (prompts, closed-vocab canonicals) or lock-protected (`_BKTREE_CACHE`). The prompt-cache buffer is a `ContextVar` holding a list, and `asyncio.to_thread` copies the context by reference, so appends from worker threads still reach the response.
+- **`f_entity_extraction_split` uses its own `ThreadPoolExecutor`**, and plain pool threads inherit **no** context. Each task is submitted through `contextvars.copy_context().run` so the prompt-cache observations are not lost. One copy per worker: a `Context` cannot be entered twice at once.
+
+**The fork-join (FASTAPI-TEXT2SQL-201).** Entity resolution iterates over the extraction payload, not over the placeholders found in the SQL, and `f_text2sql` only ever sees `input_text_anonymized`. The two branches are therefore independent, and `plan_entity_resolutions()` is started in a worker thread just before the text-to-SQL call, then joined right after the answer-entity guard. **The join is unconditional and must stay where it is**: the complex-question retry path below it closes the connection the worker thread is using. A plan that raised degrades to `resolve_entities()` on the sequential path.
+
+`embeddings_processing_time` deliberately adds the overlapped planning time back in, so the metric keeps meaning "what entity resolution cost" and stays comparable with campaigns run before the fork-join. The saving appears in `total_processing_time`.
+
+**One accepted behavioural divergence.** When a placeholder is extracted but appears nowhere in the SQL, the justification or the answer, the old resolver ran *every* strategy and logged each one before discarding the result; the planner stops at the first strategy that resolves. The three texts come out identical, only the message trace is shorter. Everything else is byte-identical, message traces included.
 
 ---
 
@@ -409,6 +452,12 @@ The 9 regex-validated placeholders validate against a fixed pattern in `_REGEX_P
 
 ### Gotcha #11 — MCP Mount Path
 `app.mount("", mcp_app)` (empty string), not `"/mcp"`. Nginx strips/preserves `/mcp` upstream, and FastMCP's own routes live under `/mcp/…`. Mounting under `/mcp` produces `/mcp/mcp` paths.
+
+### Gotcha #12 — Split Extraction Ownership
+With `ENTITY_EXTRACTION_SPLIT=1`, a placeholder that is not listed in `_OPEN_PLACEHOLDER_BASES` or `_CLOSED_PLACEHOLDER_BASES` is dropped by the merge without an error: the edit carrying it is rejected as "not this pass's vocabulary" and the raw words stay in the question. Adding a placeholder means touching three files, both prompts' owner and the matching set. See *Entity extraction: one prompt or two*.
+
+### Gotcha #13 — The Fork-Join Must Be Joined
+`plan_entity_resolutions()` runs in a worker thread holding **this request's** DB connection. The complex-question retry path calls `connection.close()`. The join therefore sits right after the answer-entity guard, before any path that can close the connection or return early. Do not move it, and do not add a `return` between the fork and the join.
 
 ---
 

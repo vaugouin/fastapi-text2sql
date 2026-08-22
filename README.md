@@ -71,6 +71,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 2. **Entity Extraction & Anonymization**
    - If not found in exact cache, extract and anonymize entities from the user question using GPT-4o
    - Entity extraction logic is implemented in `entity.py`
+   - Two shapes behind the same output contract, selected by `ENTITY_EXTRACTION_SPLIT`: a single prompt covering all 30 placeholder types (default), or two concurrent prompts, one for the open types and one for the closed vocabularies, merged back onto the raw question. See *Entity Extraction & Anonymization* under Advanced Features.
    - Entities extracted include:
      - **Person names** (actors, directors, crew) — placeholder `{{Person_nameN}}`
      - **Movie titles** (English, French, and original language) — placeholder `{{Movie_titleN}}`
@@ -112,6 +113,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 
 5. **Entity Validation & Resolution**
    - Entity resolution logic is implemented in `entity.py` (with `closed_vocab.py` for the closed-vocabulary layer); `main.py` remains focused on request orchestration.
+   - **Runs concurrently with step 6.** Resolution depends only on the extracted key/value pairs, never on the generated SQL, so its expensive half (`plan_entity_resolutions`) is started in a worker thread just before the text-to-SQL call and joined right after it. Only the substitution, step 7, waits for the SQL. Set `ENTITY_RESOLUTION_PARALLEL=0` for the strictly sequential path.
    - Each placeholder is dispatched to one of four resolver categories:
      - **Embeddings (ChromaDB)** — vector similarity lookup against a per-entity collection (config-driven via `data/entity_resolution.json`).
      - **RapidFuzz (DB lexical)** — normalized + key-prefix + FULLTEXT/LIKE matching against generated SQL columns (config-driven via `data/entity_resolution.json`); strategies can be gated by language family and may include a `resolve_to_canonical` step that maps from an AKA table back to the primary entity table.
@@ -156,6 +158,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 
 6. **Text-to-SQL Generation (LLM)**
    - If no cache hit occurs, process the anonymized question through the LLM model
+   - Runs while step 5 resolves the entities in a worker thread: the model only ever sees `input_text_anonymized`, so the two branches are independent
    - Uses the prompt template from `data/` folder with comprehensive database schema
    - Files in `data/` are hot-reloaded, so prompt/config edits are picked up automatically without restarting the API
    - GPT-4o generates a SQL query based on the anonymized question pattern
@@ -166,6 +169,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 
 7. **Query De-anonymization**
    - Replace placeholders in the generated SQL query, justification, and answer with actual validated entity values
+   - Pure string substitution (`apply_entity_resolutions`), microseconds of work: everything expensive already happened in step 5
    - Apply parameters from the entity extraction step (person names, movie titles, etc.)
    - Produce the complete, executable SQL query with proper SQL escaping
    - The `answer` field undergoes the same de-anonymization as `justification`
@@ -259,6 +263,11 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    # MCP (Model Context Protocol) — Claude connector at /mcp
    MCP_API_KEY=your_mcp_bearer_token_here
    MCP_INTERNAL_API_KEY=key_for_mcp
+
+   # Pipeline shape (all read at import time, so a change needs a restart)
+   BKTREE_ENABLED=1               # BK-tree index for RapidFuzz matching
+   ENTITY_EXTRACTION_SPLIT=0      # 0: one extraction prompt; 1: two concurrent prompts, merged
+   ENTITY_RESOLUTION_PARALLEL=1   # 1: resolve entities while the SQL is being generated
    ```
 
    Provider key usage:
@@ -1133,11 +1142,16 @@ fastapi-text2sql/
 ├── restart-blue.sh          # Blue deployment restart script
 ├── restart-green.sh         # Green deployment restart script
 ├── data/                    # Hot-reloaded prompt templates and configuration
-│   ├── entity_extraction.md                                          # Entity extraction prompt (hot-reloaded)
+│   ├── entity_extraction.md                                          # Entity extraction prompt, single-prompt path (hot-reloaded)
+│   ├── entity_extraction_open.md                                     # Entity extraction, split path pass A: open types, years, identifiers (hot-reloaded)
+│   ├── entity_extraction_closed.md                                   # Entity extraction, split path pass B: the six closed vocabularies (hot-reloaded)
 │   ├── text_to_sql.md                                                # Text2SQL prompt (hot-reloaded)
 │   ├── complex_question.md                                           # Stronger model prompt (complex question simplification, hot-reloaded)
 │   ├── entity_resolution.json                                        # Entity resolution configuration (embeddings + rapidfuzz, hot-reloaded)
 │   └── closed_vocabularies.json                                      # Closed-vocabulary aliases for Movie_genre, Serie_genre, Technical_format, Status_name, Serie_type, Department_name (hot-reloaded)
+├── eval/                    # Evaluation harness (see eval/README.md)
+│   ├── text2sql-eval.py                                              # End-to-end evaluator against the running API
+│   └── bench-entity-extraction-split.py                              # Offline single-prompt vs split-prompt comparison
 ├── doc/
 │   └── sql/                 # Reference SQL dumps for canonical tables
 │       └── T_WC_T2S_TECHNICAL.sql                                    # 56-row Technical_format canonical table
@@ -1149,7 +1163,8 @@ fastapi-text2sql/
 **Key Architecture Components:**
 - **ChromaDB Integration**: Vector database for entity matching and similarity search with 15 entity collections (`persons`, `movies`, `series`, `companies`, `networks`, `topics`, `locations`, `groups`, `characters`, `lists`, `collections`, `deaths`, `awards`, `nominations`, `movements`) plus a separate `anonymizedqueries` cache collection
 - **Multi-Level Caching**: SQL cache + embeddings cache for performance optimization with automatic cleanup
-- **Entity Extraction**: `entity.py` handles GPT-powered entity recognition and anonymization for supported entity types
+- **Entity Extraction**: `entity.py` handles GPT-powered entity recognition and anonymization for supported entity types, either as one prompt or as two concurrent ones (`ENTITY_EXTRACTION_SPLIT`)
+- **Fork-Join Scheduling**: entity resolution runs in a worker thread while the text-to-SQL call is in flight (`ENTITY_RESOLUTION_PARALLEL`), since it depends only on the extraction output
 - **Unified LLM Dispatch**: `text2sql.py` routes to OpenAI (native SDK), Anthropic (native `anthropic` SDK), or Google Gemini (`google-generativeai`) based on model name
 - **Reasoning Retry Helpers**: `text2sql.py` contains stronger-model calls and retry-question construction helpers
 - **Endpoint Orchestration**: `main.py` coordinates request flow, recursive retry execution, and response/message merging
@@ -1165,9 +1180,9 @@ fastapi-text2sql/
 The API version is controlled by the `strapiversion` variable in `main.py`. Update this when making changes to the prompt templates.
 
 ### Prompt Templates
-The system uses prompt templates stored in the `data/` folder. `text2sql.py` loads the Text2SQL and complex-question templates, and `entity.py` loads the entity-extraction template.
+The system uses prompt templates stored in the `data/` folder. `text2sql.py` loads the Text2SQL and complex-question templates, and `entity.py` loads the three entity-extraction templates (`entity_extraction.md` for the single-prompt path, `entity_extraction_open.md` and `entity_extraction_closed.md` for the split path).
 
-Files in the `data/` folder are hot-reloaded. If you modify `entity_extraction.md`, `text_to_sql.md`, `complex_question.md`, or `entity_resolution.json`, the running API automatically picks up the changes without requiring a restart.
+Files in the `data/` folder are hot-reloaded. If you modify `entity_extraction.md`, `entity_extraction_open.md`, `entity_extraction_closed.md`, `text_to_sql.md`, `complex_question.md`, or `entity_resolution.json`, the running API automatically picks up the changes without requiring a restart. All three entity-extraction prompt files must exist on disk at startup, whichever path is active: the watcher reads each of them eagerly when the module is imported.
 
 Prompt template files are read using UTF-8 encoding so the application starts reliably on Windows even when prompt files contain non-ASCII characters.
 
@@ -1309,9 +1324,39 @@ The system intelligently extracts and replaces entities in natural language ques
 1. Extract entities from the user question using GPT-4o (or the configured `llm_model_entity_extraction`)
 2. Replace entities with typed numbered placeholders (e.g., `{{Person_name1}}`, `{{Movie_title1}}`, `{{Award_name1}}`, `{{Group_name1}}`, `{{Release_year1}}`)
 3. Check cache for the anonymized question pattern
-4. Generate SQL if not cached
+4. Generate SQL if not cached, while the entities are already being resolved in parallel (see *Parallel entity resolution* below)
 5. Resolve each placeholder to a real DB value using the per-prefix `search_list` in [data/entity_resolution.json](data/entity_resolution.json) (embeddings or RapidFuzz, with optional language-family gating)
 6. Substitute resolved values back into `sql_query`, `justification`, and `answer`, using SQL-safe `''` quote escaping
+
+#### Two extraction shapes: one prompt, or two concurrent ones
+
+Step 1 has two implementations behind the same output contract, selected by the `ENTITY_EXTRACTION_SPLIT` environment variable.
+
+| `ENTITY_EXTRACTION_SPLIT` | What runs | Prompt files |
+|---|---|---|
+| `0` (default) | One call, one prompt covering all 30 placeholder types | [data/entity_extraction.md](data/entity_extraction.md) |
+| `1` | Two concurrent calls, merged afterwards | [data/entity_extraction_open.md](data/entity_extraction_open.md) + [data/entity_extraction_closed.md](data/entity_extraction_closed.md) |
+
+The split cuts along the *nature of the decision*, not the domain. The open pass reads names of things that exist in the world and that no list can enumerate (titles, people, characters, companies, networks, places, franchises, awards, lists, movements, groups, causes of death, topics), plus the years and identifiers: that is world knowledge, and it needs tolerance for misspellings and bare titles. The closed pass reads the six vocabularies whose every value is enumerated in the prompt (movie genre, TV genre, production status, series type, crew department, technical format): that is bounded classification, and it needs boundary rules, not world knowledge. A single prompt made them compete for the same attention budget, with 26 of its 61 examples spent on the enumerable half.
+
+The two passes never see each other. Each anonymizes its own spans of the same raw question, and the merge splices both edit sets back onto the raw question: an edit is kept only when every placeholder it carries belongs to that pass, overlapping spans resolve in favour of the open pass (`war` inside `Vietnam war`), and a pass that reworded the question rather than only substituting is discarded whole. The merged question is therefore always the raw question with spans replaced, never an LLM rewrite.
+
+Before turning the flag on, compare the two shapes on the scored question bank:
+
+```bash
+uv run eval/bench-entity-extraction-split.py --limit 50            # scored, needs the database
+uv run eval/bench-entity-extraction-split.py --questions-file q.txt # offline, LLM only
+```
+
+The bench runs both shapes on the same questions in one process, scores each with the evaluator's own assertion engine, and prints what the split gained and what it lost. Nothing is written: no API call, no evaluation row, no cache entry.
+
+#### Parallel entity resolution
+
+Entity resolution (step 5) depends only on the extraction output, never on the generated SQL: the resolver iterates over the extracted key/value pairs, and the SQL appears only at the very end as the target of a string substitution. Steps 4 and 5 are therefore run concurrently — the resolution starts in a worker thread just before the text-to-SQL call and is joined right after it, so only the substitution itself waits for the SQL.
+
+On 371 logged requests, resolution costs 0.245 s at the median but more than one second on 16% of requests and more than two on 6%. Hiding it behind the text-to-SQL call is worth about 5% of median latency and considerably more in that tail. Set `ENTITY_RESOLUTION_PARALLEL=0` to fall back to the strictly sequential path; results are identical either way.
+
+`embeddings_processing_time` still reports what the resolution cost, overlapped or not, so the metric stays comparable across versions. The saving shows up in `total_processing_time`.
 
 The full pipeline is implemented in [entity.py](entity.py) (resolver dispatch, regex-validated placeholders, embeddings, RapidFuzz person resolution, generic fallback replacement) plus [closed_vocab.py](closed_vocab.py) (DB-driven closed-vocabulary lookups for `Movie_genre`, `Serie_genre`, `Technical_format`, `Status_name`, `Serie_type`, `Department_name` with RapidFuzz typo tolerance and JSON-driven alias layering).
 

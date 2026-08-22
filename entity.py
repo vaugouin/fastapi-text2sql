@@ -1,3 +1,5 @@
+import concurrent.futures
+import contextvars
 import json
 import os
 import re
@@ -64,12 +66,23 @@ def _collapse_repeated_descriptor(text: str) -> str:
 
 
 strentityextractionprompttemplate = "entity_extraction.md"
+strentityextractionopenprompttemplate = "entity_extraction_open.md"
+strentityextractionclosedprompttemplate = "entity_extraction_closed.md"
 strentityresolutionconfigfile = "entity_resolution.json"
 strentityextractionmodeldefault = "gpt-4o"
+
+# Split extraction (FASTAPI-TEXT2SQL-200): off by default. Two concurrent calls,
+# one for the open types (world knowledge) and one for the closed vocabularies
+# (bounded classification), instead of one 779-line prompt in which the closed
+# vocabularies ate the attention budget of the open ones. Measure with
+# eval/bench-entity-extraction-split.py before flipping this on.
+ENTITY_EXTRACTION_SPLIT = os.getenv("ENTITY_EXTRACTION_SPLIT", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 # Populated synchronously by data_watcher.register() below and refreshed
 # automatically whenever the underlying files change on disk.
 entity_extraction_prompt_template: str = ""
+entity_extraction_open_prompt_template: str = ""
+entity_extraction_closed_prompt_template: str = ""
 ENTITY_RESOLUTION_CONFIG: list[dict] = []
 
 BKTREE_ENABLED = os.getenv("BKTREE_ENABLED", "1").strip().lower() in {"1", "true", "yes", "on"}
@@ -226,6 +239,16 @@ def _on_entity_extraction_prompt_change(content: str) -> None:
     entity_extraction_prompt_template = content
 
 
+def _on_entity_extraction_open_prompt_change(content: str) -> None:
+    global entity_extraction_open_prompt_template
+    entity_extraction_open_prompt_template = content
+
+
+def _on_entity_extraction_closed_prompt_change(content: str) -> None:
+    global entity_extraction_closed_prompt_template
+    entity_extraction_closed_prompt_template = content
+
+
 def _on_entity_resolution_config_change(content: str) -> None:
     global ENTITY_RESOLUTION_CONFIG
     try:
@@ -237,19 +260,30 @@ def _on_entity_resolution_config_change(content: str) -> None:
 
 
 data_watcher.register(strentityextractionprompttemplate, _on_entity_extraction_prompt_change)
+data_watcher.register(strentityextractionopenprompttemplate, _on_entity_extraction_open_prompt_change)
+data_watcher.register(strentityextractionclosedprompttemplate, _on_entity_extraction_closed_prompt_change)
 data_watcher.register(strentityresolutionconfigfile, _on_entity_resolution_config_change)
 
 
-def f_entity_extraction(user_question: str, strentityextractionmodel: str = "default"):
-    """Extract placeholders and an anonymized question from the raw user question."""
-    print("Entity extraction")
-    print("User question:", user_question)
-    model_to_use = t2s._normalize_llm_model(strentityextractionmodel, strentityextractionmodeldefault)
-    print("Entity extraction LLM model:", model_to_use)
+def _run_extraction_prompt(prompt_template: str, user_question: str, model_to_use: str, cache_label: str):
+    """Run one extraction prompt and return its parsed JSON payload.
 
+    Shared by the single-prompt path and by both halves of the split path
+    (FASTAPI-TEXT2SQL-200), which differ only by the template they feed in.
+
+    Args:
+        prompt_template: Hot-reloaded template carrying a ``{user_question}`` slot.
+        user_question: The raw, non-anonymized question.
+        model_to_use: Already-normalized LLM model name.
+        cache_label: Pipeline step name, used to tag prompt-cache observations.
+
+    Returns:
+        The parsed payload (``{"question": ..., "<Key>": value}``) or an
+        ``{"error": ...}`` dict, which every caller already knows how to handle.
+    """
     try:
         try:
-            formatted_prompt = entity_extraction_prompt_template.replace("{user_question}", user_question)
+            formatted_prompt = prompt_template.replace("{user_question}", user_question)
         except Exception as format_error:
             print(f"Error formatting prompt template: {str(format_error)}")
             print(f"User question: '{user_question}'")
@@ -261,7 +295,7 @@ def f_entity_extraction(user_question: str, strentityextractionmodel: str = "def
                 system_prompt="You are a powerful entity extraction tool. Respond only with the JSON content, no explanations.",
                 user_prompt=formatted_prompt,
                 temperature=0,
-                cache_label="entity_extraction",
+                cache_label=cache_label,
             ).strip()
         except Exception as api_error:
             print(f"LLM API call failed: {str(api_error)}")
@@ -304,6 +338,243 @@ def f_entity_extraction(user_question: str, strentityextractionmodel: str = "def
     except Exception as e:
         print(f"Error in entity extraction: {str(e)}")
         return {"error": str(e)}
+
+
+def f_entity_extraction(user_question: str, strentityextractionmodel: str = "default"):
+    """Extract placeholders and an anonymized question from the raw user question."""
+    print("Entity extraction")
+    print("User question:", user_question)
+    model_to_use = t2s._normalize_llm_model(strentityextractionmodel, strentityextractionmodeldefault)
+    print("Entity extraction LLM model:", model_to_use)
+    return _run_extraction_prompt(entity_extraction_prompt_template, user_question, model_to_use, "entity_extraction")
+
+
+# --- Split extraction (FASTAPI-TEXT2SQL-200) --------------------------------
+# Two independent passes read the same raw question and each anonymize their own
+# spans of it. Pass A owns the open types (world knowledge: titles, people,
+# characters, companies, franchises, places, topics) plus the years and the
+# identifiers; pass B owns the six closed vocabularies (bounded classification).
+# The two anonymized questions are then spliced back onto the raw question.
+
+_OPEN_PLACEHOLDER_BASES = frozenset({
+    "Person_name", "Movie_title", "Serie_title", "Company_name", "Network_name",
+    "Character_name", "Location_name", "List_name", "Award_name", "Nomination_name",
+    "Collection_name", "Movement_name", "Group_name", "Death_name", "Topic_name",
+    "Release_year", "Birth_year", "Death_year",
+    "IMDb_ID", "IMDb_person_ID", "Wikidata_ID", "Wikidata_property_ID",
+    "TMDb_ID", "Criterion_spine_ID",
+})
+
+_CLOSED_PLACEHOLDER_BASES = frozenset({
+    "Movie_genre", "Serie_genre", "Status_name", "Serie_type",
+    "Department_name", "Technical_format",
+})
+
+_PLACEHOLDER_TOKEN_RE = re.compile(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}")
+# A run of placeholders with nothing between them is spliced as a single edit,
+# because there is no literal text in between to anchor the boundary on.
+_PLACEHOLDER_RUN_RE = re.compile(r"((?:\{\{[A-Za-z_][A-Za-z0-9_]*\}\})+)")
+
+
+def _placeholder_base(key: str) -> str:
+    """Return a placeholder key without its trailing occurrence number."""
+    return re.sub(r"\d+$", "", str(key or ""))
+
+
+def _anonymization_edits(raw_question: str, payload, allowed_bases: frozenset) -> tuple[list, bool]:
+    """Recover, in raw-question coordinates, the spans one pass replaced.
+
+    An anonymized question is the raw question with a few substrings swapped for
+    ``{{Placeholder}}`` tokens, so the literal text around the tokens still matches
+    the raw question verbatim and can be walked to find each replaced span. Working
+    in raw coordinates is what lets two passes' edits be merged onto one string.
+
+    An edit is kept only when every placeholder it carries belongs to this pass and
+    has a non-empty value in the payload; a pass that reworded the question, or that
+    strayed into the other pass's vocabulary, has that edit dropped rather than
+    trusted.
+
+    Returns:
+        ``(edits, aligned)`` where ``edits`` is a list of ``(start, end, replacement)``
+        and ``aligned`` is False when the literal text no longer lines up with the raw
+        question, meaning this pass's output cannot be spliced and must be discarded.
+    """
+    if not isinstance(payload, dict):
+        return [], False
+    anonymized_question = payload.get("question")
+    if not isinstance(anonymized_question, str) or anonymized_question.strip() == "":
+        return [], False
+    if anonymized_question == raw_question:
+        return [], True
+
+    tokens = _PLACEHOLDER_RUN_RE.split(anonymized_question)
+    edits = []
+    position = 0
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        is_placeholder_run = index % 2 == 1
+        if not is_placeholder_run:
+            if not raw_question.startswith(token, position):
+                return [], False
+            position += len(token)
+            index += 1
+            continue
+
+        next_literal = tokens[index + 1] if index + 1 < len(tokens) else ""
+        if next_literal == "":
+            end = len(raw_question)
+        else:
+            end = raw_question.find(next_literal, position)
+            if end < 0:
+                return [], False
+
+        keys = _PLACEHOLDER_TOKEN_RE.findall(token)
+        keep = bool(keys)
+        for key in keys:
+            if _placeholder_base(key) not in allowed_bases:
+                keep = False
+                break
+            value = payload.get(key)
+            if not isinstance(value, str) or value.strip() == "":
+                keep = False
+                break
+        if keep:
+            edits.append((position, end, token))
+
+        position = end
+        index += 1
+
+    if position != len(raw_question):
+        return [], False
+    return edits, True
+
+
+def merge_entity_extractions(raw_question: str, open_payload, closed_payload, notes: list | None = None):
+    """Merge the open-type and closed-vocabulary passes into one extraction payload.
+
+    The two passes never see each other, so their anonymized questions are spliced
+    back onto the raw question span by span. Where they claim overlapping spans, the
+    open pass wins: it is the one making a judgement about the world, while a closed
+    vocabulary that grabbed part of a title ("war" inside "Vietnam war") is the known
+    failure mode. A pass whose output cannot be aligned with the raw question is
+    dropped whole rather than half-applied.
+
+    Args:
+        raw_question: The original, non-anonymized question.
+        open_payload: Pass A's payload, or an ``{"error": ...}`` dict.
+        closed_payload: Pass B's payload, or an ``{"error": ...}`` dict.
+        notes: Optional list collecting human-readable diagnostics for the caller
+            to surface in the response ``messages`` array.
+
+    Returns:
+        A payload shaped exactly like the single-prompt one, or ``{"error": ...}``
+        when neither pass produced anything usable.
+    """
+    def _note(text: str) -> None:
+        """Record a merge diagnostic for the caller and the console."""
+        print(f"[entity-split] {text}")
+        if notes is not None:
+            notes.append(text)
+
+    open_failed = not isinstance(open_payload, dict) or "error" in open_payload
+    closed_failed = not isinstance(closed_payload, dict) or "error" in closed_payload
+
+    if open_failed and closed_failed:
+        open_error = (open_payload or {}).get("error") if isinstance(open_payload, dict) else str(open_payload)
+        closed_error = (closed_payload or {}).get("error") if isinstance(closed_payload, dict) else str(closed_payload)
+        return {"error": f"Both entity extraction passes failed (open: {open_error}; closed: {closed_error})"}
+
+    if open_failed:
+        _note(f"open-type pass failed ({(open_payload or {}).get('error')}); keeping the closed-vocabulary pass alone")
+    if closed_failed:
+        _note(f"closed-vocabulary pass failed ({(closed_payload or {}).get('error')}); keeping the open-type pass alone")
+
+    open_edits, open_aligned = ([], False) if open_failed else _anonymization_edits(raw_question, open_payload, _OPEN_PLACEHOLDER_BASES)
+    closed_edits, closed_aligned = ([], False) if closed_failed else _anonymization_edits(raw_question, closed_payload, _CLOSED_PLACEHOLDER_BASES)
+
+    if not open_failed and not open_aligned:
+        _note("open-type pass rewrote the question instead of only substituting placeholders; its output was discarded")
+    if not closed_failed and not closed_aligned:
+        _note("closed-vocabulary pass rewrote the question instead of only substituting placeholders; its output was discarded")
+
+    if not open_aligned and not closed_aligned:
+        fallback = open_payload if not open_failed else closed_payload
+        _note("neither pass could be spliced onto the raw question; falling back to a single pass's own output")
+        return fallback
+
+    # Open edits first so a tie at the same start position resolves in their favour.
+    ordered_edits = [(start, end, token, "open") for start, end, token in open_edits]
+    ordered_edits += [(start, end, token, "closed") for start, end, token in closed_edits]
+    ordered_edits.sort(key=lambda edit: (edit[0], edit[1]))
+
+    merged_parts = []
+    kept_keys = []
+    position = 0
+    for start, end, token, side in ordered_edits:
+        if start < position:
+            dropped = ", ".join(_PLACEHOLDER_TOKEN_RE.findall(token))
+            _note(f"{side} pass claimed '{raw_question[start:end]}', already taken by the other pass; dropped {dropped}")
+            continue
+        merged_parts.append(raw_question[position:start])
+        merged_parts.append(token)
+        kept_keys.extend((key, side) for key in _PLACEHOLDER_TOKEN_RE.findall(token))
+        position = end
+    merged_parts.append(raw_question[position:])
+
+    merged = {"question": "".join(merged_parts)}
+    for key, side in kept_keys:
+        payload = open_payload if side == "open" else closed_payload
+        merged[key] = payload.get(key)
+    return merged
+
+
+def f_entity_extraction_split(user_question: str, strentityextractionmodel: str = "default", notes: list | None = None):
+    """Extract entities with two concurrent prompts, then merge their output.
+
+    Same contract as :func:`f_entity_extraction` — a payload of ``question`` plus one
+    key per placeholder, or an ``{"error": ...}`` dict — so nothing downstream can
+    tell which extraction path produced it (FASTAPI-TEXT2SQL-200).
+
+    Args:
+        user_question: The raw, non-anonymized question.
+        strentityextractionmodel: Model override; "default" uses the module default.
+        notes: Optional list collecting merge diagnostics for the caller.
+
+    Returns:
+        The merged extraction payload, or ``{"error": ...}`` when both passes failed.
+    """
+    print("Entity extraction (split: open types + closed vocabularies)")
+    print("User question:", user_question)
+    model_to_use = t2s._normalize_llm_model(strentityextractionmodel, strentityextractionmodeldefault)
+    print("Entity extraction LLM model:", model_to_use)
+
+    # One context copy per worker: a Context cannot be entered twice at once, and the
+    # copies share the request's prompt-cache buffer by reference, so both calls'
+    # cache observations still reach the response messages.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="entity-extraction") as pool:
+        open_future = pool.submit(
+            contextvars.copy_context().run,
+            _run_extraction_prompt,
+            entity_extraction_open_prompt_template, user_question, model_to_use, "entity_extraction_open",
+        )
+        closed_future = pool.submit(
+            contextvars.copy_context().run,
+            _run_extraction_prompt,
+            entity_extraction_closed_prompt_template, user_question, model_to_use, "entity_extraction_closed",
+        )
+        try:
+            open_payload = open_future.result()
+        except Exception as e:
+            open_payload = {"error": f"Open-type extraction raised: {str(e)}"}
+        try:
+            closed_payload = closed_future.result()
+        except Exception as e:
+            closed_payload = {"error": f"Closed-vocabulary extraction raised: {str(e)}"}
+
+    merged = merge_entity_extractions(user_question, open_payload, closed_payload, notes=notes)
+    print(f"Merged entity extraction: {merged}")
+    return merged
 
 
 def _find_entity_config(placeholder_key: str):
@@ -365,130 +636,253 @@ def _match_regex_placeholder_rule(key: str) -> tuple[str, str, bool] | None:
 
 
 
-def resolve_entities(
-    *,
-    connection,
-    entity_extraction,
-    sql_query,
-    justification,
-    answer="",
-    position_counter: int,
-    text_message_cls,
-    messages: list,
-    chromadb_collections_by_name: dict,
-) -> dict[str, Any]:
-    """Resolve extracted entities into concrete SQL, justification and answer substitutions."""
-    sql_query = sql_query or ""
-    justification = justification or ""
-    answer = answer or ""
-    def add_message(text: str):
-        """Append a positional diagnostic message to the response message list."""
-        nonlocal position_counter
-        messages.append(text_message_cls(position=position_counter, text=text))
-        position_counter += 1
+class _PlannedEntity:
+    """One extracted entity, resolved as far as the SQL is not needed.
 
-    def apply_entity_match_from_docid(*, cursor, key: str, cfg: dict, docid, doclang: str, message: str, current_sql_query: str, current_justification: str, current_answer: str = ""):
-        """Apply a resolved document ID by loading the row and replacing placeholders."""
-        if docid is None:
-            return False, current_sql_query, current_justification, current_answer
+    Produced by :func:`plan_entity_resolutions` (the expensive half: regex checks,
+    closed-vocabulary lookups, ChromaDB, RapidFuzz, row lookups) and consumed by
+    :func:`apply_entity_resolutions` (the cheap half: string substitution into the
+    SQL, the justification and the answer). Keeping the two apart is what lets the
+    resolution run while the text-to-SQL call is still in flight
+    (FASTAPI-TEXT2SQL-201).
 
-        languages_map = cfg.get("languages", {}) or {}
-        strfieldnamenew = languages_map.get(doclang) or languages_map.get("*") or cfg.get("default_field")
-        strtableidlookup = strfieldnamenew
+    Attributes:
+        key: The extracted placeholder key, e.g. ``Person_name1``.
+        placeholder: The literal ``{{key}}`` token.
+        messages: Diagnostics recorded while deciding, replayed in order at apply time.
+        substitution: ``fn(sql, justification, answer) -> (sql, justification, answer)``,
+            or None when nothing could be resolved.
+        final_message: Diagnostic emitted right after a successful substitution.
+        require_present: When True, the substitution and its ``final_message`` only
+            apply if the placeholder actually occurs in one of the three texts.
+    """
 
-        strtablename = cfg.get("strtablename")
-        strtableid = cfg.get("strtableid")
-        if not strtablename or not strtableid:
-            return False, current_sql_query, current_justification, current_answer
+    __slots__ = ("key", "placeholder", "messages", "substitution", "final_message", "require_present")
 
-        strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strtableid + " = %s"
-        cursor.execute(strsql_query, (docid,))
-        sql_query_results = cursor.fetchall()
-        if not sql_query_results:
-            placeholder = "{{" + str(key) + "}}"
-            add_message(
-                f"Entity resolution: embeddings returned docid={docid} (lang={doclang}) for {placeholder}, "
-                f"but no row exists in table {strtablename}.{strtableid}. Embeddings collection may be out of sync with the underlying table."
-            )
-            return False, current_sql_query, current_justification, current_answer
-        first_record = sql_query_results[0]
+    def __init__(self, key: str, placeholder: str):
+        self.key = key
+        self.placeholder = placeholder
+        self.messages = []
+        self.substitution = None
+        self.final_message = None
+        self.require_present = False
 
-        first_record_value = first_record.get(strtableidlookup, "")
-        first_record_value_sql = _sql_escape_literal(first_record_value)
+    def note(self, text: str) -> None:
+        """Record a diagnostic to be replayed when the plan is applied."""
+        self.messages.append(text)
 
-        placeholder = "{{" + str(key) + "}}"
-        target_col = cfg.get("default_field")
-        if not target_col:
-            return False, current_sql_query, current_justification, current_answer
+    def resolve_with(self, substitution, final_message=None, require_present: bool = False) -> None:
+        """Attach the substitution that resolves this placeholder."""
+        self.substitution = substitution
+        self.final_message = final_message
+        self.require_present = require_present
 
-        # Voie B: when enabled, rewrite "COL = 'X'" into a language-agnostic OR
-        # predicate across every title column, so a film whose match-language
-        # column differs from the typed language is still reached (e.g. Varda's
-        # "Le Bonheur" is stored as MOVIE_TITLE='Happiness', MOVIE_TITLE_FR='Le
-        # Bonheur'). The query's other constraints (director, year) then pick the
-        # right homonym. An optional table qualifier (e.g. "T_WC_T2S_MOVIE.") is
-        # captured and re-applied to each OR term.
-        multi_cols = []
-        if cfg.get("multi_language_match"):
-            seen = set()
-            for col in languages_map.values():
-                if col and col not in seen:
-                    seen.add(col)
-                    multi_cols.append(col)
 
+def _substitute_literal(placeholder: str, sql_value: str, text_value: str):
+    """Build a substitution replacing ``placeholder`` by a bare SQL literal.
+
+    Two regex passes so a quoted placeholder (``'{{X}}'``) and a bare one both go,
+    which is how an integer id lands unquoted in an INT comparison.
+    """
+    def _apply(sql_query: str, justification: str, answer: str):
+        """Apply the literal substitution to the three texts."""
+        sql_query = re.sub(rf"'{re.escape(placeholder)}'", sql_value, sql_query, flags=re.IGNORECASE)
+        sql_query = re.sub(rf"{re.escape(placeholder)}", sql_value, sql_query, flags=re.IGNORECASE)
+        return sql_query, justification.replace(placeholder, text_value), answer.replace(placeholder, text_value)
+
+    return _apply
+
+
+def _substitute_plain(placeholder: str, sql_value: str, text_value: str):
+    """Build a substitution using plain string replacement (generic / raw fallback)."""
+    def _apply(sql_query: str, justification: str, answer: str):
+        """Apply the plain substitution to the three texts."""
+        return (
+            sql_query.replace(placeholder, sql_value),
+            justification.replace(placeholder, text_value),
+            answer.replace(placeholder, text_value),
+        )
+
+    return _apply
+
+
+def _substitute_entity_row(placeholder: str, target_col: str, strfieldnamenew: str, multi_cols: list, record_value):
+    """Build the substitution for a row matched by embeddings or RapidFuzz.
+
+    Voie B: when ``multi_cols`` is set, rewrite "COL = 'X'" into a language-agnostic
+    OR predicate across every title column, so a film whose match-language column
+    differs from the typed language is still reached (e.g. Varda's "Le Bonheur" is
+    stored as MOVIE_TITLE='Happiness', MOVIE_TITLE_FR='Le Bonheur'). The query's
+    other constraints (director, year) then pick the right homonym. An optional
+    table qualifier (e.g. "T_WC_T2S_MOVIE.") is captured and re-applied to each OR
+    term. Otherwise the target column is swapped for the match-language one.
+    """
+    record_value_sql = _sql_escape_literal(record_value)
+
+    def _apply(sql_query: str, justification: str, answer: str):
+        """Apply the resolved row's value to the three texts."""
         if multi_cols:
             def _or_group(match):
+                """Expand one column equality into an OR across every title column."""
                 qual = match.group("qual") or ""
                 terms = " OR ".join(
-                    f"{qual}{col} = '{first_record_value_sql}'" for col in multi_cols
+                    f"{qual}{col} = '{record_value_sql}'" for col in multi_cols
                 )
                 return f"({terms})"
 
             qual_re = r"(?P<qual>(?:\w+\s*\.\s*)?)"
-            current_sql_query = re.sub(
+            sql_query = re.sub(
                 qual_re + rf"\b{re.escape(target_col)}\b\s*=\s*'{re.escape(placeholder)}'",
                 _or_group,
-                current_sql_query,
+                sql_query,
                 flags=re.IGNORECASE,
             )
-            current_sql_query = re.sub(
+            sql_query = re.sub(
                 qual_re + rf"\b{re.escape(target_col)}\b\s*=\s*{re.escape(placeholder)}",
                 _or_group,
-                current_sql_query,
+                sql_query,
                 flags=re.IGNORECASE,
             )
         else:
-            current_sql_query = re.sub(
+            sql_query = re.sub(
                 rf"\b{re.escape(target_col)}\b\s*=\s*'{re.escape(placeholder)}'",
-                f"{strfieldnamenew} = '{first_record_value_sql}'",
-                current_sql_query,
+                f"{strfieldnamenew} = '{record_value_sql}'",
+                sql_query,
                 flags=re.IGNORECASE,
             )
-            current_sql_query = re.sub(
+            sql_query = re.sub(
                 rf"\b{re.escape(target_col)}\b\s*=\s*{re.escape(placeholder)}",
-                f"{strfieldnamenew} = '{first_record_value_sql}'",
-                current_sql_query,
+                f"{strfieldnamenew} = '{record_value_sql}'",
+                sql_query,
                 flags=re.IGNORECASE,
             )
-        current_sql_query = re.sub(
+        sql_query = re.sub(
             rf"'{re.escape(placeholder)}'",
-            f"'{first_record_value_sql}'",
-            current_sql_query,
+            f"'{record_value_sql}'",
+            sql_query,
             flags=re.IGNORECASE,
         )
-        current_sql_query = re.sub(
+        sql_query = re.sub(
             rf"{re.escape(placeholder)}",
-            f"'{first_record_value_sql}'",
-            current_sql_query,
+            f"'{record_value_sql}'",
+            sql_query,
             flags=re.IGNORECASE,
         )
+        return (
+            sql_query,
+            justification.replace(placeholder, str(record_value)),
+            answer.replace(placeholder, str(record_value)),
+        )
 
-        current_justification = current_justification.replace(placeholder, str(first_record_value))
-        current_answer = current_answer.replace(placeholder, str(first_record_value))
-        add_message(message.format(placeholder=placeholder, resolved=first_record_value))
-        return True, current_sql_query, current_justification, current_answer
+    return _apply
 
-    ambiguous_question_for_text2sql = 0
+
+def _substitute_canonical(placeholder: str, target_col: str, canonical_value, justification_value: str):
+    """Build the substitution for a RapidFuzz AKA match resolved to its canonical value."""
+    canonical_value_sql = _sql_escape_literal(str(canonical_value))
+
+    def _apply(sql_query: str, justification: str, answer: str):
+        """Apply the canonical value to the SQL and the AKA wording to the prose."""
+        sql_query = re.sub(
+            rf"\b{re.escape(target_col)}\b\s*=\s*'{re.escape(placeholder)}'",
+            f"{target_col} = '{canonical_value_sql}'",
+            sql_query,
+            flags=re.IGNORECASE,
+        )
+        sql_query = re.sub(
+            rf"\b{re.escape(target_col)}\b\s*=\s*{re.escape(placeholder)}",
+            f"{target_col} = '{canonical_value_sql}'",
+            sql_query,
+            flags=re.IGNORECASE,
+        )
+        sql_query = re.sub(rf"'{re.escape(placeholder)}'", f"'{canonical_value_sql}'", sql_query, flags=re.IGNORECASE)
+        sql_query = re.sub(rf"{re.escape(placeholder)}", f"'{canonical_value_sql}'", sql_query, flags=re.IGNORECASE)
+        try:
+            justification = justification.replace(placeholder, justification_value)
+            answer = answer.replace(placeholder, justification_value)
+        except Exception:
+            pass
+        return sql_query, justification, answer
+
+    return _apply
+
+
+def _plan_entity_row_substitution(*, cursor, planned: _PlannedEntity, cfg: dict, docid, doclang: str, message: str) -> bool:
+    """Load the row behind a resolved document id and attach its substitution.
+
+    Returns True when the row exists and the substitution was recorded. A missing
+    row means the embeddings collection has drifted from the SQL table; that is
+    reported as a diagnostic and treated as unresolved, so the next strategy runs.
+    """
+    if docid is None:
+        return False
+
+    languages_map = cfg.get("languages", {}) or {}
+    strfieldnamenew = languages_map.get(doclang) or languages_map.get("*") or cfg.get("default_field")
+
+    strtablename = cfg.get("strtablename")
+    strtableid = cfg.get("strtableid")
+    if not strtablename or not strtableid:
+        return False
+
+    strsql_query = "SELECT * FROM " + strtablename + " WHERE " + strtableid + " = %s"
+    cursor.execute(strsql_query, (docid,))
+    sql_query_results = cursor.fetchall()
+    if not sql_query_results:
+        planned.note(
+            f"Entity resolution: embeddings returned docid={docid} (lang={doclang}) for {planned.placeholder}, "
+            f"but no row exists in table {strtablename}.{strtableid}. Embeddings collection may be out of sync with the underlying table."
+        )
+        return False
+
+    first_record = sql_query_results[0]
+    first_record_value = first_record.get(strfieldnamenew, "")
+
+    target_col = cfg.get("default_field")
+    if not target_col:
+        return False
+
+    multi_cols = []
+    if cfg.get("multi_language_match"):
+        seen = set()
+        for col in languages_map.values():
+            if col and col not in seen:
+                seen.add(col)
+                multi_cols.append(col)
+
+    planned.resolve_with(
+        _substitute_entity_row(planned.placeholder, target_col, strfieldnamenew, multi_cols, first_record_value),
+        final_message=message.format(placeholder=planned.placeholder, resolved=first_record_value),
+    )
+    return True
+
+
+def plan_entity_resolutions(
+    *,
+    connection,
+    entity_extraction,
+    chromadb_collections_by_name: dict,
+) -> dict[str, Any]:
+    """Resolve every extracted entity as far as the generated SQL is not needed.
+
+    This is the whole expensive half of entity resolution: regex validation,
+    closed-vocabulary lookups, ChromaDB shortlists, RapidFuzz matching and the row
+    lookups behind them. None of it reads the SQL, the justification or the answer,
+    so it can run while the text-to-SQL call is still in flight
+    (FASTAPI-TEXT2SQL-201). The SQL only appears in
+    :func:`apply_entity_resolutions`, which is pure string substitution.
+
+    Args:
+        connection: Open database connection used for the resolution lookups.
+        entity_extraction: Extraction payload, ``{"question": ..., "<Key>": value}``.
+        chromadb_collections_by_name: Embeddings collections, keyed by name.
+
+    Returns:
+        dict with ``entities`` (list of :class:`_PlannedEntity`, in extraction
+        order) and ``planning_time`` (seconds spent here, for the timing breakdown).
+    """
+    planning_start_time = time.time()
+    planned_entities: list[_PlannedEntity] = []
 
     if isinstance(entity_extraction, dict):
         with connection.cursor() as cursor:
@@ -496,13 +890,16 @@ def resolve_entities(
                 if key == "question":
                     continue
 
+                placeholder = "{{" + str(key) + "}}"
+                planned = _PlannedEntity(str(key), placeholder)
+                planned_entities.append(planned)
+
                 regex_rule = _match_regex_placeholder_rule(key)
                 if regex_rule is not None:
                     prefix, pattern, is_numeric = regex_rule
                     raw_value = "" if value is None else str(value).strip()
-                    placeholder = "{{" + key + "}}"
                     if raw_value == "" or not re.fullmatch(pattern, raw_value):
-                        add_message(
+                        planned.note(
                             f"Entity resolution: {placeholder} -> rejected '{raw_value}' "
                             f"(does not match expected pattern {pattern} for {prefix}); leaving placeholder unresolved"
                         )
@@ -515,16 +912,14 @@ def resolve_entities(
                         sub_sql = f"'{_sql_escape_literal(raw_value)}'"
                         kind = "regex string"
 
-                    sql_query = re.sub(rf"'{re.escape(placeholder)}'", sub_sql, sql_query, flags=re.IGNORECASE)
-                    sql_query = re.sub(rf"{re.escape(placeholder)}", sub_sql, sql_query, flags=re.IGNORECASE)
-                    justification = justification.replace(placeholder, raw_value)
-                    answer = answer.replace(placeholder, raw_value)
-                    add_message(f"Entity resolution: {placeholder} -> {raw_value} ({kind})")
+                    planned.resolve_with(
+                        _substitute_literal(placeholder, sub_sql, raw_value),
+                        final_message=f"Entity resolution: {placeholder} -> {raw_value} ({kind})",
+                    )
                     continue
 
                 if isinstance(key, str) and (key.startswith("Movie_genre") or key.startswith("Serie_genre")):
                     raw_value = "" if value is None else str(value).strip()
-                    placeholder = "{{" + key + "}}"
                     if raw_value == "":
                         continue
 
@@ -535,34 +930,31 @@ def resolve_entities(
                         genre_id = closed_vocab.resolve_serie_genre(raw_value)
                         side = "serie genre"
                     if genre_id is None:
-                        add_message(f"Entity resolution: {placeholder} -> unknown {side} '{raw_value}'; leaving placeholder unresolved")
+                        planned.note(f"Entity resolution: {placeholder} -> unknown {side} '{raw_value}'; leaving placeholder unresolved")
                         continue
 
                     genre_id_str = str(genre_id)
-                    sql_query = re.sub(rf"'{re.escape(placeholder)}'", genre_id_str, sql_query, flags=re.IGNORECASE)
-                    sql_query = re.sub(rf"{re.escape(placeholder)}", genre_id_str, sql_query, flags=re.IGNORECASE)
-                    justification = justification.replace(placeholder, raw_value)
-                    answer = answer.replace(placeholder, raw_value)
-                    add_message(f"Entity resolution: {placeholder} -> {genre_id_str} ({raw_value}) ({side})")
+                    planned.resolve_with(
+                        _substitute_literal(placeholder, genre_id_str, raw_value),
+                        final_message=f"Entity resolution: {placeholder} -> {genre_id_str} ({raw_value}) ({side})",
+                    )
                     continue
 
                 if isinstance(key, str) and key.startswith("Technical_format"):
                     raw_value = "" if value is None else str(value).strip()
-                    placeholder = "{{" + key + "}}"
                     if raw_value == "":
                         continue
 
                     technical_id = closed_vocab.resolve_technical(raw_value)
                     if technical_id is None:
-                        add_message(f"Entity resolution: {placeholder} -> unknown technical format '{raw_value}'; leaving placeholder unresolved")
+                        planned.note(f"Entity resolution: {placeholder} -> unknown technical format '{raw_value}'; leaving placeholder unresolved")
                         continue
 
                     technical_id_str = str(technical_id)
-                    sql_query = re.sub(rf"'{re.escape(placeholder)}'", technical_id_str, sql_query, flags=re.IGNORECASE)
-                    sql_query = re.sub(rf"{re.escape(placeholder)}", technical_id_str, sql_query, flags=re.IGNORECASE)
-                    justification = justification.replace(placeholder, raw_value)
-                    answer = answer.replace(placeholder, raw_value)
-                    add_message(f"Entity resolution: {placeholder} -> {technical_id_str} ({raw_value}) (technical_format)")
+                    planned.resolve_with(
+                        _substitute_literal(placeholder, technical_id_str, raw_value),
+                        final_message=f"Entity resolution: {placeholder} -> {technical_id_str} ({raw_value}) (technical_format)",
+                    )
                     continue
 
                 if isinstance(key, str) and (
@@ -571,7 +963,6 @@ def resolve_entities(
                     or key.startswith("Department_name")
                 ):
                     raw_value = "" if value is None else str(value).strip()
-                    placeholder = "{{" + key + "}}"
                     if raw_value == "":
                         continue
 
@@ -583,18 +974,17 @@ def resolve_entities(
                         entity_name = "Department_name"
                     canonical = closed_vocab.resolve(entity_name, raw_value)
                     if canonical is None:
-                        add_message(
+                        planned.note(
                             f"Entity resolution: {placeholder} -> unknown {entity_name} value '{raw_value}'; "
                             "leaving placeholder unresolved"
                         )
                         continue
 
                     canonical_sql = _sql_escape_literal(str(canonical))
-                    sql_query = re.sub(rf"'{re.escape(placeholder)}'", f"'{canonical_sql}'", sql_query, flags=re.IGNORECASE)
-                    sql_query = re.sub(rf"{re.escape(placeholder)}", f"'{canonical_sql}'", sql_query, flags=re.IGNORECASE)
-                    justification = justification.replace(placeholder, str(canonical))
-                    answer = answer.replace(placeholder, str(canonical))
-                    add_message(f"Entity resolution: {placeholder} -> {canonical} ({raw_value}) ({entity_name})")
+                    planned.resolve_with(
+                        _substitute_literal(placeholder, f"'{canonical_sql}'", str(canonical)),
+                        final_message=f"Entity resolution: {placeholder} -> {canonical} ({raw_value}) ({entity_name})",
+                    )
                     continue
 
                 cfg = _find_entity_config(key)
@@ -602,20 +992,18 @@ def resolve_entities(
                     raw_value = "" if value is None else str(value)
                     if raw_value.strip() == "":
                         continue
-                    placeholder = "{{" + str(key) + "}}"
                     raw_value_sql = _sql_escape_literal(raw_value)
-                    if placeholder in sql_query or placeholder in justification or placeholder in answer:
-                        sql_query = sql_query.replace(placeholder, raw_value_sql)
-                        justification = justification.replace(placeholder, raw_value)
-                        answer = answer.replace(placeholder, raw_value)
-                        add_message(f"Entity resolution: {placeholder} -> {raw_value} (generic)")
+                    planned.resolve_with(
+                        _substitute_plain(placeholder, raw_value_sql, raw_value),
+                        final_message=f"Entity resolution: {placeholder} -> {raw_value} (generic)",
+                        require_present=True,
+                    )
                     continue
 
                 raw_value = "" if value is None else str(value)
                 if raw_value.strip() == "":
                     continue
 
-                placeholder = "{{" + str(key) + "}}"
                 raw_value_sql = _sql_escape_literal(raw_value)
                 searches = _iter_entity_searches(cfg)
                 resolved = False
@@ -625,7 +1013,7 @@ def resolve_entities(
                         language_family = guess_language_family(raw_value)
                     except Exception:
                         language_family = None
-                    add_message(f"Entity resolution: {placeholder} guessed language family = {language_family or 'unknown'}")
+                    planned.note(f"Entity resolution: {placeholder} guessed language family = {language_family or 'unknown'}")
 
                 for search_cfg in searches:
                     apply_when_language_family_in = search_cfg.get("apply_when_language_family_in")
@@ -654,7 +1042,7 @@ def resolve_entities(
                             continue
 
                         if isinstance(key, str) and key.startswith("Person_name"):
-                            add_message(f"Entity resolution: {placeholder} searching with RapidFuzz in table {strtablename} (language family: {language_family or 'unknown'})")
+                            planned.note(f"Entity resolution: {placeholder} searching with RapidFuzz in table {strtablename} (language family: {language_family or 'unknown'})")
 
                         try:
                             has_fulltext = rapidfuzz_query.db_has_fulltext(cursor, strtablename, strcolumndescnorm)
@@ -710,7 +1098,7 @@ def resolve_entities(
                         # substituting a wrong entity. Off by default so existing
                         # Person_name strategies keep their always-resolve behaviour.
                         if search_cfg.get("require_confident") and not (rapidfuzz_result or {}).get("auto"):
-                            add_message(
+                            planned.note(
                                 f"Entity resolution: {placeholder} -> RapidFuzz best match not confident "
                                 f"({(rapidfuzz_result or {}).get('reason')}); falling through to next strategy"
                             )
@@ -745,49 +1133,33 @@ def resolve_entities(
                                 canonical_value = None
 
                             if canonical_value is None or str(canonical_value).strip() == "":
-                                add_message(f"Entity resolution: {placeholder} -> {aka_value} (rapidfuzz; canonical lookup failed, using AKA value)")
+                                planned.note(f"Entity resolution: {placeholder} -> {aka_value} (rapidfuzz; canonical lookup failed, using AKA value)")
                                 canonical_value = aka_value
 
-                            canonical_value_sql = _sql_escape_literal(str(canonical_value))
                             target_col = search_cfg.get("default_field") or strcolumndesc
                             if target_col:
-                                placeholder_before = (placeholder in sql_query) or (placeholder in justification) or (placeholder in answer)
-                                sql_query = re.sub(rf"\b{re.escape(target_col)}\b\s*=\s*'{re.escape(placeholder)}'", f"{target_col} = '{canonical_value_sql}'", sql_query, flags=re.IGNORECASE)
-                                sql_query = re.sub(rf"\b{re.escape(target_col)}\b\s*=\s*{re.escape(placeholder)}", f"{target_col} = '{canonical_value_sql}'", sql_query, flags=re.IGNORECASE)
-                                sql_query = re.sub(rf"'{re.escape(placeholder)}'", f"'{canonical_value_sql}'", sql_query, flags=re.IGNORECASE)
-                                sql_query = re.sub(rf"{re.escape(placeholder)}", f"'{canonical_value_sql}'", sql_query, flags=re.IGNORECASE)
                                 justification_value = str(aka_value)
                                 if str(canonical_value) != str(aka_value):
                                     justification_value = f"{aka_value} ({canonical_value})"
-                                try:
-                                    justification = justification.replace(placeholder, justification_value)
-                                    answer = answer.replace(placeholder, justification_value)
-                                except Exception:
-                                    pass
-                                if str(canonical_value) != str(aka_value):
-                                    add_message(f"Entity resolution: {placeholder} -> {canonical_value} (SQL canonical), {aka_value} ({canonical_value}) (justification AKA + canonical) (rapidfuzz, source table: {strtablename})")
+                                    final_message = f"Entity resolution: {placeholder} -> {canonical_value} (SQL canonical), {aka_value} ({canonical_value}) (justification AKA + canonical) (rapidfuzz, source table: {strtablename})"
                                 else:
-                                    add_message(f"Entity resolution: {placeholder} -> {canonical_value} (SQL canonical and justification) (rapidfuzz, source table: {strtablename})")
-                                placeholder_after = (placeholder in sql_query) or (placeholder in justification) or (placeholder in answer)
-                                if placeholder_before and not placeholder_after:
-                                    resolved = True
-                                    break
+                                    final_message = f"Entity resolution: {placeholder} -> {canonical_value} (SQL canonical and justification) (rapidfuzz, source table: {strtablename})"
+                                planned.resolve_with(
+                                    _substitute_canonical(placeholder, target_col, canonical_value, justification_value),
+                                    final_message=final_message,
+                                )
+                                resolved = True
+                                break
                             continue
 
-                        placeholder_before = (placeholder in sql_query) or (placeholder in justification) or (placeholder in answer)
-                        resolved_docid, sql_query, justification, answer = apply_entity_match_from_docid(
+                        if _plan_entity_row_substitution(
                             cursor=cursor,
-                            key=str(key),
+                            planned=planned,
                             cfg=search_cfg,
                             docid=docid,
                             doclang="*",
                             message=f"Entity resolution: {{placeholder}} -> {{resolved}} (rapidfuzz, source table: {strtablename})",
-                            current_sql_query=sql_query,
-                            current_justification=justification,
-                            current_answer=answer,
-                        )
-                        placeholder_after = (placeholder in sql_query) or (placeholder in justification) or (placeholder in answer)
-                        if resolved_docid and placeholder_before and not placeholder_after:
+                        ):
                             resolved = True
                             break
                         continue
@@ -888,7 +1260,7 @@ def resolve_entities(
                                     except (TypeError, ValueError):
                                         dtxt = ""
                                 shortlist_parts.append(f"{ids[j]}{dtxt}")
-                            add_message(
+                            planned.note(
                                 f"Entity resolution: {placeholder} -> rejected best embeddings candidate "
                                 f"'{chosen_doc}' (distance={chosen_distance}, fuzz_ratio={chosen_ratio:.0f}) "
                                 f"below confidence threshold (max_distance={max_distance}, min_fuzz_ratio={min_fuzz_ratio}); "
@@ -903,31 +1275,88 @@ def resolve_entities(
                     if docid is None:
                         continue
 
-                    placeholder_before = (placeholder in sql_query) or (placeholder in justification) or (placeholder in answer)
-                    resolved_docid, sql_query, justification, answer = apply_entity_match_from_docid(
+                    if _plan_entity_row_substitution(
                         cursor=cursor,
-                        key=str(key),
+                        planned=planned,
                         cfg=search_cfg,
                         docid=docid,
                         doclang=doclang,
                         message=f"Entity resolution: {{placeholder}} -> {{resolved}} (lang={doclang})",
-                        current_sql_query=sql_query,
-                        current_justification=justification,
-                        current_answer=answer,
-                    )
-                    placeholder_after = (placeholder in sql_query) or (placeholder in justification) or (placeholder in answer)
-                    if resolved_docid and placeholder_before and not placeholder_after:
+                    ):
                         resolved = True
                         break
 
                 if resolved:
                     continue
 
-                if placeholder in sql_query or placeholder in justification or placeholder in answer:
-                    sql_query = sql_query.replace(placeholder, raw_value_sql)
-                    justification = justification.replace(placeholder, raw_value)
-                    answer = answer.replace(placeholder, raw_value)
-                    add_message(f"Entity resolution: {placeholder} -> {raw_value} (raw fallback)")
+                planned.resolve_with(
+                    _substitute_plain(placeholder, raw_value_sql, raw_value),
+                    final_message=f"Entity resolution: {placeholder} -> {raw_value} (raw fallback)",
+                    require_present=True,
+                )
+
+    return {
+        "entities": planned_entities,
+        "planning_time": time.time() - planning_start_time,
+    }
+
+
+def apply_entity_resolutions(
+    *,
+    plan: dict,
+    sql_query,
+    justification,
+    answer="",
+    position_counter: int,
+    text_message_cls,
+    messages: list,
+) -> dict[str, Any]:
+    """Apply a resolution plan to the SQL, the justification and the answer.
+
+    The cheap half of entity resolution: string substitution plus the diagnostics
+    recorded while planning. Microseconds of work, which is why the expensive half
+    can be started before the SQL even exists (FASTAPI-TEXT2SQL-201).
+
+    Args:
+        plan: The dict returned by :func:`plan_entity_resolutions`.
+        sql_query: Generated SQL still carrying ``{{Placeholder}}`` tokens.
+        justification: Justification text carrying the same tokens.
+        answer: Answer template carrying the same tokens.
+        position_counter: Next free position in the response ``messages`` array.
+        text_message_cls: The ``TextMessage`` model used to append diagnostics.
+        messages: The response message list, appended to in place.
+
+    Returns:
+        The resolved texts, the advanced ``position_counter``, the message list and
+        ``ambiguous_question_for_text2sql`` (1 when placeholders survive in the SQL).
+    """
+    sql_query = sql_query or ""
+    justification = justification or ""
+    answer = answer or ""
+
+    def add_message(text: str):
+        """Append a positional diagnostic message to the response message list."""
+        nonlocal position_counter
+        messages.append(text_message_cls(position=position_counter, text=text))
+        position_counter += 1
+
+    ambiguous_question_for_text2sql = 0
+
+    for planned in (plan or {}).get("entities", []) or []:
+        for text in planned.messages:
+            add_message(text)
+
+        if planned.substitution is None:
+            continue
+
+        if planned.require_present:
+            placeholder = planned.placeholder
+            if placeholder not in sql_query and placeholder not in justification and placeholder not in answer:
+                continue
+
+        sql_query, justification, answer = planned.substitution(sql_query, justification, answer)
+        if planned.final_message:
+            add_message(planned.final_message)
 
     unresolved_placeholders = re.findall(r"{{[^}]+}}", sql_query or "")
     if unresolved_placeholders:
@@ -948,3 +1377,36 @@ def resolve_entities(
         "messages": messages,
         "ambiguous_question_for_text2sql": ambiguous_question_for_text2sql,
     }
+
+
+def resolve_entities(
+    *,
+    connection,
+    entity_extraction,
+    sql_query,
+    justification,
+    answer="",
+    position_counter: int,
+    text_message_cls,
+    messages: list,
+    chromadb_collections_by_name: dict,
+) -> dict[str, Any]:
+    """Resolve extracted entities into concrete SQL, justification and answer substitutions.
+
+    Sequential form: plan, then apply, back to back. Callers able to overlap the
+    planning with another call (the text-to-SQL step) use the two halves directly.
+    """
+    plan = plan_entity_resolutions(
+        connection=connection,
+        entity_extraction=entity_extraction,
+        chromadb_collections_by_name=chromadb_collections_by_name,
+    )
+    return apply_entity_resolutions(
+        plan=plan,
+        sql_query=sql_query,
+        justification=justification,
+        answer=answer,
+        position_counter=position_counter,
+        text_message_cls=text_message_cls,
+        messages=messages,
+    )
