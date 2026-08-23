@@ -30,7 +30,6 @@ Rules:
 - Do not invent entities that are not clearly present in the user question
 - For every placeholder used in `question`, include the corresponding key and value
 - Do not include entity keys that are not used in `question`
-- When the question contains no closed-vocabulary value at all, return `question` unchanged and no other key. That is a normal, frequent answer; do not reach for a placeholder to avoid it
 - If two different values of the same type appear, number them in order of appearance, for example `Technical_format1`, `Technical_format2`
 
 ## Placeholder Types

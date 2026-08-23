@@ -10,7 +10,7 @@
     "query_result": "ID_MOVIE IN (539, 1584215, 848538, 239, 181886, 11761, 48769, 97872)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT m.ID_MOVIE FROM T_WC_T2S_MOVIE m JOIN T_WC_T2S_MOVIE_TOPIC mt ON mt.ID_MOVIE = m.ID_MOVIE JOIN T_WC_T2S_TOPIC t ON t.ID_TOPIC = mt.ID_TOPIC WHERE t.TOPIC_NAME = &#039;double identity&#039; ORDER BY m.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-22T02:26:56",
+  "assertion_refresh_last": "2026-08-23T02:22:18",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

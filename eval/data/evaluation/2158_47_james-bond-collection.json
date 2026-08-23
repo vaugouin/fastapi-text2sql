@@ -5,7 +5,7 @@
   "question_fr": "Collection James Bond",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": "eq($.question, &quot;{{Topic_name1}} collection&quot;) AND eq($.Topic_name1, &quot;James Bond&quot;) AND seteq(entity_keys($), [&quot;Topic_name1&quot;])",
+    "entity_extraction": "seteq(entity_keys($), [&quot;Collection_name1&quot;]) AND matches($.Collection_name1, /^James Bond$/i)",
     "sql_query": null,
     "query_result": "ID_T2S_COLLECTION IN (84)"
   },
@@ -18,8 +18,8 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-02-09",
-  "tim_updated": "2026-05-06T17:25:36",
-  "is_showcase": null,
+  "tim_updated": "2026-08-23T09:48:44",
+  "is_showcase": 0,
   "deleted": 0,
   "id_creator": 1,
   "id_owner": 1,

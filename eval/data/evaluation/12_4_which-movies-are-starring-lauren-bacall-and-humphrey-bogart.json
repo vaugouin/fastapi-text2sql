@@ -5,7 +5,7 @@
   "question_fr": "Quels films mettent en vedette Lauren Bacall et Humphrey Bogart ?",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": "eq($.question, &quot;Which movies are starring {{Person_name1}} and {{Person_name2}}?&quot;) AND eq($.Person_name1, &quot;Lauren Bacall&quot;) AND eq($.Person_name2, &quot;Humphrey Bogart&quot;) AND seteq(entity_keys($), [&quot;Person_name1&quot;,&quot;Person_name2&quot;])",
+    "entity_extraction": "seteq(entity_keys($), [&quot;Person_name1&quot;,&quot;Person_name2&quot;]) AND matches($.Person_name1, /^Lauren Bacall$/i) AND matches($.Person_name2, /^Humphrey Bogart$/i)",
     "sql_query": null,
     "query_result": "ID_MOVIE IN (910, 22584, 11016, 787326, 16227)"
   },

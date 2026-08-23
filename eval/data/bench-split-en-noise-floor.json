@@ -1,0 +1,6629 @@
+[
+ {
+  "id": 1,
+  "question": "What are the highest-grossing movies of all time?",
+  "assertion": "seteq(entity_keys($), [])",
+  "run1": {
+   "question": "What are the highest-grossing movies of all time?"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What are the highest-grossing movies of all time?"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What are the highest-grossing movies of all time?"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 3,
+  "question": "Which movies were filmed in 70mm format?",
+  "assertion": "seteq(entity_keys($), [\"Technical_format1\"])",
+  "run1": {
+   "question": "Which movies were filmed in {{Technical_format1}} format?",
+   "Technical_format1": "70mm"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which movies were filmed in {{Technical_format1}} format?",
+   "Technical_format1": "70mm"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which movies were filmed in {{Technical_format1}} format?",
+   "Technical_format1": "70mm"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 4,
+  "question": "List all movies shot in CinemaScope",
+  "assertion": "seteq(entity_keys($), [\"Technical_format1\"]) AND matches($.Technical_format1, /^CinemaScope$/i)",
+  "run1": {
+   "question": "List all movies shot in {{Technical_format1}}",
+   "Technical_format1": "CinemaScope"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List all movies shot in {{Technical_format1}}",
+   "Technical_format1": "CinemaScope"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List all movies shot in {{Technical_format1}}",
+   "Technical_format1": "CinemaScope"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 5,
+  "question": "What color movies used Technicolor technology?",
+  "assertion": "seteq(entity_keys($), [\"Technical_format1\"]) AND matches($.Technical_format1, /^Technicolor$/i)",
+  "run1": {
+   "question": "What color movies used {{Technical_format1}} technology?",
+   "Technical_format1": "Technicolor"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What color movies used {{Technical_format1}} technology?",
+   "Technical_format1": "Technicolor"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What {{Technical_format1}} movies used {{Technical_format2}} technology?",
+   "Technical_format1": "color",
+   "Technical_format2": "Technicolor"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 6,
+  "question": "Which films have a 2.39:1 aspect ratio?",
+  "assertion": "seteq(entity_keys($), [\"Technical_format1\"])",
+  "run1": {
+   "question": "Which films have a {{Technical_format1}} aspect ratio?",
+   "Technical_format1": "2.39:1"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which films have a {{Technical_format1}} aspect ratio?",
+   "Technical_format1": "2.39:1"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which films have a {{Technical_format1}} aspect ratio?",
+   "Technical_format1": "2.39:1"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 7,
+  "question": "Which movies were shot using Franscope technology?",
+  "assertion": "seteq(entity_keys($), [\"Technical_format1\"]) AND matches($.Technical_format1, /^Franscope$/i)",
+  "run1": {
+   "question": "Which movies were shot using {{Technical_format1}} technology?",
+   "Technical_format1": "Franscope"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which movies were shot using {{Technical_format1}} technology?",
+   "Technical_format1": "Franscope"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which movies were shot using {{Technical_format1}} technology?",
+   "Technical_format1": "Franscope"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 8,
+  "question": "What movies did Stanley Kubrick direct?",
+  "assertion": "eq($.Person_name1, \"Stanley Kubrick\") AND seteq(entity_keys($), [\"Person_name1\"])",
+  "run1": {
+   "question": "What movies did {{Person_name1}} direct?",
+   "Person_name1": "Stanley Kubrick"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What movies did {{Person_name1}} direct?",
+   "Person_name1": "Stanley Kubrick"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What movies did {{Person_name1}} direct?",
+   "Person_name1": "Stanley Kubrick"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 11,
+  "question": "What character did Harrison Ford play in Star Wars?",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\",\"Person_name1\"]) AND matches($.Collection_name1, /^Star Wars$/i) AND matches($.Person_name1, /^Harrison Ford$/i)",
+  "run1": {
+   "question": "What character did {{Person_name1}} play in {{Collection_name1}}?",
+   "Person_name1": "Harrison Ford",
+   "Collection_name1": "Star Wars"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What character did {{Person_name1}} play in {{Collection_name1}}?",
+   "Person_name1": "Harrison Ford",
+   "Collection_name1": "Star Wars"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What character did {{Person_name1}} play in {{Collection_name1}}?",
+   "Person_name1": "Harrison Ford",
+   "Collection_name1": "Star Wars"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 12,
+  "question": "Which movies are starring Lauren Bacall and Humphrey Bogart?",
+  "assertion": "eq($.question, \"Which movies are starring {{Person_name1}} and {{Person_name2}}?\") AND eq($.Person_name1, \"Lauren Bacall\") AND eq($.Person_name2, \"Humphrey Bogart\") AND seteq(entity_keys($), [\"Person_name1\",\"Person_name2\"])",
+  "run1": {
+   "question": "Which movies are starring {{Person_name1}} and {{Person_name2}}?",
+   "Person_name1": "Lauren Bacall",
+   "Person_name2": "Humphrey Bogart"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which movies are starring {{Person_name1}} and {{Person_name2}}?",
+   "Person_name1": "Lauren Bacall",
+   "Person_name2": "Humphrey Bogart"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which movies are starring {{Person_name1}} and {{Person_name2}}?",
+   "Person_name1": "Lauren Bacall",
+   "Person_name2": "Humphrey Bogart"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 13,
+  "question": "List movies directed by Sergio Leone and starring Clint Eastwood",
+  "assertion": "eq($.question, \"List movies directed by {{Person_name1}} and starring {{Person_name2}}\") AND eq($.Person_name1, \"Sergio Leone\") AND eq($.Person_name2, \"Clint Eastwood\") AND seteq(entity_keys($), [\"Person_name1\",\"Person_name2\"])",
+  "run1": {
+   "question": "List movies directed by {{Person_name1}} and starring {{Person_name2}}",
+   "Person_name1": "Sergio Leone",
+   "Person_name2": "Clint Eastwood"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies directed by {{Person_name1}} and starring {{Person_name2}}",
+   "Person_name1": "Sergio Leone",
+   "Person_name2": "Clint Eastwood"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies directed by {{Person_name1}} and starring {{Person_name2}}",
+   "Person_name1": "Sergio Leone",
+   "Person_name2": "Clint Eastwood"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 16,
+  "question": "List all movies in the Batman universe",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"])",
+  "run1": {
+   "question": "List all movies in the {{Collection_name1}}",
+   "Collection_name1": "Batman universe"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List all movies in the {{Collection_name1}}",
+   "Collection_name1": "Batman universe"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List all movies in the {{Collection_name1}}",
+   "Collection_name1": "Batman universe"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 17,
+  "question": "List all movies with the private investigator Philip Marlowe",
+  "assertion": "seteq(entity_keys($), [\"Topic_name1\"]) AND matches($.Topic_name1, /^Philip Marlowe$/i)",
+  "run1": {
+   "question": "List all movies with the private investigator {{Topic_name1}}",
+   "Topic_name1": "Philip Marlowe"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List all movies with the private investigator {{Topic_name1}}",
+   "Topic_name1": "Philip Marlowe"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List all movies with the private investigator {{Topic_name1}}",
+   "Topic_name1": "Philip Marlowe"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 19,
+  "question": "List movies in the flamenco trilogy",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"])",
+  "run1": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "flamenco trilogy"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "flamenco trilogy"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "flamenco trilogy"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 24,
+  "question": "Production company Pixar",
+  "assertion": "seteq(entity_keys($), [\"Company_name1\"]) AND matches($.Company_name1, /^Pixar$/i)",
+  "run1": {
+   "question": "Production company {{Company_name1}}",
+   "Company_name1": "Pixar"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Production company {{Company_name1}}",
+   "Company_name1": "Pixar"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Production company {{Company_name1}}",
+   "Company_name1": "Pixar"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 25,
+  "question": "Network Netflix",
+  "assertion": "seteq(entity_keys($), [\"Network_name1\"]) AND matches($.Network_name1, /^Netflix$/i)",
+  "run1": {
+   "question": "Network {{Network_name1}}",
+   "Network_name1": "Netflix"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Network {{Network_name1}}",
+   "Network_name1": "Netflix"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Network {{Network_name1}}",
+   "Network_name1": "Netflix"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 26,
+  "question": "Adventure movie with Harrison Ford",
+  "assertion": "seteq(entity_keys($), [\"Movie_genre1\",\"Person_name1\"]) AND matches($.Movie_genre1, /^Adventure$/i) AND matches($.Person_name1, /^Harrison Ford$/i)",
+  "run1": {
+   "question": "{{Movie_genre1}} movie with {{Person_name1}}",
+   "Movie_genre1": "Adventure",
+   "Person_name1": "Harrison Ford"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movie_genre1}} movie with {{Person_name1}}",
+   "Movie_genre1": "Adventure",
+   "Person_name1": "Harrison Ford"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Movie_genre1}} movie with {{Person_name1}}",
+   "Movie_genre1": "Adventure",
+   "Person_name1": "Harrison Ford"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 30,
+  "question": "Show me all World War II movies directed by John Ford",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\",\"Topic_name1\"]) AND matches($.Person_name1, /^John Ford$/i)",
+  "run1": {
+   "question": "Show me all {{Topic_name1}} movies directed by {{Person_name1}}",
+   "Topic_name1": "World War II",
+   "Person_name1": "John Ford"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Show me all {{Topic_name1}} movies directed by {{Person_name1}}",
+   "Topic_name1": "World War II",
+   "Person_name1": "John Ford"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Show me all {{Topic_name1}} movies directed by {{Person_name1}}",
+   "Topic_name1": "World War II",
+   "Person_name1": "John Ford"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 31,
+  "question": "French New Wave films directed by François Truffaut",
+  "assertion": "seteq(entity_keys($), [\"Movement_name1\",\"Person_name1\"]) AND matches($.Person_name1, /^François Truffaut$/i)",
+  "run1": {
+   "question": "{{Movement_name1}} films directed by {{Person_name1}}",
+   "Movement_name1": "French New Wave",
+   "Person_name1": "François Truffaut"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movement_name1}} films directed by {{Person_name1}}",
+   "Movement_name1": "French New Wave",
+   "Person_name1": "François Truffaut"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Movement_name1}} films directed by {{Person_name1}}",
+   "Movement_name1": "French New Wave",
+   "Person_name1": "François Truffaut"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 32,
+  "question": "Movies having a Philip Marlowe character",
+  "assertion": "seteq(entity_keys($), [\"Topic_name1\"]) AND matches($.Topic_name1, /^Philip Marlowe$/i)",
+  "run1": {
+   "question": "Movies having a {{Topic_name1}} character",
+   "Topic_name1": "Philip Marlowe"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies having a {{Topic_name1}} character",
+   "Topic_name1": "Philip Marlowe"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies having a {{Topic_name1}} character",
+   "Topic_name1": "Philip Marlowe"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 33,
+  "question": "Star Wars movies",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"]) AND matches($.Collection_name1, /^Star Wars$/i)",
+  "run1": {
+   "question": "{{Collection_name1}} movies",
+   "Collection_name1": "Star Wars"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Collection_name1}} movies",
+   "Collection_name1": "Star Wars"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Collection_name1}} movies",
+   "Collection_name1": "Star Wars"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 34,
+  "question": "Vietnam war movies",
+  "assertion": "seteq(entity_keys($), [\"Topic_name1\"])",
+  "run1": {
+   "question": "{{Topic_name1}} movies",
+   "Topic_name1": "Vietnam war"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Topic_name1}} movies",
+   "Topic_name1": "Vietnam war"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Topic_name1}} movies",
+   "Topic_name1": "Vietnam war"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 36,
+  "question": "Actress Sharon tate",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Sharon tate$/i)",
+  "run1": {
+   "question": "Actress {{Person_name1}}",
+   "Person_name1": "Sharon tate"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Actress {{Person_name1}}",
+   "Person_name1": "Sharon tate"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Actress {{Person_name1}}",
+   "Person_name1": "Sharon tate"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 37,
+  "question": "What are the movies produced by lucasfilm?",
+  "assertion": "seteq(entity_keys($), [\"Company_name1\"]) AND matches($.Company_name1, /^lucasfilm$/i)",
+  "run1": {
+   "question": "What are the movies produced by {{Company_name1}}?",
+   "Company_name1": "lucasfilm"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What are the movies produced by {{Company_name1}}?",
+   "Company_name1": "lucasfilm"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What are the movies produced by {{Company_name1}}?",
+   "Company_name1": "lucasfilm"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 39,
+  "question": "Movies who got an Academy award",
+  "assertion": "seteq(entity_keys($), [\"Award_name1\"])",
+  "run1": {
+   "question": "Movies who got an {{Award_name1}}",
+   "Award_name1": "Academy award"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies who got an {{Award_name1}}",
+   "Award_name1": "Academy award"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies who got an {{Award_name1}}",
+   "Award_name1": "Academy award"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 40,
+  "question": "List movies in the Sight and Sound list",
+  "assertion": "seteq(entity_keys($), [\"List_name1\"])",
+  "run1": {
+   "question": "List movies in the {{List_name1}}",
+   "List_name1": "Sight and Sound list"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies in the {{List_name1}}",
+   "List_name1": "Sight and Sound list"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies in the {{List_name1}}",
+   "List_name1": "Sight and Sound list"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 43,
+  "question": "List the Dogma 95 movies",
+  "assertion": "seteq(entity_keys($), [\"Movement_name1\"])",
+  "run1": {
+   "question": "List the {{Movement_name1}} movies",
+   "Movement_name1": "Dogma 95"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List the {{Movement_name1}} movies",
+   "Movement_name1": "Dogma 95"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List the {{Movement_name1}} movies",
+   "Movement_name1": "Dogma 95"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 46,
+  "question": "List movies in the Die Hard movie collection",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"])",
+  "run1": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "Die Hard movie collection"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "Die Hard movie collection"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "Die Hard movie collection"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 50,
+  "question": "List movies with English primary language and shot in 4/3 aspect ratio",
+  "assertion": "seteq(entity_keys($), [\"Technical_format1\"]) AND matches($.Technical_format1, /^4\\/3$/i)",
+  "run1": {
+   "question": "List movies with English primary language and shot in {{Technical_format1}} aspect ratio",
+   "Technical_format1": "4/3"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies with English primary language and shot in {{Technical_format1}} aspect ratio",
+   "Technical_format1": "4/3"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies with English primary language and shot in {{Technical_format1}} aspect ratio",
+   "Technical_format1": "4:3"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 59,
+  "question": "Films in top 250 IMDb",
+  "assertion": "seteq(entity_keys($), [\"List_name1\"]) AND matches($.List_name1, /^top 250 IMDb$/i)",
+  "run1": {
+   "question": "Films in {{List_name1}}",
+   "List_name1": "top 250 IMDb"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Films in top 250 {{List_name1}}",
+   "List_name1": "IMDb"
+  },
+  "run2_score": 0,
+  "split": {
+   "question": "Films in {{List_name1}}",
+   "List_name1": "top 250 IMDb"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 60,
+  "question": "John Ford's movies in the cavalry trilogy",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\",\"Person_name1\"]) AND matches($.Person_name1, /^John Ford$/i)",
+  "run1": {
+   "question": "{{Person_name1}}'s movies in the {{Collection_name1}}",
+   "Person_name1": "John Ford",
+   "Collection_name1": "cavalry trilogy"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}'s movies in the {{Collection_name1}}",
+   "Person_name1": "John Ford",
+   "Collection_name1": "cavalry trilogy"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}'s movies in the {{Collection_name1}}",
+   "Person_name1": "John Ford",
+   "Collection_name1": "cavalry trilogy"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 65,
+  "question": "Movies who won the Palme d'Or",
+  "assertion": "seteq(entity_keys($), [\"Award_name1\"]) AND matches($.Award_name1, /^Palme d'Or$/i)",
+  "run1": {
+   "question": "Movies who won the {{Award_name1}}",
+   "Award_name1": "Palme d'Or"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies who won the {{Award_name1}}",
+   "Award_name1": "Palme d'Or"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies who won the {{Award_name1}}",
+   "Award_name1": "Palme d'Or"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 67,
+  "question": "Composer Frederic Chopin",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"])",
+  "run1": {
+   "question": "Composer {{Person_name1}}",
+   "Person_name1": "Frederic Chopin"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Composer {{Person_name1}}",
+   "Person_name1": "Frederic Chopin"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Composer {{Person_name1}}",
+   "Person_name1": "Frederic Chopin"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 68,
+  "question": "Czech New Wave movies",
+  "assertion": "seteq(entity_keys($), [\"Movement_name1\"])",
+  "run1": {
+   "question": "{{Movement_name1}} movies",
+   "Movement_name1": "Czech New Wave"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movement_name1}} movies",
+   "Movement_name1": "Czech New Wave"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Movement_name1}} movies",
+   "Movement_name1": "Czech New Wave"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 71,
+  "question": "List movies about time travel",
+  "assertion": "seteq(entity_keys($), [\"Topic_name1\"])",
+  "run1": {
+   "question": "List movies about {{Topic_name1}}",
+   "Topic_name1": "time travel"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies about {{Topic_name1}}",
+   "Topic_name1": "time travel"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies about {{Topic_name1}}",
+   "Topic_name1": "time travel"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 72,
+  "question": "Movies in the musashi samurai trilogy",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"])",
+  "run1": {
+   "question": "Movies in the {{Collection_name1}}",
+   "Collection_name1": "musashi samurai trilogy"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies in the {{Collection_name1}}",
+   "Collection_name1": "musashi samurai trilogy"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies in the {{Collection_name1}}",
+   "Collection_name1": "musashi samurai trilogy"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 75,
+  "question": "Movies who won a Cesar du meilleur film award",
+  "assertion": "seteq(entity_keys($), [\"Award_name1\"])",
+  "run1": {
+   "question": "Movies who won a {{Award_name1}} award",
+   "Award_name1": "Cesar du meilleur film"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies who won a {{Award_name1}}",
+   "Award_name1": "Cesar du meilleur film"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies who won a {{Award_name1}}",
+   "Award_name1": "Cesar du meilleur film"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 79,
+  "question": "Movie with IMDb id tt0033467",
+  "assertion": "seteq(entity_keys($), [\"IMDb_ID1\"]) AND matches($.IMDb_ID1, /^tt0033467$/i)",
+  "run1": {
+   "question": "Movie with IMDb id {{IMDb_ID1}}",
+   "IMDb_ID1": "tt0033467"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie with IMDb id {{IMDb_ID1}}",
+   "IMDb_ID1": "tt0033467"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie with IMDb id {{IMDb_ID1}}",
+   "IMDb_ID1": "tt0033467"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 80,
+  "question": "Movie with Wikidata id Q24815",
+  "assertion": "seteq(entity_keys($), [\"Wikidata_ID1\"]) AND matches($.Wikidata_ID1, /^Q24815$/i)",
+  "run1": {
+   "question": "Movie with Wikidata id {{Wikidata_ID1}}",
+   "Wikidata_ID1": "Q24815"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie with Wikidata id {{Wikidata_ID1}}",
+   "Wikidata_ID1": "Q24815"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie with Wikidata id {{Wikidata_ID1}}",
+   "Wikidata_ID1": "Q24815"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 81,
+  "question": "Person with IMDb id nm0000003",
+  "assertion": "seteq(entity_keys($), [\"IMDb_person_ID1\"]) AND matches($.IMDb_person_ID1, /^nm0000003$/i)",
+  "run1": {
+   "question": "Person with IMDb id {{IMDb_person_ID1}}",
+   "IMDb_person_ID1": "nm0000003"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Person with IMDb id {{IMDb_person_ID1}}",
+   "IMDb_person_ID1": "nm0000003"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Person with IMDb id {{IMDb_person_ID1}}",
+   "IMDb_person_ID1": "nm0000003"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 84,
+  "question": "Film The Condition",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "The Condition"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "The Condition"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "The Condition"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 90,
+  "question": "Give me 10 color films in which Humphrey Bogart plays a role",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\",\"Technical_format1\"]) AND matches($.Person_name1, /^Humphrey Bogart$/i)",
+  "run1": {
+   "question": "Give me 10 {{Technical_format1}} films in which {{Person_name1}} plays a role",
+   "Technical_format1": "color",
+   "Person_name1": "Humphrey Bogart"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Give me 10 {{Technical_format1}} films in which {{Person_name1}} plays a role",
+   "Technical_format1": "color",
+   "Person_name1": "Humphrey Bogart"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Give me 10 {{Technical_format1}} films in which {{Person_name1}} plays a role",
+   "Technical_format1": "color",
+   "Person_name1": "Humphrey Bogart"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 92,
+  "question": "Adventure movies with Harrison Ford",
+  "assertion": "seteq(entity_keys($), [\"Movie_genre1\",\"Person_name1\"]) AND matches($.Movie_genre1, /^Adventure$/i) AND matches($.Person_name1, /^Harrison Ford$/i)",
+  "run1": {
+   "question": "{{Movie_genre1}} movies with {{Person_name1}}",
+   "Movie_genre1": "Adventure",
+   "Person_name1": "Harrison Ford"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movie_genre1}} movies with {{Person_name1}}",
+   "Movie_genre1": "Adventure",
+   "Person_name1": "Harrison Ford"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Movie_genre1}} movies with {{Person_name1}}",
+   "Movie_genre1": "Adventure",
+   "Person_name1": "Harrison Ford"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 96,
+  "question": "List the movies from Yasujirō Ozu's Noriko trilogy",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\",\"Person_name1\"]) AND matches($.Person_name1, /^Yasujirō Ozu$/i)",
+  "run1": {
+   "question": "List the movies from {{Person_name1}}'s {{Collection_name1}}",
+   "Person_name1": "Yasujirō Ozu",
+   "Collection_name1": "Noriko trilogy"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List the movies from {{Person_name1}}'s {{Collection_name1}}",
+   "Person_name1": "Yasujirō Ozu",
+   "Collection_name1": "Noriko trilogy"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List the movies from {{Person_name1}}'s {{Collection_name1}}",
+   "Person_name1": "Yasujirō Ozu",
+   "Collection_name1": "Noriko trilogy"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 101,
+  "question": "List of Japanese directors",
+  "assertion": "seteq(entity_keys($), [\"Department_name1\"])",
+  "run1": {
+   "question": "List of Japanese {{Department_name1}}",
+   "Department_name1": "directors"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List of Japanese {{Department_name1}}",
+   "Department_name1": "directors"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List of Japanese directors"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 105,
+  "question": "CinemaScope films",
+  "assertion": "seteq(entity_keys($), [\"Technical_format1\"])",
+  "run1": {
+   "question": "{{Technical_format1}} films",
+   "Technical_format1": "CinemaScope"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Technical_format1}} films",
+   "Technical_format1": "CinemaScope"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Technical_format1}} films",
+   "Technical_format1": "CinemaScope"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 109,
+  "question": "Films with a character named Antoine Doinel.",
+  "assertion": "seteq(entity_keys($), [\"Character_name1\"]) AND matches($.Character_name1, /^Antoine Doinel$/i)",
+  "run1": {
+   "question": "Films with a character named {{Character_name1}}.",
+   "Character_name1": "Antoine Doinel"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Films with a character named {{Character_name1}}.",
+   "Character_name1": "Antoine Doinel"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Films with a character named {{Character_name1}}.",
+   "Character_name1": "Antoine Doinel"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 114,
+  "question": "The big Lebowski",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^The big Lebowski$/i)",
+  "run1": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "The Big Lebowski"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "The big Lebowski"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "The big Lebowski"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 116,
+  "question": "The Big Sleep",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "The Big Sleep"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "The Big Sleep"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "The Big Sleep"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 117,
+  "question": "The Big Sleep",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "The Big Sleep"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "The Big Sleep"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "The Big Sleep"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 118,
+  "question": "Movie about the vietnam war starring Marlon Brando",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\",\"Topic_name1\"]) AND matches($.Person_name1, /^Marlon Brando$/i)",
+  "run1": {
+   "question": "Movie about the {{Topic_name1}} starring {{Person_name1}}",
+   "Topic_name1": "vietnam war",
+   "Person_name1": "Marlon Brando"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie about the {{Topic_name1}} starring {{Person_name1}}",
+   "Topic_name1": "vietnam war",
+   "Person_name1": "Marlon Brando"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie about the {{Topic_name1}} starring {{Person_name1}}",
+   "Topic_name1": "vietnam war",
+   "Person_name1": "Marlon Brando"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 119,
+  "question": "New Wave films",
+  "assertion": "seteq(entity_keys($), [\"Movement_name1\"])",
+  "run1": {
+   "question": "{{Movement_name1}} films",
+   "Movement_name1": "New Wave"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movement_name1}} films",
+   "Movement_name1": "New Wave"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Movement_name1}} films",
+   "Movement_name1": "New Wave"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 120,
+  "question": "Film New Line Cinema",
+  "assertion": "seteq(entity_keys($), [\"Company_name1\"]) AND matches($.Company_name1, /^New Line Cinema$/i)",
+  "run1": {
+   "question": "Film {{Company_name1}}",
+   "Company_name1": "New Line Cinema"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Film {{Company_name1}}",
+   "Company_name1": "New Line Cinema"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Film {{Company_name1}}",
+   "Company_name1": "New Line Cinema"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 121,
+  "question": "color films with Humphrey Bogart",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Humphrey Bogart$/i)",
+  "run1": {
+   "question": "{{Technical_format1}} films with {{Person_name1}}",
+   "Technical_format1": "color",
+   "Person_name1": "Humphrey Bogart"
+  },
+  "run1_score": 0,
+  "run2": {
+   "question": "{{Technical_format1}} films with {{Person_name1}}",
+   "Technical_format1": "color",
+   "Person_name1": "Humphrey Bogart"
+  },
+  "run2_score": 0,
+  "split": {
+   "question": "{{Technical_format1}} films with {{Person_name1}}",
+   "Technical_format1": "color",
+   "Person_name1": "Humphrey Bogart"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 129,
+  "question": "What are the movies in the Noriko trilogy?",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"])",
+  "run1": {
+   "question": "What are the movies in the {{Collection_name1}}?",
+   "Collection_name1": "Noriko trilogy"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What are the movies in the {{Collection_name1}}?",
+   "Collection_name1": "Noriko trilogy"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What are the movies in the {{Collection_name1}}?",
+   "Collection_name1": "Noriko trilogy"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 222,
+  "question": "Character name for Harrison Ford in the Star Wars movie",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\",\"Person_name1\"]) AND matches($.Collection_name1, /^Star Wars$/i) AND matches($.Person_name1, /^Harrison Ford$/i)",
+  "run1": {
+   "question": "Character name for {{Person_name1}} in the {{Collection_name1}} movie",
+   "Person_name1": "Harrison Ford",
+   "Collection_name1": "Star Wars"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Character name for {{Person_name1}} in the {{Collection_name1}} movie",
+   "Person_name1": "Harrison Ford",
+   "Collection_name1": "Star Wars"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Character name for {{Person_name1}} in the {{Collection_name1}} movie",
+   "Person_name1": "Harrison Ford",
+   "Collection_name1": "Star Wars"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 262,
+  "question": "What is the name of Carrie Fisher's character in the movie Star Wars?",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\",\"Person_name1\"]) AND matches($.Collection_name1, /^Star Wars$/i) AND matches($.Person_name1, /^Carrie Fisher$/i)",
+  "run1": {
+   "question": "What is the name of {{Person_name1}}'s character in the movie {{Collection_name1}}?",
+   "Person_name1": "Carrie Fisher",
+   "Collection_name1": "Star Wars"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What is the name of {{Person_name1}}'s character in the movie {{Collection_name1}}?",
+   "Person_name1": "Carrie Fisher",
+   "Collection_name1": "Star Wars"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What is the name of {{Person_name1}}'s character in the movie {{Collection_name1}}?",
+   "Person_name1": "Carrie Fisher",
+   "Collection_name1": "Star Wars"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 273,
+  "question": "John Wayne",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^John Wayne$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "John Wayne"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "John Wayne"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "John Wayne"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 274,
+  "question": "J. K. Rowling",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^J\\. K\\. Rowling$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "J. K. Rowling"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "J. K. Rowling"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "J. K. Rowling"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 279,
+  "question": "Movie which is both a drama and a western",
+  "assertion": "seteq(entity_keys($), [\"Movie_genre1\",\"Movie_genre2\"])",
+  "run1": {
+   "question": "Movie which is both a {{Movie_genre1}} and a {{Movie_genre2}}",
+   "Movie_genre1": "Drama",
+   "Movie_genre2": "Western"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie which is both a {{Movie_genre1}} and a {{Movie_genre2}}",
+   "Movie_genre1": "Drama",
+   "Movie_genre2": "Western"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie which is both a {{Movie_genre1}} and a {{Movie_genre2}}",
+   "Movie_genre1": "Drama",
+   "Movie_genre2": "Western"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 290,
+  "question": "Movies in the Noriko trilogy",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"])",
+  "run1": {
+   "question": "Movies in the {{Collection_name1}}",
+   "Collection_name1": "Noriko trilogy"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies in the {{Collection_name1}}",
+   "Collection_name1": "Noriko trilogy"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies in the {{Collection_name1}}",
+   "Collection_name1": "Noriko trilogy"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 291,
+  "question": "Movies happening in Naples",
+  "assertion": "seteq(entity_keys($), [\"Location_name1\"]) AND matches($.Location_name1, /^Naples$/i)",
+  "run1": {
+   "question": "Movies happening in {{Location_name1}}",
+   "Location_name1": "Naples"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies happening in {{Location_name1}}",
+   "Location_name1": "Naples"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies happening in {{Location_name1}}",
+   "Location_name1": "Naples"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 292,
+  "question": "Movies in the Time Trilogy by Sergio Leone",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\",\"Person_name1\"]) AND matches($.Person_name1, /^Sergio Leone$/i)",
+  "run1": {
+   "question": "Movies in the {{Collection_name1}} by {{Person_name1}}",
+   "Collection_name1": "Time Trilogy",
+   "Person_name1": "Sergio Leone"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies in the {{Collection_name1}} by {{Person_name1}}",
+   "Collection_name1": "Time Trilogy",
+   "Person_name1": "Sergio Leone"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies in the {{Collection_name1}} by {{Person_name1}}",
+   "Collection_name1": "Time Trilogy",
+   "Person_name1": "Sergio Leone"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 293,
+  "question": "Movies in the Cavalry trilogy by John Ford",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\",\"Person_name1\"]) AND matches($.Person_name1, /^John Ford$/i)",
+  "run1": {
+   "question": "Movies in the {{Collection_name1}} by {{Person_name1}}",
+   "Collection_name1": "Cavalry trilogy",
+   "Person_name1": "John Ford"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies in the {{Collection_name1}} by {{Person_name1}}",
+   "Collection_name1": "Cavalry trilogy",
+   "Person_name1": "John Ford"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies in the {{Collection_name1}} by {{Person_name1}}",
+   "Collection_name1": "Cavalry trilogy",
+   "Person_name1": "John Ford"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 300,
+  "question": "Movie fabuleux destin d amélie poulain",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "fabuleux destin d amélie poulain"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "fabuleux destin d amélie poulain"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "fabuleux destin d amélie poulain"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 301,
+  "question": "Roma città aperta",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Roma città aperta$/i)",
+  "run1": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "Roma città aperta"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "Roma città aperta"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "Roma città aperta"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 321,
+  "question": "Movie Désert rouge",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Désert rouge$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Désert rouge"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Désert rouge"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Désert rouge"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 339,
+  "question": "Cavalry Trilogy  de John Ford",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\",\"Person_name1\"]) AND matches($.Person_name1, /^John Ford$/i)",
+  "run1": {
+   "question": "{{Collection_name1}} de {{Person_name1}}",
+   "Collection_name1": "Cavalry Trilogy",
+   "Person_name1": "John Ford"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Collection_name1}} de {{Person_name1}}",
+   "Collection_name1": "Cavalry Trilogy",
+   "Person_name1": "John Ford"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Collection_name1}} de {{Person_name1}}",
+   "Collection_name1": "Cavalry Trilogy",
+   "Person_name1": "John Ford"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 350,
+  "question": "Movie peppermint frappe",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "peppermint frappe"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "peppermint frappe"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "peppermint frappe"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 366,
+  "question": "Movies in the cavalry trilogy",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"])",
+  "run1": {
+   "question": "Movies in the {{Collection_name1}}",
+   "Collection_name1": "cavalry trilogy"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies in the {{Collection_name1}}",
+   "Collection_name1": "cavalry trilogy"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies in the {{Collection_name1}}",
+   "Collection_name1": "cavalry trilogy"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 380,
+  "question": "Tous les films Sight and Sound 2022",
+  "assertion": "seteq(entity_keys($), [\"List_name1\"]) AND matches($.List_name1, /^Sight and Sound 2022$/i)",
+  "run1": {
+   "question": "Tous les films {{List_name1}}",
+   "List_name1": "Sight and Sound 2022"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Tous les films {{List_name1}}",
+   "List_name1": "Sight and Sound 2022"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Tous les films {{List_name1}}",
+   "List_name1": "Sight and Sound 2022"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 413,
+  "question": "Liste the directors with the most movies in the Sight and Sound list",
+  "assertion": "seteq(entity_keys($), [\"Department_name1\",\"List_name1\"])",
+  "run1": {
+   "question": "Liste the {{Department_name1}} with the most movies in the {{List_name1}}",
+   "Department_name1": "directors",
+   "List_name1": "Sight and Sound list"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Liste the {{Department_name1}} with the most movies in the {{List_name1}}",
+   "Department_name1": "directors",
+   "List_name1": "Sight and Sound list"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Liste the directors with the most movies in the {{List_name1}}",
+   "List_name1": "Sight and Sound list"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 416,
+  "question": "What movies were produced by the Pixar production company?",
+  "assertion": "seteq(entity_keys($), [\"Company_name1\"]) AND matches($.Company_name1, /^Pixar$/i)",
+  "run1": {
+   "question": "What movies were produced by the {{Company_name1}} production company?",
+   "Company_name1": "Pixar"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What movies were produced by the {{Company_name1}} production company?",
+   "Company_name1": "Pixar"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What movies were produced by the {{Company_name1}} production company?",
+   "Company_name1": "Pixar"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 446,
+  "question": "Who are the directors with the most movies in the Criterion Collection and give the count of movies for each one",
+  "assertion": "seteq(entity_keys($), [\"Department_name1\"])",
+  "run1": {
+   "question": "Who are the {{Department_name1}} with the most movies in the Criterion Collection and give the count of movies for each one",
+   "Department_name1": "directors"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Who are the {{Department_name1}} with the most movies in the Criterion Collection and give the count of movies for each one",
+   "Department_name1": "directors"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Who are the directors with the most movies in the Criterion Collection and give the count of movies for each one"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 454,
+  "question": "Japanese movie named « en boucle »",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^en boucle$/i)",
+  "run1": {
+   "question": "Japanese movie named {{Movie_title1}}",
+   "Movie_title1": "en boucle"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Japanese movie named {{Movie_title1}}",
+   "Movie_title1": "en boucle"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Japanese movie named « {{Movie_title1}} »",
+   "Movie_title1": "en boucle"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 470,
+  "question": "List movies from the Dracula collection",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"])",
+  "run1": {
+   "question": "List movies from the {{Collection_name1}}",
+   "Collection_name1": "Dracula collection"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies from the {{Collection_name1}}",
+   "Collection_name1": "Dracula collection"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies from the {{Collection_name1}}",
+   "Collection_name1": "Dracula collection"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 473,
+  "question": "Movie Le Schpountz",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Le Schpountz$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Le Schpountz"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Le Schpountz"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Le Schpountz"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 475,
+  "question": "Movie Bell' Antonio",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Bell' Antonio"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Bell' Antonio"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Bell' Antonio"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 476,
+  "question": "Movie Le crabe tambour",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Le crabe tambour$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Le crabe tambour"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Le crabe tambour"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Le crabe tambour"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 477,
+  "question": "Movie Bell' Antonio",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Bell' Antonio"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Bell' Antonio"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Bell' Antonio"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 480,
+  "question": "Show me color movies with Cary Grant",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\",\"Technical_format1\"]) AND matches($.Person_name1, /^Cary Grant$/i)",
+  "run1": {
+   "question": "Show me {{Technical_format1}} movies with {{Person_name1}}",
+   "Technical_format1": "color",
+   "Person_name1": "Cary Grant"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Show me {{Technical_format1}} movies with {{Person_name1}}",
+   "Technical_format1": "color",
+   "Person_name1": "Cary Grant"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Show me {{Technical_format1}} movies with {{Person_name1}}",
+   "Technical_format1": "color",
+   "Person_name1": "Cary Grant"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 495,
+  "question": "What are the films of the French New Wave?",
+  "assertion": "seteq(entity_keys($), [\"Movement_name1\"])",
+  "run1": {
+   "question": "What are the films of the {{Movement_name1}}?",
+   "Movement_name1": "French New Wave"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What are the films of the {{Movement_name1}}?",
+   "Movement_name1": "French New Wave"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What are the films of the {{Movement_name1}}?",
+   "Movement_name1": "French New Wave"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 499,
+  "question": "Movie The big sleep",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "The big sleep"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "The big sleep"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "The big sleep"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 501,
+  "question": "List movies about the Vietnam war",
+  "assertion": "seteq(entity_keys($), [\"Topic_name1\"])",
+  "run1": {
+   "question": "List movies about the {{Topic_name1}}",
+   "Topic_name1": "Vietnam war"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies about the {{Topic_name1}}",
+   "Topic_name1": "Vietnam war"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies about the {{Topic_name1}}",
+   "Topic_name1": "Vietnam war"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 503,
+  "question": "Movie Le crabe tambour",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Le crabe tambour$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Le crabe tambour"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Le crabe tambour"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Le crabe tambour"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 505,
+  "question": "List color movies with clark gable",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\",\"Technical_format1\"]) AND matches($.Person_name1, /^clark gable$/i)",
+  "run1": {
+   "question": "List {{Technical_format1}} movies with {{Person_name1}}",
+   "Technical_format1": "color",
+   "Person_name1": "clark gable"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List {{Technical_format1}} movies with {{Person_name1}}",
+   "Technical_format1": "color",
+   "Person_name1": "clark gable"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List {{Technical_format1}} movies with {{Person_name1}}",
+   "Technical_format1": "color",
+   "Person_name1": "clark gable"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 511,
+  "question": "List movies in the Star Wars universe",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"]) AND matches($.Collection_name1, /^Star Wars$/i)",
+  "run1": {
+   "question": "List movies in the {{Collection_name1}} universe",
+   "Collection_name1": "Star Wars"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "Star Wars universe"
+  },
+  "run2_score": 0,
+  "split": {
+   "question": "List movies in the {{Collection_name1}} universe",
+   "Collection_name1": "Star Wars"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 519,
+  "question": "Movie l'homme qui rétrécit",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^l'homme qui rétrécit$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'homme qui rétrécit"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'homme qui rétrécit"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'homme qui rétrécit"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 522,
+  "question": "Movie la disparition de mengele",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^la disparition de mengele$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la disparition de mengele"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la disparition de mengele"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la disparition de mengele"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 533,
+  "question": "Movie Il Bell' Antonio",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Il Bell' Antonio"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Il Bell' Antonio"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Il Bell' Antonio"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 534,
+  "question": "Movie il bell antonio",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "il bell antonio"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "il bell antonio"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "il bell antonio"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 536,
+  "question": "Movie Bonjour",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Bonjour$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Bonjour"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Bonjour"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Bonjour"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 537,
+  "question": "Movie les amants",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^les amants$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "les amants"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "les amants"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "les amants"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 543,
+  "question": "Movie le bel antonio",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^le bel antonio$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le bel antonio"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le bel antonio"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le bel antonio"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 550,
+  "question": "Movie les saisons du plaisir",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^les saisons du plaisir$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "les saisons du plaisir"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "les saisons du plaisir"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "les saisons du plaisir"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 577,
+  "question": "Movie l'insoutenable légèreté de l'être",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^l'insoutenable légèreté de l'être$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'insoutenable légèreté de l'être"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'insoutenable légèreté de l'être"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'insoutenable légèreté de l'être"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 595,
+  "question": "Movie Agence tout risque",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Agence tout risque$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Agence tout risque"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Agence tout risque"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Agence tout risque"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 597,
+  "question": "Movie classe tout risque",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "classe tout risque"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "classe tout risque"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "classe tout risque"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 600,
+  "question": "Movie le fantôme de la liberté",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^le fantôme de la liberté$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le fantôme de la liberté"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le fantôme de la liberté"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le fantôme de la liberté"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 606,
+  "question": "Movie l'empire",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^l'empire$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'empire"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'empire"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'empire"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 613,
+  "question": "Movie le bonheur",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^le bonheur$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le bonheur"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le bonheur"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le bonheur"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 628,
+  "question": "Movie l'amour l'après-midi",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^l'amour l'après\\-midi$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'amour l'après-midi"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'amour l'après-midi"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'amour l'après-midi"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 632,
+  "question": "Movie L'entente cordiale",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^L'entente cordiale$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "L'entente cordiale"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "L'entente cordiale"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "L'entente cordiale"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 649,
+  "question": "Movie Céline et Julie vont en bateau",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Céline et Julie vont en bateau$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Céline et Julie vont en bateau"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Céline et Julie vont en bateau"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Céline et Julie vont en bateau"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 653,
+  "question": "Movie Le rayon vert",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Le rayon vert$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Le rayon vert"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Le rayon vert"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Le rayon vert"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 672,
+  "question": "Actor Vincent Perez",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Vincent Perez$/i)",
+  "run1": {
+   "question": "Actor {{Person_name1}}",
+   "Person_name1": "Vincent Perez"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Actor {{Person_name1}}",
+   "Person_name1": "Vincent Perez"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Actor {{Person_name1}}",
+   "Person_name1": "Vincent Perez"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 673,
+  "question": "Actor Steve McQueen",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Steve McQueen$/i)",
+  "run1": {
+   "question": "Actor {{Person_name1}}",
+   "Person_name1": "Steve McQueen"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Actor {{Person_name1}}",
+   "Person_name1": "Steve McQueen"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Actor {{Person_name1}}",
+   "Person_name1": "Steve McQueen"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 675,
+  "question": "Movie actor Steve McQueen",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Steve McQueen$/i)",
+  "run1": {
+   "question": "Movie actor {{Person_name1}}",
+   "Person_name1": "Steve McQueen"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie actor {{Person_name1}}",
+   "Person_name1": "Steve McQueen"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie actor {{Person_name1}}",
+   "Person_name1": "Steve McQueen"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 677,
+  "question": "List movies in the French new wave",
+  "assertion": "seteq(entity_keys($), [\"Movement_name1\"])",
+  "run1": {
+   "question": "List movies in the {{Movement_name1}}",
+   "Movement_name1": "French new wave"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies in the {{Movement_name1}}",
+   "Movement_name1": "French new wave"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies in the {{Movement_name1}}",
+   "Movement_name1": "French new wave"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 697,
+  "question": "Movie Pauline à la plage",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Pauline à la plage$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Pauline à la plage"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Pauline à la plage"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Pauline à la plage"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 698,
+  "question": "Movie la belle noiseuse",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^la belle noiseuse$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la belle noiseuse"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la belle noiseuse"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la belle noiseuse"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 703,
+  "question": "List French cinematographers",
+  "assertion": "seteq(entity_keys($), [\"Department_name1\"])",
+  "run1": {
+   "question": "List French {{Department_name1}}",
+   "Department_name1": "cinematographers"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List French {{Department_name1}}",
+   "Department_name1": "cinematographers"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List French {{Department_name1}}",
+   "Department_name1": "cinematographers"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 717,
+  "question": "Movie la jetée",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^la jetée$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la jetée"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la jetée"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la jetée"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 718,
+  "question": "List movies in the back to the future collection",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"])",
+  "run1": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "back to the future collection"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "back to the future collection"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "back to the future collection"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 736,
+  "question": "Movie l'échiquier du vent",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^l'échiquier du vent$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'échiquier du vent"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'échiquier du vent"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'échiquier du vent"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 740,
+  "question": "Movie 絞死刑",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^絞死刑$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "絞死刑"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "絞死刑"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "絞死刑"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 743,
+  "question": "Movie les rendez-vous d'anna",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^les rendez\\-vous d'anna$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "les rendez-vous d'anna"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "les rendez-vous d'anna"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "les rendez-vous d'anna"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 747,
+  "question": "Movies about spaghetti western",
+  "assertion": "seteq(entity_keys($), [\"Topic_name1\"])",
+  "run1": {
+   "question": "Movies about {{Topic_name1}}",
+   "Topic_name1": "spaghetti western"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies about {{Topic_name1}}",
+   "Topic_name1": "spaghetti western"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies about {{Movement_name1}}",
+   "Movement_name1": "spaghetti western"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 748,
+  "question": "What are the movies from the samouraï trilogy Musashi",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"])",
+  "run1": {
+   "question": "What are the movies from the {{Collection_name1}}",
+   "Collection_name1": "samouraï trilogy Musashi"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What are the movies from the {{Collection_name1}}",
+   "Collection_name1": "samouraï trilogy Musashi"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What are the movies from the {{Collection_name1}}",
+   "Collection_name1": "samouraï trilogy Musashi"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 760,
+  "question": "Movies in the man with no name trilogy",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"])",
+  "run1": {
+   "question": "Movies in the {{Collection_name1}}",
+   "Collection_name1": "man with no name trilogy"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies in the {{Collection_name1}}",
+   "Collection_name1": "man with no name trilogy"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies in the {{Collection_name1}}",
+   "Collection_name1": "man with no name trilogy"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 773,
+  "question": "Author Mary Shelley",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Mary Shelley$/i)",
+  "run1": {
+   "question": "Author {{Person_name1}}",
+   "Person_name1": "Mary Shelley"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Author {{Person_name1}}",
+   "Person_name1": "Mary Shelley"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Author {{Person_name1}}",
+   "Person_name1": "Mary Shelley"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 780,
+  "question": "Writer oscar wilde",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^oscar wilde$/i)",
+  "run1": {
+   "question": "Writer {{Person_name1}}",
+   "Person_name1": "oscar wilde"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Writer {{Person_name1}}",
+   "Person_name1": "oscar wilde"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Writer {{Person_name1}}",
+   "Person_name1": "oscar wilde"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 788,
+  "question": "Movie le viol",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^le viol$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le viol"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le viol"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le viol"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 794,
+  "question": "Actress sigourney weaver",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^sigourney weaver$/i)",
+  "run1": {
+   "question": "Actress {{Person_name1}}",
+   "Person_name1": "sigourney weaver"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Actress {{Person_name1}}",
+   "Person_name1": "sigourney weaver"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Actress {{Person_name1}}",
+   "Person_name1": "sigourney weaver"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 825,
+  "question": "Movie collection le gendarme de saint tropez",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"])",
+  "run1": {
+   "question": "Movie collection {{Collection_name1}}",
+   "Collection_name1": "le gendarme de saint tropez"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie collection {{Collection_name1}}",
+   "Collection_name1": "le gendarme de saint tropez"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie collection {{Collection_name1}}",
+   "Collection_name1": "le gendarme de saint tropez"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 826,
+  "question": "Movie le gendarme de saint tropez",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le gendarme de saint tropez"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le gendarme de saint tropez"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le gendarme de saint tropez"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 829,
+  "question": "Andre Previn",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Andre Previn$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Andre Previn"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Andre Previn"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Andre Previn"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 841,
+  "question": "Company silver pictures",
+  "assertion": "seteq(entity_keys($), [\"Company_name1\"]) AND matches($.Company_name1, /^silver pictures$/i)",
+  "run1": {
+   "question": "Company {{Company_name1}}",
+   "Company_name1": "silver pictures"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Company {{Company_name1}}",
+   "Company_name1": "silver pictures"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Company {{Company_name1}}",
+   "Company_name1": "silver pictures"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 884,
+  "question": "Quels sont films en couleurs avec Humphrey Bogart ?",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\",\"Technical_format1\"]) AND matches($.Person_name1, /^Humphrey Bogart$/i)",
+  "run1": {
+   "question": "Quels sont films en {{Technical_format1}} avec {{Person_name1}} ?",
+   "Technical_format1": "couleurs",
+   "Person_name1": "Humphrey Bogart"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Quels sont films en {{Technical_format1}} avec {{Person_name1}} ?",
+   "Technical_format1": "couleurs",
+   "Person_name1": "Humphrey Bogart"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Quels sont films en couleurs avec {{Person_name1}} ?",
+   "Person_name1": "Humphrey Bogart"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 924,
+  "question": "Movie Poor things",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Poor things"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Poor things"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Poor things"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 926,
+  "question": "Movie l'attachement",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^l'attachement$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'attachement"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'attachement"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'attachement"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 928,
+  "question": "Movie Association criminelle",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Association criminelle$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Association criminelle"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Association criminelle"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Association criminelle"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 932,
+  "question": "Movie la voie du serpent",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^la voie du serpent$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la voie du serpent"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la voie du serpent"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la voie du serpent"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 940,
+  "question": "Movie peur sur la ville",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^peur sur la ville$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "peur sur la ville"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "peur sur la ville"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "peur sur la ville"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 954,
+  "question": "Movie named valeur sentimentale",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^valeur sentimentale$/i)",
+  "run1": {
+   "question": "Movie named {{Movie_title1}}",
+   "Movie_title1": "valeur sentimentale"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie named {{Movie_title1}}",
+   "Movie_title1": "valeur sentimentale"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie named {{Movie_title1}}",
+   "Movie_title1": "valeur sentimentale"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 955,
+  "question": "Movie le feu follet",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^le feu follet$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le feu follet"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le feu follet"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le feu follet"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 963,
+  "question": "Movie la voie lactée",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^la voie lactée$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la voie lactée"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la voie lactée"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la voie lactée"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 964,
+  "question": "Movie pars vite et reviens tard",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "pars vite et reviens tard"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "pars vite et reviens tard"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "pars vite et reviens tard"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 967,
+  "question": "Writer pietro germi",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^pietro germi$/i)",
+  "run1": {
+   "question": "Writer {{Person_name1}}",
+   "Person_name1": "pietro germi"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Writer {{Person_name1}}",
+   "Person_name1": "pietro germi"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Writer {{Person_name1}}",
+   "Person_name1": "pietro germi"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 983,
+  "question": "Movie l'odyssée",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^l'odyssée$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'odyssée"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'odyssée"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'odyssée"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 989,
+  "question": "What are the movies in the Sight & Sound list?",
+  "assertion": "seteq(entity_keys($), [\"List_name1\"])",
+  "run1": {
+   "question": "What are the movies in the {{List_name1}}?",
+   "List_name1": "Sight & Sound list"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What are the movies in the {{List_name1}}?",
+   "List_name1": "Sight & Sound list"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What are the movies in the {{List_name1}}?",
+   "List_name1": "Sight & Sound list"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 990,
+  "question": "Movie The Seventh Continent",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "The Seventh Continent"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "The Seventh Continent"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "The Seventh Continent"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 992,
+  "question": "Jean Pierre mocky",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Jean Pierre mocky$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Jean Pierre mocky"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Jean Pierre mocky"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Jean Pierre mocky"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 993,
+  "question": "Fabrice Luchini",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Fabrice Luchini$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Fabrice Luchini"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Fabrice Luchini"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Fabrice Luchini"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 999,
+  "question": "Gerard Rinaldi",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Gerard Rinaldi$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Gerard Rinaldi"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Gerard Rinaldi"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Gerard Rinaldi"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1011,
+  "question": "Movie poil de carotte",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^poil de carotte$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "poil de carotte"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "poil de carotte"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "poil de carotte"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1015,
+  "question": "Movie la cache",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^la cache$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la cache"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la cache"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la cache"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1017,
+  "question": "Louis lumière",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Louis lumière$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Louis lumière"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Louis lumière"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Louis lumière"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1021,
+  "question": "movie hausfrauen report",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^hausfrauen report$/i)",
+  "run1": {
+   "question": "movie {{Movie_title1}}",
+   "Movie_title1": "hausfrauen report"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "movie {{Movie_title1}}",
+   "Movie_title1": "hausfrauen report"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "movie {{Movie_title1}}",
+   "Movie_title1": "hausfrauen report"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1023,
+  "question": "Movie It Was Just an Accident",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "It Was Just an Accident"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "It Was Just an Accident"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "It Was Just an Accident"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1024,
+  "question": "Sydney Sweeney pictures",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Sydney Sweeney$/i)",
+  "run1": {
+   "question": "{{Person_name1}} pictures",
+   "Person_name1": "Sydney Sweeney"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}} pictures",
+   "Person_name1": "Sydney Sweeney"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}} pictures",
+   "Person_name1": "Sydney Sweeney"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1029,
+  "question": "Movie la machine à découdre",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^la machine à découdre$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la machine à découdre"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la machine à découdre"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "la machine à découdre"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1030,
+  "question": "Movie l'ibis rouge",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^l'ibis rouge$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'ibis rouge"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'ibis rouge"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "l'ibis rouge"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1034,
+  "question": "Movie with imdb id tt0297289",
+  "assertion": "seteq(entity_keys($), [\"IMDb_ID1\"]) AND matches($.IMDb_ID1, /^tt0297289$/i)",
+  "run1": {
+   "question": "Movie with IMDb ID {{IMDb_ID1}}",
+   "IMDb_ID1": "tt0297289"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie with IMDb ID {{IMDb_ID1}}",
+   "IMDb_ID1": "tt0297289"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie with imdb id {{IMDb_ID1}}",
+   "IMDb_ID1": "tt0297289"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1041,
+  "question": "Steve coogan",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Steve coogan$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Steve coogan"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Steve coogan"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Steve coogan"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1044,
+  "question": "Movie 新・男はつらいよ",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^新・男はつらいよ$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "新・男はつらいよ"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "新・男はつらいよ"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "新・男はつらいよ"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1050,
+  "question": "Pedro pascal",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Pedro pascal$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Pedro pascal"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Pedro pascal"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Pedro pascal"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1052,
+  "question": "Michel Blanc",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Michel Blanc$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Michel Blanc"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Michel Blanc"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Michel Blanc"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1053,
+  "question": "Ethan coen",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Ethan coen$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Ethan coen"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Ethan coen"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Ethan coen"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1054,
+  "question": "Movie The Housemaid",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "The Housemaid"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "The Housemaid"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "The Housemaid"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1060,
+  "question": "john frankheimer",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^john frankheimer$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "john frankheimer"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "john frankheimer"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "john frankheimer"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1062,
+  "question": "Richard Pryor",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Richard Pryor$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Richard Pryor"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Richard Pryor"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Richard Pryor"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1064,
+  "question": "Tora San collection",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"])",
+  "run1": {
+   "question": "{{Collection_name1}}",
+   "Collection_name1": "Tora San collection"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Collection_name1}}",
+   "Collection_name1": "Tora San collection"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Collection_name1}}",
+   "Collection_name1": "Tora San collection"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1066,
+  "question": "Person with wikidata id Q1668173",
+  "assertion": "seteq(entity_keys($), [\"Wikidata_ID1\"]) AND matches($.Wikidata_ID1, /^Q1668173$/i)",
+  "run1": {
+   "question": "Person with wikidata id {{Wikidata_ID1}}",
+   "Wikidata_ID1": "Q1668173"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Person with wikidata id {{Wikidata_ID1}}",
+   "Wikidata_ID1": "Q1668173"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Person with wikidata id {{Wikidata_ID1}}",
+   "Wikidata_ID1": "Q1668173"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1069,
+  "question": "John lennon",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^John lennon$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "John lennon"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "John lennon"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "John lennon"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1074,
+  "question": "Catherine allegret",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"])",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Catherine allegret"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Catherine allegret"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Catherine allegret"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1076,
+  "question": "Movie le gitan",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^le gitan$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le gitan"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le gitan"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "le gitan"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1080,
+  "question": "Diane Keaton",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Diane Keaton$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Diane Keaton"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Diane Keaton"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Diane Keaton"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1085,
+  "question": "Movie with IMDb ID tt5421006",
+  "assertion": "seteq(entity_keys($), [\"IMDb_ID1\"]) AND matches($.IMDb_ID1, /^tt5421006$/i)",
+  "run1": {
+   "question": "Movie with IMDb ID {{IMDb_ID1}}",
+   "IMDb_ID1": "tt5421006"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie with IMDb ID {{IMDb_ID1}}",
+   "IMDb_ID1": "tt5421006"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie with IMDb ID {{IMDb_ID1}}",
+   "IMDb_ID1": "tt5421006"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1090,
+  "question": "Movie Vincent Francois Paul et les autres",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Vincent Francois Paul et les autres"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Vincent Francois Paul et les autres"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Vincent Francois Paul et les autres"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1092,
+  "question": "Movie tt5421006",
+  "assertion": "seteq(entity_keys($), [\"IMDb_ID1\"]) AND matches($.IMDb_ID1, /^tt5421006$/i)",
+  "run1": {
+   "question": "Movie {{IMDb_ID1}}",
+   "IMDb_ID1": "tt5421006"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{IMDb_ID1}}",
+   "IMDb_ID1": "tt5421006"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{IMDb_ID1}}",
+   "IMDb_ID1": "tt5421006"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1095,
+  "question": "What are the movies in the Sight & Sound list?",
+  "assertion": "seteq(entity_keys($), [\"List_name1\"])",
+  "run1": {
+   "question": "What are the movies in the {{List_name1}}?",
+   "List_name1": "Sight & Sound list"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What are the movies in the {{List_name1}}?",
+   "List_name1": "Sight & Sound list"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What are the movies in the {{List_name1}}?",
+   "List_name1": "Sight & Sound list"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1099,
+  "question": "Jean-loup dabadie",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Jean\\-loup dabadie$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Jean-loup dabadie"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Jean-loup dabadie"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Jean-loup dabadie"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1102,
+  "question": "Movie tt32159989",
+  "assertion": "seteq(entity_keys($), [\"IMDb_ID1\"]) AND matches($.IMDb_ID1, /^tt32159989$/i)",
+  "run1": {
+   "question": "Movie {{IMDb_ID1}}",
+   "IMDb_ID1": "tt32159989"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{IMDb_ID1}}",
+   "IMDb_ID1": "tt32159989"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{IMDb_ID1}}",
+   "IMDb_ID1": "tt32159989"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1103,
+  "question": "Brigitte bardot",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Brigitte bardot$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Brigitte bardot"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Brigitte bardot"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Brigitte bardot"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1104,
+  "question": "Michel Legrand",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Michel Legrand$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Michel Legrand"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Michel Legrand"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Michel Legrand"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1106,
+  "question": "David Benioff",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^David Benioff$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "David Benioff"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "David Benioff"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "David Benioff"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1107,
+  "question": "Jean Dujardin",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Jean Dujardin$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Jean Dujardin"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Jean Dujardin"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Jean Dujardin"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1108,
+  "question": "david gauque",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^david gauque$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "david gauque"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "david gauque"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "david gauque"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1109,
+  "question": "Anny duperey",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Anny duperey$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Anny duperey"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Anny duperey"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Anny duperey"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1112,
+  "question": "Comédienne qui joue dans les films suivants : \r\n- Le mépris \r\n- Et dieu créa la femme",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\",\"Movie_title2\"]) AND matches($.Movie_title1, /^Le mépris$/i) AND matches($.Movie_title2, /^Et dieu créa la femme$/i)",
+  "run1": {
+   "question": "Comédienne qui joue dans les films suivants : \n- {{Movie_title1}} \n- {{Movie_title2}}",
+   "Movie_title1": "Le mépris",
+   "Movie_title2": "Et dieu créa la femme"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Comédienne qui joue dans les films suivants : \n- {{Movie_title1}} \n- {{Movie_title2}}",
+   "Movie_title1": "Le mépris",
+   "Movie_title2": "Et dieu créa la femme"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Comédienne qui joue dans les films suivants : \n- {{Movie_title1}} \n- {{Movie_title2}}",
+   "Movie_title1": "Le mépris",
+   "Movie_title2": "Et dieu créa la femme"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1114,
+  "question": "Film nous irons tous au paradis",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^nous irons tous au paradis$/i)",
+  "run1": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "nous irons tous au paradis"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "nous irons tous au paradis"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "nous irons tous au paradis"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1117,
+  "question": "Movie un elephant ca trompe énormément",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "un elephant ca trompe énormément"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "un elephant ca trompe énormément"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "un elephant ca trompe énormément"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1120,
+  "question": "Charlie Chaplin",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Charlie Chaplin$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Charlie Chaplin"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Charlie Chaplin"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Charlie Chaplin"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1121,
+  "question": "Composer Frederic Chopin",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"])",
+  "run1": {
+   "question": "Composer {{Person_name1}}",
+   "Person_name1": "Frederic Chopin"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Composer {{Person_name1}}",
+   "Person_name1": "Frederic Chopin"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Composer {{Person_name1}}",
+   "Person_name1": "Frederic Chopin"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1122,
+  "question": "Frederic Chopin",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"])",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Frederic Chopin"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Frederic Chopin"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Frederic Chopin"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1129,
+  "question": "Company a24",
+  "assertion": "seteq(entity_keys($), [\"Company_name1\"]) AND matches($.Company_name1, /^a24$/i)",
+  "run1": {
+   "question": "Company {{Company_name1}}",
+   "Company_name1": "a24"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Company {{Company_name1}}",
+   "Company_name1": "a24"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Company {{Company_name1}}",
+   "Company_name1": "a24"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 1130,
+  "question": "Golshifteh",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Golshifteh$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Golshifteh"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Golshifteh"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Golshifteh"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2133,
+  "question": "List all the Harry Potter movies",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"]) AND matches($.Collection_name1, /^Harry Potter$/i)",
+  "run1": {
+   "question": "List all the {{Collection_name1}} movies",
+   "Collection_name1": "Harry Potter"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List all the {{Collection_name1}} movies",
+   "Collection_name1": "Harry Potter"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List all the {{Collection_name1}} movies",
+   "Collection_name1": "Harry Potter"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2139,
+  "question": "Quelle actrice a joué à la fois dans les films suivants : \r\n- Le mépris \r\n- Et dieu... créa la femme",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\",\"Movie_title2\"]) AND matches($.Movie_title1, /^Le mépris$/i) AND matches($.Movie_title2, /^Et dieu\\.\\.\\. créa la femme$/i)",
+  "run1": {
+   "question": "Quelle actrice a joué à la fois dans les films suivants : \n- {{Movie_title1}} \n- {{Movie_title2}}",
+   "Movie_title1": "Le mépris",
+   "Movie_title2": "Et dieu... créa la femme"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Quelle actrice a joué à la fois dans les films suivants : - {{Movie_title1}} - {{Movie_title2}}",
+   "Movie_title1": "Le mépris",
+   "Movie_title2": "Et dieu... créa la femme"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Quelle actrice a joué à la fois dans les films suivants : \n- {{Movie_title1}} \n- {{Movie_title2}}",
+   "Movie_title1": "Le mépris",
+   "Movie_title2": "Et dieu... créa la femme"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2140,
+  "question": "What are the movies of the Samurai trilogy starring Toshiro Mifune?",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\",\"Person_name1\"]) AND matches($.Person_name1, /^Toshiro Mifune$/i)",
+  "run1": {
+   "question": "What are the movies of the {{Collection_name1}} starring {{Person_name1}}?",
+   "Collection_name1": "Samurai trilogy",
+   "Person_name1": "Toshiro Mifune"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What are the movies of the {{Collection_name1}} starring {{Person_name1}}?",
+   "Collection_name1": "Samurai trilogy",
+   "Person_name1": "Toshiro Mifune"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What are the movies of the {{Collection_name1}} starring {{Person_name1}}?",
+   "Collection_name1": "Samurai trilogy",
+   "Person_name1": "Toshiro Mifune"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2141,
+  "question": "Movies in the Samurai trilogy with Toshiro Mifune",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\",\"Person_name1\"]) AND matches($.Person_name1, /^Toshiro Mifune$/i)",
+  "run1": {
+   "question": "Movies in the {{Collection_name1}} with {{Person_name1}}",
+   "Collection_name1": "Samurai trilogy",
+   "Person_name1": "Toshiro Mifune"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies in the {{Collection_name1}} with {{Person_name1}}",
+   "Collection_name1": "Samurai trilogy",
+   "Person_name1": "Toshiro Mifune"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies in the {{Collection_name1}} with {{Person_name1}}",
+   "Collection_name1": "Samurai trilogy",
+   "Person_name1": "Toshiro Mifune"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2143,
+  "question": "Which actor is playing in both movies: \r\n- The Big Lebowski \r\n- Tron",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\",\"Movie_title2\"]) AND matches($.Movie_title1, /^The Big Lebowski$/i) AND matches($.Movie_title2, /^Tron$/i)",
+  "run1": {
+   "question": "Which actor is playing in both movies: \n- {{Movie_title1}} \n- {{Movie_title2}}",
+   "Movie_title1": "The Big Lebowski",
+   "Movie_title2": "Tron"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which actor is playing in both movies: {{Movie_title1}} {{Movie_title2}}",
+   "Movie_title1": "The Big Lebowski",
+   "Movie_title2": "Tron"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which actor is playing in both movies: \n- {{Movie_title1}} \n- {{Movie_title2}}",
+   "Movie_title1": "The Big Lebowski",
+   "Movie_title2": "Tron"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2144,
+  "question": "Which actors are playing in both movies: \r\n- La grande vadrouille\r\n- Le corniaud",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\",\"Movie_title2\"]) AND matches($.Movie_title1, /^La grande vadrouille$/i) AND matches($.Movie_title2, /^Le corniaud$/i)",
+  "run1": {
+   "question": "Which actors are playing in both movies: \n- {{Movie_title1}}\n- {{Movie_title2}}",
+   "Movie_title1": "La grande vadrouille",
+   "Movie_title2": "Le corniaud"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which actors are playing in both movies: \n- {{Movie_title1}}\n- {{Movie_title2}}",
+   "Movie_title1": "La grande vadrouille",
+   "Movie_title2": "Le corniaud"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which actors are playing in both movies: \n- {{Movie_title1}}\n- {{Movie_title2}}",
+   "Movie_title1": "La grande vadrouille",
+   "Movie_title2": "Le corniaud"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2146,
+  "question": "Movie Indiscretions",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Indiscretions"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Indiscretions"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Indiscretions"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2147,
+  "question": "List movies happening in San Francisco",
+  "assertion": "seteq(entity_keys($), [\"Location_name1\"]) AND matches($.Location_name1, /^San Francisco$/i)",
+  "run1": {
+   "question": "List movies happening in {{Location_name1}}",
+   "Location_name1": "San Francisco"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies happening in {{Location_name1}}",
+   "Location_name1": "San Francisco"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies happening in {{Location_name1}}",
+   "Location_name1": "San Francisco"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2148,
+  "question": "List all movies with the R2-D2 character",
+  "assertion": "seteq(entity_keys($), [\"Character_name1\"]) AND matches($.Character_name1, /^R2\\-D2$/i)",
+  "run1": {
+   "question": "List all movies with the {{Character_name1}} character",
+   "Character_name1": "R2-D2"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List all movies with the {{Character_name1}} character",
+   "Character_name1": "R2-D2"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List all movies with the {{Character_name1}} character",
+   "Character_name1": "R2-D2"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2149,
+  "question": "List movies happening on the Moon",
+  "assertion": "seteq(entity_keys($), [\"Location_name1\"])",
+  "run1": {
+   "question": "List movies happening on the {{Location_name1}}",
+   "Location_name1": "Moon"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies happening on the {{Location_name1}}",
+   "Location_name1": "Moon"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies happening on the {{Location_name1}}",
+   "Location_name1": "Moon"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2150,
+  "question": "List movies shot in Namibia",
+  "assertion": "seteq(entity_keys($), [\"Location_name1\"])",
+  "run1": {
+   "question": "List movies shot in {{Location_name1}}",
+   "Location_name1": "Namibia"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies shot in {{Location_name1}}",
+   "Location_name1": "Namibia"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies shot in {{Location_name1}}",
+   "Location_name1": "Namibia"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2151,
+  "question": "In which city the action of movie Pulp Fiction takes place?",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Pulp Fiction$/i)",
+  "run1": {
+   "question": "In which city the action of movie {{Movie_title1}} takes place?",
+   "Movie_title1": "Pulp Fiction"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "In which city the action of movie {{Movie_title1}} takes place?",
+   "Movie_title1": "Pulp Fiction"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "In which city the action of movie {{Movie_title1}} takes place?",
+   "Movie_title1": "Pulp Fiction"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2152,
+  "question": "List topics of the movie Apocalypse Now",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Apocalypse Now$/i)",
+  "run1": {
+   "question": "List topics of the movie {{Movie_title1}}",
+   "Movie_title1": "Apocalypse Now"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List topics of the movie {{Movie_title1}}",
+   "Movie_title1": "Apocalypse Now"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List topics of the movie {{Movie_title1}}",
+   "Movie_title1": "Apocalypse Now"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2153,
+  "question": "André de Toth",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^André de Toth$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "André de Toth"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "André de Toth"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "André de Toth"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2155,
+  "question": "What are the narrative locations of the movie Pulp Fiction?",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Pulp Fiction$/i)",
+  "run1": {
+   "question": "What are the narrative locations of the movie {{Movie_title1}}?",
+   "Movie_title1": "Pulp Fiction"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What are the narrative locations of the movie {{Movie_title1}}?",
+   "Movie_title1": "Pulp Fiction"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What are the narrative locations of the movie {{Movie_title1}}?",
+   "Movie_title1": "Pulp Fiction"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2156,
+  "question": "Where was shot the movie 2001 A Space Odyssey?",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "Where was shot the movie {{Movie_title1}}?",
+   "Movie_title1": "2001 A Space Odyssey"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Where was shot the movie {{Movie_title1}}?",
+   "Movie_title1": "2001 A Space Odyssey"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Where was shot the movie {{Movie_title1}}?",
+   "Movie_title1": "2001 A Space Odyssey"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2157,
+  "question": "Game of Thrones",
+  "assertion": "seteq(entity_keys($), [\"Serie_title1\"]) AND matches($.Serie_title1, /^Game of Thrones$/i)",
+  "run1": {
+   "question": "{{Serie_title1}}",
+   "Serie_title1": "Game of Thrones"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Serie_title1}}",
+   "Serie_title1": "Game of Thrones"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Serie_title1}}",
+   "Serie_title1": "Game of Thrones"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2158,
+  "question": "James Bond collection",
+  "assertion": "eq($.question, \"{{Topic_name1}} collection\") AND eq($.Topic_name1, \"James Bond\") AND seteq(entity_keys($), [\"Topic_name1\"])",
+  "run1": {
+   "question": "{{Collection_name1}}",
+   "Collection_name1": "James Bond collection"
+  },
+  "run1_score": 0,
+  "run2": {
+   "question": "{{Collection_name1}}",
+   "Collection_name1": "James Bond collection"
+  },
+  "run2_score": 0,
+  "split": {
+   "question": "{{Collection_name1}}",
+   "Collection_name1": "James Bond collection"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 2173,
+  "question": "Movie with Spine n°1",
+  "assertion": "seteq(entity_keys($), [\"Criterion_spine_ID1\"]) AND matches($.Criterion_spine_ID1, /^1$/i)",
+  "run1": {
+   "question": "Movie with Spine n°{{Criterion_spine_ID1}}",
+   "Criterion_spine_ID1": "1"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie with Spine n°{{Criterion_spine_ID1}}",
+   "Criterion_spine_ID1": "1"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie with Spine n°{{Criterion_spine_ID1}}",
+   "Criterion_spine_ID1": "1"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2174,
+  "question": "Movie Der siebente Kontinent",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Der siebente Kontinent$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Der siebente Kontinent"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Der siebente Kontinent"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Der siebente Kontinent"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2175,
+  "question": "Movie Todo sobre mi madre",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Todo sobre mi madre$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Todo sobre mi madre"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Todo sobre mi madre"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Todo sobre mi madre"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2176,
+  "question": "Movie Броненосец Потёмкин",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Броненосец Потёмкин$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Броненосец Потёмкин"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Броненосец Потёмкин"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Броненосец Потёмкин"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2177,
+  "question": "Movie 花樣年華",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^花樣年華$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "花樣年華"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "花樣年華"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "花樣年華"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2178,
+  "question": "Movie 친절한 금자씨",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^친절한 금자씨$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "친절한 금자씨"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "친절한 금자씨"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "친절한 금자씨"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2179,
+  "question": "Movie کلوزآپ ، نمای نزدیک",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^کلوزآپ ، نمای نزدیک$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "کلوزآپ ، نمای نزدیک"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "کلوزآپ ، نمای نزدیک"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "کلوزآپ ، نمای نزدیک"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2180,
+  "question": "Movie Kauas pilvet karkaavat",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Kauas pilvet karkaavat$/i)",
+  "run1": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Kauas pilvet karkaavat"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Kauas pilvet karkaavat"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{Movie_title1}}",
+   "Movie_title1": "Kauas pilvet karkaavat"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2181,
+  "question": "Spelfilm Fanny och Alexander",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Fanny och Alexander$/i)",
+  "run1": {
+   "question": "Spelfilm {{Movie_title1}}",
+   "Movie_title1": "Fanny och Alexander"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Spelfilm {{Movie_title1}}",
+   "Movie_title1": "Fanny och Alexander"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Spelfilm {{Movie_title1}}",
+   "Movie_title1": "Fanny och Alexander"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2182,
+  "question": "Film অপুর সংসার",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^অপুর সংসার$/i)",
+  "run1": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "অপুর সংসার"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "অপুর সংসার"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "অপুর সংসার"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2183,
+  "question": "Película Los olvidados",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Los olvidados$/i)",
+  "run1": {
+   "question": "Película {{Movie_title1}}",
+   "Movie_title1": "Los olvidados"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Película {{Movie_title1}}",
+   "Movie_title1": "Los olvidados"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Película {{Movie_title1}}",
+   "Movie_title1": "Los olvidados"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2184,
+  "question": "Film Spoorloos",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Spoorloos$/i)",
+  "run1": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "Spoorloos"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "Spoorloos"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "Spoorloos"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2185,
+  "question": "Film Vredens dag",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Vredens dag$/i)",
+  "run1": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "Vredens dag"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "Vredens dag"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "Vredens dag"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2186,
+  "question": "Film Hoří, má panenko",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Hoří, má panenko$/i)",
+  "run1": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "Hoří, má panenko"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "Hoří, má panenko"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "Hoří, má panenko"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2187,
+  "question": "Film Affeksjonsverdi",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Affeksjonsverdi$/i)",
+  "run1": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "Affeksjonsverdi"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "Affeksjonsverdi"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Film {{Movie_title1}}",
+   "Movie_title1": "Affeksjonsverdi"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2188,
+  "question": "Movie tt0057427",
+  "assertion": "seteq(entity_keys($), [\"IMDb_ID1\"]) AND matches($.IMDb_ID1, /^tt0057427$/i)",
+  "run1": {
+   "question": "Movie {{IMDb_ID1}}",
+   "IMDb_ID1": "tt0057427"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie {{IMDb_ID1}}",
+   "IMDb_ID1": "tt0057427"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie {{IMDb_ID1}}",
+   "IMDb_ID1": "tt0057427"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2189,
+  "question": "Movie with The Movie Database ID 490",
+  "assertion": "seteq(entity_keys($), [\"TMDb_ID1\"]) AND matches($.TMDb_ID1, /^490$/i)",
+  "run1": {
+   "question": "Movie with The Movie Database ID {{TMDb_ID1}}",
+   "TMDb_ID1": "490"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie with The Movie Database ID {{TMDb_ID1}}",
+   "TMDb_ID1": "490"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie with The Movie Database ID {{TMDb_ID1}}",
+   "TMDb_ID1": "490"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2190,
+  "question": "Movie with TMDb ID 68",
+  "assertion": "seteq(entity_keys($), [\"TMDb_ID1\"]) AND matches($.TMDb_ID1, /^68$/i)",
+  "run1": {
+   "question": "Movie with TMDb ID {{TMDb_ID1}}",
+   "TMDb_ID1": "68"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movie with TMDb ID {{TMDb_ID1}}",
+   "TMDb_ID1": "68"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movie with TMDb ID {{TMDb_ID1}}",
+   "TMDb_ID1": "68"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2200,
+  "question": "In which trilogy is the movie « the good the bad the ugly » a part?",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "In which trilogy is the movie « {{Movie_title1}} » a part?",
+   "Movie_title1": "the good the bad the ugly"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "In which trilogy is the movie « {{Movie_title1}} » a part?",
+   "Movie_title1": "the good the bad the ugly"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "In which trilogy is the movie « {{Movie_title1}} » a part?",
+   "Movie_title1": "the good the bad the ugly"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2201,
+  "question": "tt0033467",
+  "assertion": "seteq(entity_keys($), [\"IMDb_ID1\"]) AND matches($.IMDb_ID1, /^tt0033467$/i)",
+  "run1": {
+   "question": "{{IMDb_ID1}}",
+   "IMDb_ID1": "tt0033467"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{IMDb_ID1}}",
+   "IMDb_ID1": "tt0033467"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{IMDb_ID1}}",
+   "IMDb_ID1": "tt0033467"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2202,
+  "question": "nm0806041",
+  "assertion": "seteq(entity_keys($), [\"IMDb_person_ID1\"]) AND matches($.IMDb_person_ID1, /^nm0806041$/i)",
+  "run1": {
+   "question": "{{IMDb_person_ID1}}",
+   "IMDb_person_ID1": "nm0806041"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{IMDb_person_ID1}}",
+   "IMDb_person_ID1": "nm0806041"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{IMDb_person_ID1}}",
+   "IMDb_person_ID1": "nm0806041"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2203,
+  "question": "tt0944947",
+  "assertion": "seteq(entity_keys($), [\"IMDb_ID1\"]) AND matches($.IMDb_ID1, /^tt0944947$/i)",
+  "run1": {
+   "question": "{{IMDb_ID1}}",
+   "IMDb_ID1": "tt0944947"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{IMDb_ID1}}",
+   "IMDb_ID1": "tt0944947"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{IMDb_ID1}}",
+   "IMDb_ID1": "tt0944947"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2206,
+  "question": "Person with wikidata id Q30875",
+  "assertion": "seteq(entity_keys($), [\"Wikidata_ID1\"]) AND matches($.Wikidata_ID1, /^Q30875$/i)",
+  "run1": {
+   "question": "Person with wikidata id {{Wikidata_ID1}}",
+   "Wikidata_ID1": "Q30875"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Person with wikidata id {{Wikidata_ID1}}",
+   "Wikidata_ID1": "Q30875"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Person with wikidata id {{Wikidata_ID1}}",
+   "Wikidata_ID1": "Q30875"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2207,
+  "question": "Person with TMDb id 1",
+  "assertion": "seteq(entity_keys($), [\"TMDb_ID1\"]) AND matches($.TMDb_ID1, /^1$/i)",
+  "run1": {
+   "question": "Person with TMDb id {{TMDb_ID1}}",
+   "TMDb_ID1": "1"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Person with TMDb id {{TMDb_ID1}}",
+   "TMDb_ID1": "1"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Person with TMDb id {{TMDb_ID1}}",
+   "TMDb_ID1": "1"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2209,
+  "question": "Severance",
+  "assertion": "seteq(entity_keys($), [\"Serie_title1\"]) AND matches($.Serie_title1, /^Severance$/i)",
+  "run1": {
+   "question": "{{Serie_title1}}",
+   "Serie_title1": "Severance"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Serie_title1}}",
+   "Serie_title1": "Severance"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Serie_title1}}",
+   "Serie_title1": "Severance"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2210,
+  "question": "TV serie whose Wikidata id is Q1079",
+  "assertion": "seteq(entity_keys($), [\"Wikidata_ID1\"]) AND matches($.Wikidata_ID1, /^Q1079$/i)",
+  "run1": {
+   "question": "TV serie whose Wikidata id is {{Wikidata_ID1}}",
+   "Wikidata_ID1": "Q1079"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "TV serie whose Wikidata id is {{Wikidata_ID1}}",
+   "Wikidata_ID1": "Q1079"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "TV serie whose Wikidata id is {{Wikidata_ID1}}",
+   "Wikidata_ID1": "Q1079"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2211,
+  "question": "Black Mirror",
+  "assertion": "seteq(entity_keys($), [\"Serie_title1\"]) AND matches($.Serie_title1, /^Black Mirror$/i)",
+  "run1": {
+   "question": "{{Serie_title1}}",
+   "Serie_title1": "Black Mirror"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Serie_title1}}",
+   "Serie_title1": "Black Mirror"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Serie_title1}}",
+   "Serie_title1": "Black Mirror"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2212,
+  "question": "Serie with TMDb ID 2473",
+  "assertion": "seteq(entity_keys($), [\"TMDb_ID1\"]) AND matches($.TMDb_ID1, /^2473$/i)",
+  "run1": {
+   "question": "Serie with TMDb ID {{TMDb_ID1}}",
+   "TMDb_ID1": "2473"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Serie with TMDb ID {{TMDb_ID1}}",
+   "TMDb_ID1": "2473"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Serie with TMDb ID {{TMDb_ID1}}",
+   "TMDb_ID1": "2473"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2213,
+  "question": "2001: A SPACE ODYSSEY",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"])",
+  "run1": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "2001: A SPACE ODYSSEY"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "2001: A SPACE ODYSSEY"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Movie_title1}}",
+   "Movie_title1": "2001: A SPACE ODYSSEY"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2215,
+  "question": "List all actors that played the role of Sherlock Holmes in movies",
+  "assertion": "eq($.question, \"List all actors that played the role of {{Character_name1}} in movies\") AND eq($.Character_name1, \"Sherlock Holmes\") AND seteq(entity_keys($), [\"Character_name1\"])",
+  "run1": {
+   "question": "List all actors that played the role of {{Character_name1}} in movies",
+   "Character_name1": "Sherlock Holmes"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List all actors that played the role of {{Character_name1}} in movies",
+   "Character_name1": "Sherlock Holmes"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List all actors that played the role of {{Character_name1}} in movies",
+   "Character_name1": "Sherlock Holmes"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2217,
+  "question": "Everything You Always Wanted to Know About Sex *But Were Afraid to Ask (1972)",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\",\"Release_year1\"]) AND matches($.Release_year1, /^1972$/i)",
+  "run1": {
+   "question": "{{Movie_title1}} ({{Release_year1}})",
+   "Movie_title1": "Everything You Always Wanted to Know About Sex *But Were Afraid to Ask",
+   "Release_year1": "1972"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movie_title1}} ({{Release_year1}})",
+   "Movie_title1": "Everything You Always Wanted to Know About Sex *But Were Afraid to Ask",
+   "Release_year1": "1972"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Movie_title1}} ({{Release_year1}})",
+   "Movie_title1": "Everything You Always Wanted to Know About Sex *But Were Afraid to Ask",
+   "Release_year1": "1972"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2218,
+  "question": "List all actors that played the role of Sherlock Holmes in series",
+  "assertion": "seteq(entity_keys($), [\"Character_name1\"]) AND matches($.Character_name1, /^Sherlock Holmes$/i)",
+  "run1": {
+   "question": "List all actors that played the role of {{Character_name1}} in series",
+   "Character_name1": "Sherlock Holmes"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List all actors that played the role of {{Character_name1}} in series",
+   "Character_name1": "Sherlock Holmes"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List all actors that played the role of {{Character_name1}} in series",
+   "Character_name1": "Sherlock Holmes"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2221,
+  "question": "Who starred as Rocky Balboa?",
+  "assertion": "'{{Character_name1}}' == 'Rocky Balboa'",
+  "run1": {
+   "question": "Who starred as {{Character_name1}}?",
+   "Character_name1": "Rocky Balboa"
+  },
+  "run1_score": 0,
+  "run2": {
+   "question": "Who starred as {{Character_name1}}?",
+   "Character_name1": "Rocky Balboa"
+  },
+  "run2_score": 0,
+  "split": {
+   "question": "Who starred as {{Character_name1}}?",
+   "Character_name1": "Rocky Balboa"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 2222,
+  "question": "Manhattan (1979)",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\",\"Release_year1\"]) AND matches($.Movie_title1, /^Manhattan$/i) AND matches($.Release_year1, /^1979$/i)",
+  "run1": {
+   "question": "{{Movie_title1}} ({{Release_year1}})",
+   "Movie_title1": "Manhattan",
+   "Release_year1": "1979"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movie_title1}} ({{Release_year1}})",
+   "Movie_title1": "Manhattan",
+   "Release_year1": "1979"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Movie_title1}} ({{Release_year1}})",
+   "Movie_title1": "Manhattan",
+   "Release_year1": "1979"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2225,
+  "question": "List movies shot with Vistavision, display the more recent first",
+  "assertion": "seteq(entity_keys($), [\"Technical_format1\"]) AND matches($.Technical_format1, /^Vistavision$/i)",
+  "run1": {
+   "question": "List movies shot with {{Technical_format1}}, display the more recent first",
+   "Technical_format1": "Vistavision"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies shot with {{Technical_format1}}, display the more recent first",
+   "Technical_format1": "Vistavision"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies shot with {{Technical_format1}}, display the more recent first",
+   "Technical_format1": "Vistavision"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2226,
+  "question": "Who are the members of The Beatles?",
+  "assertion": "seteq(entity_keys($), [\"Group_name1\"])",
+  "run1": {
+   "question": "Who are the members of {{Group_name1}}?",
+   "Group_name1": "The Beatles"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Who are the members of {{Group_name1}}?",
+   "Group_name1": "The Beatles"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Who are the members of {{Group_name1}}?",
+   "Group_name1": "The Beatles"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2227,
+  "question": "Arnaud Depleschin",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"])",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Arnaud Depleschin"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Arnaud Depleschin"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Arnaud Depleschin"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2232,
+  "question": "List the members of The Monty Python",
+  "assertion": "seteq(entity_keys($), [\"Group_name1\"])",
+  "run1": {
+   "question": "List the members of {{Group_name1}}",
+   "Group_name1": "The Monty Python"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List the members of {{Group_name1}}",
+   "Group_name1": "The Monty Python"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List the members of {{Group_name1}}",
+   "Group_name1": "The Monty Python"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2233,
+  "question": "Which actors are members of the Royal Shakespeare Company?",
+  "assertion": "seteq(entity_keys($), [\"Group_name1\"]) AND matches($.Group_name1, /^Royal Shakespeare Company$/i)",
+  "run1": {
+   "question": "Which actors are members of the {{Group_name1}}?",
+   "Group_name1": "Royal Shakespeare Company"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which actors are members of the {{Group_name1}}?",
+   "Group_name1": "Royal Shakespeare Company"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which actors are members of the {{Group_name1}}?",
+   "Group_name1": "Royal Shakespeare Company"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2234,
+  "question": "Who were the Marx Brothers?",
+  "assertion": "seteq(entity_keys($), [\"Group_name1\"]) AND matches($.Group_name1, /^Marx Brothers$/i)",
+  "run1": {
+   "question": "Who were the {{Group_name1}}?",
+   "Group_name1": "Marx Brothers"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Who were the {{Group_name1}}?",
+   "Group_name1": "Marx Brothers"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Who were the {{Group_name1}}?",
+   "Group_name1": "Marx Brothers"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2235,
+  "question": "Tommy (1975)",
+  "assertion": "eq($.question, \"{{Movie_title1}} ({{Release_year1}})\") AND eq($.Movie_title1, \"Tommy\") AND eq($.Release_year1, \"1975\") AND matches($.Release_year1, /^(19|20)\\d{2}$/) AND seteq(entity_keys($), [\"Movie_title1\",\"Release_year1\"])",
+  "run1": {
+   "question": "{{Movie_title1}} ({{Release_year1}})",
+   "Movie_title1": "Tommy",
+   "Release_year1": "1975"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movie_title1}} ({{Release_year1}})",
+   "Movie_title1": "Tommy",
+   "Release_year1": "1975"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Movie_title1}} ({{Release_year1}})",
+   "Movie_title1": "Tommy",
+   "Release_year1": "1975"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2236,
+  "question": "List actors who died in a car accident",
+  "assertion": "seteq(entity_keys($), [\"Death_name1\"])",
+  "run1": {
+   "question": "List actors who died in a {{Death_name1}}",
+   "Death_name1": "car accident"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List actors who died in a {{Death_name1}}",
+   "Death_name1": "car accident"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List actors who died in a {{Death_name1}}",
+   "Death_name1": "car accident"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2238,
+  "question": "Which movies used the rotoscoping animation technique?",
+  "assertion": "seteq(entity_keys($), [\"Technical_format1\"])",
+  "run1": {
+   "question": "Which movies used the rotoscoping animation technique?"
+  },
+  "run1_score": 0,
+  "run2": {
+   "question": "Which movies used the rotoscoping {{Movie_genre1}} technique?",
+   "Movie_genre1": "Animation"
+  },
+  "run2_score": 0,
+  "split": {
+   "question": "Which movies used the rotoscoping {{Movie_genre1}} technique?",
+   "Movie_genre1": "Animation"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 2244,
+  "question": "Ginza cosmetics",
+  "assertion": "eq($.question, \"{{Company_name1}}\") AND eq($.Company_name1, \"Ginza cosmetics\") AND seteq(entity_keys($), [\"Company_name1\"])",
+  "run1": {
+   "question": "Ginza cosmetics"
+  },
+  "run1_score": 0,
+  "run2": {
+   "question": "Ginza cosmetics"
+  },
+  "run2_score": 0,
+  "split": {
+   "question": "Ginza cosmetics"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 2250,
+  "question": "Which movie directors died in 2025?",
+  "assertion": "seteq(entity_keys($), [\"Death_year1\",\"Department_name1\"]) AND matches($.Death_year1, /^2025$/i)",
+  "run1": {
+   "question": "Which movie {{Department_name1}} died in {{Death_year1}}?",
+   "Department_name1": "directors",
+   "Death_year1": "2025"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which movie {{Department_name1}} died in {{Death_year1}}?",
+   "Department_name1": "directors",
+   "Death_year1": "2025"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which movie directors died in {{Death_year1}}?",
+   "Death_year1": "2025"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 2251,
+  "question": "List movie directors that were born in the nineteenth century",
+  "assertion": "seteq(entity_keys($), [\"Department_name1\"])",
+  "run1": {
+   "question": "List movie {{Department_name1}} that were born in the nineteenth century",
+   "Department_name1": "directors"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movie {{Department_name1}} that were born in the nineteenth century",
+   "Department_name1": "directors"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movie {{Department_name1}} that were born in the nineteenth century",
+   "Department_name1": "directors"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2252,
+  "question": "List directors that were born before the 20th century",
+  "assertion": "seteq(entity_keys($), [\"Department_name1\"])",
+  "run1": {
+   "question": "List {{Department_name1}} that were born before the 20th century",
+   "Department_name1": "directors"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List {{Department_name1}} that were born before the 20th century",
+   "Department_name1": "directors"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List {{Department_name1}} that were born before the 20th century",
+   "Department_name1": "directors"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2271,
+  "question": "Bruce Lee",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Bruce Lee$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Bruce Lee"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Bruce Lee"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Bruce Lee"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2272,
+  "question": "Sid Vicious",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Sid Vicious$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Sid Vicious"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Sid Vicious"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Sid Vicious"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2274,
+  "question": "List movies in the National Film Registry",
+  "assertion": "seteq(entity_keys($), [\"List_name1\"]) AND matches($.List_name1, /^National Film Registry$/i)",
+  "run1": {
+   "question": "List movies in the {{List_name1}}",
+   "List_name1": "National Film Registry"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies in the {{List_name1}}",
+   "List_name1": "National Film Registry"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies in the {{List_name1}}",
+   "List_name1": "National Film Registry"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2275,
+  "question": "List movies in the Vatican's list of films",
+  "assertion": "seteq(entity_keys($), [\"List_name1\"])",
+  "run1": {
+   "question": "List movies in the {{List_name1}}",
+   "List_name1": "Vatican's list of films"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies in the {{List_name1}}",
+   "List_name1": "Vatican's list of films"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies in the {{List_name1}}",
+   "List_name1": "Vatican's list of films"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2277,
+  "question": "List James Bond movies ordered by release date",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"]) AND matches($.Collection_name1, /^James Bond$/i)",
+  "run1": {
+   "question": "List {{Collection_name1}} movies ordered by release date",
+   "Collection_name1": "James Bond"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List {{Collection_name1}} movies ordered by release date",
+   "Collection_name1": "James Bond"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List {{Collection_name1}} movies ordered by release date",
+   "Collection_name1": "James Bond"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2278,
+  "question": "Which Martin Scorcese movie won the Palme D’or ?",
+  "assertion": "seteq(entity_keys($), [\"Award_name1\",\"Person_name1\"])",
+  "run1": {
+   "question": "Which {{Person_name1}} movie won the {{Award_name1}}?",
+   "Person_name1": "Martin Scorcese",
+   "Award_name1": "Palme D’or"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which {{Person_name1}} movie won the {{Award_name1}}?",
+   "Person_name1": "Martin Scorcese",
+   "Award_name1": "Palme D’or"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which {{Person_name1}} movie won the {{Award_name1}} ?",
+   "Person_name1": "Martin Scorcese",
+   "Award_name1": "Palme D’or"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2281,
+  "question": "List English TV Series of genre \"Action & Adventure\"",
+  "assertion": "seteq(entity_keys($), [\"Serie_genre1\"])",
+  "run1": {
+   "question": "List English TV Series of genre \"{{Serie_genre1}}\"",
+   "Serie_genre1": "Action & Adventure"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List English TV Series of genre \"{{Serie_genre1}}\"",
+   "Serie_genre1": "Action & Adventure"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List English TV Series of genre \"{{Serie_genre1}}\"",
+   "Serie_genre1": "Action & Adventure"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2283,
+  "question": "List series that received an Emmy Award",
+  "assertion": "seteq(entity_keys($), [\"Award_name1\"]) AND matches($.Award_name1, /^Emmy Award$/i)",
+  "run1": {
+   "question": "List series that received an {{Award_name1}}",
+   "Award_name1": "Emmy Award"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List series that received an {{Award_name1}}",
+   "Award_name1": "Emmy Award"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List series that received an {{Award_name1}}",
+   "Award_name1": "Emmy Award"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2289,
+  "question": "List movies awarded the bafta",
+  "assertion": "seteq(entity_keys($), [\"Award_name1\"])",
+  "run1": {
+   "question": "List movies awarded the {{Award_name1}}",
+   "Award_name1": "bafta"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies awarded the {{Award_name1}}",
+   "Award_name1": "bafta"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies awarded the {{Award_name1}}",
+   "Award_name1": "bafta"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2290,
+  "question": "List series in the IMDb Top 250 TV show",
+  "assertion": "seteq(entity_keys($), [\"List_name1\"])",
+  "run1": {
+   "question": "List series in the {{List_name1}}",
+   "List_name1": "IMDb Top 250 TV show"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List series in the {{List_name1}}",
+   "List_name1": "IMDb Top 250 TV show"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List series in the {{List_name1}}",
+   "List_name1": "IMDb Top 250 TV show"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2291,
+  "question": "List drama movies that were awarded the Golden Globe",
+  "assertion": "seteq(entity_keys($), [\"Award_name1\",\"Movie_genre1\"]) AND matches($.Award_name1, /^Golden Globe$/i) AND matches($.Movie_genre1, /^Drama$/i)",
+  "run1": {
+   "question": "List {{Movie_genre1}} movies that were awarded the {{Award_name1}}",
+   "Movie_genre1": "Drama",
+   "Award_name1": "Golden Globe"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List {{Movie_genre1}} movies that were awarded the {{Award_name1}}",
+   "Movie_genre1": "Drama",
+   "Award_name1": "Golden Globe"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List {{Movie_genre1}} movies that were awarded the {{Award_name1}}",
+   "Movie_genre1": "Drama",
+   "Award_name1": "Golden Globe"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2293,
+  "question": "Movies with the Charlotte Corday character",
+  "assertion": "seteq(entity_keys($), [\"Character_name1\"]) AND matches($.Character_name1, /^Charlotte Corday$/i)",
+  "run1": {
+   "question": "Movies with the {{Character_name1}} character",
+   "Character_name1": "Charlotte Corday"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies with the {{Character_name1}} character",
+   "Character_name1": "Charlotte Corday"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies with the {{Character_name1}} character",
+   "Character_name1": "Charlotte Corday"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2294,
+  "question": "List movies where there is a character named Philippe",
+  "assertion": "seteq(entity_keys($), [\"Character_name1\"]) AND matches($.Character_name1, /^Philippe$/i)",
+  "run1": {
+   "question": "List movies where there is a character named {{Character_name1}}",
+   "Character_name1": "Philippe"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies where there is a character named {{Character_name1}}",
+   "Character_name1": "Philippe"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies where there is a character named {{Character_name1}}",
+   "Character_name1": "Philippe"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2295,
+  "question": "List persons member of Les Cahiers du Cinéma",
+  "assertion": "seteq(entity_keys($), [\"Group_name1\"])",
+  "run1": {
+   "question": "List persons member of {{Group_name1}}",
+   "Group_name1": "Les Cahiers du Cinéma"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List persons member of {{Group_name1}}",
+   "Group_name1": "Les Cahiers du Cinéma"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List persons member of {{Group_name1}}",
+   "Group_name1": "Les Cahiers du Cinéma"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2296,
+  "question": "Diary of a chambermaid (1946)",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\",\"Release_year1\"]) AND matches($.Release_year1, /^1946$/i)",
+  "run1": {
+   "question": "{{Movie_title1}} ({{Release_year1}})",
+   "Movie_title1": "Diary of a chambermaid",
+   "Release_year1": "1946"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Movie_title1}} ({{Release_year1}})",
+   "Movie_title1": "Diary of a chambermaid",
+   "Release_year1": "1946"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Movie_title1}} ({{Release_year1}})",
+   "Movie_title1": "Diary of a chambermaid",
+   "Release_year1": "1946"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2298,
+  "question": "List members of the Dziga Vertov Group",
+  "assertion": "seteq(entity_keys($), [\"Group_name1\"])",
+  "run1": {
+   "question": "List members of the {{Group_name1}}",
+   "Group_name1": "Dziga Vertov Group"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List members of the {{Group_name1}}",
+   "Group_name1": "Dziga Vertov Group"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List members of the {{Group_name1}}",
+   "Group_name1": "Dziga Vertov Group"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2299,
+  "question": "List members of the Royal Shakespeare Company",
+  "assertion": "seteq(entity_keys($), [\"Group_name1\"]) AND matches($.Group_name1, /^Royal Shakespeare Company$/i)",
+  "run1": {
+   "question": "List members of the {{Group_name1}}",
+   "Group_name1": "Royal Shakespeare Company"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List members of the {{Group_name1}}",
+   "Group_name1": "Royal Shakespeare Company"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List members of the {{Group_name1}}",
+   "Group_name1": "Royal Shakespeare Company"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2300,
+  "question": "List New Hollywood movies",
+  "assertion": "seteq(entity_keys($), [\"Movement_name1\"])",
+  "run1": {
+   "question": "List {{Movement_name1}} movies",
+   "Movement_name1": "New Hollywood"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List {{Movement_name1}} movies",
+   "Movement_name1": "New Hollywood"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List {{Movement_name1}} movies",
+   "Movement_name1": "New Hollywood"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2305,
+  "question": "List movies rewarded at the 84th Academy Awards",
+  "assertion": "seteq(entity_keys($), [\"Award_name1\"])",
+  "run1": {
+   "question": "List movies rewarded at the {{Award_name1}}",
+   "Award_name1": "84th Academy Awards"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies rewarded at the {{Award_name1}}",
+   "Award_name1": "84th Academy Awards"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies rewarded at the {{Award_name1}}",
+   "Award_name1": "84th Academy Awards"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2308,
+  "question": "In which important lists is the movie Apocalypse Now?",
+  "assertion": "seteq(entity_keys($), [\"Movie_title1\"]) AND matches($.Movie_title1, /^Apocalypse Now$/i)",
+  "run1": {
+   "question": "In which important lists is the movie {{Movie_title1}}?",
+   "Movie_title1": "Apocalypse Now"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "In which important lists is the movie {{Movie_title1}}?",
+   "Movie_title1": "Apocalypse Now"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "In which important lists is the movie {{Movie_title1}}?",
+   "Movie_title1": "Apocalypse Now"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2311,
+  "question": "Which movies did win at the 1st academy awards?",
+  "assertion": "seteq(entity_keys($), [\"Award_name1\"])",
+  "run1": {
+   "question": "Which movies did win at the {{Award_name1}}?",
+   "Award_name1": "1st academy awards"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which movies did win at the {{Award_name1}}?",
+   "Award_name1": "1st academy awards"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which movies did win at the 1st {{Award_name1}}?",
+   "Award_name1": "academy awards"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2328,
+  "question": "Hillary Swank",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Hillary Swank$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Hillary Swank"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Hillary Swank"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Hillary Swank"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2329,
+  "question": "Katherine Hepburn",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Katherine Hepburn$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Katherine Hepburn"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Katherine Hepburn"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "Katherine Hepburn"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2330,
+  "question": "RICARDO FREDA",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^RICARDO FREDA$/i)",
+  "run1": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "RICARDO FREDA"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "RICARDO FREDA"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Person_name1}}",
+   "Person_name1": "RICARDO FREDA"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2332,
+  "question": "List movies with Sharon Stone released before 1970",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Sharon Stone$/i)",
+  "run1": {
+   "question": "List movies with {{Person_name1}} released before 1970",
+   "Person_name1": "Sharon Stone"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies with {{Person_name1}} released before 1970",
+   "Person_name1": "Sharon Stone"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies with {{Person_name1}} released before 1970",
+   "Person_name1": "Sharon Stone"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2333,
+  "question": "List movies starring Humphrey Bogart and Lauren Bacall released in 1920",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\",\"Person_name2\",\"Release_year1\"]) AND matches($.Person_name1, /^Humphrey Bogart$/i) AND matches($.Person_name2, /^Lauren Bacall$/i) AND matches($.Release_year1, /^1920$/i)",
+  "run1": {
+   "question": "List movies starring {{Person_name1}} and {{Person_name2}} released in {{Release_year1}}",
+   "Person_name1": "Humphrey Bogart",
+   "Person_name2": "Lauren Bacall",
+   "Release_year1": "1920"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies starring {{Person_name1}} and {{Person_name2}} released in {{Release_year1}}",
+   "Person_name1": "Humphrey Bogart",
+   "Person_name2": "Lauren Bacall",
+   "Release_year1": "1920"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies starring {{Person_name1}} and {{Person_name2}} released in {{Release_year1}}",
+   "Person_name1": "Humphrey Bogart",
+   "Person_name2": "Lauren Bacall",
+   "Release_year1": "1920"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2336,
+  "question": "List the films that have received the Louis Delluc Prize",
+  "assertion": "seteq(entity_keys($), [\"Award_name1\"])",
+  "run1": {
+   "question": "List the films that have received the {{Award_name1}}",
+   "Award_name1": "Louis Delluc Prize"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List the films that have received the {{Award_name1}}",
+   "Award_name1": "Louis Delluc Prize"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List the films that have received the {{Award_name1}}",
+   "Award_name1": "Louis Delluc Prize"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2337,
+  "question": "Which movies received the Jean Vigo award?",
+  "assertion": "seteq(entity_keys($), [\"Award_name1\"])",
+  "run1": {
+   "question": "Which movies received the {{Award_name1}}?",
+   "Award_name1": "Jean Vigo award"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which movies received the {{Award_name1}}?",
+   "Award_name1": "Jean Vigo award"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which movies received the {{Award_name1}}?",
+   "Award_name1": "Jean Vigo award"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2339,
+  "question": "What color movies used Technicolor technology in the forties?",
+  "assertion": "seteq(entity_keys($), [\"Technical_format1\"]) AND matches($.Technical_format1, /^Technicolor$/i)",
+  "run1": {
+   "question": "What color movies used {{Technical_format1}} technology in the forties?",
+   "Technical_format1": "Technicolor"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What color movies used {{Technical_format1}} technology in the forties?",
+   "Technical_format1": "Technicolor"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What {{Technical_format1}} movies used {{Technical_format2}} technology in the forties?",
+   "Technical_format1": "color",
+   "Technical_format2": "Technicolor"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 2340,
+  "question": "List movies in the Mad Max collection",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"])",
+  "run1": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "Mad Max collection"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "Mad Max collection"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "Mad Max collection"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2343,
+  "question": "Which movies did earn a “raspberry award for worst movie”?",
+  "assertion": "seteq(entity_keys($), [\"Award_name1\"])",
+  "run1": {
+   "question": "Which movies did earn a “{{Award_name1}}”?",
+   "Award_name1": "raspberry award for worst movie"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which movies did earn a “{{Award_name1}}”?",
+   "Award_name1": "raspberry award for worst movie"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which movies did earn a “{{Award_name1}}”?",
+   "Award_name1": "raspberry award for worst movie"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2346,
+  "question": "List movies in the Star Trek Franchise",
+  "assertion": "seteq(entity_keys($), [\"Collection_name1\"])",
+  "run1": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "Star Trek Franchise"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "Star Trek Franchise"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List movies in the {{Collection_name1}}",
+   "Collection_name1": "Star Trek Franchise"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2348,
+  "question": "Movies with the Marco Polo character",
+  "assertion": "seteq(entity_keys($), [\"Character_name1\"]) AND matches($.Character_name1, /^Marco Polo$/i)",
+  "run1": {
+   "question": "Movies with the {{Character_name1}} character",
+   "Character_name1": "Marco Polo"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies with the {{Character_name1}} character",
+   "Character_name1": "Marco Polo"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies with the {{Character_name1}} character",
+   "Character_name1": "Marco Polo"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2350,
+  "question": "movies directed by Christopher Nolan released in 1850",
+  "assertion": "seteq(entity_keys($), [\"Person_name1\"]) AND matches($.Person_name1, /^Christopher Nolan$/i)",
+  "run1": {
+   "question": "movies directed by {{Person_name1}} released in 1850",
+   "Person_name1": "Christopher Nolan"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "movies directed by {{Person_name1}} released in 1850",
+   "Person_name1": "Christopher Nolan"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "movies directed by {{Person_name1}} released in {{Release_year1}}",
+   "Person_name1": "Christopher Nolan",
+   "Release_year1": "1850"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 2351,
+  "question": "List horror movies",
+  "assertion": "seteq(entity_keys($), [\"Movie_genre1\"]) AND matches($.Movie_genre1, /^Horror$/i)",
+  "run1": {
+   "question": "List {{Movie_genre1}} movies",
+   "Movie_genre1": "Horror"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List {{Movie_genre1}} movies",
+   "Movie_genre1": "Horror"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List {{Movie_genre1}} movies",
+   "Movie_genre1": "Horror"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2352,
+  "question": "What are the best romance movies?",
+  "assertion": "seteq(entity_keys($), [\"Movie_genre1\"]) AND matches($.Movie_genre1, /^Romance$/i)",
+  "run1": {
+   "question": "What are the best {{Movie_genre1}} movies?",
+   "Movie_genre1": "Romance"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What are the best {{Movie_genre1}} movies?",
+   "Movie_genre1": "Romance"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What are the best {{Movie_genre1}} movies?",
+   "Movie_genre1": "Romance"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2353,
+  "question": "which movies are both comedy and drama?",
+  "assertion": "seteq(entity_keys($), [\"Movie_genre1\",\"Movie_genre2\"]) AND matches($.Movie_genre1, /^Comedy$/i) AND matches($.Movie_genre2, /^Drama$/i)",
+  "run1": {
+   "question": "which movies are both {{Movie_genre1}} and {{Movie_genre2}}?",
+   "Movie_genre1": "Comedy",
+   "Movie_genre2": "Drama"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "which movies are both {{Movie_genre1}} and {{Movie_genre2}}?",
+   "Movie_genre1": "Comedy",
+   "Movie_genre2": "Drama"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "which movies are both {{Movie_genre1}} and {{Movie_genre2}}?",
+   "Movie_genre1": "Comedy",
+   "Movie_genre2": "Drama"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2354,
+  "question": "List trending science fiction movies",
+  "assertion": "seteq(entity_keys($), [\"Movie_genre1\"]) AND matches($.Movie_genre1, /^Science Fiction$/i)",
+  "run1": {
+   "question": "List trending {{Movie_genre1}} movies",
+   "Movie_genre1": "Science Fiction"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List trending {{Movie_genre1}} movies",
+   "Movie_genre1": "Science Fiction"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List trending {{Movie_genre1}} movies",
+   "Movie_genre1": "Science Fiction"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2355,
+  "question": "List trending reality series",
+  "assertion": "seteq(entity_keys($), [\"Serie_genre1\"]) AND matches($.Serie_genre1, /^Reality$/i)",
+  "run1": {
+   "question": "List trending {{Serie_genre1}} series",
+   "Serie_genre1": "Reality"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List trending {{Serie_genre1}} series",
+   "Serie_genre1": "Reality"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List trending {{Serie_genre1}} series",
+   "Serie_genre1": "Reality"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2356,
+  "question": "Trending crime series",
+  "assertion": "seteq(entity_keys($), [\"Serie_genre1\"]) AND matches($.Serie_genre1, /^Crime$/i)",
+  "run1": {
+   "question": "Trending {{Serie_genre1}} series",
+   "Serie_genre1": "Crime"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Trending {{Serie_genre1}} series",
+   "Serie_genre1": "Crime"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Trending {{Serie_genre1}} series",
+   "Serie_genre1": "Crime"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2375,
+  "question": "Best crime TV series",
+  "assertion": "seteq(entity_keys($), [\"Serie_genre1\"]) AND matches($.Serie_genre1, /^Crime$/i)",
+  "run1": {
+   "question": "Best {{Serie_genre1}} TV series",
+   "Serie_genre1": "Crime"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Best {{Serie_genre1}} TV series",
+   "Serie_genre1": "Crime"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Best {{Serie_genre1}} TV series",
+   "Serie_genre1": "Crime"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2376,
+  "question": "Best comedy TV series",
+  "assertion": "seteq(entity_keys($), [\"Serie_genre1\"]) AND matches($.Serie_genre1, /^Comedy$/i)",
+  "run1": {
+   "question": "Best {{Serie_genre1}} TV series",
+   "Serie_genre1": "Comedy"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Best {{Serie_genre1}} TV series",
+   "Serie_genre1": "Comedy"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Best {{Serie_genre1}} TV series",
+   "Serie_genre1": "Comedy"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2377,
+  "question": "Best drama TV series",
+  "assertion": "seteq(entity_keys($), [\"Serie_genre1\"]) AND matches($.Serie_genre1, /^Drama$/i)",
+  "run1": {
+   "question": "Best {{Serie_genre1}} TV series",
+   "Serie_genre1": "Drama"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Best {{Serie_genre1}} TV series",
+   "Serie_genre1": "Drama"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Best {{Serie_genre1}} TV series",
+   "Serie_genre1": "Drama"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2378,
+  "question": "Best documentary TV series",
+  "assertion": "seteq(entity_keys($), [\"Serie_genre1\"]) AND matches($.Serie_genre1, /^Documentary$/i)",
+  "run1": {
+   "question": "Best {{Serie_genre1}} TV series",
+   "Serie_genre1": "Documentary"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Best {{Serie_genre1}} TV series",
+   "Serie_genre1": "Documentary"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Best {{Serie_genre1}} TV series",
+   "Serie_genre1": "Documentary"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2379,
+  "question": "Best animated TV series",
+  "assertion": "seteq(entity_keys($), [\"Serie_genre1\"]) AND matches($.Serie_genre1, /^Animation$/i)",
+  "run1": {
+   "question": "Best {{Serie_genre1}} TV series",
+   "Serie_genre1": "Animation"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Best {{Serie_genre1}} TV series",
+   "Serie_genre1": "Animation"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Best {{Serie_genre1}} TV series",
+   "Serie_genre1": "Animation"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2400,
+  "question": "Award-winning drama series",
+  "assertion": "seteq(entity_keys($), [\"Serie_genre1\"]) AND matches($.Serie_genre1, /^Drama$/i)",
+  "run1": {
+   "question": "Award-winning {{Serie_genre1}} series",
+   "Serie_genre1": "Drama"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Award-winning {{Serie_genre1}} series",
+   "Serie_genre1": "Drama"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Award-winning {{Serie_genre1}} series",
+   "Serie_genre1": "Drama"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2401,
+  "question": "The TV series Breaking Bad",
+  "assertion": "seteq(entity_keys($), [\"Serie_title1\"]) AND matches($.Serie_title1, /^Breaking Bad$/i)",
+  "run1": {
+   "question": "The TV series {{Serie_title1}}",
+   "Serie_title1": "Breaking Bad"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "The TV series {{Serie_title1}}",
+   "Serie_title1": "Breaking Bad"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "The TV series {{Serie_title1}}",
+   "Serie_title1": "Breaking Bad"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2402,
+  "question": "The TV series Game of Thrones",
+  "assertion": "seteq(entity_keys($), [\"Serie_title1\"]) AND matches($.Serie_title1, /^Game of Thrones$/i)",
+  "run1": {
+   "question": "The TV series {{Serie_title1}}",
+   "Serie_title1": "Game of Thrones"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "The TV series {{Serie_title1}}",
+   "Serie_title1": "Game of Thrones"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "The TV series {{Serie_title1}}",
+   "Serie_title1": "Game of Thrones"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2403,
+  "question": "The TV series Friends",
+  "assertion": "seteq(entity_keys($), [\"Serie_title1\"]) AND matches($.Serie_title1, /^Friends$/i)",
+  "run1": {
+   "question": "The TV series {{Serie_title1}}",
+   "Serie_title1": "Friends"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "The TV series {{Serie_title1}}",
+   "Serie_title1": "Friends"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "The TV series {{Serie_title1}}",
+   "Serie_title1": "Friends"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2404,
+  "question": "tt0903747",
+  "assertion": "seteq(entity_keys($), [\"IMDb_ID1\"]) AND matches($.IMDb_ID1, /^tt0903747$/i)",
+  "run1": {
+   "question": "{{IMDb_ID1}}",
+   "IMDb_ID1": "tt0903747"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{IMDb_ID1}}",
+   "IMDb_ID1": "tt0903747"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{IMDb_ID1}}",
+   "IMDb_ID1": "tt0903747"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2443,
+  "question": "Which actors have played the character of Tom Ripley in films?",
+  "assertion": "seteq(entity_keys($), [\"Character_name1\"]) AND matches($.Character_name1, /^Tom Ripley$/i)",
+  "run1": {
+   "question": "Which actors have played the character of {{Character_name1}} in films?",
+   "Character_name1": "Tom Ripley"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which actors have played the character of {{Character_name1}} in films?",
+   "Character_name1": "Tom Ripley"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which actors have played the character of {{Character_name1}} in films?",
+   "Character_name1": "Tom Ripley"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2449,
+  "question": "Movies still in production",
+  "assertion": "seteq(entity_keys($), [\"Status_name1\"]) AND matches($.Status_name1, /^In Production$/i)",
+  "run1": {
+   "question": "Movies still in {{Status_name1}}",
+   "Status_name1": "In Production"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies still in {{Status_name1}}",
+   "Status_name1": "In Production"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies still in {{Status_name1}}",
+   "Status_name1": "In Production"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2450,
+  "question": "Movies in post-production",
+  "assertion": "seteq(entity_keys($), [\"Status_name1\"])",
+  "run1": {
+   "question": "Movies in {{Status_name1}}",
+   "Status_name1": "Post Production"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies in {{Status_name1}}",
+   "Status_name1": "Post Production"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies in {{Status_name1}}",
+   "Status_name1": "Post Production"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2451,
+  "question": "Canceled TV series",
+  "assertion": "seteq(entity_keys($), [\"Status_name1\"])",
+  "run1": {
+   "question": "{{Status_name1}} TV series",
+   "Status_name1": "Canceled"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Status_name1}} TV series",
+   "Status_name1": "Canceled"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "{{Status_name1}} TV series",
+   "Status_name1": "Canceled"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2452,
+  "question": "List miniseries",
+  "assertion": "seteq(entity_keys($), [\"Serie_type1\"])",
+  "run1": {
+   "question": "List {{Serie_type1}}",
+   "Serie_type1": "Miniseries"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List {{Serie_type1}}",
+   "Serie_type1": "Miniseries"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List {{Serie_type1}}",
+   "Serie_type1": "Miniseries"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2453,
+  "question": "What talk shows are in the database?",
+  "assertion": "seteq(entity_keys($), [\"Serie_genre1\"]) AND matches($.Serie_genre1, /^Talk$/i)",
+  "run1": {
+   "question": "What {{Serie_genre1}} are in the database?",
+   "Serie_genre1": "Talk"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What {{Serie_genre1}} are in the database?",
+   "Serie_genre1": "Talk"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What {{Serie_genre1}} shows are in the database?",
+   "Serie_genre1": "Talk"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2454,
+  "question": "Which series did AMC produce?",
+  "assertion": "seteq(entity_keys($), [\"Network_name1\"]) AND matches($.Network_name1, /^AMC$/i)",
+  "run1": {
+   "question": "Which series did {{Network_name1}} produce?",
+   "Network_name1": "AMC"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which series did {{Network_name1}} produce?",
+   "Network_name1": "AMC"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which series did {{Network_name1}} produce?",
+   "Network_name1": "AMC"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2455,
+  "question": "Show me Apple TV+ series",
+  "assertion": "seteq(entity_keys($), [\"Network_name1\"]) AND matches($.Network_name1, /^Apple TV\\+$/i)",
+  "run1": {
+   "question": "Show me {{Network_name1}} series",
+   "Network_name1": "Apple TV+"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Show me {{Network_name1}} series",
+   "Network_name1": "Apple TV+"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Show me {{Network_name1}} series",
+   "Network_name1": "Apple TV+"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2456,
+  "question": "Which movies were nominated for the Academy Award for Best Picture?",
+  "assertion": "seteq(entity_keys($), [\"Nomination_name1\"])",
+  "run1": {
+   "question": "Which movies were nominated for the {{Nomination_name1}}?",
+   "Nomination_name1": "Academy Award for Best Picture"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which movies were nominated for the {{Nomination_name1}}?",
+   "Nomination_name1": "Academy Award for Best Picture"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which movies were nominated for the {{Nomination_name1}}?",
+   "Nomination_name1": "Academy Award for Best Picture"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2457,
+  "question": "Movies tagged with Wikidata property P136",
+  "assertion": "seteq(entity_keys($), [\"Wikidata_property_ID1\"]) AND matches($.Wikidata_property_ID1, /^P136$/i)",
+  "run1": {
+   "question": "Movies tagged with Wikidata property {{Wikidata_property_ID1}}",
+   "Wikidata_property_ID1": "P136"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Movies tagged with Wikidata property {{Wikidata_property_ID1}}",
+   "Wikidata_property_ID1": "P136"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Movies tagged with Wikidata property {{Wikidata_property_ID1}}",
+   "Wikidata_property_ID1": "P136"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2458,
+  "question": "What is Wikidata property P161?",
+  "assertion": "seteq(entity_keys($), [\"Wikidata_property_ID1\"]) AND matches($.Wikidata_property_ID1, /^P161$/i)",
+  "run1": {
+   "question": "What is Wikidata property {{Wikidata_property_ID1}}?",
+   "Wikidata_property_ID1": "P161"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What is Wikidata property {{Wikidata_property_ID1}}?",
+   "Wikidata_property_ID1": "P161"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What is Wikidata property {{Wikidata_property_ID1}}?",
+   "Wikidata_property_ID1": "P161"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2459,
+  "question": "What is Criterion spine number 100?",
+  "assertion": "seteq(entity_keys($), [\"Criterion_spine_ID1\"]) AND matches($.Criterion_spine_ID1, /^100$/i)",
+  "run1": {
+   "question": "What is Criterion spine number {{Criterion_spine_ID1}}?",
+   "Criterion_spine_ID1": "100"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What is Criterion spine number {{Criterion_spine_ID1}}?",
+   "Criterion_spine_ID1": "100"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What is Criterion spine number {{Criterion_spine_ID1}}?",
+   "Criterion_spine_ID1": "100"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2460,
+  "question": "Criterion spine 42",
+  "assertion": "seteq(entity_keys($), [\"Criterion_spine_ID1\"]) AND matches($.Criterion_spine_ID1, /^42$/i)",
+  "run1": {
+   "question": "Criterion spine {{Criterion_spine_ID1}}",
+   "Criterion_spine_ID1": "42"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Criterion spine {{Criterion_spine_ID1}}",
+   "Criterion_spine_ID1": "42"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Criterion spine {{Criterion_spine_ID1}}",
+   "Criterion_spine_ID1": "42"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2461,
+  "question": "What is the TMDb movie 27205?",
+  "assertion": "seteq(entity_keys($), [\"TMDb_ID1\"]) AND matches($.TMDb_ID1, /^27205$/i)",
+  "run1": {
+   "question": "What is the TMDb movie {{TMDb_ID1}}?",
+   "TMDb_ID1": "27205"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What is the TMDb movie {{TMDb_ID1}}?",
+   "TMDb_ID1": "27205"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What is the TMDb movie {{TMDb_ID1}}?",
+   "TMDb_ID1": "27205"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2462,
+  "question": "What is Wikidata item Q47703?",
+  "assertion": "seteq(entity_keys($), [\"Wikidata_ID1\"]) AND matches($.Wikidata_ID1, /^Q47703$/i)",
+  "run1": {
+   "question": "What is Wikidata item {{Wikidata_ID1}}?",
+   "Wikidata_ID1": "Q47703"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "What is Wikidata item {{Wikidata_ID1}}?",
+   "Wikidata_ID1": "Q47703"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "What is Wikidata item {{Wikidata_ID1}}?",
+   "Wikidata_ID1": "Q47703"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2463,
+  "question": "Show me the person with IMDb ID nm0000233",
+  "assertion": "seteq(entity_keys($), [\"IMDb_person_ID1\"]) AND matches($.IMDb_person_ID1, /^nm0000233$/i)",
+  "run1": {
+   "question": "Show me the person with IMDb ID {{IMDb_person_ID1}}",
+   "IMDb_person_ID1": "nm0000233"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Show me the person with IMDb ID {{IMDb_person_ID1}}",
+   "IMDb_person_ID1": "nm0000233"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Show me the person with IMDb ID {{IMDb_person_ID1}}",
+   "IMDb_person_ID1": "nm0000233"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2464,
+  "question": "Who is nm0000151?",
+  "assertion": "seteq(entity_keys($), [\"IMDb_person_ID1\"]) AND matches($.IMDb_person_ID1, /^nm0000151$/i)",
+  "run1": {
+   "question": "Who is {{IMDb_person_ID1}}?",
+   "IMDb_person_ID1": "nm0000151"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Who is {{IMDb_person_ID1}}?",
+   "IMDb_person_ID1": "nm0000151"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Who is {{IMDb_person_ID1}}?",
+   "IMDb_person_ID1": "nm0000151"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2465,
+  "question": "Actresses born in 1934",
+  "assertion": "seteq(entity_keys($), [\"Birth_year1\"]) AND matches($.Birth_year1, /^1934$/i)",
+  "run1": {
+   "question": "Actresses born in {{Birth_year1}}",
+   "Birth_year1": "1934"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Actresses born in {{Birth_year1}}",
+   "Birth_year1": "1934"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Actresses born in {{Birth_year1}}",
+   "Birth_year1": "1934"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2466,
+  "question": "Directors who died in 2010",
+  "assertion": "seteq(entity_keys($), [\"Death_year1\",\"Department_name1\"]) AND matches($.Death_year1, /^2010$/i)",
+  "run1": {
+   "question": "{{Department_name1}} who died in {{Death_year1}}",
+   "Department_name1": "Directors",
+   "Death_year1": "2010"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "{{Department_name1}} who died in {{Death_year1}}",
+   "Department_name1": "Directors",
+   "Death_year1": "2010"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Directors who died in {{Death_year1}}",
+   "Death_year1": "2010"
+  },
+  "split_score": 0
+ },
+ {
+  "id": 2467,
+  "question": "Which people died from a heart attack?",
+  "assertion": "seteq(entity_keys($), [\"Death_name1\"])",
+  "run1": {
+   "question": "Which people died from {{Death_name1}}?",
+   "Death_name1": "heart attack"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which people died from {{Death_name1}}?",
+   "Death_name1": "heart attack"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which people died from a {{Death_name1}}?",
+   "Death_name1": "heart attack"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2468,
+  "question": "Actors who died of cancer",
+  "assertion": "seteq(entity_keys($), [\"Death_name1\"]) AND matches($.Death_name1, /^cancer$/i)",
+  "run1": {
+   "question": "Actors who died of {{Death_name1}}",
+   "Death_name1": "cancer"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Actors who died of {{Death_name1}}",
+   "Death_name1": "cancer"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Actors who died of {{Death_name1}}",
+   "Death_name1": "cancer"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2469,
+  "question": "TV series nominated for the Primetime Emmy Award",
+  "assertion": "seteq(entity_keys($), [\"Nomination_name1\"])",
+  "run1": {
+   "question": "TV series nominated for the {{Nomination_name1}}",
+   "Nomination_name1": "Primetime Emmy Award"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "TV series nominated for the {{Nomination_name1}}",
+   "Nomination_name1": "Primetime Emmy Award"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "TV series nominated for the {{Nomination_name1}}",
+   "Nomination_name1": "Primetime Emmy Award"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2470,
+  "question": "Which actors were nominated for the Golden Globe?",
+  "assertion": "seteq(entity_keys($), [\"Nomination_name1\"]) AND matches($.Nomination_name1, /^Golden Globe$/i)",
+  "run1": {
+   "question": "Which actors were nominated for the {{Nomination_name1}}?",
+   "Nomination_name1": "Golden Globe"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "Which actors were nominated for the {{Nomination_name1}}?",
+   "Nomination_name1": "Golden Globe"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "Which actors were nominated for the {{Nomination_name1}}?",
+   "Nomination_name1": "Golden Globe"
+  },
+  "split_score": 1
+ },
+ {
+  "id": 2471,
+  "question": "List miniseries popular right now",
+  "assertion": "seteq(entity_keys($), [\"Serie_type1\"])",
+  "run1": {
+   "question": "List {{Serie_type1}} popular right now",
+   "Serie_type1": "Miniseries"
+  },
+  "run1_score": 1,
+  "run2": {
+   "question": "List {{Serie_type1}} popular right now",
+   "Serie_type1": "Miniseries"
+  },
+  "run2_score": 1,
+  "split": {
+   "question": "List {{Serie_type1}} popular right now",
+   "Serie_type1": "Miniseries"
+  },
+  "split_score": 1
+ }
+]

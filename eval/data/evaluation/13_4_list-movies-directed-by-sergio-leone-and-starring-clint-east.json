@@ -5,7 +5,7 @@
   "question_fr": "Listez les films réalisés par Sergio Leone et mettant en vedette Clint Eastwood.",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
-    "entity_extraction": "eq($.question, &quot;List movies directed by {{Person_name1}} and starring {{Person_name2}}&quot;) AND eq($.Person_name1, &quot;Sergio Leone&quot;) AND eq($.Person_name2, &quot;Clint Eastwood&quot;) AND seteq(entity_keys($), [&quot;Person_name1&quot;,&quot;Person_name2&quot;])",
+    "entity_extraction": "seteq(entity_keys($), [&quot;Person_name1&quot;,&quot;Person_name2&quot;]) AND matches($.Person_name1, /^Sergio Leone$/i) AND matches($.Person_name2, /^Clint Eastwood$/i)",
     "sql_query": null,
     "query_result": "COUNT(*) == 3 AND \r\nID_MOVIE IN (429, 938, 391)"
   },

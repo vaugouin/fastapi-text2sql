@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_PERSON IN (584415, 115496, 1451775, 230264, 50629, 66853, 260762, 105629)"
+    "query_result": "ID_PERSON IN (584582, 584415, 115496, 1451775, 230264, 50629, 260762, 105629)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT p.ID_PERSON FROM T_WC_T2S_PERSON p WHERE p.DEATH_YEAR IS NOT NULL ORDER BY p.DEATH_YEAR DESC, p.DEATH_MONTH DESC, p.DEATH_DAY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-22T02:26:52",
+  "assertion_refresh_last": "2026-08-23T02:22:14",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

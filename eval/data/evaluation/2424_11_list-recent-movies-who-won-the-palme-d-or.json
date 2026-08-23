@@ -10,7 +10,7 @@
     "query_result": "ID_MOVIE IN (1401459, 1456349, 1064213, 915935, 497828, 630240, 496243, 505192)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT m.ID_MOVIE FROM T_WC_T2S_MOVIE m JOIN T_WC_T2S_MOVIE_AWARD ma ON ma.ID_MOVIE = m.ID_MOVIE JOIN T_WC_T2S_AWARD a ON a.ID_AWARD = ma.ID_AWARD WHERE a.AWARD_NAME_FR = &#039;Palme d&#039;&#039;or&#039; ORDER BY m.DAT_RELEASE DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-22T02:26:55",
+  "assertion_refresh_last": "2026-08-23T02:22:16",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

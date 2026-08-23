@@ -117,11 +117,6 @@ Examples:
 - `kidnapping`
 - `Philip Marlowe`
 
-### Release_year
-A 4-digit year identifying when a movie or TV series came out.
-Extract when the question dates a work, whether the year is written next to the title (`Title (Year)`) or used as a filter (`movies from 1975`, `films released in 1999`).
-Examples: `1973`, `1975`, `1999`
-
 ### Birth_year
 A 4-digit year representing a person's year of birth.
 Extract only when the question filters or reasons about a person's birth year (e.g., "actors born in 1962", "directors born in 1899").

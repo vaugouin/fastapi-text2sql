@@ -10,7 +10,7 @@
     "query_result": "ID_MOVIE IN (496243, 299534, 475557, 530915, 508965, 359724, 596650, 587030)"
   },
   "assertion_refresh_sql": "SELECT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.RELEASE_YEAR = 2019 ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-22T02:27:04",
+  "assertion_refresh_last": "2026-08-23T02:22:24",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

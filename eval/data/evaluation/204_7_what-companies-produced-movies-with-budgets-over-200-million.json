@@ -10,7 +10,7 @@
     "query_result": "ID_COMPANY IN (174, 11565, 76907, 128064, 216687, 9996, 33, 11)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT c.ID_COMPANY FROM T_WC_T2S_COMPANY c JOIN T_WC_T2S_MOVIE_COMPANY mc ON mc.ID_COMPANY = c.ID_COMPANY JOIN T_WC_T2S_MOVIE m ON m.ID_MOVIE = mc.ID_MOVIE WHERE m.BUDGET &gt; 200000000 LIMIT 8",
-  "assertion_refresh_last": "2026-08-22T02:26:36",
+  "assertion_refresh_last": "2026-08-23T02:21:59",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

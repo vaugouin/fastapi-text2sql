@@ -10,7 +10,7 @@
     "query_result": "ID_SERIE IN (33189, 62476, 1570, 64165, 46616, 218961, 96677, 11726)"
   },
   "assertion_refresh_sql": "SELECT T_WC_T2S_SERIE.ID_SERIE FROM T_WC_T2S_SERIE WHERE T_WC_T2S_SERIE.ORIGINAL_LANGUAGE = &#039;fr&#039; ORDER BY T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-22T02:26:53",
+  "assertion_refresh_last": "2026-08-23T02:22:15",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
