@@ -1,24 +1,37 @@
 #!/usr/bin/env python3
-"""Off-production bench for the split entity-extraction prompt (FASTAPI-TEXT2SQL-200).
+"""Off-production A/B bench for entity extraction.
 
-The ticket's gate, before anything is deployed: build the two prompts, run them over
-the questions already measured, and keep the split only if it matches the single
-prompt on the controls and beats it on the hard titles. This script is that gate.
+Runs two extraction configurations over the same questions, in the same process, and
+scores both against the same gold assertions with the evaluator's own
+`ee_eval_two_layer`. Nothing is written anywhere: no API server, no evaluation-execution
+row, no cache entry. That makes it cheap enough to run before deciding anything, which
+is the point.
 
-It calls `entity.f_entity_extraction` (one 779-line prompt) and
-`entity.f_entity_extraction_split` (two concurrent prompts, merged) on the same
-questions, in the same process, and scores both against the same gold assertions with
-the evaluator's own `ee_eval_two_layer`. Nothing is written anywhere: no API server, no
-evaluation table, no cache.
+Two uses, both proven:
+
+  Compare two models.       --model-a gpt-4o --model-b claude-...
+      Which one extracts better, on the questions the bank can actually score.
+
+  Measure the noise floor.  --model-a gpt-4o --model-b gpt-4o
+      The same configuration against itself. At temperature 0 gpt-4o still disagrees
+      with itself on a couple of questions out of 326, and knowing that number is what
+      tells a real regression from a coin flip. This is how FASTAPI-TEXT2SQL-200 was
+      settled: the candidate lost 11 questions against a noise floor of 2, so the gap
+      was real and the change was dropped.
+
+A prompt change has no flag to switch, so compare it across time instead: run the bench
+before the edit with `--out before.json`, edit `data/entity_extraction.md`, run it again
+with `--out after.json`, and diff the two files. The prompt hot-reloads, so the second
+run picks the edit up without a restart.
 
 Question sources, in order of preference:
   --questions-file PATH   one question per line, no scoring (works with no database)
   (default)               the evaluation bank, scored against ASSERTIONS_ENTITY_EXTRACTION
 
 Usage:
-  uv run eval/bench-entity-extraction-split.py --limit 20
-  uv run eval/bench-entity-extraction-split.py --lang fr --workers 4 --out /tmp/bench.json
-  uv run eval/bench-entity-extraction-split.py --questions-file /tmp/hard-titles.txt
+  uv run eval/bench-entity-extraction.py --model-a gpt-4o --model-b gpt-4o --limit 20
+  uv run eval/bench-entity-extraction.py --lang fr --workers 8 --out /shared/bench.json
+  uv run eval/bench-entity-extraction.py --questions-file /tmp/hard-titles.txt
 
 Reads DB_* and the LLM keys from the repository .env, like the rest of the stack.
 """
@@ -117,11 +130,11 @@ def score(payload, assertion: str):
         return 0
 
 
-def measure(function, *args):
+def measure(model: str, question: str):
     """Run one extraction and return its payload plus its wall-clock cost."""
     started = time.time()
     try:
-        payload = function(*args)
+        payload = entity.f_entity_extraction(question, model)
     except Exception as e:
         payload = {"error": f"{type(e).__name__}: {e}"}
     return payload, time.time() - started
@@ -139,22 +152,22 @@ def _tick(total: int) -> None:
         print(f"\r  {_progress_done}/{total} questions", end="", file=sys.stderr, flush=True)
 
 
-def bench_one(item, model, total):
-    """Run both extraction shapes on one question and score each."""
+def bench_one(item, model_a, model_b, total):
+    """Run both configurations on one question and score each."""
     question = item["question"]
-    single, single_seconds = measure(entity.f_entity_extraction, question, model)
-    split, split_seconds = measure(entity.f_entity_extraction_split, question, model)
+    payload_a, seconds_a = measure(model_a, question)
+    payload_b, seconds_b = measure(model_b, question)
     _tick(total)
     return {
         "id": item["id"],
         "question": question,
         "assertion": item["assertion"],
-        "single": single,
-        "split": split,
-        "single_seconds": single_seconds,
-        "split_seconds": split_seconds,
-        "single_score": score(single, item["assertion"]),
-        "split_score": score(split, item["assertion"]),
+        "a": payload_a,
+        "b": payload_b,
+        "a_seconds": seconds_a,
+        "b_seconds": seconds_b,
+        "a_score": score(payload_a, item["assertion"]),
+        "b_score": score(payload_b, item["assertion"]),
     }
 
 
@@ -167,66 +180,71 @@ def percentile(values, share):
     return ordered[index]
 
 
-def report(results, elapsed):
+def report(results, elapsed, model_a, model_b):
     """Print the comparison: scores, disagreements and the timing spread."""
-    scored = [r for r in results if r["single_score"] is not None and r["split_score"] is not None]
-    single_ok = sum(r["single_score"] for r in scored)
-    split_ok = sum(r["split_score"] for r in scored)
+    scored = [r for r in results if r["a_score"] is not None and r["b_score"] is not None]
+    a_ok = sum(r["a_score"] for r in scored)
+    b_ok = sum(r["b_score"] for r in scored)
 
     print()
     print("=" * 78)
     print(f"Questions run: {len(results)}   scored: {len(scored)}   wall clock: {elapsed:.1f}s")
+    print(f"A = {model_a}")
+    print(f"B = {model_b}")
+    if model_a == model_b:
+        print("Same configuration on both sides: what follows is the noise floor, not a comparison.")
     if scored:
-        print(f"Single prompt: {single_ok}/{len(scored)} ({100.0 * single_ok / len(scored):.1f}%)")
-        print(f"Split prompts: {split_ok}/{len(scored)} ({100.0 * split_ok / len(scored):.1f}%)")
-        print(f"Delta:         {split_ok - single_ok:+d}")
+        print(f"A: {a_ok}/{len(scored)} ({100.0 * a_ok / len(scored):.1f}%)")
+        print(f"B: {b_ok}/{len(scored)} ({100.0 * b_ok / len(scored):.1f}%)")
+        print(f"Delta (B - A): {b_ok - a_ok:+d}")
 
-    gained = [r for r in scored if r["split_score"] == 1 and r["single_score"] == 0]
-    lost = [r for r in scored if r["split_score"] == 0 and r["single_score"] == 1]
-    print(f"\nGained by the split: {len(gained)}   lost by the split: {len(lost)}")
-    for label, rows in (("GAINED", gained), ("LOST", lost)):
+    gained = [r for r in scored if r["b_score"] == 1 and r["a_score"] == 0]
+    lost = [r for r in scored if r["b_score"] == 0 and r["a_score"] == 1]
+    print(f"\nB wins: {len(gained)}   B loses: {len(lost)}")
+    for label, rows in (("B WINS", gained), ("B LOSES", lost)):
         for row in rows:
             print(f"\n  [{label}] #{row['id']} {row['question']}")
-            print(f"      single: {json.dumps(row['single'], ensure_ascii=False)}")
-            print(f"      split : {json.dumps(row['split'], ensure_ascii=False)}")
-            print(f"      gold  : {row['assertion']}")
+            print(f"      A: {json.dumps(row['a'], ensure_ascii=False)}")
+            print(f"      B: {json.dumps(row['b'], ensure_ascii=False)}")
+            print(f"      gold: {row['assertion']}")
 
     differing = [
         r for r in results
-        if (r["single"] or {}).get("question") != (r["split"] or {}).get("question")
+        if (r["a"] or {}).get("question") != (r["b"] or {}).get("question")
         and r not in gained and r not in lost
     ]
     print(f"\nSame score but different output: {len(differing)}")
     for row in differing[:20]:
         print(f"  #{row['id']} {row['question']}")
-        print(f"      single: {json.dumps(row['single'], ensure_ascii=False)}")
-        print(f"      split : {json.dumps(row['split'], ensure_ascii=False)}")
+        print(f"      A: {json.dumps(row['a'], ensure_ascii=False)}")
+        print(f"      B: {json.dumps(row['b'], ensure_ascii=False)}")
     if len(differing) > 20:
         print(f"  ... and {len(differing) - 20} more (see --out)")
 
-    errors = [r for r in results if "error" in (r["single"] or {}) or "error" in (r["split"] or {})]
+    errors = [r for r in results if "error" in (r["a"] or {}) or "error" in (r["b"] or {})]
     if errors:
         print(f"\nExtraction errors: {len(errors)}")
         for row in errors[:10]:
             print(f"  #{row['id']} {row['question']}")
-            print(f"      single: {(row['single'] or {}).get('error', '-')}")
-            print(f"      split : {(row['split'] or {}).get('error', '-')}")
+            print(f"      A: {(row['a'] or {}).get('error', '-')}")
+            print(f"      B: {(row['b'] or {}).get('error', '-')}")
 
-    single_times = [r["single_seconds"] for r in results]
-    split_times = [r["split_seconds"] for r in results]
+    a_times = [r["a_seconds"] for r in results]
+    b_times = [r["b_seconds"] for r in results]
     print("\nPer-question latency (seconds)")
-    print(f"  single  median {percentile(single_times, 0.5):.2f}   p90 {percentile(single_times, 0.9):.2f}   max {max(single_times or [0]):.2f}")
-    print(f"  split   median {percentile(split_times, 0.5):.2f}   p90 {percentile(split_times, 0.9):.2f}   max {max(split_times or [0]):.2f}")
+    print(f"  A  median {percentile(a_times, 0.5):.2f}   p90 {percentile(a_times, 0.9):.2f}   max {max(a_times or [0]):.2f}")
+    print(f"  B  median {percentile(b_times, 0.5):.2f}   p90 {percentile(b_times, 0.9):.2f}   max {max(b_times or [0]):.2f}")
     print("=" * 78)
 
 
 def main():
-    """Parse the CLI, run both extraction shapes over the bank and report."""
-    parser = argparse.ArgumentParser(description="Compare single-prompt and split entity extraction.")
+    """Parse the CLI, run both configurations over the bank and report."""
+    parser = argparse.ArgumentParser(description="Compare two entity-extraction configurations, off production.")
+    parser.add_argument("--model-a", default="default", help="Side A model; 'default' uses the module default.")
+    parser.add_argument("--model-b", default="default", help="Side B model; same value as A measures the noise floor.")
     parser.add_argument("--lang", choices=["en", "fr"], default="en", help="Which question column to read from the bank.")
     parser.add_argument("--limit", type=int, default=0, help="Stop after N questions (0 = all).")
     parser.add_argument("--workers", type=int, default=4, help="Questions processed concurrently.")
-    parser.add_argument("--model", default="default", help="Entity-extraction model override.")
     parser.add_argument("--questions-file", default=None, help="Read questions from a file instead of the bank (no scoring).")
     parser.add_argument("--out", default=None, help="Write the full per-question result as JSON.")
     parser.add_argument("--verbose", action="store_true", help="Keep the extraction step's own console output.")
@@ -249,11 +267,11 @@ def main():
     muted = io.StringIO()
     with contextlib.nullcontext() if args.verbose else contextlib.redirect_stdout(muted):
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
-            results = list(pool.map(lambda item: bench_one(item, args.model, len(items)), items))
+            results = list(pool.map(lambda item: bench_one(item, args.model_a, args.model_b, len(items)), items))
     elapsed = time.time() - started
     print(file=sys.stderr)
 
-    report(results, elapsed)
+    report(results, elapsed, args.model_a, args.model_b)
 
     if args.out:
         with open(args.out, "w", encoding="utf-8") as handle:

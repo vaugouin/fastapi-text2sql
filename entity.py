@@ -1,5 +1,3 @@
-import concurrent.futures
-import contextvars
 import json
 import os
 import re
@@ -66,23 +64,12 @@ def _collapse_repeated_descriptor(text: str) -> str:
 
 
 strentityextractionprompttemplate = "entity_extraction.md"
-strentityextractionopenprompttemplate = "entity_extraction_open.md"
-strentityextractionclosedprompttemplate = "entity_extraction_closed.md"
 strentityresolutionconfigfile = "entity_resolution.json"
 strentityextractionmodeldefault = "gpt-4o"
-
-# Split extraction (FASTAPI-TEXT2SQL-200): off by default. Two concurrent calls,
-# one for the open types (world knowledge) and one for the closed vocabularies
-# (bounded classification), instead of one 779-line prompt in which the closed
-# vocabularies ate the attention budget of the open ones. Measure with
-# eval/bench-entity-extraction-split.py before flipping this on.
-ENTITY_EXTRACTION_SPLIT = os.getenv("ENTITY_EXTRACTION_SPLIT", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 # Populated synchronously by data_watcher.register() below and refreshed
 # automatically whenever the underlying files change on disk.
 entity_extraction_prompt_template: str = ""
-entity_extraction_open_prompt_template: str = ""
-entity_extraction_closed_prompt_template: str = ""
 ENTITY_RESOLUTION_CONFIG: list[dict] = []
 
 BKTREE_ENABLED = os.getenv("BKTREE_ENABLED", "1").strip().lower() in {"1", "true", "yes", "on"}
@@ -239,16 +226,6 @@ def _on_entity_extraction_prompt_change(content: str) -> None:
     entity_extraction_prompt_template = content
 
 
-def _on_entity_extraction_open_prompt_change(content: str) -> None:
-    global entity_extraction_open_prompt_template
-    entity_extraction_open_prompt_template = content
-
-
-def _on_entity_extraction_closed_prompt_change(content: str) -> None:
-    global entity_extraction_closed_prompt_template
-    entity_extraction_closed_prompt_template = content
-
-
 def _on_entity_resolution_config_change(content: str) -> None:
     global ENTITY_RESOLUTION_CONFIG
     try:
@@ -260,8 +237,6 @@ def _on_entity_resolution_config_change(content: str) -> None:
 
 
 data_watcher.register(strentityextractionprompttemplate, _on_entity_extraction_prompt_change)
-data_watcher.register(strentityextractionopenprompttemplate, _on_entity_extraction_open_prompt_change)
-data_watcher.register(strentityextractionclosedprompttemplate, _on_entity_extraction_closed_prompt_change)
 data_watcher.register(strentityresolutionconfigfile, _on_entity_resolution_config_change)
 
 
@@ -347,234 +322,6 @@ def f_entity_extraction(user_question: str, strentityextractionmodel: str = "def
     model_to_use = t2s._normalize_llm_model(strentityextractionmodel, strentityextractionmodeldefault)
     print("Entity extraction LLM model:", model_to_use)
     return _run_extraction_prompt(entity_extraction_prompt_template, user_question, model_to_use, "entity_extraction")
-
-
-# --- Split extraction (FASTAPI-TEXT2SQL-200) --------------------------------
-# Two independent passes read the same raw question and each anonymize their own
-# spans of it. Pass A owns the open types (world knowledge: titles, people,
-# characters, companies, franchises, places, topics) plus the years and the
-# identifiers; pass B owns the six closed vocabularies (bounded classification).
-# The two anonymized questions are then spliced back onto the raw question.
-
-_OPEN_PLACEHOLDER_BASES = frozenset({
-    "Person_name", "Movie_title", "Serie_title", "Company_name", "Network_name",
-    "Character_name", "Location_name", "List_name", "Award_name", "Nomination_name",
-    "Collection_name", "Movement_name", "Group_name", "Death_name", "Topic_name",
-    "Release_year", "Birth_year", "Death_year",
-    "IMDb_ID", "IMDb_person_ID", "Wikidata_ID", "Wikidata_property_ID",
-    "TMDb_ID", "Criterion_spine_ID",
-})
-
-_CLOSED_PLACEHOLDER_BASES = frozenset({
-    "Movie_genre", "Serie_genre", "Status_name", "Serie_type",
-    "Department_name", "Technical_format",
-})
-
-_PLACEHOLDER_TOKEN_RE = re.compile(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}")
-# A run of placeholders with nothing between them is spliced as a single edit,
-# because there is no literal text in between to anchor the boundary on.
-_PLACEHOLDER_RUN_RE = re.compile(r"((?:\{\{[A-Za-z_][A-Za-z0-9_]*\}\})+)")
-
-
-def _placeholder_base(key: str) -> str:
-    """Return a placeholder key without its trailing occurrence number."""
-    return re.sub(r"\d+$", "", str(key or ""))
-
-
-def _anonymization_edits(raw_question: str, payload, allowed_bases: frozenset) -> tuple[list, bool]:
-    """Recover, in raw-question coordinates, the spans one pass replaced.
-
-    An anonymized question is the raw question with a few substrings swapped for
-    ``{{Placeholder}}`` tokens, so the literal text around the tokens still matches
-    the raw question verbatim and can be walked to find each replaced span. Working
-    in raw coordinates is what lets two passes' edits be merged onto one string.
-
-    An edit is kept only when every placeholder it carries belongs to this pass and
-    has a non-empty value in the payload; a pass that reworded the question, or that
-    strayed into the other pass's vocabulary, has that edit dropped rather than
-    trusted.
-
-    Returns:
-        ``(edits, aligned)`` where ``edits`` is a list of ``(start, end, replacement)``
-        and ``aligned`` is False when the literal text no longer lines up with the raw
-        question, meaning this pass's output cannot be spliced and must be discarded.
-    """
-    if not isinstance(payload, dict):
-        return [], False
-    anonymized_question = payload.get("question")
-    if not isinstance(anonymized_question, str) or anonymized_question.strip() == "":
-        return [], False
-    if anonymized_question == raw_question:
-        return [], True
-
-    tokens = _PLACEHOLDER_RUN_RE.split(anonymized_question)
-    edits = []
-    position = 0
-    index = 0
-    while index < len(tokens):
-        token = tokens[index]
-        is_placeholder_run = index % 2 == 1
-        if not is_placeholder_run:
-            if not raw_question.startswith(token, position):
-                return [], False
-            position += len(token)
-            index += 1
-            continue
-
-        next_literal = tokens[index + 1] if index + 1 < len(tokens) else ""
-        if next_literal == "":
-            end = len(raw_question)
-        else:
-            end = raw_question.find(next_literal, position)
-            if end < 0:
-                return [], False
-
-        keys = _PLACEHOLDER_TOKEN_RE.findall(token)
-        keep = bool(keys)
-        for key in keys:
-            if _placeholder_base(key) not in allowed_bases:
-                keep = False
-                break
-            value = payload.get(key)
-            if not isinstance(value, str) or value.strip() == "":
-                keep = False
-                break
-        if keep:
-            edits.append((position, end, token))
-
-        position = end
-        index += 1
-
-    if position != len(raw_question):
-        return [], False
-    return edits, True
-
-
-def merge_entity_extractions(raw_question: str, open_payload, closed_payload, notes: list | None = None):
-    """Merge the open-type and closed-vocabulary passes into one extraction payload.
-
-    The two passes never see each other, so their anonymized questions are spliced
-    back onto the raw question span by span. Where they claim overlapping spans, the
-    open pass wins: it is the one making a judgement about the world, while a closed
-    vocabulary that grabbed part of a title ("war" inside "Vietnam war") is the known
-    failure mode. A pass whose output cannot be aligned with the raw question is
-    dropped whole rather than half-applied.
-
-    Args:
-        raw_question: The original, non-anonymized question.
-        open_payload: Pass A's payload, or an ``{"error": ...}`` dict.
-        closed_payload: Pass B's payload, or an ``{"error": ...}`` dict.
-        notes: Optional list collecting human-readable diagnostics for the caller
-            to surface in the response ``messages`` array.
-
-    Returns:
-        A payload shaped exactly like the single-prompt one, or ``{"error": ...}``
-        when neither pass produced anything usable.
-    """
-    def _note(text: str) -> None:
-        """Record a merge diagnostic for the caller and the console."""
-        print(f"[entity-split] {text}")
-        if notes is not None:
-            notes.append(text)
-
-    open_failed = not isinstance(open_payload, dict) or "error" in open_payload
-    closed_failed = not isinstance(closed_payload, dict) or "error" in closed_payload
-
-    if open_failed and closed_failed:
-        open_error = (open_payload or {}).get("error") if isinstance(open_payload, dict) else str(open_payload)
-        closed_error = (closed_payload or {}).get("error") if isinstance(closed_payload, dict) else str(closed_payload)
-        return {"error": f"Both entity extraction passes failed (open: {open_error}; closed: {closed_error})"}
-
-    if open_failed:
-        _note(f"open-type pass failed ({(open_payload or {}).get('error')}); keeping the closed-vocabulary pass alone")
-    if closed_failed:
-        _note(f"closed-vocabulary pass failed ({(closed_payload or {}).get('error')}); keeping the open-type pass alone")
-
-    open_edits, open_aligned = ([], False) if open_failed else _anonymization_edits(raw_question, open_payload, _OPEN_PLACEHOLDER_BASES)
-    closed_edits, closed_aligned = ([], False) if closed_failed else _anonymization_edits(raw_question, closed_payload, _CLOSED_PLACEHOLDER_BASES)
-
-    if not open_failed and not open_aligned:
-        _note("open-type pass rewrote the question instead of only substituting placeholders; its output was discarded")
-    if not closed_failed and not closed_aligned:
-        _note("closed-vocabulary pass rewrote the question instead of only substituting placeholders; its output was discarded")
-
-    if not open_aligned and not closed_aligned:
-        fallback = open_payload if not open_failed else closed_payload
-        _note("neither pass could be spliced onto the raw question; falling back to a single pass's own output")
-        return fallback
-
-    # Open edits first so a tie at the same start position resolves in their favour.
-    ordered_edits = [(start, end, token, "open") for start, end, token in open_edits]
-    ordered_edits += [(start, end, token, "closed") for start, end, token in closed_edits]
-    ordered_edits.sort(key=lambda edit: (edit[0], edit[1]))
-
-    merged_parts = []
-    kept_keys = []
-    position = 0
-    for start, end, token, side in ordered_edits:
-        if start < position:
-            dropped = ", ".join(_PLACEHOLDER_TOKEN_RE.findall(token))
-            _note(f"{side} pass claimed '{raw_question[start:end]}', already taken by the other pass; dropped {dropped}")
-            continue
-        merged_parts.append(raw_question[position:start])
-        merged_parts.append(token)
-        kept_keys.extend((key, side) for key in _PLACEHOLDER_TOKEN_RE.findall(token))
-        position = end
-    merged_parts.append(raw_question[position:])
-
-    merged = {"question": "".join(merged_parts)}
-    for key, side in kept_keys:
-        payload = open_payload if side == "open" else closed_payload
-        merged[key] = payload.get(key)
-    return merged
-
-
-def f_entity_extraction_split(user_question: str, strentityextractionmodel: str = "default", notes: list | None = None):
-    """Extract entities with two concurrent prompts, then merge their output.
-
-    Same contract as :func:`f_entity_extraction` — a payload of ``question`` plus one
-    key per placeholder, or an ``{"error": ...}`` dict — so nothing downstream can
-    tell which extraction path produced it (FASTAPI-TEXT2SQL-200).
-
-    Args:
-        user_question: The raw, non-anonymized question.
-        strentityextractionmodel: Model override; "default" uses the module default.
-        notes: Optional list collecting merge diagnostics for the caller.
-
-    Returns:
-        The merged extraction payload, or ``{"error": ...}`` when both passes failed.
-    """
-    print("Entity extraction (split: open types + closed vocabularies)")
-    print("User question:", user_question)
-    model_to_use = t2s._normalize_llm_model(strentityextractionmodel, strentityextractionmodeldefault)
-    print("Entity extraction LLM model:", model_to_use)
-
-    # One context copy per worker: a Context cannot be entered twice at once, and the
-    # copies share the request's prompt-cache buffer by reference, so both calls'
-    # cache observations still reach the response messages.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="entity-extraction") as pool:
-        open_future = pool.submit(
-            contextvars.copy_context().run,
-            _run_extraction_prompt,
-            entity_extraction_open_prompt_template, user_question, model_to_use, "entity_extraction_open",
-        )
-        closed_future = pool.submit(
-            contextvars.copy_context().run,
-            _run_extraction_prompt,
-            entity_extraction_closed_prompt_template, user_question, model_to_use, "entity_extraction_closed",
-        )
-        try:
-            open_payload = open_future.result()
-        except Exception as e:
-            open_payload = {"error": f"Open-type extraction raised: {str(e)}"}
-        try:
-            closed_payload = closed_future.result()
-        except Exception as e:
-            closed_payload = {"error": f"Closed-vocabulary extraction raised: {str(e)}"}
-
-    merged = merge_entity_extractions(user_question, open_payload, closed_payload, notes=notes)
-    print(f"Merged entity extraction: {merged}")
-    return merged
 
 
 def _find_entity_config(placeholder_key: str):

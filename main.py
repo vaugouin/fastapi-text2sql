@@ -1964,38 +1964,23 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         ))
         position_counter += 1
         """
-        # Anonymize question by entity extraction. Two shapes behind the same contract
-        # (FASTAPI-TEXT2SQL-200): one 779-line prompt, or two concurrent prompts, one for
-        # the open types and one for the closed vocabularies, merged back together.
+        # Anonymize question by entity extraction. Runs in a worker thread so the LLM call
+        # does not block the event loop, which is what lets the fork-join below overlap the
+        # entity resolution with SQL generation (FASTAPI-TEXT2SQL-201).
         entity_extraction_start_time = time.time()
-        entity_extraction_split_notes = []
-        if entity.ENTITY_EXTRACTION_SPLIT:
-            entity_extraction = await asyncio.to_thread(
-                entity.f_entity_extraction_split,
-                input_text, strentityextractionmodel, entity_extraction_split_notes,
-            )
-        else:
-            entity_extraction = await asyncio.to_thread(
-                entity.f_entity_extraction, input_text, strentityextractionmodel,
-            )
+        entity_extraction = await asyncio.to_thread(
+            entity.f_entity_extraction, input_text, strentityextractionmodel,
+        )
         print("Entity extraction:", entity_extraction)
         entity_extraction_end_time = time.time()
         entity_extraction_processing_time = entity_extraction_end_time - entity_extraction_start_time
 
         # High-level info
-        strentityextractionshape = "two concurrent prompts (open types + closed vocabularies)" if entity.ENTITY_EXTRACTION_SPLIT else "a single prompt"
         messages.append(TextMessage(
             position=position_counter,
-            text=f"Processed question with entity extraction and anonymization using LLM model '{strentityextractionmodel}' and {strentityextractionshape}."
+            text=f"Processed question with entity extraction and anonymization using LLM model '{strentityextractionmodel}'."
         ))
         position_counter += 1
-
-        for split_note in entity_extraction_split_notes:
-            messages.append(TextMessage(
-                position=position_counter,
-                text=f"Entity extraction merge: {split_note}"
-            ))
-            position_counter += 1
 
         # Detailed JSON structure from f_entity_extraction()
         try:
