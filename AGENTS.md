@@ -174,6 +174,7 @@ The app loads environment variables from `.env` via `python-dotenv`.
 - LLMs: `OPENAI_API_KEY` for `gpt-*`, `o1*`, `o3*`, and embeddings; `ANTHROPIC_API_KEY` for `claude-*`; `GOOGLE_API_KEY` for `gemini-*`; `OPENROUTER_API_KEY` for OpenRouter-routed models.
 - ChromaDB: `CHROMADB_HOST`, `CHROMADB_PORT`.
 - Blue/Green and MCP: `API_PORT_BLUE`, `API_PORT_GREEN`, `MCP_API_KEY`, `MCP_INTERNAL_API_KEY`, `MCP_INTERNAL_BASE_URL`.
+  - **`MCP_API_KEY` empty means `/mcp` is open.** `_verify_mcp_bearer` only enforces a bearer `if MCP_API_KEY:`, so an unset value is not a weak configuration, it is no configuration: `sql_search` and the 16 entity tools answer anyone who reaches the port. Verified on 2026-08-23, when both colours and the public NGINX route returned 200 to `tools/list` with no token and with a wrong one. Startup now logs a warning when it is empty, and that log is the only signal.
 - Pipeline shape: `BKTREE_ENABLED` (default 1), `ENTITY_RESOLUTION_PARALLEL` (default 1). Both are read at import time, so changing one needs a restart.
 
 Important startup constraint: `OPENAI_API_KEY` is required at import/startup because `main.py` initializes the OpenAI embedding function for ChromaDB even if the request-time text model is Anthropic or Google.

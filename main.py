@@ -128,6 +128,20 @@ _startup_t0 = time.perf_counter()
 print(f"[startup] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
 print(f"[startup] Booting Text2SQL API version {strapiversion}...", flush=True)
 
+# An empty MCP_API_KEY makes _verify_mcp_bearer a no-op and leaves /mcp open, which is
+# a legitimate development default and a silent hole in production. Found that way on
+# 2026-08-23: tools/list answered 200 with no token, and with a deliberately wrong one,
+# on both colours and through the public NGINX route, exposing sql_search and the 16
+# entity tools to anyone. Nothing in the logs said so. It does now. Deliberately not
+# fatal: failing closed here would lock every MCP client out on a misconfiguration,
+# including the one you would use to diagnose it.
+if MCP_API_KEY:
+    print("[startup] MCP bearer authentication ENABLED on /mcp.", flush=True)
+else:
+    print("[startup] *** WARNING: MCP_API_KEY is empty, /mcp is OPEN, no bearer required. ***", flush=True)
+    print("[startup] *** Anyone reaching this port can call sql_search and every entity tool. ***", flush=True)
+    print("[startup] *** Set MCP_API_KEY in the runtime env file for any exposed deployment. ***", flush=True)
+
 # Set your OpenAI API key from environment variable
 print("[startup] Loading OpenAI API key from environment...", flush=True)
 openai.api_key = os.getenv("OPENAI_API_KEY")
