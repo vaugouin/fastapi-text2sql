@@ -468,8 +468,12 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "question_anonymized": "List all color movies with {{Person_name1}}",
   "entity_extraction_processing_time": 0.45,
   "text2sql_processing_time": 1.23,
+  "result_entity_processing_time": 0.31,
   "embeddings_processing_time": 0.12,
   "embeddings_cache_search_time": 0.05,
+  "entity_resolution_planning_time": 0.09,
+  "entity_raw_fallback_count": 0,
+  "no_entity_extracted": false,
   "query_execution_time": 0.08,
   "total_processing_time": 1.93,
   "page": 1,
@@ -540,8 +544,12 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 **Performance Metrics:**
 - `entity_extraction_processing_time` (float): Time for entity extraction in seconds
 - `text2sql_processing_time` (float): Time for SQL generation in seconds
-- `embeddings_processing_time` (float): Time for vector search operations in seconds
+- `result_entity_processing_time` (float): Time spent classifying the expected answer entity from the original question
+- `embeddings_processing_time` (float): Time for entity resolution, vector search included, in seconds
 - `embeddings_cache_search_time` (float): Time for embeddings cache lookup in seconds
+- `entity_resolution_planning_time` (float): How much of `embeddings_processing_time` was overlapped with SQL generation by the fork-join. **Already counted inside it**, never add the two. 0.0 on a cache hit or when `ENTITY_RESOLUTION_PARALLEL=0`
+- `entity_raw_fallback_count` (int): Entities whose configured resolvers all failed, so their raw words went into the SQL. Non-zero means a following empty result is a resolution failure, not a fact about the data
+- `no_entity_extracted` (bool): True when extraction returned no entity at all, so the question was never anonymized
 - `query_execution_time` (float): Time for SQL execution in seconds
 - `total_processing_time` (float): Total request processing time in seconds
 
@@ -1593,8 +1601,12 @@ All successful text2sql requests return a comprehensive response with:
 **Performance Metrics:**
 - `entity_extraction_processing_time`: Time for entity extraction (seconds)
 - `text2sql_processing_time`: Time for SQL generation (seconds)
-- `embeddings_processing_time`: Time for vector search operations (seconds)
+- `result_entity_processing_time`: Time for the answer-entity classification (seconds)
+- `embeddings_processing_time`: Time for entity resolution (seconds)
 - `embeddings_cache_search_time`: Time for embeddings cache lookup (seconds)
+- `entity_resolution_planning_time`: Share of the above overlapped with SQL generation (seconds, already included in it)
+- `entity_raw_fallback_count`: Entities left unresolved and substituted raw (count)
+- `no_entity_extracted`: Extraction returned nothing at all (bool)
 - `query_execution_time`: Time for SQL execution (seconds)
 - `total_processing_time`: Total request processing time (seconds)
 

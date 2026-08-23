@@ -450,7 +450,14 @@ One row per execution. Key columns:
 - `API_VERSION` — stored in `XXX.YYY.ZZZ` form (via `t2s_eval.format_api_version()`)
 - `ENTITY_EXTRACTION_MODEL`, `TEXT2SQL_MODEL`, `COMPLEX_MODEL` — the tuple that disambiguates executions
 - `JSON_RESULT` — full API response (mediumtext)
-- Timings: `ENTITY_EXTRACTION_PROCESSING_TIME`, `TEXT2SQL_PROCESSING_TIME`, `EMBEDDINGS_PROCESSING_TIME`, `QUERY_EXECUTION_TIME`, `TOTAL_PROCESSING_TIME`
+- Timings: `ENTITY_EXTRACTION_PROCESSING_TIME`, `TEXT2SQL_PROCESSING_TIME`, `RESULT_ENTITY_PROCESSING_TIME`, `EMBEDDINGS_PROCESSING_TIME`, `EMBEDDINGS_CACHE_SEARCH_TIME`, `ENTITY_RESOLUTION_PLANNING_TIME`, `QUERY_EXECUTION_TIME`, `TOTAL_PROCESSING_TIME`
+- Resolution signals: `ENTITY_RAW_FALLBACK_COUNT`, `NO_ENTITY_EXTRACTED`
+
+**These columns are a deliberate duplicate.** `JSON_RESULT` already holds the entire API response, so every field is in the database whether or not it has a column, and the Phase 32 export copies that JSON verbatim into `api_output`. A column exists only so a campaign can be sliced in SQL without `JSON_EXTRACT` on every row, which is what the PHP graphs under [lib/](lib/) do. Adding a field to `Text2SQLResponse` therefore reaches the database and the export **on its own**; adding a column is the separate, optional step, and it needs both [../doc/sql/T2S_EVALUATION-tables.sql](../doc/sql/T2S_EVALUATION-tables.sql) and a migration under [../maintenance/](../maintenance/).
+
+**`ENTITY_RESOLUTION_PLANNING_TIME` is already included in `EMBEDDINGS_PROCESSING_TIME`.** The latter adds the overlapped work back in so it stays comparable with campaigns run before the fork-join (FASTAPI-TEXT2SQL-201). Never sum the two.
+
+Rows written before an indicator existed keep `NULL`, which says "this campaign did not measure it" where `0` would claim "measured at zero". Average over the non-null rows.
 - Scores: `ASSERTIONS_ENTITY_EXTRACTION_SCORE`, `ASSERTIONS_SQL_QUERY_SCORE`, `ASSERTIONS_RESULT_SCORE`, `ASSERTIONS_TOTAL_SCORE`
 - Detail trace: `ASSERTIONS_RESULT_DETAILED` (human-readable)
 - Costs (reserved): `ENTITY_EXTRACTION_COST`, `TEXT2SQL_COST`, `TOTAL_COST`

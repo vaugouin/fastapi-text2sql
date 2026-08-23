@@ -912,6 +912,33 @@ try:
                             arrevalexeccouples["TOTAL_PROCESSING_TIME"] = _safe_float(
                                 (response_json or {}).get("total_processing_time")
                             )
+                            # Everything the API reports also lives in JSON_RESULT, which is
+                            # the whole response body; these columns duplicate five of those
+                            # fields so they can be aggregated in SQL without JSON_EXTRACT,
+                            # which is what the PHP graphs under eval/lib/ do.
+                            arrevalexeccouples["RESULT_ENTITY_PROCESSING_TIME"] = _safe_float(
+                                (response_json or {}).get("result_entity_processing_time")
+                            )
+                            arrevalexeccouples["EMBEDDINGS_CACHE_SEARCH_TIME"] = _safe_float(
+                                (response_json or {}).get("embeddings_cache_search_time")
+                            )
+                            # How much resolution work was hidden behind the text-to-SQL call
+                            # (FASTAPI-TEXT2SQL-201). Already counted inside
+                            # EMBEDDINGS_PROCESSING_TIME, so never add the two together.
+                            arrevalexeccouples["ENTITY_RESOLUTION_PLANNING_TIME"] = _safe_float(
+                                (response_json or {}).get("entity_resolution_planning_time")
+                            )
+                            # The two resolution-failure signals behind the no-results complex
+                            # retry (FASTAPI-TEXT2SQL-156). Stored as columns so a campaign can
+                            # be sliced by them without reparsing every JSON_RESULT.
+                            _raw_fallback = (response_json or {}).get("entity_raw_fallback_count")
+                            arrevalexeccouples["ENTITY_RAW_FALLBACK_COUNT"] = (
+                                int(_raw_fallback) if isinstance(_raw_fallback, (int, float)) else None
+                            )
+                            _nothing_extracted = (response_json or {}).get("no_entity_extracted")
+                            arrevalexeccouples["NO_ENTITY_EXTRACTED"] = (
+                                (1 if _nothing_extracted else 0) if _nothing_extracted is not None else None
+                            )
 
                             if arrevalexeccouples["ENTITY_EXTRACTION_PROCESSING_TIME"] is not None:
                                 dbl_entity_extraction_processing_time_sum += arrevalexeccouples["ENTITY_EXTRACTION_PROCESSING_TIME"]

@@ -257,6 +257,30 @@ Always also:
 
 ---
 
+## Adding an indicator to the response
+
+The measurement chain is already generic, and knowing that saves most of the work.
+`eval/text2sql-eval.py` stores the **entire** HTTP response body in
+`T_WC_T2S_EVALUATION_EXECUTION.JSON_RESULT`, and the export phase copies that JSON verbatim
+into `api_output` in `/shared/evaluation_execution/`. So:
+
+1. **Add the field to `Text2SQLResponse` and populate it.** That alone puts it in the API
+   answer, in the database and in the export. Give it a default so the early-return response
+   sites (cache miss, bare-identifier fast path, complex-question retry) keep working.
+2. **Add a dedicated column only if you need to aggregate it in SQL.** The columns are a
+   duplicate of what `JSON_RESULT` already holds, kept so a campaign can be sliced without
+   `JSON_EXTRACT` on every row (the PHP graphs under `eval/lib/` rely on them). That step is
+   three edits, not one: [doc/sql/T2S_EVALUATION-tables.sql](doc/sql/T2S_EVALUATION-tables.sql)
+   for the reference DDL, a migration under [maintenance/](maintenance/) for the live table,
+   and the write in `eval/text2sql-eval.py`.
+3. **Document it in `README.md`**, which describes the response in three separate places: the
+   example JSON, the detailed field list and the summary list. All three drift on their own.
+
+Rows written before an indicator existed keep `NULL`. That is the point: `NULL` says "not
+measured then", `0` would claim "measured at zero".
+
+---
+
 ## Code conventions
 
 - **Hungarian notation** for variables (legacy style):

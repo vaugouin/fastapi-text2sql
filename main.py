@@ -1489,6 +1489,19 @@ class Text2SQLResponse(BaseModel):
     result_entity_processing_time: float = 0.0
     embeddings_processing_time: float
     embeddings_cache_search_time: float = 0.0
+    # How much of embeddings_processing_time was actually overlapped with the text-to-SQL
+    # call (FASTAPI-TEXT2SQL-201). That figure is folded back INTO embeddings_processing_time
+    # so the older metric stays comparable across campaigns, which makes the saving itself
+    # invisible unless it is reported separately. 0.0 on the sequential path and on any
+    # cache hit, where there is nothing to overlap.
+    entity_resolution_planning_time: float = 0.0
+    # Entities whose configured resolvers all failed, so their raw words were substituted
+    # into the SQL. Non-zero means an empty result that follows is a resolution failure
+    # rather than a fact about the data (FASTAPI-TEXT2SQL-156).
+    entity_raw_fallback_count: int = 0
+    # True when extraction returned no entity at all, so the question was never anonymized
+    # and no placeholder existed to fall back (FASTAPI-TEXT2SQL-156).
+    no_entity_extracted: bool = False
     query_execution_time: float
     total_processing_time: float
     page: Optional[int] = None
@@ -3249,6 +3262,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         entity_extraction_processing_time=entity_extraction_processing_time,
         text2sql_processing_time=text2sql_processing_time,
         result_entity_processing_time=result_entity_processing_time,
+        entity_resolution_planning_time=entity_resolution_planning_time,
+        entity_raw_fallback_count=entity_raw_fallback_count,
+        no_entity_extracted=no_entity_extracted,
         embeddings_processing_time=embeddings_processing_time,
         embeddings_cache_search_time=embeddings_cache_search_time,
         query_execution_time=query_execution_time,
