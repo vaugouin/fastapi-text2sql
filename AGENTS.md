@@ -42,8 +42,6 @@ Bumping `strapiversion` moves the deployment to the other colour (even patch →
 | client | how it picks a colour | what to change |
 |---|---|---|
 | **evaluator** (`eval/text2sql-eval.py`) | derives the port from the parity of `--api-version`, [line 563](eval/text2sql-eval.py#L563), exactly like `main.py` does | nothing: pass the right `--api-version` |
-
-**Which version is a given instance serving?** `GET /` answers it, and it is the cheapest way to check a client actually followed a flip: `curl -s -H "X-API-Key: …" http://<host>:8186/` returns `api_version` alongside `bktrees_ready` (FASTAPI-TEXT2SQL-203). Spending a `/search/text2sql` call to read a version number is never necessary.
 | **Claude, via MCP** | `https://www.vaugouin.com/mcp`, routed by **NGINX** | the `reverseproxy` repo, repoint the upstream port |
 | **tmdb-front** (PHP) | `$strtext2sqlapicolor`, **hard-coded** in `lib/global-light.inc.php` (~line 144); both URLs already sit in its `.env` as `TEXT2SQL_API_BLUE_URL` / `TEXT2SQL_API_GREEN_URL` | swap the two commented lines, then deploy the front |
 | **voice-agent** | `TEXT2SQL_BASE_URL` in its `.env`, port written in full | edit the port, restart the service |
@@ -55,6 +53,49 @@ Two things worth knowing.
 **The evaluator's working copy on the VPS is `~/docker/text2sql-eval`, not a git checkout.** It holds its own `.env`, `Dockerfile` and copies of the `eval/*.py` files, which drift from this repo silently. Compare sizes before trusting a run. `~/docker/fastapi-text2sql-blue` had the same problem until 2026-08-21, when it was converted to a git clone.
 
 **Not clients, despite appearances:** `data-monitoring` (one mention, a design analogy in its `AGENTS.md`), `extract-movie-questions` (no reference at all). `eval-text2sql` no longer exists, 404 on GitHub.
+
+### Verifying the flip actually took
+
+Changing a client's configuration is not evidence that it followed. Each one hides its
+upstream differently, and on 2026-08-23, moving all three to 1.1.18, none of them could be
+checked without first working out how. Here is what works, per client, so nobody has to
+work it out again.
+
+| what to check | how, and what it costs |
+|---|---|
+| **an instance's own version** | `curl -s -H "X-API-Key: …" http://<host>:8186/` returns `api_version` beside `bktrees_ready` (FASTAPI-TEXT2SQL-203). Free. An instance predating that ticket omits the key entirely, which is itself the answer. |
+| **evaluator** | nothing to check: the port is derived from `--api-version`. |
+| **voice-agent** | `curl -s https://www.vaugouin.com/voice-agent/tool/health` returns `api_version` and `api_ready` (VOICE-AGENT-166). Free. Before that endpoint existed, the version was reachable at `upstream.api_version` inside a `/tool/text2sql` answer, but reading it that way runs the whole pipeline and spends LLM tokens on a cache miss. |
+| **Claude, via MCP** | call `sql_search` with a **bare IMDb id** (`{"question": "tt0033467"}`): the bare-identifier fast path answers from an indexed lookup with no LLM call and no cache write, and the payload carries `api_version`. |
+| **tmdb-front** | no runtime marker is exposed to the outside; verification is at configuration level, `$strtext2sqlapicolor` **and** `$strtext2sqlapiblueversion` in `lib/global-light.inc.php`. |
+
+**What does NOT discriminate the colours, so do not spend time on it.** The MCP `tools/list`
+payload is byte-identical between Blue and Green, and so is `GET /samples`; `serverInfo.version`
+in an MCP `initialize` is FastMCP's own version (3.4.7), not the API's. All three were tried on
+2026-08-23 before the `sql_search` route above was found.
+
+**Four traps, each of which cost time on 2026-08-23.**
+
+1. **`--env-file` is read by Docker at `docker run`, not at process start.** A `docker restart`
+   relaunches the container with the old value baked into its configuration. A client whose
+   colour lives in an env file must be **recreated** (`restart.sh` does), never merely restarted.
+   This is voice-agent's case.
+2. **Do not diagnose a deployment on its first request.** Right after a restart `bktrees_ready`
+   is `false` for several minutes while the warm-up runs (FASTAPI-TEXT2SQL-145), and it competes
+   for CPU with the request path. Measured that day: 53 s on an entity extraction that takes
+   1.1 s once warm, and one `GET /` over 15 s between answers at 0.1 s. Both resolved on their
+   own. Wait for `bktrees_ready: true` before reading anything into a latency.
+3. **tmdb-front remembers the colour in a one-year cookie.** The same mechanism that makes
+   `?apicolor=` such a cheap pre-test, described above, is a trap afterwards: a browser that
+   ever used the switch stays pinned whatever the default says, so your own browser is the
+   worst place to validate the deployment. `index.php?apicolor=Blue` rewrites it.
+4. **tmdb-front's per-colour version label is not decorative.** `text2sql-samples.inc.php`
+   reformats `$strtext2sqlapiblueversion` into `001.001.018` to look up
+   `T_WC_T2S_EVALUATION_EXECUTION`. Flipping the colour while leaving the label on the old
+   version points the samples page at executions that do not exist, and it renders empty.
+
+**A flip is complete when** every client reports the new version by the means above, and the
+instance reports `bktrees_ready: true`.
 
 ---
 
