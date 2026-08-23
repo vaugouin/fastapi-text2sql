@@ -44,6 +44,7 @@ import tarfile
 from collections import Counter, defaultdict
 
 GUARD_MESSAGE = "treating the empty result as authoritative"
+RETRY_MESSAGE = "SQL query returned 0 rows; attempting to simplify"
 RAW_FALLBACK_MARK = "(raw fallback)"
 FILENAME_RE = re.compile(r"^(\d{8})-\d{6}_text2sql_post_([0-9.]+)_[0-9a-f]{32}\.json$")
 
@@ -131,9 +132,16 @@ def main():
             continue
         counts["empty_page1"] += 1
 
-        blocked = any(GUARD_MESSAGE in (m.get("text") or "") for m in (response.get("messages") or []))
+        texts = [m.get("text") or "" for m in (response.get("messages") or [])]
+        if any(RETRY_MESSAGE in text for text in texts):
+            counts["retry_fired"] += 1
+
+        blocked = any(GUARD_MESSAGE in text for text in texts)
         if not blocked:
-            counts["empty_not_blocked"] += 1
+            # No guard message means the execution block was never entered: it is itself
+            # gated on `not ambiguous_question_for_text2sql`, so an ambiguous question skips
+            # the query, the retry AND the message. Not "let through", never evaluated.
+            counts["empty_never_evaluated"] += 1
             continue
 
         bucket = classify(response)
@@ -164,8 +172,9 @@ def main():
         print(f"    complex mode on                     {c['complex_enabled']:>6}")
         print(f"      complex model actually used       {c['complex_used']:>6}")
         print(f"      empty result on page 1            {c['empty_page1']:>6}")
-        print(f"        retried (guard let it through)  {c['empty_not_blocked']:>6}")
-        print(f"        BLOCKED by the guard            {c['blocked']:>6}")
+        print(f"        never evaluated (ambiguous=1)   {c['empty_never_evaluated']:>6}")
+        print(f"        reached the guard, BLOCKED      {c['blocked']:>6}")
+        print(f"        no-results retry actually fired {c['retry_fired']:>6}  <- 0 means the retry is dead code")
         if c["blocked"]:
             print(f"          resolution failed (recoverable)   {c['RESOLUTION_FAILED']:>6}  <- widening the trigger catches these")
             print(f"          nothing extracted (recoverable)   {c['NOTHING_EXTRACTED']:>6}  <- needs its own condition")
