@@ -1691,6 +1691,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     entity_extraction = None
     entity_resolution_plan = None
     entity_resolution_planning_time = 0.0
+    # FASTAPI-TEXT2SQL-156, the two signals the no-results retry needs beyond
+    # ambiguous_question_for_text2sql. Default 0 / False so a path that never resolves
+    # anything (cache hit) cannot accidentally look like a resolution failure.
+    entity_raw_fallback_count = 0
+    no_entity_extracted = False
     entity_extraction_processing_time = 0.0
     text2sql_processing_time = 0.0
     result_entity_processing_time = 0.0
@@ -2633,6 +2638,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             ambiguous_question_for_text2sql,
             entity_resolution_result.get("ambiguous_question_for_text2sql", 0),
         )
+        entity_raw_fallback_count = entity_resolution_result.get("raw_fallback_count", 0)
+        # No entity key beside "question" means the extraction found nothing, so the question
+        # was never anonymized: no placeholder existed, hence no fallback could be counted.
+        no_entity_extracted = (
+            isinstance(entity_extraction, dict)
+            and "error" not in entity_extraction
+            and not [k for k in entity_extraction if k != "question"]
+        )
     embeddings_end_time = time.time()
     # Keep this metric meaning "how long entity resolution cost", so it stays comparable
     # with the campaigns run before the fork-join: when the expensive half was overlapped
@@ -2781,56 +2794,6 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             if retry_response is not None:
                 return retry_response
 
-        # One-time retry: if the SQL ran successfully but returned 0 rows, try simplifying the
-        # original question using the stronger model and rerun the whole pipeline.
-        try:
-            can_retry_no_results = (
-                request.complex_question_processing
-                and not sql_execution_failed
-                and lngpage == 1
-                and isinstance(query_results, list)
-                and len(query_results) == 0
-                and bool(request.question)
-                and not getattr(request, "complex_question_already_resolved", False)
-                and "original_question" in locals()
-                and isinstance(original_question, str)
-                and original_question.strip() != ""
-                # Deterministic guard: only retry when the primary query had a resolution
-                # problem -- a vague question or unresolved entity placeholders leave
-                # ambiguous_question_for_text2sql = 1. When every placeholder resolved to a
-                # real entity and a well-formed query simply returned 0 rows, the empty
-                # result is AUTHORITATIVE (e.g. "series directed by Chris Carter" -- he has
-                # no series-level Directing credit) and must NOT be masked by a
-                # memory-fabricated retry. Complements the complex_question.md prompt rule.
-                and bool(ambiguous_question_for_text2sql)
-            )
-        except Exception:
-            can_retry_no_results = False
-
-        if can_retry_no_results:
-            retry_response = await _retry_with_resolved_complex_question(
-                start_message=f"SQL query returned 0 rows; attempting to simplify the original question using the stronger model '{strcomplexquestionmodel}' (one-time retry).",
-                success_message=f"No-results detected; attempting one-time retry with simplified question from stronger model '{strcomplexquestionmodel}'.",
-                empty_question_message="Complex question resolution did not return a simplified question; skipping no-results retry.",
-                error_message="Complex question resolution returned an error; skipping no-results retry."
-            )
-            if retry_response is not None:
-                return retry_response
-        elif (
-            request.complex_question_processing
-            and not sql_execution_failed
-            and lngpage == 1
-            and isinstance(query_results, list)
-            and len(query_results) == 0
-            and not ambiguous_question_for_text2sql
-            and not getattr(request, "complex_question_already_resolved", False)
-        ):
-            messages.append(TextMessage(
-                position=position_counter,
-                text="0 rows but all entity placeholders resolved; treating the empty result as authoritative (no complex-question retry)."
-            ))
-            position_counter += 1
-
         # Single-cell zero result: if the SQL returned a single row with a single column
         # whose value is 0, the SQL approach likely failed (e.g. COUNT returning 0).
         # Ask the stronger model to directly answer with the correct scalar value.
@@ -2960,6 +2923,83 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             text="Skipping SQL query execution due to ambiguous question."
         ))
         position_counter += 1
+
+    # One-time retry: if the SQL ran successfully but returned 0 rows, try simplifying the
+    # original question using the stronger model and rerun the whole pipeline.
+    #
+    # FASTAPI-TEXT2SQL-156. This block sits OUTSIDE `if not ambiguous_question_for_text2sql:`
+    # on purpose, and moving it back in would kill it again. Its own last condition used to
+    # require that flag to be TRUE while the enclosing branch guarantees it is FALSE, so the
+    # retry was unreachable from 88a5e79 (2026-07-12). Measured in the retained usage logs
+    # across both colours: 13 retries at 1.1.15, 12 at 1.1.16, then 0 at 1.1.17 and 0 at
+    # 1.1.18 over 231 empty results. Nothing else in the collapse from 47 invocations to 4.
+    try:
+        can_retry_no_results = (
+            request.complex_question_processing
+            and not sql_execution_failed
+            and lngpage == 1
+            and isinstance(query_results, list)
+            and len(query_results) == 0
+            and bool(request.question)
+            and not getattr(request, "complex_question_already_resolved", False)
+            and "original_question" in locals()
+            and isinstance(original_question, str)
+            and original_question.strip() != ""
+            # Retry on a RESOLUTION problem, never on an authoritative empty. Three signals
+            # say the question was not understood. Anything else means every entity resolved
+            # to a real row and the empty result is the truth (e.g. "series directed by Chris
+            # Carter", who has no series-level Directing credit), which must NOT be masked by
+            # a memory-fabricated retry. The prompt-level rule in data/complex_question.md
+            # stays as the second belt. Across 1.1.17 and 1.1.18, 101 of 189 blocked empties
+            # were authoritative and must keep being blocked.
+            and (
+                # (a) a placeholder survived in the SQL: vague question, or an entity value
+                # rejected outright. The query was never even executed.
+                bool(ambiguous_question_for_text2sql)
+                # (b) an entity had a configured resolver and no strategy matched, so its raw
+                # words were substituted. That substitution REMOVES the placeholder, which is
+                # why (a) alone missed it: the flag drops to 0 at the exact moment resolution
+                # failed. 44 of the 189 blocked empties.
+                or entity_raw_fallback_count > 0
+                # (c) extraction returned no entity at all, so the question was never
+                # anonymized and no placeholder existed to fall back. Another 44 of the 189,
+                # equal weight, which is why neither signal alone is enough.
+                or no_entity_extracted
+            )
+        )
+    except Exception:
+        can_retry_no_results = False
+
+    if can_retry_no_results:
+        retry_response = await _retry_with_resolved_complex_question(
+            start_message=f"SQL query returned 0 rows; attempting to simplify the original question using the stronger model '{strcomplexquestionmodel}' (one-time retry).",
+            success_message=f"No-results detected; attempting one-time retry with simplified question from stronger model '{strcomplexquestionmodel}'.",
+            empty_question_message="Complex question resolution did not return a simplified question; skipping no-results retry.",
+            error_message="Complex question resolution returned an error; skipping no-results retry."
+        )
+        if retry_response is not None:
+            return retry_response
+    elif (
+        request.complex_question_processing
+        and not sql_execution_failed
+        and lngpage == 1
+        and isinstance(query_results, list)
+        and len(query_results) == 0
+        and not ambiguous_question_for_text2sql
+        and entity_raw_fallback_count == 0
+        and not no_entity_extracted
+        and not getattr(request, "complex_question_already_resolved", False)
+    ):
+        # Wording kept verbatim: analyze-complex-retry-logs.py keys on "treating the empty
+        # result as authoritative" to count this branch in the archived logs. It is also now
+        # TRUE, which it was not before: it claimed every placeholder had resolved while a
+        # raw fallback could have silently substituted the user's words instead.
+        messages.append(TextMessage(
+            position=position_counter,
+            text="0 rows but all entity placeholders resolved; treating the empty result as authoritative (no complex-question retry)."
+        ))
+        position_counter += 1
+
     
     # Generate hash for the question if not provided
     if not ambiguous_question_for_text2sql:

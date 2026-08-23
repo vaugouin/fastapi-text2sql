@@ -404,7 +404,7 @@ class _PlannedEntity:
             apply if the placeholder actually occurs in one of the three texts.
     """
 
-    __slots__ = ("key", "placeholder", "messages", "substitution", "final_message", "require_present")
+    __slots__ = ("key", "placeholder", "messages", "substitution", "final_message", "require_present", "is_raw_fallback")
 
     def __init__(self, key: str, placeholder: str):
         self.key = key
@@ -413,16 +413,22 @@ class _PlannedEntity:
         self.substitution = None
         self.final_message = None
         self.require_present = False
+        # True when every configured strategy failed and the user's own words were
+        # substituted instead. FASTAPI-TEXT2SQL-156 needs this: substituting the raw value
+        # REMOVES the placeholder, so ambiguous_question_for_text2sql drops back to 0 at the
+        # exact moment resolution failed, and the caller loses the only signal it had.
+        self.is_raw_fallback = False
 
     def note(self, text: str) -> None:
         """Record a diagnostic to be replayed when the plan is applied."""
         self.messages.append(text)
 
-    def resolve_with(self, substitution, final_message=None, require_present: bool = False) -> None:
+    def resolve_with(self, substitution, final_message=None, require_present: bool = False, is_raw_fallback: bool = False) -> None:
         """Attach the substitution that resolves this placeholder."""
         self.substitution = substitution
         self.final_message = final_message
         self.require_present = require_present
+        self.is_raw_fallback = is_raw_fallback
 
 
 def _substitute_literal(placeholder: str, sql_value: str, text_value: str):
@@ -1040,6 +1046,7 @@ def plan_entity_resolutions(
                     _substitute_plain(placeholder, raw_value_sql, raw_value),
                     final_message=f"Entity resolution: {placeholder} -> {raw_value} (raw fallback)",
                     require_present=True,
+                    is_raw_fallback=True,
                 )
 
     return {
@@ -1088,6 +1095,7 @@ def apply_entity_resolutions(
         position_counter += 1
 
     ambiguous_question_for_text2sql = 0
+    raw_fallback_count = 0
 
     for planned in (plan or {}).get("entities", []) or []:
         for text in planned.messages:
@@ -1102,6 +1110,8 @@ def apply_entity_resolutions(
                 continue
 
         sql_query, justification, answer = planned.substitution(sql_query, justification, answer)
+        if planned.is_raw_fallback:
+            raw_fallback_count += 1
         if planned.final_message:
             add_message(planned.final_message)
 
@@ -1123,6 +1133,10 @@ def apply_entity_resolutions(
         "position_counter": position_counter,
         "messages": messages,
         "ambiguous_question_for_text2sql": ambiguous_question_for_text2sql,
+        # How many entities ended up with their raw words substituted because no configured
+        # strategy matched. A non-zero count means the empty result that may follow is a
+        # resolution failure, not a fact about the data (FASTAPI-TEXT2SQL-156).
+        "raw_fallback_count": raw_fallback_count,
     }
 
 
