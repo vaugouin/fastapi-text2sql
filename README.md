@@ -296,7 +296,24 @@ Once the server is running, visit:
 ```http
 GET /
 ```
-Returns a simple "Hello World" message to verify the API is running.
+Answers both halves of the question a Blue/Green deployment raises: is this instance ready, and which one is it. Requires the `X-API-Key` header like every other endpoint.
+
+```json
+{
+  "message": "hello world! The universal answer is 42",
+  "bktrees_ready": true,
+  "api_version": "1.1.18"
+}
+```
+
+`bktrees_ready` is `false` while the background BK-tree warm-up is still running; the API already serves requests, and RapidFuzz resolution lazily builds whatever tree it needs in the meantime.
+
+`api_version` is the same value and format as the `api_version` field of a `/search/text2sql` response (raw `1.1.18`, never the zero-padded `001.001.018` used for cache keys). Since the colour of a deployment follows the parity of its patch number, this one field is enough to tell which colour a client just reached, with no token spent and no cache touched:
+
+```bash
+curl -s -H "X-API-Key: $KEY" http://<host>:8186/   # even patch -> Blue
+curl -s -H "X-API-Key: $KEY" http://<host>:8187/   # odd patch  -> Green
+```
 
 #### 2. Text to SQL Conversion
 ```http

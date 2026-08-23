@@ -1501,23 +1501,40 @@ class ResultItem(BaseModel):
 
 @app.get("/")
 async def f_hello_world(api_key: str = Depends(get_api_key)):
-    """Hello world endpoint for API health check.
-    
-    Returns a simple greeting message with the universal answer (42).
-    Requires valid API key authentication.
-    
+    """Health and identity probe: is this instance ready, and which one is it?
+
+    Answers both halves of the question a Blue/Green deployment raises. `bktrees_ready`
+    is the readiness half (FASTAPI-TEXT2SQL-145): False while the background BK-tree
+    warm-up is still running, though the API already serves. `api_version` is the
+    identity half (FASTAPI-TEXT2SQL-203): the colour of an instance follows the parity
+    of its patch number, so this single field tells a client, or a monitor, which
+    deployment it just reached, without spending a token or touching the cache on
+    `/search/text2sql` merely to read a number.
+
+    Same value and same format as the `api_version` field of `Text2SQLResponse`: the raw
+    `strapiversion` (e.g. "1.1.18"), never the zero-padded `XXX.YYY.ZZZ` form, which is
+    reserved for cache keys.
+
+    Requires valid API key authentication, so this widens nothing: the version is
+    already returned by every `/search/text2sql` response.
+
     Args:
         api_key (str): Valid API key for authentication (injected by dependency)
-        
+
     Returns:
-        dict: JSON response containing greeting message
-        
+        dict: JSON response with the greeting, the readiness flag and the API version
+
     Example:
         GET / with X-API-Key header
-        Returns: {"message": "hello world! The universal answer is 42"}
+        Returns: {"message": "hello world! The universal answer is 42",
+                  "bktrees_ready": true, "api_version": "1.1.18"}
     """
     global answer
-    result = {"message": "hello world! The universal answer is " + str(answer), "bktrees_ready": entity.BKTREES_READY}
+    result = {
+        "message": "hello world! The universal answer is " + str(answer),
+        "bktrees_ready": entity.BKTREES_READY,
+        "api_version": strapiversion,
+    }
     logs.log_usage("hello", result, strapiversion)
     return result
 

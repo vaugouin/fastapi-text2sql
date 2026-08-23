@@ -42,6 +42,8 @@ Bumping `strapiversion` moves the deployment to the other colour (even patch →
 | client | how it picks a colour | what to change |
 |---|---|---|
 | **evaluator** (`eval/text2sql-eval.py`) | derives the port from the parity of `--api-version`, [line 563](eval/text2sql-eval.py#L563), exactly like `main.py` does | nothing: pass the right `--api-version` |
+
+**Which version is a given instance serving?** `GET /` answers it, and it is the cheapest way to check a client actually followed a flip: `curl -s -H "X-API-Key: …" http://<host>:8186/` returns `api_version` alongside `bktrees_ready` (FASTAPI-TEXT2SQL-203). Spending a `/search/text2sql` call to read a version number is never necessary.
 | **Claude, via MCP** | `https://www.vaugouin.com/mcp`, routed by **NGINX** | the `reverseproxy` repo, repoint the upstream port |
 | **tmdb-front** (PHP) | `$strtext2sqlapicolor`, **hard-coded** in `lib/global-light.inc.php` (~line 144); both URLs already sit in its `.env` as `TEXT2SQL_API_BLUE_URL` / `TEXT2SQL_API_GREEN_URL` | swap the two commented lines, then deploy the front |
 | **voice-agent** | `TEXT2SQL_BASE_URL` in its `.env`, port written in full | edit the port, restart the service |
