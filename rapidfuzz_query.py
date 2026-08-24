@@ -154,16 +154,23 @@ def _fold_ascii(s: str) -> str:
 _FRANCHISE_STOPWORDS = frozenset(_fold_ascii(w) for w in _FRANCHISE_STOPWORD_WORDS)
 
 
-def strip_franchise_words(norm: str) -> str:
+def strip_franchise_words(norm: str, words=None) -> str:
     """Remove generic franchise/collection words from an ALREADY-normalized string.
 
     Whole-word, accent-insensitive, idempotent (safe to apply to an already-stripped
     value). Guard: if neutralization would empty the string (e.g. a query that is
     literally "collection"), the input is returned unchanged.
+
+    `words` overrides the franchise set with a per-entity one (FASTAPI-TEXT2SQL-206), read
+    from `score_stopwords` in entity_resolution.json. Default stays the franchise set, so
+    every existing caller keeps its behaviour to the letter.
     """
     if not norm:
         return norm
-    kept = [tok for tok in norm.split() if _fold_ascii(tok) not in _FRANCHISE_STOPWORDS]
+    vocabulary = _FRANCHISE_STOPWORDS if words is None else frozenset(_fold_ascii(w) for w in words)
+    if not vocabulary:
+        return norm
+    kept = [tok for tok in norm.split() if _fold_ascii(tok) not in vocabulary]
     stripped = " ".join(kept)
     return stripped if stripped else norm
 

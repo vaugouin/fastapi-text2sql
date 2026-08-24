@@ -480,7 +480,8 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "entity_match_scores": [
     {"placeholder": "{{Person_name1}}", "search_mode": "rapidfuzz", "collection": "persons",
      "sought": "humphrey bogart", "candidate": "Humphrey Bogart", "distance": null,
-     "fuzz_ratio": 100.0, "exact_match": true, "rejected": false}
+     "fuzz_ratio": 100.0, "fuzz_ratio_raw": 100.0, "stopwords_applied": false,
+     "exact_match": true, "rejected": false}
   ],
   "query_execution_time": 0.08,
   "total_processing_time": 1.93,
@@ -560,7 +561,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `no_entity_extracted` (bool): True when extraction returned no entity at all, so the question was never anonymized
 - `entity_match_worst_distance` (float or null): Embeddings distance of the **weakest accepted** match of the request. A dissimilarity, so larger is further and a threshold reads `<= max_distance`. `null` when no entity went through a scored resolver (closed-vocabulary and regex placeholders produce no score)
 - `entity_match_worst_fuzz_ratio` (float or null): `fuzz.ratio` of the weakest accepted match, on 100. A similarity, so larger is closer and a threshold reads `>= min_fuzz_ratio`. The two "worst" therefore run in opposite directions
-- `entity_match_scores` (list): One entry per candidate weighed by an embeddings or rapidfuzz strategy, accepted or not, with what was sought, what was found and how far apart they sat. This is the calibration material for FASTAPI-TEXT2SQL-206: twelve of the fourteen resolvers currently have no threshold and accept their nearest neighbour however far it sits. Not summed across a retry, like the counts: it describes the resolution that produced the returned result
+- `entity_match_scores` (list): One entry per candidate weighed by an embeddings or rapidfuzz strategy, accepted or not, with what was sought, what was found and how far apart they sat. `fuzz_ratio` is the score the gate actually used, after the entity's own descriptor words were neutralised on both sides; `fuzz_ratio_raw` is what it would have been without that, kept so the effect stays auditable. Measured 2026-08-24: "wagonlit collection" against "life collection" scores 76.5 raw and 33.3 stripped, and the threshold sits at 72. This is the calibration material for FASTAPI-TEXT2SQL-206: twelve of the fourteen resolvers currently have no threshold and accept their nearest neighbour however far it sits. Not summed across a retry, like the counts: it describes the resolution that produced the returned result
 - `complex_question_processing_time` (float): The stronger-model simplification call that precedes a complex retry. 0.0 when no retry happened, so it is the most direct marker of a retried request. **On a retried request every timing above covers both passes**, and `total_processing_time` is the real end-to-end elapsed
 - `query_execution_time` (float): Time for SQL execution in seconds
 - `total_processing_time` (float): Total request processing time in seconds

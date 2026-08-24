@@ -1035,7 +1035,30 @@ def plan_entity_resolutions(
                             chosen_distance = float(distances[matched_result_position])
                         except (TypeError, ValueError):
                             chosen_distance = None
-                    chosen_ratio = fuzz.ratio(target_value_norm, chosen_doc_norm) if chosen_doc_norm else 0.0
+                    # Neutralize the entity's own descriptor words on BOTH sides before scoring
+                    # (FASTAPI-TEXT2SQL-206). A word shared by the sought value and the candidate
+                    # inflates the similarity without carrying any identifying signal: measured
+                    # 2026-08-24, "wagonlit collection" against "life collection" scores 76.5 and
+                    # cleared the threshold of 72, where "wagonlit" against "life" scores 33.3.
+                    # Moving from WRatio to fuzz.ratio had already been tried against this family
+                    # of defect and was not enough: the descriptor survives the change of metric,
+                    # only removing it works. Per-entity list, since what is generic for a
+                    # collection is identifying for an award ("Academy Award for Best Picture"
+                    # minus "award" and "best" is not the same name any more).
+                    _score_stopwords = search_cfg.get("score_stopwords")
+                    _sought_scored, _candidate_scored = target_value_norm, chosen_doc_norm
+                    if _score_stopwords:
+                        try:
+                            _sought_scored = rapidfuzz_query.strip_franchise_words(
+                                target_value_norm, _score_stopwords)
+                            _candidate_scored = rapidfuzz_query.strip_franchise_words(
+                                chosen_doc_norm, _score_stopwords)
+                        except Exception:
+                            _sought_scored, _candidate_scored = target_value_norm, chosen_doc_norm
+                    chosen_ratio = fuzz.ratio(_sought_scored, _candidate_scored) if _candidate_scored else 0.0
+                    # Kept for calibration: what the score would have been without stripping, so
+                    # the bench can weigh the two and the effect stays auditable.
+                    chosen_ratio_raw = fuzz.ratio(target_value_norm, chosen_doc_norm) if chosen_doc_norm else 0.0
 
                     distance_ok = (max_distance is None) or (chosen_distance is None) or (chosen_distance <= max_distance)
                     ratio_ok = (min_fuzz_ratio is None) or (chosen_ratio >= min_fuzz_ratio)
@@ -1048,6 +1071,8 @@ def plan_entity_resolutions(
                         "candidate": chosen_doc if isinstance(chosen_doc, str) else "",
                         "distance": chosen_distance,
                         "fuzz_ratio": round(float(chosen_ratio), 1),
+                        "fuzz_ratio_raw": round(float(chosen_ratio_raw), 1),
+                        "stopwords_applied": bool(_score_stopwords),
                         "exact_match": bool(found_match),
                         "rejected": bool(rejected),
                         "max_distance": max_distance,

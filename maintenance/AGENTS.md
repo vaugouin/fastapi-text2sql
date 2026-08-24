@@ -60,6 +60,27 @@ This folder writes to **operational** tables, `T_WC_T2S_CACHE` first among them.
   `strapiversion` also flips Blue/Green via `_mcp_patch % 2`, so it is a
   deployment gesture, not only a cache one. Prefer retiring rows.
 
+## The DATABASE() trap in the read sections
+
+Every migration here opens with an INFORMATION_SCHEMA query filtered on
+`TABLE_SCHEMA = DATABASE()`, and those queries are the convention: look before you write, and
+read zero rows as "not there yet".
+
+`DATABASE()` returns the **currently selected** database, which is right in a `mysql` session
+where the schema was chosen, and wrong in phpMyAdmin whenever the session sits on
+INFORMATION_SCHEMA (browsing its `COLUMNS` table is enough). The comparison then reads
+`TABLE_SCHEMA = 'information_schema'`, matches nothing, and returns zero rows whatever the real
+state of the table.
+
+That is a silent false negative, and the worst kind: the query succeeds, and its answer means
+"absent" by this folder's own convention. It happened on 2026-08-24, where
+eval-executions-scores-correspondance.sql had already been applied and the check reported the
+columns missing; the ALTER was replayed and only then failed, on columns that existed all along.
+
+When a read section disagrees with what you expect, name the schema explicitly before believing
+it: `WHERE TABLE_SCHEMA = 'vaugouindb'`. The ALTER statements themselves are unaffected, since
+they address the table directly.
+
 ## Files
 
 - `cache-jumelles-et-empoisonnees.sql` : twin rows, and the subset poisoned by an

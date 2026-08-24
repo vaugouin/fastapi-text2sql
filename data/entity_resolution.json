@@ -129,7 +129,13 @@
           "en": "TOPIC_NAME",
           "fr": "TOPIC_NAME_FR",
           "*": "TOPIC_NAME"
-        }
+        },
+        "score_stopwords": [
+          "trilogy",
+          "trilogie",
+          "saga",
+          "collection"
+        ]
       }
     ]
   },
@@ -216,7 +222,41 @@
           "en": "COLLECTION_NAME",
           "fr": "COLLECTION_NAME_FR",
           "*": "COLLECTION_NAME"
-        }
+        },
+        "score_stopwords": [
+          "collection",
+          "universe",
+          "franchise",
+          "saga",
+          "trilogy",
+          "duology",
+          "tetralogy",
+          "quadrilogy",
+          "pentalogy",
+          "hexalogy",
+          "heptalogy",
+          "film",
+          "films",
+          "movie",
+          "movies",
+          "series",
+          "cinematic",
+          "univers",
+          "trilogie",
+          "duologie",
+          "tetralogie",
+          "tétralogie",
+          "quadrilogie",
+          "pentalogie",
+          "hexalogie",
+          "heptalogie",
+          "serie",
+          "série",
+          "series",
+          "séries",
+          "cinematographique",
+          "cinématographique"
+        ]
       }
     ]
   },

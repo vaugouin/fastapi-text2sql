@@ -257,6 +257,37 @@ Always also:
 
 ---
 
+## Descriptor words in entity scoring (`score_stopwords`)
+
+A word shared by the value sought and the candidate found inflates the similarity without
+carrying any identifying signal. Measured 2026-08-24: `"wagonlit collection"` against
+`"Life Collection"` scores **76.5**, clears `Collection_name`'s threshold of 72, and returns
+three films for a collection that does not exist. Strip the descriptor from both sides and the
+same pair scores 33.3.
+
+Moving from `WRatio` to `fuzz.ratio` had already been tried against this family of defect
+(FASTAPI-TEXT2SQL-062, the "Mad Max collection" case) and was not enough: the descriptor
+survives the change of metric, only removing it works.
+
+`score_stopwords` declares that list **per strategy** in
+[data/entity_resolution.json](data/entity_resolution.json), and `entity.py` applies it to both
+sides before scoring. `fuzz_ratio_raw` in the response keeps the pre-strip score so the effect
+stays auditable.
+
+**Per entity, never global, and this is the whole point.** What is generic for a collection is
+identifying for an award. `Collection_name` and `Topic_name` are configured, on measured
+evidence from 3404 harvested values (`collection` x48 and `trilogy` x37 out of 128 collection
+values). `Award_name` is deliberately NOT: it carries `award` x28, `academy` x25 and `best` x19,
+but "Academy Award for Best Picture" is the canonical name, and stripping those words would draw
+distinct awards together instead of separating them. Same for `Movement_name` ("New Wave") and
+`List_name` ("Top 250", "Sight & Sound").
+
+Adding a list to a type that has a `min_fuzz_ratio` changes the gate, so measure before and
+after with [eval/bench-entity-resolution.py](eval/bench-entity-resolution.py). Note the effect
+runs both ways: neutralisation closed a false positive (76.5 to 33.3) and a false NEGATIVE in
+the same move ("star wars universe" against "Star Wars Collection", 57.9 to 100, where 57.9 sat
+below the threshold and would have been refused).
+
 ## Adding an indicator to the response
 
 The measurement chain is already generic, and knowing that saves most of the work.
