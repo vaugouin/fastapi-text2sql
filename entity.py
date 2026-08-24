@@ -635,6 +635,11 @@ def plan_entity_resolutions(
         order) and ``planning_time`` (seconds spent here, for the timing breakdown).
     """
     planning_start_time = time.time()
+    # Every candidate weighed by an embeddings or rapidfuzz strategy, accepted or not
+    # (FASTAPI-TEXT2SQL-206). Only Collection_name carries a threshold today, so twelve of the
+    # fourteen resolvers accept their nearest neighbour however far it sits. Calibrating a
+    # threshold needs the distribution of those distances, which nothing recorded until now.
+    match_scores: list = []
     planned_entities: list[_PlannedEntity] = []
 
     if isinstance(entity_extraction, dict):
@@ -844,6 +849,32 @@ def plan_entity_resolutions(
                         if not isinstance(best, dict):
                             continue
 
+                        # Same measurement as the embeddings path (FASTAPI-TEXT2SQL-206), and
+                        # deliberately the same metric: fuzz.ratio between the sought value and
+                        # the matched text, which is exactly what min_fuzz_ratio gates on. Using
+                        # rapidfuzz's own internal score instead would produce two scales that
+                        # cannot be compared when calibrating.
+                        try:
+                            _matched_text = str(best.get(strcolumndesc) or "") if strcolumndesc else ""
+                            _sought_norm = raw_value.strip().lower()
+                            _matched_norm = _matched_text.strip().lower()
+                            _rf_ratio = fuzz.ratio(_sought_norm, _matched_norm) if _matched_norm else 0.0
+                            match_scores.append({
+                                "placeholder": placeholder,
+                                "search_mode": "rapidfuzz",
+                                "collection": search_cfg.get("collection"),
+                                "sought": raw_value,
+                                "candidate": _matched_text,
+                                "distance": None,
+                                "fuzz_ratio": round(float(_rf_ratio), 1),
+                                "exact_match": _sought_norm == _matched_norm,
+                                "rejected": False,
+                                "auto": bool((rapidfuzz_result or {}).get("auto")),
+                                "min_fuzz_ratio": search_cfg.get("min_fuzz_ratio"),
+                            })
+                        except Exception:
+                            pass
+
                         # Confidence gate (FASTAPI-TEXT2SQL-062): when `require_confident`
                         # is set, only accept an exact / high-confidence auto-correct
                         # (rapidfuzz `auto` True) so a low-confidence lexical guess falls
@@ -990,36 +1021,56 @@ def plan_entity_resolutions(
                     # "Max und die Wilde 7 Collection", WRatio=85 but ratio=62).
                     max_distance = search_cfg.get("max_distance")
                     min_fuzz_ratio = search_cfg.get("min_fuzz_ratio")
-                    if not found_match and (max_distance is not None or min_fuzz_ratio is not None):
-                        chosen_doc = documents[matched_result_position] if matched_result_position < len(documents) else ""
-                        chosen_doc_norm = chosen_doc.strip().lower() if isinstance(chosen_doc, str) else ""
-                        chosen_distance = None
-                        if matched_result_position < len(distances):
-                            try:
-                                chosen_distance = float(distances[matched_result_position])
-                            except (TypeError, ValueError):
-                                chosen_distance = None
-                        chosen_ratio = fuzz.ratio(target_value_norm, chosen_doc_norm) if chosen_doc_norm else 0.0
+                    # Measured unconditionally now, where it used to be computed only when a
+                    # threshold was configured. Without a threshold there was no gate, so no
+                    # reason to score; but that is exactly why no distribution existed to set
+                    # one from. The gate below keeps its former semantics to the letter: with
+                    # both thresholds absent, distance_ok and ratio_ok stay True and nothing is
+                    # ever rejected, as before.
+                    chosen_doc = documents[matched_result_position] if matched_result_position < len(documents) else ""
+                    chosen_doc_norm = chosen_doc.strip().lower() if isinstance(chosen_doc, str) else ""
+                    chosen_distance = None
+                    if matched_result_position < len(distances):
+                        try:
+                            chosen_distance = float(distances[matched_result_position])
+                        except (TypeError, ValueError):
+                            chosen_distance = None
+                    chosen_ratio = fuzz.ratio(target_value_norm, chosen_doc_norm) if chosen_doc_norm else 0.0
 
-                        distance_ok = (max_distance is None) or (chosen_distance is None) or (chosen_distance <= max_distance)
-                        ratio_ok = (min_fuzz_ratio is None) or (chosen_ratio >= min_fuzz_ratio)
-                        if not (distance_ok and ratio_ok):
-                            shortlist_parts = []
-                            for j in range(min(len(ids), 5)):
-                                dtxt = ""
-                                if j < len(distances):
-                                    try:
-                                        dtxt = f" d={float(distances[j]):.3f}"
-                                    except (TypeError, ValueError):
-                                        dtxt = ""
-                                shortlist_parts.append(f"{ids[j]}{dtxt}")
-                            planned.note(
-                                f"Entity resolution: {placeholder} -> rejected best embeddings candidate "
-                                f"'{chosen_doc}' (distance={chosen_distance}, fuzz_ratio={chosen_ratio:.0f}) "
-                                f"below confidence threshold (max_distance={max_distance}, min_fuzz_ratio={min_fuzz_ratio}); "
-                                f"shortlist: {', '.join(shortlist_parts)}"
-                            )
-                            continue
+                    distance_ok = (max_distance is None) or (chosen_distance is None) or (chosen_distance <= max_distance)
+                    ratio_ok = (min_fuzz_ratio is None) or (chosen_ratio >= min_fuzz_ratio)
+                    rejected = (not found_match) and not (distance_ok and ratio_ok)
+                    match_scores.append({
+                        "placeholder": placeholder,
+                        "search_mode": "embeddings",
+                        "collection": collection_name,
+                        "sought": raw_value,
+                        "candidate": chosen_doc if isinstance(chosen_doc, str) else "",
+                        "distance": chosen_distance,
+                        "fuzz_ratio": round(float(chosen_ratio), 1),
+                        "exact_match": bool(found_match),
+                        "rejected": bool(rejected),
+                        "max_distance": max_distance,
+                        "min_fuzz_ratio": min_fuzz_ratio,
+                    })
+
+                    if rejected:
+                        shortlist_parts = []
+                        for j in range(min(len(ids), 5)):
+                            dtxt = ""
+                            if j < len(distances):
+                                try:
+                                    dtxt = f" d={float(distances[j]):.3f}"
+                                except (TypeError, ValueError):
+                                    dtxt = ""
+                            shortlist_parts.append(f"{ids[j]}{dtxt}")
+                        planned.note(
+                            f"Entity resolution: {placeholder} -> rejected best embeddings candidate "
+                            f"'{chosen_doc}' (distance={chosen_distance}, fuzz_ratio={chosen_ratio:.0f}) "
+                            f"below confidence threshold (max_distance={max_distance}, min_fuzz_ratio={min_fuzz_ratio}); "
+                            f"shortlist: {', '.join(shortlist_parts)}"
+                        )
+                        continue
 
                     first_record_id = ids[matched_result_position]
                     parts = str(first_record_id).split("_")
@@ -1052,6 +1103,7 @@ def plan_entity_resolutions(
     return {
         "entities": planned_entities,
         "planning_time": time.time() - planning_start_time,
+        "match_scores": match_scores,
     }
 
 

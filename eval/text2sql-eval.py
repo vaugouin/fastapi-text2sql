@@ -945,6 +945,17 @@ try:
                             arrevalexeccouples["COMPLEX_QUESTION_PROCESSING_TIME"] = _safe_float(
                                 (response_json or {}).get("complex_question_processing_time")
                             )
+                            # How far the weakest ACCEPTED match sat from the value sought
+                            # (FASTAPI-TEXT2SQL-206). Distance is a dissimilarity, ratio a
+                            # similarity on 100, so the two "worst" run in opposite directions.
+                            # NULL means no entity of the request went through a scored resolver,
+                            # which _safe_float already yields on a missing field.
+                            arrevalexeccouples["ENTITY_MATCH_WORST_DISTANCE"] = _safe_float(
+                                (response_json or {}).get("entity_match_worst_distance")
+                            )
+                            arrevalexeccouples["ENTITY_MATCH_WORST_FUZZ_RATIO"] = _safe_float(
+                                (response_json or {}).get("entity_match_worst_fuzz_ratio")
+                            )
                             _nothing_extracted = (response_json or {}).get("no_entity_extracted")
                             arrevalexeccouples["NO_ENTITY_EXTRACTED"] = (
                                 (1 if _nothing_extracted else 0) if _nothing_extracted is not None else None
@@ -1166,6 +1177,8 @@ try:
                                         # real boolean.
                                         "entity_raw_fallback_count": row.get('ENTITY_RAW_FALLBACK_COUNT'),
                                         "no_entity_extracted": row.get('NO_ENTITY_EXTRACTED'),
+                                        "entity_match_worst_distance": row.get('ENTITY_MATCH_WORST_DISTANCE'),
+                                        "entity_match_worst_fuzz_ratio": row.get('ENTITY_MATCH_WORST_FUZZ_RATIO'),
                                     },
                                     "tim_execution": tim_execution,
                                     "tim_updated": row.get('TIM_UPDATED'),

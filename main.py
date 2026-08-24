@@ -1503,6 +1503,13 @@ class Text2SQLResponse(BaseModel):
     # (FASTAPI-TEXT2SQL-204). 0.0 when no retry happened, which makes it the most direct
     # marker of a retried request, more so than complex_model_used.
     complex_question_processing_time: float = 0.0
+    # How far the accepted match actually sat from the sought value, per resolved entity
+    # (FASTAPI-TEXT2SQL-206). The list is the calibration material; the two scalars below are
+    # the weakest link of the request, which is precisely what a threshold would cut, and they
+    # get columns so a campaign can be sliced without JSON_EXTRACT on every row.
+    entity_match_scores: list = []
+    entity_match_worst_distance: float | None = None
+    entity_match_worst_fuzz_ratio: float | None = None
     # True when extraction returned no entity at all, so the question was never anonymized
     # and no placeholder existed to fall back (FASTAPI-TEXT2SQL-156).
     no_entity_extracted: bool = False
@@ -1714,6 +1721,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     entity_raw_fallback_count = 0
     no_entity_extracted = False
     complex_question_processing_time = 0.0
+    entity_match_scores = []
+    entity_match_worst_distance = None
+    entity_match_worst_fuzz_ratio = None
     entity_extraction_processing_time = 0.0
     text2sql_processing_time = 0.0
     result_entity_processing_time = 0.0
@@ -2417,6 +2427,16 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 try:
                     entity_resolution_plan = await entity_resolution_task
                     entity_resolution_planning_time = entity_resolution_plan.get("planning_time", 0.0)
+                    entity_match_scores = entity_resolution_plan.get("match_scores") or []
+                    # The worst ACCEPTED match, rejections excluded: a rejected candidate was
+                    # already refused, so keeping it would report a severity the request never
+                    # suffered. An exact match scores ratio 100 and distance ~0 and simply never
+                    # wins these extremes.
+                    _accepted = [s for s in entity_match_scores if not s.get("rejected")]
+                    _dists = [s["distance"] for s in _accepted if isinstance(s.get("distance"), (int, float))]
+                    _ratios = [s["fuzz_ratio"] for s in _accepted if isinstance(s.get("fuzz_ratio"), (int, float))]
+                    entity_match_worst_distance = max(_dists) if _dists else None
+                    entity_match_worst_fuzz_ratio = min(_ratios) if _ratios else None
                     messages.append(TextMessage(
                         position=position_counter,
                         text=f"Entity resolution completed in parallel with SQL generation ({entity_resolution_planning_time:.3f}s of work overlapped)."
@@ -2433,7 +2453,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     position_counter += 1
     async def _retry_with_resolved_complex_question(*, start_message: str, success_message: str, empty_question_message: str, error_message: str):
         """Retry the full pipeline using a stronger-model simplification of the original question."""
-        nonlocal position_counter, complex_model_used
+        nonlocal position_counter, complex_model_used, complex_question_processing_time
         complex_model_used = True
         messages.append(TextMessage(
             position=position_counter,
@@ -2444,6 +2464,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         _complex_call_start = time.time()
         retry_payload = t2s.f_resolve_complex_question_retry_payload(original_question, strcomplexquestionmodel)
         _complex_call_seconds = time.time() - _complex_call_start
+        # Bank the cost on the OUTER scope immediately, before any branch can bail out
+        # (FASTAPI-TEXT2SQL-205). -204 only consolidated the success path, so an aborted retry
+        # billed the stronger model and reported 0.0: measured on 2026-08-24, an unresolvable
+        # genre answered "not a recognized entity", 1142 prompt tokens spent, complex_model_used
+        # true and complex_question_processing_time zero. The success path below returns the
+        # INNER response, which carries its own consolidated figure, so this never double counts.
+        complex_question_processing_time += _complex_call_seconds
         resolved_complex = retry_payload.get("resolved")
         try:
             resolved_complex_json = json.dumps(resolved_complex, ensure_ascii=False)
@@ -3305,6 +3332,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         text2sql_processing_time=text2sql_processing_time,
         result_entity_processing_time=result_entity_processing_time,
         entity_resolution_planning_time=entity_resolution_planning_time,
+        entity_match_scores=entity_match_scores,
+        entity_match_worst_distance=entity_match_worst_distance,
+        entity_match_worst_fuzz_ratio=entity_match_worst_fuzz_ratio,
         entity_raw_fallback_count=entity_raw_fallback_count,
         no_entity_extracted=no_entity_extracted,
         complex_question_processing_time=complex_question_processing_time,

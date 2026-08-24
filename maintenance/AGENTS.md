@@ -83,6 +83,13 @@ This folder writes to **operational** tables, `T_WC_T2S_CACHE` first among them.
   dropped, which is also the only way back afterwards. And its section 5 stands as
   a warning: two of the three were removed before anyone wrote down what they
   held, so that knowledge now exists only inside dumps predating the drop.
+- `eval-executions-scores-correspondance.sql` : adds `ENTITY_MATCH_WORST_DISTANCE` and
+  `ENTITY_MATCH_WORST_FUZZ_RATIO`, the calibration material for FASTAPI-TEXT2SQL-206. Twelve of
+  the fourteen resolvers carry no rejection threshold, so an embeddings search accepts its
+  nearest neighbour however far it sits, and nothing recorded how far because the code only
+  measured when a threshold existed. Read its header before using the two columns: they hold the
+  WEAKEST accepted match of a request, not an average, because a threshold cuts the weakest link;
+  and the two run in opposite directions, distance being a dissimilarity and ratio a similarity.
 - `eval-executions-nouveaux-indicateurs.sql` : adds five indicator columns to
   `T_WC_T2S_EVALUATION_EXECUTION`, run 2026-08-23 (FASTAPI-TEXT2SQL-203). Follows
   the standing rule that every indicator must reach both the JSON response and the
