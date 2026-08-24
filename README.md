@@ -474,6 +474,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "entity_resolution_planning_time": 0.09,
   "entity_raw_fallback_count": 0,
   "no_entity_extracted": false,
+  "complex_question_processing_time": 0.0,
   "query_execution_time": 0.08,
   "total_processing_time": 1.93,
   "page": 1,
@@ -550,6 +551,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `entity_resolution_planning_time` (float): How much of `embeddings_processing_time` was overlapped with SQL generation by the fork-join. **Already counted inside it**, never add the two. 0.0 on a cache hit or when `ENTITY_RESOLUTION_PARALLEL=0`
 - `entity_raw_fallback_count` (int): Entities whose configured resolvers all failed, so their raw words went into the SQL. Non-zero means a following empty result is a resolution failure, not a fact about the data
 - `no_entity_extracted` (bool): True when extraction returned no entity at all, so the question was never anonymized
+- `complex_question_processing_time` (float): The stronger-model simplification call that precedes a complex retry. 0.0 when no retry happened, so it is the most direct marker of a retried request. **On a retried request every timing above covers both passes**, and `total_processing_time` is the real end-to-end elapsed
 - `query_execution_time` (float): Time for SQL execution in seconds
 - `total_processing_time` (float): Total request processing time in seconds
 
@@ -1607,6 +1609,7 @@ All successful text2sql requests return a comprehensive response with:
 - `entity_resolution_planning_time`: Share of the above overlapped with SQL generation (seconds, already included in it)
 - `entity_raw_fallback_count`: Entities left unresolved and substituted raw (count)
 - `no_entity_extracted`: Extraction returned nothing at all (bool)
+- `complex_question_processing_time`: The stronger-model simplification call (seconds, 0.0 without a retry)
 - `query_execution_time`: Time for SQL execution (seconds)
 - `total_processing_time`: Total request processing time (seconds)
 

@@ -935,6 +935,13 @@ try:
                             arrevalexeccouples["ENTITY_RAW_FALLBACK_COUNT"] = (
                                 int(_raw_fallback) if isinstance(_raw_fallback, (int, float)) else None
                             )
+                            # Wall clock of the stronger-model simplification call
+                            # (FASTAPI-TEXT2SQL-204). Non-zero identifies a retried request more
+                            # directly than complex_model_used, and the other timings of such a
+                            # request now cover BOTH passes rather than the second one alone.
+                            arrevalexeccouples["COMPLEX_QUESTION_PROCESSING_TIME"] = _safe_float(
+                                (response_json or {}).get("complex_question_processing_time")
+                            )
                             _nothing_extracted = (response_json or {}).get("no_entity_extracted")
                             arrevalexeccouples["NO_ENTITY_EXTRACTED"] = (
                                 (1 if _nothing_extracted else 0) if _nothing_extracted is not None else None

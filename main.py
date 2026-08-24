@@ -1499,6 +1499,10 @@ class Text2SQLResponse(BaseModel):
     # into the SQL. Non-zero means an empty result that follows is a resolution failure
     # rather than a fact about the data (FASTAPI-TEXT2SQL-156).
     entity_raw_fallback_count: int = 0
+    # Wall clock of the stronger-model simplification call that precedes a complex retry
+    # (FASTAPI-TEXT2SQL-204). 0.0 when no retry happened, which makes it the most direct
+    # marker of a retried request, more so than complex_model_used.
+    complex_question_processing_time: float = 0.0
     # True when extraction returned no entity at all, so the question was never anonymized
     # and no placeholder existed to fall back (FASTAPI-TEXT2SQL-156).
     no_entity_extracted: bool = False
@@ -1709,6 +1713,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     # anything (cache hit) cannot accidentally look like a resolution failure.
     entity_raw_fallback_count = 0
     no_entity_extracted = False
+    complex_question_processing_time = 0.0
     entity_extraction_processing_time = 0.0
     text2sql_processing_time = 0.0
     result_entity_processing_time = 0.0
@@ -2436,7 +2441,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         ))
         position_counter += 1
 
+        _complex_call_start = time.time()
         retry_payload = t2s.f_resolve_complex_question_retry_payload(original_question, strcomplexquestionmodel)
+        _complex_call_seconds = time.time() - _complex_call_start
         resolved_complex = retry_payload.get("resolved")
         try:
             resolved_complex_json = json.dumps(resolved_complex, ensure_ascii=False)
@@ -2475,6 +2482,41 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         retry_response.justification = reasoning_justification
                     except Exception:
                         pass
+
+                # --- Consolidate the two passes (FASTAPI-TEXT2SQL-204) -----------------
+                # retry_response is the INNER response, so without this every timing would
+                # describe only the second attempt. Measured on the first retry observed
+                # after -156 revived this path: 26.76s at the client against a reported
+                # 10.54s, a 60% understatement. Placed here on purpose, BEFORE the cache
+                # write below, so the row stored for the ORIGINAL question inherits the
+                # corrected figures rather than the second pass alone.
+                #
+                # Per-step durations are additive: extraction really did run twice. The
+                # COUNTS are not, and are deliberately left alone: entity_raw_fallback_count
+                # and no_entity_extracted describe the resolution that produced the returned
+                # result, and summing them would name nothing. Why the retry fired stays
+                # readable in the merged messages below.
+                try:
+                    for _field, _outer in (
+                        ("entity_extraction_processing_time", entity_extraction_processing_time),
+                        ("text2sql_processing_time", text2sql_processing_time),
+                        ("result_entity_processing_time", result_entity_processing_time),
+                        ("embeddings_processing_time", embeddings_processing_time),
+                        ("embeddings_cache_search_time", embeddings_cache_search_time),
+                        ("query_execution_time", query_execution_time),
+                        ("entity_resolution_planning_time", entity_resolution_planning_time),
+                    ):
+                        setattr(retry_response, _field, (getattr(retry_response, _field, 0.0) or 0.0) + (_outer or 0.0))
+                    # The inner pass cannot retry again (the recursion guard blocks it), so its
+                    # own value is 0.0 and this addition is really just the outer call.
+                    retry_response.complex_question_processing_time = (
+                        getattr(retry_response, "complex_question_processing_time", 0.0) or 0.0
+                    ) + _complex_call_seconds
+                    # End to end, not the sum of the steps: that sum ignores the plumbing
+                    # between them and stays below the truth.
+                    retry_response.total_processing_time = time.time() - total_start_time
+                except Exception as consolidation_error:
+                    print(f"Failed to consolidate complex-retry timings: {str(consolidation_error)}")
 
                 if request.store_to_cache:
                     try:
@@ -3265,6 +3307,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         entity_resolution_planning_time=entity_resolution_planning_time,
         entity_raw_fallback_count=entity_raw_fallback_count,
         no_entity_extracted=no_entity_extracted,
+        complex_question_processing_time=complex_question_processing_time,
         embeddings_processing_time=embeddings_processing_time,
         embeddings_cache_search_time=embeddings_cache_search_time,
         query_execution_time=query_execution_time,

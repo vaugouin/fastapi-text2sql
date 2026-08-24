@@ -450,7 +450,9 @@ One row per execution. Key columns:
 - `API_VERSION` — stored in `XXX.YYY.ZZZ` form (via `t2s_eval.format_api_version()`)
 - `ENTITY_EXTRACTION_MODEL`, `TEXT2SQL_MODEL`, `COMPLEX_MODEL` — the tuple that disambiguates executions
 - `JSON_RESULT` — full API response (mediumtext)
-- Timings: `ENTITY_EXTRACTION_PROCESSING_TIME`, `TEXT2SQL_PROCESSING_TIME`, `RESULT_ENTITY_PROCESSING_TIME`, `EMBEDDINGS_PROCESSING_TIME`, `EMBEDDINGS_CACHE_SEARCH_TIME`, `ENTITY_RESOLUTION_PLANNING_TIME`, `QUERY_EXECUTION_TIME`, `TOTAL_PROCESSING_TIME`
+- Timings: `ENTITY_EXTRACTION_PROCESSING_TIME`, `TEXT2SQL_PROCESSING_TIME`, `RESULT_ENTITY_PROCESSING_TIME`, `EMBEDDINGS_PROCESSING_TIME`, `EMBEDDINGS_CACHE_SEARCH_TIME`, `ENTITY_RESOLUTION_PLANNING_TIME`, `COMPLEX_QUESTION_PROCESSING_TIME`, `QUERY_EXECUTION_TIME`, `TOTAL_PROCESSING_TIME`
+
+**On a request the complex model retried, every timing covers BOTH passes** (FASTAPI-TEXT2SQL-204). The endpoint runs twice and the durations are summed, `TOTAL_PROCESSING_TIME` being the real end-to-end elapsed rather than the sum of the steps. `COMPLEX_QUESTION_PROCESSING_TIME` is the simplification call itself and is non-zero only there, which makes it the cleanest filter for retried rows. The two counts are NOT summed: they describe the resolution that produced the returned result.
 - Resolution signals: `ENTITY_RAW_FALLBACK_COUNT`, `NO_ENTITY_EXTRACTED`
 
 **These columns are a deliberate duplicate.** `JSON_RESULT` already holds the entire API response, so every field is in the database whether or not it has a column, and the Phase 32 export copies that JSON verbatim into `api_output`. A column exists only so a campaign can be sliced in SQL without `JSON_EXTRACT` on every row, which is what the PHP graphs under [lib/](lib/) do. Adding a field to `Text2SQLResponse` therefore reaches the database and the export **on its own**; adding a column is the separate, optional step, and it needs both [../doc/sql/T2S_EVALUATION-tables.sql](../doc/sql/T2S_EVALUATION-tables.sql) and a migration under [../maintenance/](../maintenance/).
