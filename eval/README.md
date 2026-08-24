@@ -790,12 +790,25 @@ Use `comment` to capture the *reason* the evaluation was added — misspelling, 
     "text2sql_processing_time": 1.512,
     "embeddings_processing_time": 0.097,
     "query_execution_time": 0.041,
-    "total_processing_time": 2.001
+    "total_processing_time": 2.001,
+    "result_entity_processing_time": 0.118,
+    "embeddings_cache_search_time": 0.006,
+    "entity_resolution_planning_time": 0.081,
+    "complex_question_processing_time": 0.0,
+    "entity_raw_fallback_count": 0,
+    "no_entity_extracted": 0
   },
   "tim_execution": "2026-04-25T10:23:45",
   "tim_updated": "2026-04-25T10:23:50"
 }
 ```
+
+The `timings` block mirrors the **dedicated columns**, not `JSON_RESULT`, and it is kept by
+hand: a new column appears here only if it is added to the export in `eval/text2sql-eval.py`.
+The last two entries are not durations; they sit in this block because it is the structured
+mirror of those columns. `no_entity_extracted` is stored as `1`/`0` and exports as such, the
+real boolean being in `api_output`. And `entity_resolution_planning_time` is already counted
+inside `embeddings_processing_time`, so the two must never be added together.
 
 The full `api_output` is the parsed `JSON_RESULT` from the DB — it echoes every API input plus the `messages` collection, so an LLM analysing the file can spot **when the complex-question retry path was taken** (typically a sign of trouble in the regular workflow). The `scoring` block tells the LLM whether the run passed or failed and gives the human-readable trace produced by Phase 20.
 

@@ -270,9 +270,13 @@ into `api_output` in `/shared/evaluation_execution/`. So:
 2. **Add a dedicated column only if you need to aggregate it in SQL.** The columns are a
    duplicate of what `JSON_RESULT` already holds, kept so a campaign can be sliced without
    `JSON_EXTRACT` on every row (the PHP graphs under `eval/lib/` rely on them). That step is
-   three edits, not one: [doc/sql/T2S_EVALUATION-tables.sql](doc/sql/T2S_EVALUATION-tables.sql)
+   four edits, not one: [doc/sql/T2S_EVALUATION-tables.sql](doc/sql/T2S_EVALUATION-tables.sql)
    for the reference DDL, a migration under [maintenance/](maintenance/) for the live table,
-   and the write in `eval/text2sql-eval.py`.
+   the write in `eval/text2sql-eval.py`, and the `timings` block of the export in that same
+   file. That fourth one is a hand-kept list and does **not** inherit from `JSON_RESULT` the
+   way `api_output` does, so forgetting it is invisible: the export keeps writing, simply
+   without the column. It happened, and 1.1.18 exports described a five-step pipeline while
+   six columns existed. `eval/README.md` shows the block, so it drifts too.
 3. **Document it in `README.md`**, which describes the response in three separate places: the
    example JSON, the detailed field list and the summary list. All three drift on their own.
 

@@ -913,9 +913,12 @@ try:
                                 (response_json or {}).get("total_processing_time")
                             )
                             # Everything the API reports also lives in JSON_RESULT, which is
-                            # the whole response body; these columns duplicate five of those
-                            # fields so they can be aggregated in SQL without JSON_EXTRACT,
-                            # which is what the PHP graphs under eval/lib/ do.
+                            # the whole response body; the six columns below duplicate as many
+                            # of those fields so they can be aggregated in SQL without
+                            # JSON_EXTRACT, which is what the PHP graphs under eval/lib/ do.
+                            # _safe_float returns None on anything unexpected, so a broken
+                            # field name here writes NULL in silence: cross-check a column
+                            # against its JSON_RESULT counterpart after a campaign.
                             arrevalexeccouples["RESULT_ENTITY_PROCESSING_TIME"] = _safe_float(
                                 (response_json or {}).get("result_entity_processing_time")
                             )
@@ -1136,12 +1139,33 @@ try:
                                         "assertions_total_score": row.get('ASSERTIONS_TOTAL_SCORE'),
                                         "assertions_result_detailed": row.get('ASSERTIONS_RESULT_DETAILED'),
                                     },
+                                    # Mirrors the dedicated columns, NOT JSON_RESULT: this block is a
+                                    # hand-kept list, so a new column reaches the export only by being
+                                    # added here. It stayed at five entries while six columns were
+                                    # added, which is why 1.1.18 exports show a five-step pipeline.
+                                    # Readers all fetch by key, none iterate, so adding keys is safe.
                                     "timings": {
                                         "entity_extraction_processing_time": row.get('ENTITY_EXTRACTION_PROCESSING_TIME'),
                                         "text2sql_processing_time": row.get('TEXT2SQL_PROCESSING_TIME'),
                                         "embeddings_processing_time": row.get('EMBEDDINGS_PROCESSING_TIME'),
                                         "query_execution_time": row.get('QUERY_EXECUTION_TIME'),
                                         "total_processing_time": row.get('TOTAL_PROCESSING_TIME'),
+                                        "result_entity_processing_time": row.get('RESULT_ENTITY_PROCESSING_TIME'),
+                                        "embeddings_cache_search_time": row.get('EMBEDDINGS_CACHE_SEARCH_TIME'),
+                                        # Already counted inside embeddings_processing_time
+                                        # (FASTAPI-TEXT2SQL-201): never add the two together.
+                                        "entity_resolution_planning_time": row.get('ENTITY_RESOLUTION_PLANNING_TIME'),
+                                        # Non-zero identifies a request retried by the stronger model
+                                        # (FASTAPI-TEXT2SQL-204), whose other timings then cover BOTH
+                                        # passes rather than the second one alone.
+                                        "complex_question_processing_time": row.get('COMPLEX_QUESTION_PROCESSING_TIME'),
+                                        # The last two are not durations. They sit here because the
+                                        # block is the structured mirror of the dedicated columns, and
+                                        # splitting it would break every reader. NO_ENTITY_EXTRACTED is
+                                        # stored as 1/0, so it exports as 1/0; api_output carries the
+                                        # real boolean.
+                                        "entity_raw_fallback_count": row.get('ENTITY_RAW_FALLBACK_COUNT'),
+                                        "no_entity_extracted": row.get('NO_ENTITY_EXTRACTED'),
                                     },
                                     "tim_execution": tim_execution,
                                     "tim_updated": row.get('TIM_UPDATED'),
