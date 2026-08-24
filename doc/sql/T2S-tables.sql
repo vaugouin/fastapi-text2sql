@@ -109,48 +109,6 @@ CREATE TABLE `T_WC_T2S_CACHE` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
-CREATE TABLE `T_WC_T2S_CACHE_PURGE_20260803` (
-  `ID_ROW` int(11) NOT NULL,
-  `VERDICT` varchar(60) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8 */;
-CREATE TABLE `T_WC_T2S_CACHE_PURGE_AGG_20260803` (
-  `ID_ROW` int(11) NOT NULL,
-  `VERDICT` varchar(63) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8 */;
-CREATE TABLE `T_WC_T2S_CACHE_TWINS_20260820` (
-  `ID_ROW` int(11) NOT NULL DEFAULT 0,
-  `QUESTION` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `IS_ANONYMIZED` int(5) DEFAULT NULL,
-  `QUESTION_HASHED` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `SQL_QUERY` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `SQL_PROCESSED` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `JUSTIFICATION` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `API_VERSION` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `ENTITY_EXTRACTION_PROCESSING_TIME` double DEFAULT NULL,
-  `TEXT2SQL_PROCESSING_TIME` double DEFAULT NULL,
-  `EMBEDDINGS_TIME` double DEFAULT NULL,
-  `QUERY_TIME` double DEFAULT NULL,
-  `TOTAL_PROCESSING_TIME` double DEFAULT NULL,
-  `DELETED` int(5) DEFAULT NULL,
-  `DISPLAY_ORDER` int(5) DEFAULT NULL,
-  `ID_CREATOR` int(5) DEFAULT NULL,
-  `DAT_CREAT` date DEFAULT NULL,
-  `ID_OWNER` int(5) DEFAULT NULL,
-  `TIM_UPDATED` datetime DEFAULT NULL,
-  `ID_USER_UPDATED` int(5) DEFAULT NULL,
-  `ANSWER` mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `UI_LANGUAGE` varchar(5) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `RESULT_ENTITY` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_T2S_CHARACTER` (
   `ID_CHARACTER` int(11) NOT NULL AUTO_INCREMENT,
   `CAST_CHARACTER` varchar(600) DEFAULT NULL,

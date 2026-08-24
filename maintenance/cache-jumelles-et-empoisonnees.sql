@@ -247,6 +247,14 @@ WHERE a.IS_ANONYMIZED = 1
 -- ===========================================================================
 -- Re-run section 1. Both counts should now be zero.
 --
+-- THE UNDO BELOW NO LONGER RUNS. Its backup table was dropped on 2026-08-24 by
+-- cache-retirer-tables-de-sauvegarde.sql, the cleanup being settled by then
+-- (FASTAPI-TEXT2SQL-202 done, the code no longer writes the twin row). The statement is kept
+-- because it documents what the backup was for, and because a fresh run of section 4 recreates
+-- a table under a new date suffix, against which it works again once the name is updated.
+-- Recovering the 20260820 table itself means a selective restore from a nightly dump predating
+-- that date, since backupvaugouindb-t2s.sh matches T_WC_T2S_% and copied it every night.
+--
 -- To undo everything, the backup table holds the ID_ROW of every row touched:
 -- UPDATE T_WC_T2S_CACHE c
 --   JOIN T_WC_T2S_CACHE_TWINS_20260820 b ON b.ID_ROW = c.ID_ROW
