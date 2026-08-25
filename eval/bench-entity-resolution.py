@@ -195,7 +195,43 @@ def harvest_pairs():
     return positives, suspects, pool, archived
 
 
-def sample_from_catalogue(connection, types_filter, per_type, rng):
+def sample_from_collection(collections_by_name, strategy, per_type, rng):
+    """Draw values from the ChromaDB collection itself, which IS what the resolver searches.
+
+    Corrects a wrong assumption (2026-08-25). The SQL table is not always the catalogue of the
+    type: `Location_name` looks rows up in `T_WC_T2S_ITEM`, the whole Wikidata item referential,
+    while the `locations` collection is a subset filtered elsewhere. Drawing "positives" from the
+    table produced "-M- discography" and "...And Now Miguel" as locations, none of which resolved,
+    and made the resolver look broken when the bench was.
+
+    The collection has no such ambiguity: whatever it holds is what a query can match, so a
+    document taken from it must resolve to itself.
+    """
+    name = strategy.get("collection")
+    collection = (collections_by_name or {}).get(name)
+    if collection is None:
+        return []
+    try:
+        got = collection.get(limit=max(per_type * 5, 50), include=["documents"])
+    except Exception as collection_error:
+        print(f"[warn] collection {name} illisible : {collection_error}")
+        return []
+    documents = [d for d in (got.get("documents") or []) if isinstance(d, str) and d.strip()]
+    separator = strategy.get("document_name_separator")
+    values = []
+    for document in documents:
+        value = document.strip()
+        # On veut ce qu'un utilisateur taperait, c'est-a-dire le NOM, pas le document indexe avec
+        # sa description. Meme declaration par entite que cote resolution.
+        if separator and separator in value:
+            value = value.split(separator, 1)[0].strip()
+        if value:
+            values.append(value)
+    rng.shuffle(values)
+    return values[:per_type]
+
+
+def sample_from_catalogue(connection, collections_by_name, types_filter, per_type, rng):
     """Draw values straight from each resolver's OWN table, the surest positives there are.
 
     The archive fixed the middle of the distribution and could not fix its tail: across 24040
@@ -227,6 +263,11 @@ def sample_from_catalogue(connection, types_filter, per_type, rng):
                 continue
             strategy = next((s for s in (entry.get("search_list") or []) if s.get("strtablename")), None)
             if not strategy:
+                continue
+            # La collection prime sur la table des qu'elle existe : c'est elle que le
+            # resolveur interroge, la table ne sert qu'a recuperer la ligne ensuite.
+            if strategy.get("search_mode") == "embeddings" and strategy.get("collection"):
+                drawn[etype] = sample_from_collection(collections_by_name, strategy, per_type, rng)
                 continue
             table = strategy.get("strtablename")
             column = strategy.get("default_field")
@@ -540,9 +581,22 @@ def report(cases):
                 # and carry no vector distance at all. The remaining 21 are precisely the ones
                 # rapidfuzz missed, so the sample is both small AND biased towards the hard
                 # cases, and its flattering cut means nothing.
-                print("   %-11s AUCUNE recommandation : %d positifs seulement, et ce sont ceux"
-                      % ("", len(pv)))
-                print("   %-11s que l'autre voie a rates, donc un echantillon biaise" % "")
+                # Deux causes tres differentes, et les confondre egare. Soit le corpus entier
+                # est petit (--limit-per-type bas), soit le champ ne couvre qu'une minorite des
+                # positifs, et cette minorite est alors biaisee : sur Collection_name, 98 des 119
+                # positifs resolvent par rapidfuzz sans distance vectorielle, et les 21 qui en
+                # ont une sont precisement ceux que rapidfuzz a rates, donc les plus difficiles.
+                total_pos = len(pos)
+                if len(pv) >= total_pos * 0.8:
+                    print("   %-11s AUCUNE recommandation : %d positifs mesures seulement,"
+                          % ("", len(pv)))
+                    print("   %-11s corpus trop petit pour poser un seuil" % "")
+                else:
+                    print("   %-11s AUCUNE recommandation : %d positifs sur %d seulement portent"
+                          % ("", len(pv), total_pos))
+                    print("   %-11s ce champ, et ce sont ceux que l'autre voie a rates,"
+                          % "")
+                    print("   %-11s donc un echantillon petit ET biaise" % "")
                 entry[field] = {"skipped": "echantillon insuffisant", "positives": len(pv)}
                 continue
             cut = best_cut(pv, nv, higher)
@@ -604,10 +658,15 @@ def main():
     # file-only corpus. That is the honest degradation: fewer positives, same method.
     catalogue = {}
     connection = None
+    api = None
     if not args.build_only and args.catalogue_per_type:
+        # L'import de main est remonte ici : le tirage au catalogue a besoin des collections
+        # ChromaDB, qui n'existent qu'apres le demarrage du module.
+        import main as api  # noqa: F401
         connection = get_db_connection()
         catalogue = sample_from_catalogue(
-            connection, types_filter, args.catalogue_per_type, random.Random(args.seed))
+            connection, api.CHROMADB_COLLECTIONS_BY_NAME, types_filter,
+            args.catalogue_per_type, random.Random(args.seed))
         print("Catalogue : " + ", ".join(
             "%s=%d" % (k, len(v)) for k, v in sorted(catalogue.items())) or "vide")
 
@@ -625,7 +684,8 @@ def main():
     if args.build_only:
         payload = {"cases": cases, "suspects": suspects, "weakly_grounded": weak, "report": None}
     else:
-        import main as api  # module-level startup connects ChromaDB and loads the collections
+        if api is None:
+            import main as api  # module-level startup connects ChromaDB and loads the collections
         if connection is None:
             connection = get_db_connection()
         try:

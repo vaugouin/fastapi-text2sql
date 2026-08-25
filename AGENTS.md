@@ -257,6 +257,28 @@ Always also:
 
 ---
 
+## The indexed document is not the name (`document_name_separator`)
+
+Some collections index `name + " : " + description`, which helps the vector search a great deal
+and ruins the lexical one. Measured 2026-08-25: "Blaxploitation" against
+"Blaxploitation: Here is the list of..." scores **2.3** on `fuzz.ratio`, a perfect match graded as
+a disaster. 97% of `Death_name` candidates carry a description, 82% of `Nomination_name`, 81% of
+`Award_name`, 21% of `Movement_name`.
+
+Do NOT strip descriptions out of the embeddings to fix this. They are what lets "crise cardiaque"
+find "cardiac arrest", which the bare name cannot do. The description belongs in the vector space
+and has no business in an edit-distance ratio; the defect was in the score, not the indexing.
+
+`document_name_separator` declares the separator **per entity** in
+[data/entity_resolution.json](data/entity_resolution.json), and only the part before it is
+compared. Per entity and never globally, because a name can legitimately contain the separator:
+splitting "Star Trek: The Next Generation" blindly truncates it to "Star Trek", and 12% of
+`Movie_title` candidates carry a colon. The stripped name is also what gets reported as the
+candidate, so bench and logs show what was really compared.
+
+The durable fix belongs to `embedding-update`: store the bare name in the ChromaDB **metadata**
+alongside the document, and no separator can mislead anyone again.
+
 ## Descriptor words in entity scoring (`score_stopwords`)
 
 A word shared by the value sought and the candidate found inflates the similarity without

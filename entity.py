@@ -1029,6 +1029,20 @@ def plan_entity_resolutions(
                     # ever rejected, as before.
                     chosen_doc = documents[matched_result_position] if matched_result_position < len(documents) else ""
                     chosen_doc_norm = chosen_doc.strip().lower() if isinstance(chosen_doc, str) else ""
+                    # Certaines collections indexent "nom<sep>description", ce qui aide beaucoup
+                    # la recherche semantique et ruine la comparaison lexicale : mesure du
+                    # 2026-08-25, "Blaxploitation" contre "Blaxploitation: Here is the list of..."
+                    # note 2,3 alors que c'est une correspondance PARFAITE. La description a sa
+                    # place dans l'espace vectoriel et rien a faire dans un ratio d'edition.
+                    # Declare par entite, jamais globalement : un nom peut legitimement contenir
+                    # le separateur ("Star Trek: The Next Generation"), et decouper a l'aveugle le
+                    # tronquerait. Le nom nu sert AUSSI de candidat rapporte, pour que le banc et
+                    # les journaux montrent ce qui a reellement ete compare.
+                    _name_separator = search_cfg.get("document_name_separator")
+                    if _name_separator and _name_separator in chosen_doc_norm:
+                        chosen_doc_norm = chosen_doc_norm.split(_name_separator, 1)[0].strip()
+                        if isinstance(chosen_doc, str) and _name_separator in chosen_doc:
+                            chosen_doc = chosen_doc.split(_name_separator, 1)[0].strip()
                     chosen_distance = None
                     if matched_result_position < len(distances):
                         try:

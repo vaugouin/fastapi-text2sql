@@ -171,7 +171,8 @@
           "en": "AWARD_NAME",
           "fr": "AWARD_NAME_FR",
           "*": "AWARD_NAME"
-        }
+        },
+        "document_name_separator": ": "
       }
     ]
   },
@@ -189,7 +190,8 @@
           "en": "NOMINATION_NAME",
           "fr": "NOMINATION_NAME_FR",
           "*": "NOMINATION_NAME"
-        }
+        },
+        "document_name_separator": ": "
       }
     ]
   },
@@ -274,7 +276,8 @@
           "en": "MOVEMENT_NAME",
           "fr": "MOVEMENT_NAME_FR",
           "*": "MOVEMENT_NAME"
-        }
+        },
+        "document_name_separator": ": "
       }
     ]
   },
@@ -328,7 +331,8 @@
           "en": "DEATH_NAME",
           "fr": "DEATH_NAME_FR",
           "*": "DEATH_NAME"
-        }
+        },
+        "document_name_separator": ": "
       }
     ]
   }
