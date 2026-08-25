@@ -257,6 +257,30 @@ Always also:
 
 ---
 
+## Entity resolution thresholds (`min_fuzz_ratio`)
+
+Every resolver now carries a rejection threshold. Do NOT adjust one by hand on the strength of a
+single bad case: each value is the midpoint of a measured equivalence interval, and the method
+that produced it, the data it used and the traps it walked into are written up in
+[doc/entity-resolution-thresholds.md](doc/entity-resolution-thresholds.md). Re-run
+[eval/bench-entity-resolution.py](eval/bench-entity-resolution.py) and read the interval instead.
+
+Three things from that document are worth knowing before touching this area at all.
+
+The gate lives on **both** paths since 2026-08-25. `min_fuzz_ratio` used to be read only in the
+embeddings branch, so declaring it on a rapidfuzz strategy did strictly nothing, which is why
+`Person_name` could never fail and invented names resolved to real people. An exact normalized
+match always passes; a rejection falls through to the next strategy and then to the raw fallback.
+
+The **ratio, not the distance**, and that was measured: 42 total errors against 94 for the vector
+distance over the twelve embeddings types, the conjunction saving only seven more at the price of
+a second parameter per entity. The expectation was the opposite.
+
+The `Person_name` alias strategy carries a **provisional, unmeasured** 90.0. That table was
+unreachable while the first strategy always resolved, and a strategy that cannot be reached cannot
+be measured, so calibrating it needs a second bench run after deployment. The two stages cannot be
+collapsed.
+
 ## The indexed document is not the name (`document_name_separator`)
 
 Some collections index `name + " : " + description`, which helps the vector search a great deal

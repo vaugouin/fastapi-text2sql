@@ -854,6 +854,12 @@ def plan_entity_resolutions(
                         # the matched text, which is exactly what min_fuzz_ratio gates on. Using
                         # rapidfuzz's own internal score instead would produce two scales that
                         # cannot be compared when calibrating.
+                        # Initialises avant le try : le garde ci-dessous les lit, et un echec
+                        # precoce du bloc les laisserait indefinis.
+                        _matched_text = ""
+                        _sought_norm = ""
+                        _matched_norm = ""
+                        _rf_ratio = None
                         try:
                             _matched_text = str(best.get(strcolumndesc) or "") if strcolumndesc else ""
                             _sought_norm = raw_value.strip().lower()
@@ -879,7 +885,34 @@ def plan_entity_resolutions(
                                 "min_fuzz_ratio": search_cfg.get("min_fuzz_ratio"),
                             })
                         except Exception:
-                            pass
+                            _rf_ratio = None
+
+                        # Confidence gate, rapidfuzz side (FASTAPI-TEXT2SQL-206). `min_fuzz_ratio`
+                        # existed but was read ONLY in the embeddings branch, so declaring it on a
+                        # rapidfuzz strategy did strictly nothing. That is why Person_name, which
+                        # is rapidfuzz-only, could never fail: it always returned its best match
+                        # however far, and invented names resolved to real people
+                        # ("Zamboni-Trask" -> "Massimo Zamboni" at 50.0).
+                        #
+                        # Same semantics as the embeddings gate, to the letter: an exact
+                        # normalized match always passes, a rejection falls through to the next
+                        # strategy and, failing that, to the raw fallback the complex-question
+                        # retry then catches.
+                        _rf_min = search_cfg.get("min_fuzz_ratio")
+                        if (
+                            _rf_min is not None
+                            and _rf_ratio is not None
+                            and _sought_norm != _matched_norm
+                            and _rf_ratio < _rf_min
+                        ):
+                            if match_scores and match_scores[-1].get("search_mode") == "rapidfuzz":
+                                match_scores[-1]["rejected"] = True
+                            planned.note(
+                                f"Entity resolution: {placeholder} -> rejected best RapidFuzz candidate "
+                                f"'{_matched_text}' (fuzz_ratio={_rf_ratio:.0f}) below confidence "
+                                f"threshold (min_fuzz_ratio={_rf_min}) in {strtablename}"
+                            )
+                            continue
 
                         # Confidence gate (FASTAPI-TEXT2SQL-062): when `require_confident`
                         # is set, only accept an exact / high-confidence auto-correct

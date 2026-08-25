@@ -17,7 +17,8 @@
         },
         "rapidfuzz_col_norm": "PERSON_NAME_NORM",
         "rapidfuzz_col_key": "PERSON_NAME_KEY",
-        "rapidfuzz_col_popularity": "POPULARITY"
+        "rapidfuzz_col_popularity": "POPULARITY",
+        "min_fuzz_ratio": 84.5
       },
       {
         "search_mode": "rapidfuzz",
@@ -40,7 +41,8 @@
           "table": "T_WC_T2S_PERSON",
           "id_column": "ID_PERSON",
           "value_column": "PERSON_NAME"
-        }
+        },
+        "min_fuzz_ratio": 90.0
       }
     ]
   },
@@ -60,7 +62,8 @@
           "en": "MOVIE_TITLE",
           "fr": "MOVIE_TITLE_FR",
           "*": "ORIGINAL_TITLE"
-        }
+        },
+        "min_fuzz_ratio": 85.85
       }
     ]
   },
@@ -79,7 +82,8 @@
           "en": "SERIE_TITLE",
           "fr": "SERIE_TITLE_FR",
           "*": "ORIGINAL_TITLE"
-        }
+        },
+        "min_fuzz_ratio": 87.85
       }
     ]
   },
@@ -95,7 +99,8 @@
         "order_by": null,
         "languages": {
           "*": "COMPANY_NAME"
-        }
+        },
+        "min_fuzz_ratio": 77.5
       }
     ]
   },
@@ -111,7 +116,8 @@
         "order_by": null,
         "languages": {
           "*": "NETWORK_NAME"
-        }
+        },
+        "min_fuzz_ratio": 78.45
       }
     ]
   },
@@ -135,7 +141,8 @@
           "trilogie",
           "saga",
           "collection"
-        ]
+        ],
+        "min_fuzz_ratio": 69.1
       }
     ]
   },
@@ -153,7 +160,8 @@
           "en": "LIST_NAME",
           "fr": "LIST_NAME_FR",
           "*": "LIST_NAME"
-        }
+        },
+        "min_fuzz_ratio": 67.1
       }
     ]
   },
@@ -172,7 +180,8 @@
           "fr": "AWARD_NAME_FR",
           "*": "AWARD_NAME"
         },
-        "document_name_separator": ": "
+        "document_name_separator": ": ",
+        "min_fuzz_ratio": 74.45
       }
     ]
   },
@@ -191,7 +200,8 @@
           "fr": "NOMINATION_NAME_FR",
           "*": "NOMINATION_NAME"
         },
-        "document_name_separator": ": "
+        "document_name_separator": ": ",
+        "min_fuzz_ratio": 57.15
       }
     ]
   },
@@ -210,7 +220,8 @@
         "strip_franchise_stopwords": true,
         "languages": {
           "*": "COLLECTION_NAME"
-        }
+        },
+        "min_fuzz_ratio": 72
       },
       {
         "search_mode": "embeddings",
@@ -277,7 +288,8 @@
           "fr": "MOVEMENT_NAME_FR",
           "*": "MOVEMENT_NAME"
         },
-        "document_name_separator": ": "
+        "document_name_separator": ": ",
+        "min_fuzz_ratio": 56.1
       }
     ]
   },
@@ -295,7 +307,8 @@
           "en": "ITEM_LABEL",
           "fr": "ITEM_LABEL_FR",
           "*": "ITEM_LABEL"
-        }
+        },
+        "min_fuzz_ratio": 71.8
       }
     ]
   },
@@ -313,7 +326,8 @@
           "en": "GROUP_NAME",
           "fr": "GROUP_NAME_FR",
           "*": "GROUP_NAME"
-        }
+        },
+        "min_fuzz_ratio": 77.5
       }
     ]
   },
@@ -332,7 +346,8 @@
           "fr": "DEATH_NAME_FR",
           "*": "DEATH_NAME"
         },
-        "document_name_separator": ": "
+        "document_name_separator": ": ",
+        "min_fuzz_ratio": 54.05
       }
     ]
   }
