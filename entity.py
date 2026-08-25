@@ -863,6 +863,12 @@ def plan_entity_resolutions(
                                 "placeholder": placeholder,
                                 "search_mode": "rapidfuzz",
                                 "collection": search_cfg.get("collection"),
+                                # La table, et pas seulement la collection : les deux strategies
+                                # Person_name declarent toutes deux `persons`, seule la table les
+                                # distingue (T_WC_T2S_PERSON contre la table des alias). Sans elle
+                                # on ne peut pas savoir laquelle a produit un score, ce qui est
+                                # indispensable pour calibrer la seconde (FASTAPI-TEXT2SQL-206).
+                                "table": search_cfg.get("strtablename"),
                                 "sought": raw_value,
                                 "candidate": _matched_text,
                                 "distance": None,
@@ -1081,6 +1087,7 @@ def plan_entity_resolutions(
                         "placeholder": placeholder,
                         "search_mode": "embeddings",
                         "collection": collection_name,
+                        "table": search_cfg.get("strtablename"),
                         "sought": raw_value,
                         "candidate": chosen_doc if isinstance(chosen_doc, str) else "",
                         "distance": chosen_distance,

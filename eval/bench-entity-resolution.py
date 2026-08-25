@@ -475,6 +475,14 @@ def run_cases(cases, connection, collections_by_name):
             case["fuzz_ratio"] = best.get("fuzz_ratio")
             case["candidate"] = best.get("candidate")
             case["search_mode"] = best.get("search_mode")
+            # La table et la collection identifient la STRATEGIE, ce que le banc oubliait de
+            # recopier : sur Person_name, deux strategies rapidfuzz partagent la collection
+            # `persons` et seule la table les separe. fuzz_ratio_raw dit ce que le score aurait
+            # ete sans neutralisation des descripteurs, pour que l'effet reste auditable.
+            case["table"] = best.get("table")
+            case["collection"] = best.get("collection")
+            case["fuzz_ratio_raw"] = best.get("fuzz_ratio_raw")
+            case["stopwords_applied"] = best.get("stopwords_applied")
             case["exact_match"] = best.get("exact_match")
             case["rejected_by_current_threshold"] = best.get("rejected")
         if index % 100 == 0:
