@@ -60,10 +60,18 @@ It did nothing for the true tail, and could not: across 24040 archived requests 
 shows SEVEN distinct values, because nobody asks about a network by name. The scarcity is in the
 usage, not in the sampling.
 
-So the tail is fed from the catalogue instead (--catalogue-per-type), drawing from each
-resolver's own table, ordered by the popularity column the config already names so the sample
-looks like what users ask about rather than like the alphabet. Unlimited, and better grounded
-than usage will ever be.
+So the tail is fed from the catalogue instead (--catalogue-per-type), drawing from the resolver's
+own ChromaDB collection, or from its table for a rapidfuzz strategy, ordered by the popularity
+column the config already names so the sample looks like what users ask about rather than like the
+alphabet. Unlimited, and better grounded than usage will ever be.
+
+The draw covers EVERY strategy of a type, not just the first, and that matters for the only type
+that has two. Person_name searches the persons table, then the alias table. Values from the first
+resolve there and never cascade, so drawing only from it could measure nothing about the second:
+the alias strategy was immeasurable exactly as long as it was unreachable. Values from the ALIAS
+table are the population that was missing, since "Maurice Scherer" does not exist in the persons
+table and therefore fails its threshold and carries the case through. The report then gives one
+cut per resolving table, because a threshold is set per strategy and not per entity.
 
 READING THE OUTPUT
 Distance is a DISSIMILARITY: larger means further, and a threshold reads `distance <= max`.
@@ -261,32 +269,40 @@ def sample_from_catalogue(connection, collections_by_name, types_filter, per_typ
             etype = entry.get("placeholder_prefix")
             if etype not in wanted:
                 continue
-            strategy = next((s for s in (entry.get("search_list") or []) if s.get("strtablename")), None)
-            if not strategy:
-                continue
-            # La collection prime sur la table des qu'elle existe : c'est elle que le
-            # resolveur interroge, la table ne sert qu'a recuperer la ligne ensuite.
-            if strategy.get("search_mode") == "embeddings" and strategy.get("collection"):
-                drawn[etype] = sample_from_collection(collections_by_name, strategy, per_type, rng)
-                continue
-            table = strategy.get("strtablename")
-            column = strategy.get("default_field")
-            if not table or not column:
-                continue
-            order_by = strategy.get("rapidfuzz_col_popularity") or strategy.get("order_by")
-            # Identifiers come from a repository config file, never from a request, and are
-            # interpolated because MySQL will not parameterise a table or column name.
-            order_clause = f"ORDER BY `{order_by}` DESC " if order_by else ""
-            sql = (f"SELECT `{column}` AS value FROM `{table}` "
-                   f"WHERE `{column}` IS NOT NULL AND `{column}` <> '' {order_clause}LIMIT %s")
-            try:
-                cursor.execute(sql, (max(per_type * 3, 30),))
-                rows = [str(r["value"]).strip() for r in cursor.fetchall() if r.get("value")]
-            except Exception as query_error:
-                print(f"[warn] catalogue {etype} ({table}.{column}) : {query_error}")
-                continue
-            rng.shuffle(rows)
-            drawn[etype] = rows[:per_type]
+            # TOUTES les strategies, pas seulement la premiere (FASTAPI-TEXT2SQL-206, etape alias).
+            # Person_name en a deux : la table des personnes, puis celle des alias. Tirer les
+            # positifs de la seule premiere ne pouvait rien mesurer sur la seconde, puisque ces
+            # valeurs s'y resolvent avant de cascader. Les valeurs de la table des alias, elles,
+            # n'existent PAS dans la table des personnes ("Maurice Scherer" contre "Eric Rohmer"),
+            # donc elles echouent le seuil de la premiere et portent le cas jusqu'a la seconde.
+            # C'est exactement la population qui manquait.
+            per_strategy = max(1, per_type // max(1, len(entry.get("search_list") or [1])))
+            for strategy in entry.get("search_list") or []:
+                table = strategy.get("strtablename")
+                # La collection prime sur la table des qu'elle existe : c'est elle que le
+                # resolveur interroge, la table ne sert qu'a recuperer la ligne ensuite.
+                if strategy.get("search_mode") == "embeddings" and strategy.get("collection"):
+                    for value in sample_from_collection(collections_by_name, strategy, per_strategy, rng):
+                        drawn[etype].append({"value": value, "source": strategy.get("collection")})
+                    continue
+                column = strategy.get("default_field")
+                if not table or not column:
+                    continue
+                order_by = strategy.get("rapidfuzz_col_popularity") or strategy.get("order_by")
+                # Identifiers come from a repository config file, never from a request, and are
+                # interpolated because MySQL will not parameterise a table or column name.
+                order_clause = f"ORDER BY `{order_by}` DESC " if order_by else ""
+                sql = (f"SELECT `{column}` AS value FROM `{table}` "
+                       f"WHERE `{column}` IS NOT NULL AND `{column}` <> '' {order_clause}LIMIT %s")
+                try:
+                    cursor.execute(sql, (max(per_strategy * 3, 30),))
+                    rows = [str(r["value"]).strip() for r in cursor.fetchall() if r.get("value")]
+                except Exception as query_error:
+                    print(f"[warn] catalogue {etype} ({table}.{column}) : {query_error}")
+                    continue
+                rng.shuffle(rows)
+                for value in rows[:per_strategy]:
+                    drawn[etype].append({"value": value, "source": table})
     return drawn
 
 
@@ -332,15 +348,21 @@ def build_corpus(limit_per_type, types_filter, seed, use_pool_as_positive, catal
     # itself. They also feed the negative pool, so a catalogue value of one type can be injected
     # into the resolver of another.
     catalogue_cases = []
-    for etype, values in (catalogue or {}).items():
+    for etype, entries in (catalogue or {}).items():
         if etype not in wanted:
             continue
-        for value in values:
+        for entry in entries:
+            # `source` dit de quelle table ou collection la valeur a ete tiree, ce qui est la
+            # seule facon de lire un type a plusieurs strategies : sur Person_name, les valeurs
+            # venues de la table des alias sont celles qui exercent la seconde strategie.
+            value = entry["value"] if isinstance(entry, dict) else entry
+            source = entry.get("source") if isinstance(entry, dict) else None
             pool[etype].add(value)
-            catalogue_cases.append({"type": etype, "value": value, "klass": "positive-catalogue"})
+            catalogue_cases.append({"type": etype, "value": value,
+                                    "klass": "positive-catalogue", "source": source})
             typo = mutate(value, rng)
             if typo != value:
-                catalogue_cases.append({"type": etype, "value": typo,
+                catalogue_cases.append({"type": etype, "value": typo, "source": source,
                                         "klass": "positive-catalogue-typo", "expected": value})
 
     # Thin types have no scored positives at all. Falling back to the unscored pool is a weaker
@@ -632,6 +654,31 @@ def report(cases):
                     print("                r=%5.1f  %-26s -> %s"
                           % (c["fuzz_ratio"], str(c["value"])[:26], str(c.get("candidate"))[:36]))
                 entry["observed_below_50"] = len(low)
+
+        # Un seuil se pose PAR STRATEGIE, pas par entite. Quand les cas d'un type se resolvent
+        # par plusieurs tables, on rend une coupe pour chacune : c'est ce qui permet de calibrer
+        # la table des alias de Person_name, restee immesurable tant que la premiere strategie
+        # resolvait toujours et l'empechait d'etre atteinte.
+        tables = {c.get("table") for c in pos + neg if c.get("table")}
+        if len(tables) > 1:
+            print("   --- par strategie, car un seuil se pose par strategie ---")
+            for table in sorted(tables):
+                tp = [c for c in pos if c.get("table") == table]
+                tn = [c for c in neg if c.get("table") == table]
+                pv = sorted(c["fuzz_ratio"] for c in tp if isinstance(c.get("fuzz_ratio"), (int, float)))
+                nv = sorted(c["fuzz_ratio"] for c in tn if isinstance(c.get("fuzz_ratio"), (int, float)))
+                if not pv or not nv:
+                    print("   %-28s %d positifs, %d negatifs : trop peu pour une coupe"
+                          % (table[:28], len(pv), len(nv)))
+                    continue
+                tcut = best_cut(pv, nv, True)
+                print("   %-28s pos n=%d med=%.1f min=%.1f | neg n=%d max=%.1f"
+                      % (table[:28], len(pv), pv[len(pv) // 2], pv[0], len(nv), nv[-1]))
+                if tcut:
+                    print("   %-28s seuil >= %.2f (%d refuses, %d admis), equivalent de %.2f a %.2f"
+                          % ("", tcut.get("robust_cut", tcut["cut"]), tcut["legitimate_refused"],
+                             tcut["strangers_accepted"], tcut["equivalent_from"], tcut["equivalent_to"]))
+                    entry.setdefault("par_strategie", {})[table] = tcut
 
         if dirty:
             print("   croisements ecartes, le candidat contient la valeur injectee :")
