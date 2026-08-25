@@ -467,8 +467,18 @@ def run_cases(cases, connection, collections_by_name):
             continue
         scored = plan.get("match_scores") or []
         mine = [s for s in scored if base_type(s.get("placeholder")) == case["type"]] or scored
+        # La trace COMPLETE, une entree par strategie ayant pese le cas. Retenir la premiere,
+        # ce que faisait le banc, attribuait a la strategie 1 des scores qu'elle avait rejetes et
+        # qu'une autre avait resolus : mesure du 2026-08-25, 31 valeurs tirees de la table des
+        # alias comptees comme positifs de la table des personnes a 43,5, ce qui a fait tomber le
+        # seuil recommande de 84,5 a 51,1.
+        case["scores"] = mine
         if mine:
-            best = mine[0]
+            # Le score qui compte est celui de la strategie qui a REELLEMENT resolu ; a defaut,
+            # la meilleure tentative, celle qui a approche le plus pres du seuil.
+            won = [s for s in mine if not s.get("rejected")]
+            best = won[-1] if won else max(
+                mine, key=lambda s: s.get("fuzz_ratio") if isinstance(s.get("fuzz_ratio"), (int, float)) else -1)
             # Une injection croisee suppose qu'une valeur d'un type n'appartient jamais a un
             # autre. Faux : un titre de serie a souvent sa collection. Mesure du 2026-08-24,
             # "Star Trek: The Next Generation" resout vers "Star Trek: The Next Generation
@@ -659,14 +669,35 @@ def report(cases):
         # par plusieurs tables, on rend une coupe pour chacune : c'est ce qui permet de calibrer
         # la table des alias de Person_name, restee immesurable tant que la premiere strategie
         # resolvait toujours et l'empechait d'etre atteinte.
-        tables = {c.get("table") for c in pos + neg if c.get("table")}
+        # La classe appartient au couple (cas, strategie), pas au cas. Une valeur tiree de la
+        # table T est un positif pour la strategie qui interroge T, et un NEGATIF pour toute
+        # autre : "Rien All Ahmet" vient de la table des alias, donc la table des personnes a
+        # raison de la refuser. Ces cas font les meilleurs negatifs dont on dispose, bien
+        # meilleurs que l'injection croisee, puisque ce sont de vrais noms de personnes qui
+        # n'appartiennent authentiquement pas a la table interrogee.
+        all_cases = pos + neg + [c for k, v in klasses.items() if k.startswith("observed") for c in v]
+        tables = {s.get("table") for c in all_cases for s in (c.get("scores") or []) if s.get("table")}
         if len(tables) > 1:
             print("   --- par strategie, car un seuil se pose par strategie ---")
             for table in sorted(tables):
-                tp = [c for c in pos if c.get("table") == table]
-                tn = [c for c in neg if c.get("table") == table]
-                pv = sorted(c["fuzz_ratio"] for c in tp if isinstance(c.get("fuzz_ratio"), (int, float)))
-                nv = sorted(c["fuzz_ratio"] for c in tn if isinstance(c.get("fuzz_ratio"), (int, float)))
+                pv, nv = [], []
+                for c in all_cases:
+                    for s in (c.get("scores") or []):
+                        if s.get("table") != table:
+                            continue
+                        r = s.get("fuzz_ratio")
+                        if not isinstance(r, (int, float)):
+                            continue
+                        k = c["klass"]
+                        if k.startswith("observed"):
+                            continue
+                        if k.startswith("positive-catalogue"):
+                            (pv if c.get("source") == table else nv).append(r)
+                        elif k.startswith("negative"):
+                            nv.append(r)
+                        elif not s.get("rejected"):
+                            pv.append(r)
+                pv.sort(); nv.sort()
                 if not pv or not nv:
                     print("   %-28s %d positifs, %d negatifs : trop peu pour une coupe"
                           % (table[:28], len(pv), len(nv)))

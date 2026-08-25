@@ -91,6 +91,26 @@ filtered elsewhere. Drawing from the table produced "-M- discography" and "...An
 locations, none of which resolved, and made the resolver look broken when the bench was: its
 catalogue positives sat at a median ratio of 38.3, against 100.0 once corrected.
 
+## 4bis. A threshold belongs to a strategy, and so does a class
+
+`Person_name` searches the persons table, then the alias table. A threshold is set per strategy,
+so the bench must measure each one separately, and that has a consequence which is easy to get
+wrong: **the class belongs to the (case, strategy) pair, not to the case**.
+
+A value drawn from table T is a positive for the strategy that searches T, and a **negative** for
+every other. "Rien All Ahmet" comes from the alias table, so the persons table is right to refuse
+it. Those cases make the best negatives available, better than cross injection, because they are
+genuine person names that authentically do not belong to the table being queried.
+
+Getting this wrong cost a full run on 2026-08-25. The bench recorded the **first** score rather
+than the resolving one, so 31 alias-drawn values were counted as persons-table positives at
+ratios around 43.5, which were in fact that strategy correctly rejecting them. The recommended
+cut fell from 84.5 to 51.1 with 16 intruders admitted. Nothing was wrong with the resolver; the
+instrument attributed a rejection to the wrong population.
+
+Each case therefore carries its full `scores` trace, one entry per strategy that weighed it, and
+the per-strategy report is built from those entries rather than from a single collapsed value.
+
 ## 5. Traps the measurement walked into, and how each is handled
 
 Every one of these was found by the bench contradicting itself, not by reading the code.
