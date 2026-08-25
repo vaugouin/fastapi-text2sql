@@ -66,9 +66,14 @@ BASE_URL = os.environ["BASE_URL"].rstrip("/")
 REPO_DIR = os.environ["REPO_DIR"]
 
 QUESTIONS = [
-    ("Bogart, le temoin",   "List all color movies with Humphrey Bogart"),
-    ("Wagonlit, le faux positif", "Movies from the Wagonlit collection"),
-    ("Zorglub, le vrai rejet",    "Collection Zorglub"),
+    ("Bogart, le temoin",            "List all color movies with Humphrey Bogart"),
+    ("Wagonlit, le faux positif",    "Movies from the Wagonlit collection"),
+    ("Zorglub, le vrai rejet",       "Collection Zorglub"),
+    # Le garde rapidfuzz n'existe que depuis le 2026-08-25 : min_fuzz_ratio n'etait lu que dans la
+    # branche embeddings, donc Person_name, purement rapidfuzz, ne pouvait pas echouer.
+    ("Zamboni-Trask, personne inventee", "Movies with Zamboni-Trask"),
+    # La faute de frappe doit continuer de passer : c'est ce qu'un seuil ne doit jamais casser.
+    ("Bogrart, la faute de frappe",  "List all color movies with Humphrey Bogrart"),
 ]
 
 
