@@ -790,7 +790,7 @@ The current Claude.ai connector UI only supports OAuth, not static bearer tokens
 
 ## 7. Checking the Deployed MCP API Version
 
-Use [text2sql-mcp-server-version-check.ps1](text2sql-mcp-server-version-check.ps1) from the repository root to verify which FastAPI `strapiversion` is currently served through the public MCP endpoint.
+Use [text2sql-mcp-server-version-check.ps1](../text2sql-mcp-server-version-check.ps1) from the repository root to verify which FastAPI `strapiversion` is currently served through the public MCP endpoint.
 
 The script:
 

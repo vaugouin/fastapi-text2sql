@@ -755,7 +755,7 @@ Returns all `T_WC_TMDB_SEASON` fields for a single season of a TV series, identi
 
 Example: `GET /seasons/1396/5` returns season 5 of *Breaking Bad* (ID_SERIE 1396).
 
-The endpoint reads its rows from the TMDb source tables `T_WC_TMDB_SEASON`, `T_WC_TMDB_PERSON_SEASON`, `T_WC_TMDB_SEASON_IMAGE` and `T_WC_TMDB_EPISODE`, and `LEFT JOIN`s `T_WC_T2S_EPISODE` for the IMDb rating fields on each episode row. The `T_WC_T2S_SEASON` / `T_WC_T2S_EPISODE` read-model tables **now exist** (tmdb-movie-preprocess Processes 27/28); the row source has deliberately not been swapped yet because the T2S scope filter and the `TITLE` → `EPISODE_TITLE` rename are behaviour changes — see [SEASONS_AND_EPISODES.md](SEASONS_AND_EPISODES.md) §6.1 and the 2026-07-26 status note.
+The endpoint reads its rows from the TMDb source tables `T_WC_TMDB_SEASON`, `T_WC_TMDB_PERSON_SEASON`, `T_WC_TMDB_SEASON_IMAGE` and `T_WC_TMDB_EPISODE`, and `LEFT JOIN`s `T_WC_T2S_EPISODE` for the IMDb rating fields on each episode row. The `T_WC_T2S_SEASON` / `T_WC_T2S_EPISODE` read-model tables **now exist** (tmdb-movie-preprocess Processes 27/28); the row source has deliberately not been swapped yet because the T2S scope filter and the `TITLE` → `EPISODE_TITLE` rename are behaviour changes — see [SEASONS_AND_EPISODES.md](doc/SEASONS_AND_EPISODES.md) §6.1 and the 2026-07-26 status note.
 
 | Field | Shape |
 |---|---|
@@ -778,7 +778,7 @@ Returns all `T_WC_TMDB_EPISODE` fields for a single episode, identified by the c
 
 Example: `GET /episodes/1396/5/14` returns "Ozymandias" — *Breaking Bad* season 5, episode 14.
 
-The endpoint reads its rows from the TMDb source tables `T_WC_TMDB_EPISODE`, `T_WC_TMDB_PERSON_EPISODE` and `T_WC_TMDB_EPISODE_IMAGE`, and `LEFT JOIN`s `T_WC_T2S_EPISODE` for `IMDB_RATING` / `IMDB_VOTES`. The `T_WC_T2S_EPISODE` read-model table **now exists** (tmdb-movie-preprocess Process 28); the row source has deliberately not been swapped yet — see [SEASONS_AND_EPISODES.md](SEASONS_AND_EPISODES.md) §6.1 and the 2026-07-26 status note.
+The endpoint reads its rows from the TMDb source tables `T_WC_TMDB_EPISODE`, `T_WC_TMDB_PERSON_EPISODE` and `T_WC_TMDB_EPISODE_IMAGE`, and `LEFT JOIN`s `T_WC_T2S_EPISODE` for `IMDB_RATING` / `IMDB_VOTES`. The `T_WC_T2S_EPISODE` read-model table **now exists** (tmdb-movie-preprocess Process 28); the row source has deliberately not been swapped yet — see [SEASONS_AND_EPISODES.md](doc/SEASONS_AND_EPISODES.md) §6.1 and the 2026-07-26 status note.
 
 | Field | Shape |
 |---|---|
@@ -1168,8 +1168,6 @@ fastapi-text2sql/
 ├── language_family.py       # Latin vs non-Latin script detection for person name routing
 ├── rapidfuzz_query.py       # RapidFuzz + MariaDB/MySQL lexical matching utilities
 ├── cleanup.py               # Cache cleanup functions (ChromaDB and SQL)
-├── RAPIDFUZZ.md             # RapidFuzz module documentation
-├── MCP.md                   # MCP integration guide (tools, resources, deployment, Claude connector)
 ├── requirements.txt         # Python dependencies
 ├── Dockerfile               # Docker configuration for containerized deployment
 ├── .env.example             # Example environment variables template
@@ -1185,8 +1183,17 @@ fastapi-text2sql/
 │   └── closed_vocabularies.json                                      # Closed-vocabulary aliases for Movie_genre, Serie_genre, Technical_format, Status_name, Serie_type, Department_name (hot-reloaded)
 ├── eval/                    # Evaluation harness (see eval/README.md)
 │   ├── text2sql-eval.py                                              # End-to-end evaluator against the running API
-│   └── bench-entity-extraction.py                                    # Offline A/B comparison of two extraction configurations
-├── doc/
+│   ├── bench-entity-extraction.py                                    # Offline A/B comparison of two extraction configurations
+│   ├── bench-entity-resolution.py                                    # Offline bench that calibrates the entity-resolution thresholds
+│   ├── harvest-archived-entities.py                                  # Harvests entity values from the archived VPS logs
+│   └── verif-206.sh                                                  # Three-question production probe of the resolution measurement
+├── doc/                     # Reference documentation (see doc/AGENTS.md for the index)
+│   ├── entity-resolution-thresholds.md                               # How each min_fuzz_ratio was measured, and how to redo it
+│   ├── MCP.md                                                        # MCP integration guide (tools, resources, deployment, Claude connector)
+│   ├── RAPIDFUZZ.md                                                  # RapidFuzz module documentation
+│   ├── SEASONS_AND_EPISODES.md                                       # Seasons and episodes endpoints, their source tables and open gaps
+│   ├── EXTEND_T2S_TECHNICAL.md                                       # Technical_format extension: schema, prompt and resolver changes
+│   ├── closed-vocab-entity-plan.md                                   # Closed-vocabulary entity rollout plan
 │   └── sql/                 # Reference SQL dumps for canonical tables
 │       └── T_WC_T2S_TECHNICAL.sql                                    # 56-row Technical_format canonical table
 ├── logs/                    # API usage logs with timing metrics (auto-created)
@@ -1203,7 +1210,7 @@ fastapi-text2sql/
 - **Reasoning Retry Helpers**: `text2sql.py` contains stronger-model calls and retry-question construction helpers
 - **Endpoint Orchestration**: `main.py` coordinates request flow, recursive retry execution, and response/message merging
 - **Entity Detail Endpoints**: 14 endpoints returning full entity data with embedded relations, each with usage logging
-- **MCP Server**: FastMCP 2.x tools and resource exposed at `/mcp` for Claude clients (see `MCP.md`)
+- **MCP Server**: FastMCP 2.x tools and resource exposed at `/mcp` for Claude clients (see `doc/MCP.md`)
 - **Blue/Green Deployment**: Automatic port selection based on API version (even: port 8000, odd: port 8001)
 - **Processing Transparency**: Messages array tracks every processing step for debugging and analysis
 - **Version Management**: Utility functions for version comparison and automatic cache cleanup
@@ -1727,7 +1734,9 @@ This project is open source. Please check the repository for license details.
 - **Anthropic API**: https://docs.anthropic.com/
 - **Google Gemini API**: https://ai.google.dev/docs
 - **FastMCP**: https://github.com/jlowin/fastmcp
-- **MCP Integration Guide**: See `MCP.md` in this repository
+- **Reference documentation**: everything long-form lives in [doc/](doc/), indexed by [doc/AGENTS.md](doc/AGENTS.md). Start there rather than guessing a filename
+- **Entity resolution thresholds**: [doc/entity-resolution-thresholds.md](doc/entity-resolution-thresholds.md) explains how every `min_fuzz_ratio` was measured, what data was used, and how to redo it for a new entity. Read it before changing a value by hand
+- **MCP Integration Guide**: See `doc/MCP.md` in this repository
 
 ---
 

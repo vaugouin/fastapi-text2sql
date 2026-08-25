@@ -4560,7 +4560,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     LEFT JOINed for the IMDb fields only, deliberately not used as the row source: it
     holds only episodes whose parent serie AND season are themselves in T2S, so
     switching would silently narrow this endpoint. Full migration remains a
-    registered site in SEASONS_AND_EPISODES.md section 6.1.
+    registered site in doc/SEASONS_AND_EPISODES.md section 6.1.
 
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It
@@ -4849,7 +4849,7 @@ async def get_episode(
     the IMDb fields only, deliberately not used as the row source: it holds only
     episodes whose parent serie AND season are themselves in T2S, so switching would
     silently narrow what this endpoint returns. Full migration remains a registered
-    site in SEASONS_AND_EPISODES.md section 6.1.
+    site in doc/SEASONS_AND_EPISODES.md section 6.1.
 
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It

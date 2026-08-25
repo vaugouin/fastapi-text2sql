@@ -465,7 +465,7 @@ Rows written before an indicator existed keep `NULL`, which says "this campaign 
 - Costs (reserved): `ENTITY_EXTRACTION_COST`, `TEXT2SQL_COST`, `TOTAL_COST`
 - Audit: `DELETED`, `DAT_CREAT`, `TIM_UPDATED`, `TIM_EXECUTION`
 
-Schema DDL lives at [T2S_EVALUATION-tables.sql](T2S_EVALUATION-tables.sql) and [T2S_EVALUATION-tables-with-data.sql](T2S_EVALUATION-tables-with-data.sql).
+Schema DDL lives at [T2S_EVALUATION-tables.sql](../doc/sql/T2S_EVALUATION-tables.sql) and [T2S_EVALUATION-tables-with-data.sql](../doc/sql/T2S_EVALUATION-tables-with-data.sql).
 
 ### Common queries
 
@@ -568,8 +568,8 @@ ASSERTIONS_ENTITY_EXTRACTION: PASS
 | [Dockerfile](Dockerfile) | `python:3.11-slim` base; installs `requirements.txt`; entrypoint `python ./text2sql-eval.py` |
 | [text2sql-eval.sh](text2sql-eval.sh) | Build image + run container (detached, host network) |
 | [requirements.txt](requirements.txt) | `requests`, `pymysql`, `pandas>=1.5`, `numpy>=1.21`, `pytest>=7`, `pytz`, `python-dotenv>=1`, `openai>=1` |
-| [T2S_EVALUATION-tables.sql](T2S_EVALUATION-tables.sql) | DDL for the three evaluation tables |
-| [T2S_EVALUATION-tables-with-data.sql](T2S_EVALUATION-tables-with-data.sql) | DDL + seed question bank |
+| [T2S_EVALUATION-tables.sql](../doc/sql/T2S_EVALUATION-tables.sql) | DDL for the three evaluation tables |
+| [T2S_EVALUATION-tables-with-data.sql](../doc/sql/T2S_EVALUATION-tables-with-data.sql) | DDL + seed question bank |
 | [how-many-samples-evals-by-category.ipynb](how-many-samples-evals-by-category.ipynb) | Coverage-by-category reporting notebook — reads the Phase 30/31 JSON exports under [data/evaluation_category/](data/evaluation_category/) and [data/evaluation/](data/evaluation/), aggregates `is_sample` / `is_eval` per category, and saves a dated horizontal bar chart `how-many-samples-evals-by-category-<YYYYMMDD>.png`. Figure height auto-scales with the number of categories. |
 | [how-many-samples-evals-by-category.sql](how-many-samples-evals-by-category.sql) | Equivalent direct-DB query (legacy CSV source, kept for reference) |
 | [assertions-year-bounds.sql](assertions-year-bounds.sql) | One-shot batch (FASTAPI-TEXT2SQL-187): SQL-regex assertions on the 18 bank questions that name a year, a decade or an interval, plus two new person-decade evaluations. Written because `ID_MOVIE IN (...)` accepts extra rows and so cannot catch a widened year bound. Run once against the DB, then re-run the evaluator to refresh the JSON exports |

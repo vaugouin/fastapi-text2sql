@@ -1,10 +1,10 @@
 # New Entity Candidates for Entity Extraction Pipeline
 
-> **2026-05-24 update.** Section **B4 (Aspect_ratio)** below has been **retired**. Aspect-ratio resolution was merged into `Technical_format` on 2026-05-24: the `{{Aspect_ratioN}}` placeholder, the `_ASPECT_RATIO_QUERY` loader, the `Aspect_ratio` branch in `entity.py`, and the `Aspect_ratio` alias block all no longer exist. All aspect-ratio surface forms (`4:3`, `16:9`, `Academy`, `widescreen`, `2.35:1`, dot-decimals, comma-decimals) now extract as `{{Technical_formatN}}` and resolve to an `ID_TECHNICAL` integer via `closed_vocab.resolve_technical()`. Filtering goes through `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL` (the same junction every other technical uses), correctly matching movies that ship in multiple aspect ratios. The B4 section below describes the original "string-canonical lookup against `T_WC_T2S_MOVIE.ASPECT_RATIO`" design as initially shipped; it is preserved as design history. Authoritative current model: [AGENTS.md](AGENTS.md) Gotcha #9 and the `Technical_format` section in [data/entity_extraction.md](data/entity_extraction.md).
+> **2026-05-24 update.** Section **B4 (Aspect_ratio)** below has been **retired**. Aspect-ratio resolution was merged into `Technical_format` on 2026-05-24: the `{{Aspect_ratioN}}` placeholder, the `_ASPECT_RATIO_QUERY` loader, the `Aspect_ratio` branch in `entity.py`, and the `Aspect_ratio` alias block all no longer exist. All aspect-ratio surface forms (`4:3`, `16:9`, `Academy`, `widescreen`, `2.35:1`, dot-decimals, comma-decimals) now extract as `{{Technical_formatN}}` and resolve to an `ID_TECHNICAL` integer via `closed_vocab.resolve_technical()`. Filtering goes through `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL` (the same junction every other technical uses), correctly matching movies that ship in multiple aspect ratios. The B4 section below describes the original "string-canonical lookup against `T_WC_T2S_MOVIE.ASPECT_RATIO`" design as initially shipped; it is preserved as design history. Authoritative current model: [AGENTS.md](../AGENTS.md) Gotcha #9 and the `Technical_format` section in [data/entity_extraction.md](../data/entity_extraction.md).
 
 ## Context
 
-Today the pipeline manages 16 entity types: 14 declared in [data/entity_resolution.json](data/entity_resolution.json) and 2 special placeholders (`Release_year`, `Genre_name`) handled in code at [entity.py:138-193](entity.py#L138).
+Today the pipeline manages 16 entity types: 14 declared in [data/entity_resolution.json](../data/entity_resolution.json) and 2 special placeholders (`Release_year`, `Genre_name`) handled in code at [entity.py:138-193](../entity.py#L138).
 
 The user asked whether more entities could be derived from what's already documented in the entity-extraction prompt and the text-to-SQL prompt. The audit below enumerates candidates surfaced from both files. It is intentionally exhaustive — final selection is up to the user.
 
@@ -12,25 +12,25 @@ Key insight from the audit: **the entity-extraction prompt already teaches the L
 
 ---
 
-## Tier A — Already extracted by [data/entity_extraction.md](data/entity_extraction.md), missing resolver
+## Tier A — Already extracted by [data/entity_extraction.md](../data/entity_extraction.md), missing resolver
 
 These are **the highest-priority gaps**: the LLM produces these placeholders but no `entity_resolution.json` entry exists, so they fall through with raw substitution.
 
 ### A1. `Serie_type` — closed vocabulary (7 values)
-- Defined in [data/entity_extraction.md:164-176](data/entity_extraction.md#L164)
-- Schema column: `T_WC_T2S_SERIE.SERIE_TYPE` ([data/text_to_sql.md:126](data/text_to_sql.md#L126), enumerated at line 855)
+- Defined in [data/entity_extraction.md:164-176](../data/entity_extraction.md#L164)
+- Schema column: `T_WC_T2S_SERIE.SERIE_TYPE` ([data/text_to_sql.md:126](../data/text_to_sql.md#L126), enumerated at line 855)
 - Allowed values: `Documentary, Miniseries, News, Reality, Scripted, Talk Show, Video`
 - Resolution: closed-vocabulary lookup; substitute the canonical exact-cased string
 - Suggested implementation: special-case in `entity.py` like `_resolve_genre_id`, since values are simple strings (no ID lookup), but the placeholder must be matched case/spelling-exactly per the prompt rule at line 856
 
 ### A2. `Character_name` — embeddings or fuzzy on a (currently absent) collection
-- Defined in [data/entity_extraction.md:55-57](data/entity_extraction.md#L55)
-- The `characters` ChromaDB collection is initialized in [main.py:124-143](main.py#L124) but no `entity_resolution.json` rule references it
-- No clear schema column for canonical character names exists in [data/text_to_sql.md](data/text_to_sql.md); `T_WC_T2S_PERSON_MOVIE.CAST_CHARACTER` may be the closest field
+- Defined in [data/entity_extraction.md:55-57](../data/entity_extraction.md#L55)
+- The `characters` ChromaDB collection is initialized in [main.py:124-143](../main.py#L124) but no `entity_resolution.json` rule references it
+- No clear schema column for canonical character names exists in [data/text_to_sql.md](../data/text_to_sql.md); `T_WC_T2S_PERSON_MOVIE.CAST_CHARACTER` may be the closest field
 - Worth confirming with the user whether `characters` collection is populated and what it points to before wiring resolution
 
 ### A3. ID-style placeholders (raw substitution today, possibly fine as-is)
-All defined in [data/entity_extraction.md:63-85](data/entity_extraction.md#L63):
+All defined in [data/entity_extraction.md:63-85](../data/entity_extraction.md#L63):
 - `IMDb_ID` (e.g., `tt0038355`) → matches `T_WC_T2S_MOVIE.ID_IMDB` / `T_WC_T2S_SERIE.ID_IMDB`
 - `IMDb_person_ID` (e.g., `nm0000007`) → matches `T_WC_T2S_PERSON.ID_IMDB`
 - `Wikidata_ID` (e.g., `Q28385`) → matches `T_WC_T2S_*.ID_WIKIDATA`
@@ -44,11 +44,11 @@ These don't strictly need resolvers (raw substitution works) but a lightweight r
 
 ## Tier B — Schema-enumerated fields not yet extracted
 
-These are columns whose allowed values are explicitly listed in [data/text_to_sql.md](data/text_to_sql.md). Each is a strong candidate for a closed-vocabulary entity.
+These are columns whose allowed values are explicitly listed in [data/text_to_sql.md](../data/text_to_sql.md). Each is a strong candidate for a closed-vocabulary entity.
 
 ### B1. `Status_name` — closed vocabulary (6 values)
 - Columns: `T_WC_T2S_MOVIE.STATUS`, `T_WC_T2S_SERIE.STATUS`
-- Allowed values listed at [data/text_to_sql.md:733](data/text_to_sql.md#L733): `Canceled, In Production, Planned, Post Production, Released, Rumored`
+- Allowed values listed at [data/text_to_sql.md:733](../data/text_to_sql.md#L733): `Canceled, In Production, Planned, Post Production, Released, Rumored`
 - User phrasings: "released movies", "canceled series", "movies in production"
 - Implementation: closed-vocabulary string substitution (same shape as A1)
 
@@ -56,36 +56,36 @@ These are columns whose allowed values are explicitly listed in [data/text_to_sq
 - Columns: `T_WC_T2S_PERSON_MOVIE.CREW_DEPARTMENT`, `T_WC_T2S_PERSON_SERIE.CREW_DEPARTMENT`, `T_WC_T2S_PERSON.KNOWN_FOR_DEPARTMENT`
 - Canonical values: `Art`, `Camera`, `Costume & Make-Up`, `Crew`, `Directing`, `Editing`, `Lighting`, `Production`, `Sound`, `Visual Effects`, `Writing` + `Creator` (series only) + `Acting` (KNOWN_FOR only)
 - Same vocabulary, two different columns chosen by question intent ("films directed by" → `CREW_DEPARTMENT='Directing'`, "directors" without films → `KNOWN_FOR_DEPARTMENT='Directing'`). The text-to-SQL prompt encodes that disambiguation; the placeholder just supplies the canonical value.
-- Implementation: DB-driven canonicals via UNION over the three columns, loaded once at startup by `closed_vocab.init()`. Aliases in [data/closed_vocabularies.json](data/closed_vocabularies.json) cover plural forms (directors, writers, editors, cinematographers, actors, actresses, producers, creators), English synonyms (DP, DOP, VFX, screenwriting, production design, costume, makeup), and French equivalents (réalisateurs, scénaristes, monteurs, acteurs, actrices, producteurs, créateurs, chef opérateur). Resolver shares the `Status_name` / `Serie_type` dispatch path in `entity.resolve_entities()` (single-quoted canonical-string substitution). The "do not extract generic words" rule in [data/entity_extraction.md](data/entity_extraction.md) was relaxed to allow job titles such as `actor`, `director`, `cinematographer` to flow through as `Department_name`.
+- Implementation: DB-driven canonicals via UNION over the three columns, loaded once at startup by `closed_vocab.init()`. Aliases in [data/closed_vocabularies.json](../data/closed_vocabularies.json) cover plural forms (directors, writers, editors, cinematographers, actors, actresses, producers, creators), English synonyms (DP, DOP, VFX, screenwriting, production design, costume, makeup), and French equivalents (réalisateurs, scénaristes, monteurs, acteurs, actrices, producteurs, créateurs, chef opérateur). Resolver shares the `Status_name` / `Serie_type` dispatch path in `entity.resolve_entities()` (single-quoted canonical-string substitution). The "do not extract generic words" rule in [data/entity_extraction.md](../data/entity_extraction.md) was relaxed to allow job titles such as `actor`, `director`, `cinematographer` to flow through as `Department_name`.
 
 ### B3. `Technical_format` — closed vocabulary (56 values, name → integer ID)
-- Reference table: `T_WC_T2S_TECHNICAL(ID_TECHNICAL INT, DESCRIPTION VARCHAR(50), TECHNICAL_TYPE VARCHAR(20), DELETED INT, …)` — see [doc/sql/T_WC_T2S_TECHNICAL.sql](doc/sql/T_WC_T2S_TECHNICAL.sql)
+- Reference table: `T_WC_T2S_TECHNICAL(ID_TECHNICAL INT, DESCRIPTION VARCHAR(50), TECHNICAL_TYPE VARCHAR(20), DELETED INT, …)` — see [doc/sql/T_WC_T2S_TECHNICAL.sql](sql/T_WC_T2S_TECHNICAL.sql)
 - Join column: `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL`
 - Canonicals: 56 active rows grouped by `TECHNICAL_TYPE` — `sound_system` (dolby, stereo, dts, sdds, mono, 5.1, 7.1, imax, auro), `color_technology` (deluxe, technicolor, metrocolor, eastmancolor, fujicolor, agfacolor, warnercolor, kodachrome, gevacolor, …), `film_technology` (cinemascope, panavision, technovision, super_35, vistavision, techniscope, super_16, ultra_panavision, panaflex, technirama, tohoscope, todd_ao, cinerama, polyvision, arriflex, panoramique, d_cinema), `sound_technology` (western_electric, westrex, photophone, tobis_klangfilm, vitaphone, perspecta, movietone), `film_format` (35 mm, 16 mm, 70 mm, 65 mm, digital, dcp, franscope)
 - This is the **direct analog of `Genre_name`** post-migration: same shape (name → integer ID, fixed list, DB-driven via reference table). Loader pattern in `closed_vocab.init()` mirrors the genre branch — `SELECT ID_TECHNICAL, DESCRIPTION FROM T_WC_T2S_TECHNICAL WHERE DELETED = 0 OR DELETED IS NULL`.
-- Multilingual aliases: no `T_WC_T2S_TECHNICAL_LANG` table today; aliases live in [data/closed_vocabularies.json](data/closed_vocabularies.json) under a `Technical_format` key. A `_LANG` companion table can be added later mirroring `T_WC_TMDB_GENRE_LANG` if alias volume justifies it.
-- Note: prompt today says (line 229) "Do not extract these as entities… technical formats or technologies such as `Technicolor`, `Dolby`, `IMAX`, `35 mm`" — so adding this entity would require **removing or inverting that rule** in [data/entity_extraction.md:229](data/entity_extraction.md#L229).
+- Multilingual aliases: no `T_WC_T2S_TECHNICAL_LANG` table today; aliases live in [data/closed_vocabularies.json](../data/closed_vocabularies.json) under a `Technical_format` key. A `_LANG` companion table can be added later mirroring `T_WC_TMDB_GENRE_LANG` if alias volume justifies it.
+- Note: prompt today says (line 229) "Do not extract these as entities… technical formats or technologies such as `Technicolor`, `Dolby`, `IMAX`, `35 mm`" — so adding this entity would require **removing or inverting that rule** in [data/entity_extraction.md:229](../data/entity_extraction.md#L229).
 
 ### B4. `Aspect_ratio` — closed vocabulary (~30 comma-decimal values) — **SHIPPED 2026-05-13, RETIRED 2026-05-24** (merged into `Technical_format` — see banner at top of file)
 - Column: `T_WC_T2S_MOVIE.ASPECT_RATIO` (VARCHAR; **French comma-decimal notation** as stored in DB — e.g. `'1,33'` not `'1.33'`)
 - Canonical values (filtered to comma-decimal form): `1,33`, `1,37`, `1,66`, `1,78`, `1,85`, `2,35`, `2,39`, `2,40`, `2,55`, etc.
 - Implementation: DB-driven canonicals via `SELECT DISTINCT ASPECT_RATIO FROM T_WC_T2S_MOVIE WHERE ASPECT_RATIO IS NOT NULL AND ASPECT_RATIO REGEXP '^[0-9]+,[0-9]+$'`, loaded once at startup by `closed_vocab.init()`. The REGEXP filter excludes noisy DB variants (`'4:3'`, `'4/3'`, `'16:9'`, `'1:33'`, `'235:1'`, etc.) from the canonical map so they fall through to the alias layer instead of matching themselves canonically.
-- Aliases in [data/closed_vocabularies.json](data/closed_vocabularies.json) all target comma-decimal canonicals: named conventions (`Academy` → `1,37`, `fullscreen` → `1,33`, `widescreen` / `flat` → `1,85`, `european widescreen` → `1,66`, `modern anamorphic` → `2,39`), `width:height` and slash forms (`4:3` / `4/3` / `4x3` → `1,33`, `16:9` / `16/9` / `16x9` → `1,78`, `21:9` → `2,39`), `N.NN:1` / `N,NN:1` / `N:NN` punctuation variants for every canonical, and bare dot-decimal user input (`1.33` / `1.85` / `2.35` → comma equivalents). `anamorphic` / `scope` / `cinemascope` deliberately removed — those are `Technical_format` aliases and would collide.
+- Aliases in [data/closed_vocabularies.json](../data/closed_vocabularies.json) all target comma-decimal canonicals: named conventions (`Academy` → `1,37`, `fullscreen` → `1,33`, `widescreen` / `flat` → `1,85`, `european widescreen` → `1,66`, `modern anamorphic` → `2,39`), `width:height` and slash forms (`4:3` / `4/3` / `4x3` → `1,33`, `16:9` / `16/9` / `16x9` → `1,78`, `21:9` → `2,39`), `N.NN:1` / `N,NN:1` / `N:NN` punctuation variants for every canonical, and bare dot-decimal user input (`1.33` / `1.85` / `2.35` → comma equivalents). `anamorphic` / `scope` / `cinemascope` deliberately removed — those are `Technical_format` aliases and would collide.
 - Resolver order matters: in `_resolve_closed_vocab` canonical exact match runs before alias match. Without the REGEXP filter, a DB value like `'4:3'` would match canonically and the alias `4:3 → 1,33` would never fire — that was the original bug.
 - Resolver shares the `Status_name` / `Serie_type` / `Department_name` dispatch path in `entity.resolve_entities()` (single-quoted canonical-string substitution against the VARCHAR column).
 
 ### B5. `Country_name` and `Language_name` — ISO code lookup
-- Country columns: `T_WC_T2S_COMPANY.ORIGIN_COUNTRY`, `T_WC_T2S_NETWORK.ORIGIN_COUNTRY`, `T_WC_T2S_*_PRODUCTION_COUNTRY.COUNTRY_CODE`, `T_WC_T2S_PERSON.COUNTRY_OF_BIRTH` — 2-letter ISO codes ([data/text_to_sql.md:730](data/text_to_sql.md#L730))
-- Language columns: `T_WC_T2S_*.ORIGINAL_LANGUAGE`, `T_WC_T2S_*_SPOKEN_LANGUAGE.SPOKEN_LANGUAGE` — 2-letter ISO codes ([data/text_to_sql.md:723](data/text_to_sql.md#L723))
-- **Currently explicitly excluded** by [data/entity_extraction.md:227-231](data/entity_extraction.md#L227): "Do not extract these as entities — spoken languages, countries or nationalities used only as descriptive filters." Adding them would require relaxing that rule. Implementation would be ISO 3166 / ISO 639 lookup tables (could live in code like `MOVIE_GENRE_NAME_TO_ID`, with multilingual aliases: `France→FR`, `French→fr`, `français→fr`).
+- Country columns: `T_WC_T2S_COMPANY.ORIGIN_COUNTRY`, `T_WC_T2S_NETWORK.ORIGIN_COUNTRY`, `T_WC_T2S_*_PRODUCTION_COUNTRY.COUNTRY_CODE`, `T_WC_T2S_PERSON.COUNTRY_OF_BIRTH` — 2-letter ISO codes ([data/text_to_sql.md:730](../data/text_to_sql.md#L730))
+- Language columns: `T_WC_T2S_*.ORIGINAL_LANGUAGE`, `T_WC_T2S_*_SPOKEN_LANGUAGE.SPOKEN_LANGUAGE` — 2-letter ISO codes ([data/text_to_sql.md:723](../data/text_to_sql.md#L723))
+- **Currently explicitly excluded** by [data/entity_extraction.md:227-231](../data/entity_extraction.md#L227): "Do not extract these as entities — spoken languages, countries or nationalities used only as descriptive filters." Adding them would require relaxing that rule. Implementation would be ISO 3166 / ISO 639 lookup tables (could live in code like `MOVIE_GENRE_NAME_TO_ID`, with multilingual aliases: `France→FR`, `French→fr`, `français→fr`).
 
 ### B6. `Gender` — boolean-style
-- Column: `T_WC_T2S_PERSON.GENDER` (1 = female, 2 = male, [data/text_to_sql.md:732](data/text_to_sql.md#L732))
+- Column: `T_WC_T2S_PERSON.GENDER` (1 = female, 2 = male, [data/text_to_sql.md:732](../data/text_to_sql.md#L732))
 - Probably not worth a placeholder — text-to-SQL handles "actresses" vs "actors" inline. Listed for completeness.
 
 ### B7. `Credit_type` — `cast` vs `crew`
 - Columns: `T_WC_T2S_PERSON_MOVIE.CREDIT_TYPE`, `T_WC_T2S_PERSON_SERIE.CREDIT_TYPE`
-- Two values enumerated at [data/text_to_sql.md:864](data/text_to_sql.md#L864); phrasing rules ("with X" → cast, "by X" → crew) at [data/text_to_sql.md:760-761](data/text_to_sql.md#L760). Nearly always inferred from question phrasing — not worth a placeholder.
+- Two values enumerated at [data/text_to_sql.md:864](../data/text_to_sql.md#L864); phrasing rules ("with X" → cast, "by X" → crew) at [data/text_to_sql.md:760-761](../data/text_to_sql.md#L760). Nearly always inferred from question phrasing — not worth a placeholder.
 
 ---
 
@@ -98,11 +98,11 @@ These have many values and would need a ChromaDB collection (or fuzzy text match
 - This is the actual landing place for the `Character_name` placeholder (A2). Resolution would either fuzzy-match the column or use the existing `characters` ChromaDB collection if populated.
 
 ### C2. `Crew_job` — fine-grained job titles
-- Column: `T_WC_T2S_PERSON_SERIE.CREW_JOB` ([data/text_to_sql.md:183](data/text_to_sql.md#L183))
+- Column: `T_WC_T2S_PERSON_SERIE.CREW_JOB` ([data/text_to_sql.md:183](../data/text_to_sql.md#L183))
 - Hundreds of values, no vocabulary in the prompt. Likely too noisy for an entity; better left to text-to-SQL.
 
 ### C3. `Image_type` — `poster, logo, backdrop, profile`
-- Column: `TYPE_IMAGE` in image tables ([data/text_to_sql.md:878](data/text_to_sql.md#L878))
+- Column: `TYPE_IMAGE` in image tables ([data/text_to_sql.md:878](../data/text_to_sql.md#L878))
 - Closed but unlikely to surface in user questions — internal column.
 
 ### C4. `Video_type` / `Video_site`
@@ -116,7 +116,7 @@ These have many values and would need a ChromaDB collection (or fuzzy text match
 
 ## Tier D — Numeric/range entities (regex-only)
 
-Following the `Release_year` precedent in [entity.py](entity.py):
+Following the `Release_year` precedent in [entity.py](../entity.py):
 
 ### D1. `Birth_year` / `Death_year` — 4-digit year
 - Columns: `T_WC_T2S_PERSON.BIRTH_YEAR`, `T_WC_T2S_PERSON.DEATH_YEAR`
@@ -136,14 +136,14 @@ Following the `Release_year` precedent in [entity.py](entity.py):
 2. **`Status_name` (B1)** — natural user query, 6 values, trivial resolver
 3. **`Department_name` (B2)** — high practical value (filtering directors / cinematographers), 12 values
 4. **`Birth_year` / `Death_year` (D1)** — copy of `Release_year`
-5. **`Technical_format` (B3)** — DB-driven via `T_WC_T2S_TECHNICAL` (56 active rows, name → integer ID, identical loader pattern to `Genre_name`); requires inverting the "do not extract technical formats" rule at [data/entity_extraction.md:229](data/entity_extraction.md#L229)
+5. **`Technical_format` (B3)** — DB-driven via `T_WC_T2S_TECHNICAL` (56 active rows, name → integer ID, identical loader pattern to `Genre_name`); requires inverting the "do not extract technical formats" rule at [data/entity_extraction.md:229](../data/entity_extraction.md#L229)
 6. **`Aspect_ratio` (B4)** — user's own example; small but tidy *(historical recommended ordering; the placeholder itself was retired 2026-05-24 and folded into `Technical_format`)*
 7. **`Character_name` (A2/C1)** — needs decision on whether to use the existing `characters` collection or fuzzy on `CAST_CHARACTER`
 8. **`Country_name` / `Language_name` (B5)** — biggest scope (ISO + multilingual aliases) and conflicts with current extraction rule
 
 ## Resolution strategy for closed-vocabulary entities (typo-tolerant, no ChromaDB)
 
-For Tier A1, Tier B (all), and the existing `Genre_name`, use a **three-stage in-memory matcher** built on RapidFuzz (already a project dependency, see [rapidfuzz_query.py](rapidfuzz_query.py)). No ChromaDB collection, no SQL round-trip.
+For Tier A1, Tier B (all), and the existing `Genre_name`, use a **three-stage in-memory matcher** built on RapidFuzz (already a project dependency, see [rapidfuzz_query.py](../rapidfuzz_query.py)). No ChromaDB collection, no SQL round-trip.
 
 ```
 raw_value
@@ -154,7 +154,7 @@ raw_value
   → Stage 3: fail → mark ambiguous_question_for_text2sql = True
 ```
 
-Thresholds mirror [rapidfuzz_query.py](rapidfuzz_query.py) (`AUTO_SCORE=90`, `MIN_MARGIN=5`), slightly relaxed to 85 because matching against a ≤60-item curated vocabulary has a much lower collision rate than against a 900k-row table.
+Thresholds mirror [rapidfuzz_query.py](../rapidfuzz_query.py) (`AUTO_SCORE=90`, `MIN_MARGIN=5`), slightly relaxed to 85 because matching against a ≤60-item curated vocabulary has a much lower collision rate than against a 900k-row table.
 
 ### Data shape — canonicals from DB, aliases from JSON
 
@@ -179,7 +179,7 @@ For string-canonical entities, the loader produces a normalized dict: `{"cancele
 
 For ID-canonical entities (`Genre_name`, `Technical_format`), the loader produces `{normalized_name: int_id}` — same code path, the substituted SQL fragment is just an unquoted integer.
 
-**Multilingual aliases.** `Genre_name` already has a companion `T_WC_TMDB_GENRE_LANG(id, LANG, name)` table providing French aliases today and extensible to any LANG by inserting rows. `Technical_format` has no `_LANG` companion yet; multilingual or colloquial aliases for it should live in [data/closed_vocabularies.json](data/closed_vocabularies.json) (see the JSON section below). A `T_WC_T2S_TECHNICAL_LANG` table mirroring the Genre pattern can be introduced later if alias volume grows.
+**Multilingual aliases.** `Genre_name` already has a companion `T_WC_TMDB_GENRE_LANG(id, LANG, name)` table providing French aliases today and extensible to any LANG by inserting rows. `Technical_format` has no `_LANG` companion yet; multilingual or colloquial aliases for it should live in [data/closed_vocabularies.json](../data/closed_vocabularies.json) (see the JSON section below). A `T_WC_T2S_TECHNICAL_LANG` table mirroring the Genre pattern can be introduced later if alias volume grows.
 
 **2. Aliases: hot-reloaded JSON config file `data/closed_vocabularies.json`**
 
@@ -314,7 +314,7 @@ def get(entity):
 
 ### Side benefit (already realised for `Genre_name`): hard-coded dicts removed
 
-The historical `MOVIE_GENRE_NAME_TO_ID` / `SERIE_GENRE_NAME_TO_ID` dicts have been deleted from [entity.py](entity.py). `Genre_name` now resolves through `closed_vocab.resolve_genre()`, loading canonicals from `T_WC_TMDB_GENRE` and DB aliases from `T_WC_TMDB_GENRE_LANG` at startup, with JSON aliases layered on top. The same code path applies to `Technical_format`: the loader returns `{normalized_name: int_id}`, the substituted SQL fragment is an unquoted integer, and typo tolerance is uniform via RapidFuzz.
+The historical `MOVIE_GENRE_NAME_TO_ID` / `SERIE_GENRE_NAME_TO_ID` dicts have been deleted from [entity.py](../entity.py). `Genre_name` now resolves through `closed_vocab.resolve_genre()`, loading canonicals from `T_WC_TMDB_GENRE` and DB aliases from `T_WC_TMDB_GENRE_LANG` at startup, with JSON aliases layered on top. The same code path applies to `Technical_format`: the loader returns `{normalized_name: int_id}`, the substituted SQL fragment is an unquoted integer, and typo tolerance is uniform via RapidFuzz.
 
 ### Why not ChromaDB for these
 
@@ -328,18 +328,18 @@ The historical `MOVIE_GENRE_NAME_TO_ID` / `SERIE_GENRE_NAME_TO_ID` dicts have be
 
 - **NEW** `closed_vocab.py` — DB-driven canonical loader + JSON-driven alias loader; exposes `init(connection)` and `get(entity)`; uses `data_watcher` for the alias JSON
 - **NEW** `data/closed_vocabularies.json` — hot-reloaded alias config (one entry per closed-vocab entity)
-- [data/entity_resolution.json](data/entity_resolution.json) — add new resolver entries (embeddings/rapidfuzz cases) for non-closed-vocab entities only
-- [entity.py](entity.py) — delete `MOVIE_GENRE_NAME_TO_ID` / `SERIE_GENRE_NAME_TO_ID` ([entity.py:138-178](entity.py#L138)); replace `_resolve_genre_id` with a `_resolve_closed_vocab`-based version; add new closed-vocab branches alongside the existing `Genre_name` branch at [entity.py:302-319](entity.py#L302)
-- [main.py](main.py) — call `closed_vocab.init(connection)` at startup (next to ChromaDB collection initialization at [main.py:124-143](main.py#L124))
-- [data/entity_extraction.md](data/entity_extraction.md) — add placeholder definitions, examples, and (for B3/B5) lift the current "do not extract" rules
-- [data/text_to_sql.md](data/text_to_sql.md) — no change required for canonical loading: `Genre_name` and `Technical_format` are now both DB-driven (`T_WC_TMDB_GENRE` / `T_WC_TMDB_GENRE_LANG` and `T_WC_T2S_TECHNICAL` respectively); the prompt sections at lines 765-778 / 926+ remain useful as LLM context but are no longer the source of truth for the resolver
-- [doc/sql/T_WC_T2S_TECHNICAL.sql](doc/sql/T_WC_T2S_TECHNICAL.sql) — reference dump of the Technical_format canonical table (56 rows, grouped by `TECHNICAL_TYPE`: sound_system, color_technology, film_technology, sound_technology, film_format)
+- [data/entity_resolution.json](../data/entity_resolution.json) — add new resolver entries (embeddings/rapidfuzz cases) for non-closed-vocab entities only
+- [entity.py](../entity.py) — delete `MOVIE_GENRE_NAME_TO_ID` / `SERIE_GENRE_NAME_TO_ID` ([entity.py:138-178](../entity.py#L138)); replace `_resolve_genre_id` with a `_resolve_closed_vocab`-based version; add new closed-vocab branches alongside the existing `Genre_name` branch at [entity.py:302-319](../entity.py#L302)
+- [main.py](../main.py) — call `closed_vocab.init(connection)` at startup (next to ChromaDB collection initialization at [main.py:124-143](../main.py#L124))
+- [data/entity_extraction.md](../data/entity_extraction.md) — add placeholder definitions, examples, and (for B3/B5) lift the current "do not extract" rules
+- [data/text_to_sql.md](../data/text_to_sql.md) — no change required for canonical loading: `Genre_name` and `Technical_format` are now both DB-driven (`T_WC_TMDB_GENRE` / `T_WC_TMDB_GENRE_LANG` and `T_WC_T2S_TECHNICAL` respectively); the prompt sections at lines 765-778 / 926+ remain useful as LLM context but are no longer the source of truth for the resolver
+- [doc/sql/T_WC_T2S_TECHNICAL.sql](sql/T_WC_T2S_TECHNICAL.sql) — reference dump of the Technical_format canonical table (56 rows, grouped by `TECHNICAL_TYPE`: sound_system, color_technology, film_technology, sound_technology, film_format)
 
 ## Verification approach (for whichever subset is chosen)
 
-1. Bump `strapiversion` in [main.py:54](main.py#L54) (cache key includes version, so a parity flip also moves Blue/Green)
+1. Bump `strapiversion` in [main.py:54](../main.py#L54) (cache key includes version, so a parity flip also moves Blue/Green)
 2. Confirm `closed_vocab.init()` ran cleanly at startup by logging the loaded canonical maps (sizes per entity); a non-zero count proves the DB queries returned real data
-3. Add concrete questions to the eval set in [eval/](eval/) covering each new placeholder, including **typo / alias variants** (e.g. "sciience fiction", "Documentaire", "annulé", "academy ratio") to exercise the alias + RapidFuzz paths
+3. Add concrete questions to the eval set in [eval/](../eval/) covering each new placeholder, including **typo / alias variants** (e.g. "sciience fiction", "Documentaire", "annulé", "academy ratio") to exercise the alias + RapidFuzz paths
 4. Hot reload picks up `data/closed_vocabularies.json` edits within 5 s — restart only required for `closed_vocab.py` / `entity.py` changes; canonical refresh from DB requires a manual `closed_vocab.refresh(connection)` call (or a restart)
 5. Manual smoke tests with curl against `/search/text2sql`, asserting:
    - the new placeholder appears in `entity_extraction`

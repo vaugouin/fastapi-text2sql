@@ -35,11 +35,11 @@ Design notes and pending decisions for exposing TV-series **seasons** and **epis
 ## 1. What already shipped
 
 ### 1.1 `seasons` array on `GET /series/{id}`
-- [`GET /series/{id}`](main.py#L1795) returns a `seasons` array — see [main.py:1914-1922](main.py#L1914-L1922) for the query and [main.py:1933](main.py#L1933) for the response wiring.
+- [`GET /series/{id}`](../main.py#L1795) returns a `seasons` array — see [main.py:1914-1922](../main.py#L1914-L1922) for the query and [main.py:1933](../main.py#L1933) for the response wiring.
 - Source table: `T_WC_TMDB_SEASON` (TMDb source — there is no `T_WC_T2S_SEASON` yet).
 - Field set exposed per season: `ID_SEASON, SEASON_NUMBER, TITLE, OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH, AIR_DAY, POSTER_PATH, EPISODE_COUNT, VOTE_AVERAGE, ID_IMDB, ID_WIKIDATA, ID_TVDB`.
 - Order: `SEASON_NUMBER ASC`. No `DELETED` filter (matches the rest of `/series/{id}`).
-- Docs: README field table at [README.md:611](README.md#L611) and MCP `get_series` docstring.
+- Docs: README field table at [README.md:611](../README.md#L611) and MCP `get_series` docstring.
 
 ### 1.2 `GET /seasons/{id_serie}/{season_number}`
 - Full season detail endpoint, keyed on the composite `(ID_SERIE, SEASON_NUMBER)` rather than the surrogate `ID_SEASON`.
@@ -55,7 +55,7 @@ Design notes and pending decisions for exposing TV-series **seasons** and **epis
 - Docs: README field table.
 
 ### 1.4 Why these endpoints currently read from `T_WC_TMDB_*`
-These are the only endpoints in [main.py](main.py) that read from `T_WC_TMDB_*` tables. Every other entity endpoint goes through the T2S read model — these queries are an **intentional, temporary exception** that exists only because the corresponding `T_WC_T2S_*` tables do not yet exist. Every read site is registered in §6.1 and **must** be swapped to its T2S equivalent as soon as that table lands. Until then, do not treat these endpoints as a template for new code — reaching into `T_WC_TMDB_*` is a last resort, not a pattern.
+These are the only endpoints in [main.py](../main.py) that read from `T_WC_TMDB_*` tables. Every other entity endpoint goes through the T2S read model — these queries are an **intentional, temporary exception** that exists only because the corresponding `T_WC_T2S_*` tables do not yet exist. Every read site is registered in §6.1 and **must** be swapped to its T2S equivalent as soon as that table lands. Until then, do not treat these endpoints as a template for new code — reaching into `T_WC_TMDB_*` is a last resort, not a pattern.
 
 ---
 
@@ -75,7 +75,7 @@ Both season and episode are already first-class in the schema. Each has its own 
 
 Episode-only columns of note: `RUNTIME`, `PRODUCTION_CODE`, `EPISODE_TYPE`, `STILL_PATH`, `VOTE_AVERAGE`, `VOTE_COUNT`.
 
-Person-season / person-episode credit rows join back to `T_WC_T2S_PERSON` for display fields (`PERSON_NAME`, `PROFILE_PATH`) — same pattern as the existing series-credits query at [main.py:1828-1833](main.py#L1828-L1833).
+Person-season / person-episode credit rows join back to `T_WC_T2S_PERSON` for display fields (`PERSON_NAME`, `PROFILE_PATH`) — same pattern as the existing series-credits query at [main.py:1828-1833](../main.py#L1828-L1833).
 
 ---
 
@@ -108,7 +108,7 @@ Mirrors the existing `/movies/{id}` and `/series/{id}` pattern. The signatures b
 - Not yet exposed (open questions): videos (`T_WC_TMDB_EPISODE_VIDEO`), translations (`T_WC_TMDB_EPISODE_LANG`) — see §5.5.
 
 ### MCP coverage *(not yet shipped)*
-- Add `get_season` and `get_episode` tools that proxy to the HTTP endpoints, following the pattern at [main.py:2624-2642](main.py#L2624-L2642). The tool parameter shape should match the HTTP routes: `(id_serie, season_number)` and `(id_serie, season_number, episode_number)`.
+- Add `get_season` and `get_episode` tools that proxy to the HTTP endpoints, following the pattern at [main.py:2624-2642](../main.py#L2624-L2642). The tool parameter shape should match the HTTP routes: `(id_serie, season_number)` and `(id_serie, season_number, episode_number)`.
 - Update the `context://database-scope` MCP resource description to mention the new entities.
 
 ### Frontend drill-down this enables
@@ -127,7 +127,7 @@ These need to land before implementation can start. None of them are owned by th
 - **`T_WC_T2S_SEASON_LANG`** / **`T_WC_T2S_EPISODE_LANG`** — translations (optional for v1 — see §5.5).
 - **`T_WC_T2S_SEASON_VIDEO`** / **`T_WC_T2S_EPISODE_VIDEO`** — videos (optional for v1 — see §5.5).
 
-Once these exist, update [doc/sql/T2S-tables.sql](doc/sql/T2S-tables.sql) so the schema reference reflects them.
+Once these exist, update [doc/sql/T2S-tables.sql](sql/T2S-tables.sql) so the schema reference reflects them.
 
 ---
 
@@ -160,20 +160,20 @@ Both have clear analogues (`T_WC_TMDB_SEASON_VIDEO`, `T_WC_TMDB_SEASON_LANG`, an
 Default suggestion: defer videos to v2; include translations only if the frontend has a confirmed multilingual need at launch.
 
 ### 5.6 ~~Question~~ — covered by the migration rule at the top of this document
-Not actually open. The migration rule (top callout) and the registered migration site in §6.1 make this binding: the `seasons` query in (1) must move from `T_WC_TMDB_SEASON` to `T_WC_T2S_SEASON` the moment that table exists, and the README note at [README.md:611](README.md#L611) must be updated at the same time. Listed here only so the numbering of the original questions stays stable.
+Not actually open. The migration rule (top callout) and the registered migration site in §6.1 make this binding: the `seasons` query in (1) must move from `T_WC_TMDB_SEASON` to `T_WC_T2S_SEASON` the moment that table exists, and the README note at [README.md:611](../README.md#L611) must be updated at the same time. Listed here only so the numbering of the original questions stays stable.
 
 ### 5.7 MCP tool descriptions and `context://database-scope`
 The `context://database-scope` resource currently lists series-level fields including `NUMBER_OF_SEASONS` / `NUMBER_OF_EPISODES`. When seasons/episodes become first-class, add brief sections under "TV Series" describing the new tables so MCP clients know they can drill in.
 
 ### 5.8 Text-to-SQL placeholder support
 Should the LLM be able to filter by episode-level facts (e.g. "episodes of *Breaking Bad* season 5 directed by Vince Gilligan")? That implies:
-- Adding the season/episode tables to [data/text_to_sql.md](data/text_to_sql.md) schema section.
-- Possibly new placeholders (`Season_number`, `Episode_number`) handled via the regex branch in [entity.py](entity.py).
+- Adding the season/episode tables to [data/text_to_sql.md](../data/text_to_sql.md) schema section.
+- Possibly new placeholders (`Season_number`, `Episode_number`) handled via the regex branch in [entity.py](../entity.py).
 
 Recommendation: defer. Endpoints first; LLM coverage is a separate scope and would need a `strapiversion` bump.
 
 ### 5.9 Sort order for credits
-For season cast/crew the TMDb feed exposes `DISPLAY_ORDER` per credit row — match the series pattern ([main.py:1832](main.py#L1832)). For episode credits, confirm whether `DISPLAY_ORDER` is populated upstream; if not, fall back to `CREDIT_TYPE` then person popularity.
+For season cast/crew the TMDb feed exposes `DISPLAY_ORDER` per credit row — match the series pattern ([main.py:1832](../main.py#L1832)). For episode credits, confirm whether `DISPLAY_ORDER` is populated upstream; if not, fall back to `CREDIT_TYPE` then person popularity.
 
 ### 5.10 Wikipedia images availability
 Most TMDb seasons and almost no episodes will have an `ID_WIKIDATA`. The `wikipedia_images` field should still be defined (consistency with `/series/{id}`) but expect it to be empty for the vast majority of rows.
@@ -188,24 +188,24 @@ Registered call sites where the code reads from `T_WC_TMDB_*` because the T2S eq
 
 | Site | Current source | Target | Notes |
 |---|---|---|---|
-| `seasons` array in [`GET /series/{id}`](main.py#L1914-L1922) | `T_WC_TMDB_SEASON` | `T_WC_T2S_SEASON` | Also update the README row at [README.md:611](README.md#L611) (drop the "TMDb source" caveat). Re-check the column list against §5.1 if `IMDB_RATING_WEIGHTED` / `POPULARITY` are added on the T2S side. |
-| Base row in [`GET /seasons/{id_serie}/{season_number}`](main.py) | `T_WC_TMDB_SEASON` | `T_WC_T2S_SEASON` | The endpoint keys on `(ID_SERIE, SEASON_NUMBER)` and returns all season columns via `SELECT *`; recheck the field surface against §5.1 (`IMDB_RATING_WEIGHTED` / `POPULARITY`) when migrating. |
-| `cast` / `crew` arrays in [`GET /seasons/{id_serie}/{season_number}`](main.py) | `T_WC_TMDB_PERSON_SEASON` | `T_WC_T2S_PERSON_SEASON` | Joins `T_WC_T2S_PERSON` for display fields (`PERSON_NAME`, `PROFILE_PATH`); split on `CREDIT_TYPE`, ordered by `DISPLAY_ORDER`. |
-| `posters` / `backdrops` arrays in [`GET /seasons/{id_serie}/{season_number}`](main.py) | `T_WC_TMDB_SEASON_IMAGE` | `T_WC_T2S_SEASON_IMAGE` | Split by `TYPE_IMAGE` (`poster` vs `backdrop`), ordered by `DISPLAY_ORDER`. |
-| `episodes` summary array in [`GET /seasons/{id_serie}/{season_number}`](main.py) | `T_WC_TMDB_EPISODE` | `T_WC_T2S_EPISODE` | Summary rows only (`ID_EPISODE, EPISODE_NUMBER, TITLE, OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH, AIR_DAY, RUNTIME, EPISODE_TYPE, STILL_PATH, VOTE_AVERAGE, VOTE_COUNT, ID_IMDB, ID_WIKIDATA, ID_TVDB`) keyed on `ID_SEASON`, ordered by `EPISODE_NUMBER ASC`. Migrates in the same change as the `/episodes/{...}` base row site below. Re-check the column list against §5.1 if `IMDB_RATING_WEIGHTED` / `POPULARITY` are added on the T2S side. |
-| Base row in [`GET /episodes/{id_serie}/{season_number}/{episode_number}`](main.py) | `T_WC_TMDB_EPISODE` | `T_WC_T2S_EPISODE` | The endpoint keys on `(ID_SERIE, SEASON_NUMBER, EPISODE_NUMBER)` and returns all episode columns via `SELECT *`; recheck the field surface against §5.1 (`IMDB_RATING_WEIGHTED` / `POPULARITY`) when migrating. |
-| `cast` / `crew` arrays in [`GET /episodes/{id_serie}/{season_number}/{episode_number}`](main.py) | `T_WC_TMDB_PERSON_EPISODE` | `T_WC_T2S_PERSON_EPISODE` | Joins `T_WC_T2S_PERSON` for display fields (`PERSON_NAME`, `PROFILE_PATH`); split on `CREDIT_TYPE`, ordered by `DISPLAY_ORDER`. Confirm `DISPLAY_ORDER` is populated upstream per §5.9 — if not, fall back to `CREDIT_TYPE` then person popularity at migration time. |
-| `stills` array in [`GET /episodes/{id_serie}/{season_number}/{episode_number}`](main.py) | `T_WC_TMDB_EPISODE_IMAGE` | `T_WC_T2S_EPISODE_IMAGE` | Returns all `TYPE_IMAGE` rows, not just stills, in case other image types appear upstream; ordered by `DISPLAY_ORDER`. |
-| `season` navigation stub in [`GET /episodes/{id_serie}/{season_number}/{episode_number}`](main.py) | `T_WC_TMDB_SEASON` | `T_WC_T2S_SEASON` | Single-row `{ID_SEASON, SEASON_NUMBER, TITLE, POSTER_PATH}` lookup by `ID_SEASON`. Migrates in the same change as the `seasons` array site above. |
+| `seasons` array in [`GET /series/{id}`](../main.py#L1914-L1922) | `T_WC_TMDB_SEASON` | `T_WC_T2S_SEASON` | Also update the README row at [README.md:611](../README.md#L611) (drop the "TMDb source" caveat). Re-check the column list against §5.1 if `IMDB_RATING_WEIGHTED` / `POPULARITY` are added on the T2S side. |
+| Base row in [`GET /seasons/{id_serie}/{season_number}`](../main.py) | `T_WC_TMDB_SEASON` | `T_WC_T2S_SEASON` | The endpoint keys on `(ID_SERIE, SEASON_NUMBER)` and returns all season columns via `SELECT *`; recheck the field surface against §5.1 (`IMDB_RATING_WEIGHTED` / `POPULARITY`) when migrating. |
+| `cast` / `crew` arrays in [`GET /seasons/{id_serie}/{season_number}`](../main.py) | `T_WC_TMDB_PERSON_SEASON` | `T_WC_T2S_PERSON_SEASON` | Joins `T_WC_T2S_PERSON` for display fields (`PERSON_NAME`, `PROFILE_PATH`); split on `CREDIT_TYPE`, ordered by `DISPLAY_ORDER`. |
+| `posters` / `backdrops` arrays in [`GET /seasons/{id_serie}/{season_number}`](../main.py) | `T_WC_TMDB_SEASON_IMAGE` | `T_WC_T2S_SEASON_IMAGE` | Split by `TYPE_IMAGE` (`poster` vs `backdrop`), ordered by `DISPLAY_ORDER`. |
+| `episodes` summary array in [`GET /seasons/{id_serie}/{season_number}`](../main.py) | `T_WC_TMDB_EPISODE` | `T_WC_T2S_EPISODE` | Summary rows only (`ID_EPISODE, EPISODE_NUMBER, TITLE, OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH, AIR_DAY, RUNTIME, EPISODE_TYPE, STILL_PATH, VOTE_AVERAGE, VOTE_COUNT, ID_IMDB, ID_WIKIDATA, ID_TVDB`) keyed on `ID_SEASON`, ordered by `EPISODE_NUMBER ASC`. Migrates in the same change as the `/episodes/{...}` base row site below. Re-check the column list against §5.1 if `IMDB_RATING_WEIGHTED` / `POPULARITY` are added on the T2S side. |
+| Base row in [`GET /episodes/{id_serie}/{season_number}/{episode_number}`](../main.py) | `T_WC_TMDB_EPISODE` | `T_WC_T2S_EPISODE` | The endpoint keys on `(ID_SERIE, SEASON_NUMBER, EPISODE_NUMBER)` and returns all episode columns via `SELECT *`; recheck the field surface against §5.1 (`IMDB_RATING_WEIGHTED` / `POPULARITY`) when migrating. |
+| `cast` / `crew` arrays in [`GET /episodes/{id_serie}/{season_number}/{episode_number}`](../main.py) | `T_WC_TMDB_PERSON_EPISODE` | `T_WC_T2S_PERSON_EPISODE` | Joins `T_WC_T2S_PERSON` for display fields (`PERSON_NAME`, `PROFILE_PATH`); split on `CREDIT_TYPE`, ordered by `DISPLAY_ORDER`. Confirm `DISPLAY_ORDER` is populated upstream per §5.9 — if not, fall back to `CREDIT_TYPE` then person popularity at migration time. |
+| `stills` array in [`GET /episodes/{id_serie}/{season_number}/{episode_number}`](../main.py) | `T_WC_TMDB_EPISODE_IMAGE` | `T_WC_T2S_EPISODE_IMAGE` | Returns all `TYPE_IMAGE` rows, not just stills, in case other image types appear upstream; ordered by `DISPLAY_ORDER`. |
+| `season` navigation stub in [`GET /episodes/{id_serie}/{season_number}/{episode_number}`](../main.py) | `T_WC_TMDB_SEASON` | `T_WC_T2S_SEASON` | Single-row `{ID_SEASON, SEASON_NUMBER, TITLE, POSTER_PATH}` lookup by `ID_SEASON`. Migrates in the same change as the `seasons` array site above. |
 
 If a new endpoint ships before its T2S table exists and ends up reading from `T_WC_TMDB_*`, **append a row here** in the same commit so the next migration sweep catches it. An untracked TMDb read is a bug.
 
 ### 6.2 Endpoint work, once §6.1 is clear and the T2S tables exist
 
-1. **[main.py](main.py)** — add `get_season()` and `get_episode()` endpoints (mirror the layout of `get_series` at [main.py:1795-1937](main.py#L1795-L1937)). Add MCP `get_season` / `get_episode` tools after the existing `get_series` tool at [main.py:2624-2642](main.py#L2624-L2642).
-2. **[README.md](README.md)** — add field tables for `/seasons/{id}` and `/episodes/{id}` near the existing `/series/{id}` table around [README.md:611](README.md#L611).
-3. **[doc/sql/T2S-tables.sql](doc/sql/T2S-tables.sql)** — should already reflect the new T2S tables (this is a prerequisite per §4, not part of the endpoint work).
-4. **No edits to [data/text_to_sql.md](data/text_to_sql.md)** unless §5.8 is also pursued — endpoints alone don't change the text-to-SQL surface.
+1. **[main.py](../main.py)** — add `get_season()` and `get_episode()` endpoints (mirror the layout of `get_series` at [main.py:1795-1937](../main.py#L1795-L1937)). Add MCP `get_season` / `get_episode` tools after the existing `get_series` tool at [main.py:2624-2642](../main.py#L2624-L2642).
+2. **[README.md](../README.md)** — add field tables for `/seasons/{id}` and `/episodes/{id}` near the existing `/series/{id}` table around [README.md:611](../README.md#L611).
+3. **[doc/sql/T2S-tables.sql](sql/T2S-tables.sql)** — should already reflect the new T2S tables (this is a prerequisite per §4, not part of the endpoint work).
+4. **No edits to [data/text_to_sql.md](../data/text_to_sql.md)** unless §5.8 is also pursued — endpoints alone don't change the text-to-SQL surface.
 5. **No `strapiversion` bump** — pure additive endpoint work, Python-only restart picks it up. The cache key is for `/search/text2sql` only.
 
 ---
