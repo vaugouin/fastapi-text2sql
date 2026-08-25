@@ -22,15 +22,26 @@ THE CLASSES, IN DECREASING ORDER OF CERTAINTY
   positive-real           (type, value) pairs whose evaluation always scored 1. Ground truth is
                           the assertions, not the resolver: a match that "succeeded" into a wrong
                           answer is not a positive.
-  positive-unscored       values seen in the logs but never scored. Weaker: nothing says the
-                          answer was right. Kept only where scored positives run out, and named
-                          apart so the weakness stays visible in the report.
-  positive-*-typo         each of the above, mutated on purpose (two letters swapped, one
-                          substituted, one dropped). Ground truth holds by construction, and this
-                          is the class a threshold must not break, since correcting typos is what
-                          the resolver is for.
+  observed-unscored       values seen in the logs but never arbitrated. NOT a positive class,
+                          and this was a correction: measured 2026-08-24, "Collection Criterion"
+                          resolved to "Ex Collection" at 18.2 and "trois couleurs bleu blanc
+                          rouge" to "Trois" at 27.8. Counting those as legitimate dragged the
+                          recommended cut to 45.5 and would have carved the defect into the
+                          configuration. The class is still produced, because its low tail is an
+                          excellent DETECTOR of false acceptances already in production, but it
+                          is kept out of the threshold arithmetic.
+  positive-*-typo         each POSITIVE class above, mutated on purpose (two letters swapped,
+                          one substituted, one dropped). Ground truth holds by construction, and
+                          this is the class a threshold must not break, since correcting typos is
+                          what the resolver is for.
   negative-cross          a value of type A submitted to the resolver of type B. Realistic
-                          wording, guaranteed non-membership, and free.
+                          wording and free, but membership is NOT guaranteed: a series title
+                          often has its collection, and "Star Trek: The Next Generation" resolves
+                          to "Star Trek: The Next Generation Collection" quite correctly. Such a
+                          case is flagged `contaminated` and dropped from the arithmetic, on
+                          EQUALITY after descriptors are stripped, never on mere inclusion:
+                          inclusion caught "suicide" against "Suicide Squad Collection", which is
+                          a genuine false acceptance, not a legitimate one.
   negative-invent         made-up names (the Zorglub family). Tests "nothing like this exists"
                           rather than "this belongs elsewhere", a different failure.
 
@@ -58,7 +69,13 @@ READING THE OUTPUT
 Distance is a DISSIMILARITY: larger means further, and a threshold reads `distance <= max`.
 Ratio is a SIMILARITY on 100: larger means closer, and a threshold reads `ratio >= min`. The
 report gives, per entity type, both distributions and the cut misclassifying the fewest cases,
-with the two error counts kept apart because they do not cost the same. A false rejection
+with the two error counts kept apart because they do not cost the same. It reports an INTERVAL
+rather than a point: classification only changes at observed values, so a whole range of
+thresholds is equivalent, and the midpoint is the robust choice. Measured 2026-08-24, the cut
+came out at 93.3 where anything above 76.5 did just as well; announcing 93.3 alone would be false
+precision. A field whose positive sample is too thin gets no recommendation at all, since on
+Collection_name 98 of 119 positives resolve through rapidfuzz and carry no vector distance, and
+the 21 that do are precisely the ones rapidfuzz missed. A false rejection
 degrades into a raw fallback, then an empty result, then the complex-question retry: expensive,
 but visible and caught. A false acceptance produces a confidently wrong answer nobody notices.
 Prefer the strict side. The retry is precisely what makes strictness affordable.
@@ -305,15 +322,24 @@ def build_corpus(limit_per_type, types_filter, seed, use_pool_as_positive, catal
         kept = values[:limit_per_type] if limit_per_type else values
         for value in kept:
             grounded = (etype, value) in scored_positives
+            # `observed-*`, jamais `positive-*`, et c'est un correctif, pas un detail de nommage.
+            # Une valeur vue dans un journal n'est pas une correspondance legitime, c'est une
+            # valeur : sans assertion pour arbitrer, et avec treize resolveurs incapables
+            # d'echouer, une bonne part de ces resolutions est fausse par construction. Mesure du
+            # 2026-08-24 sur Collection_name : "Collection Criterion" -> "Ex Collection" a 18,2,
+            # "trois couleurs bleu blanc rouge" -> "Trois" a 27,8. Les compter comme positifs
+            # tirait le seuil recommande a 45,5 et aurait grave le defaut dans la configuration.
+            # La classe reste produite parce qu'elle est un excellent DETECTEUR de ces fausses
+            # acceptations, mais elle est hors du calcul du seuil.
             cases.append({
                 "type": etype, "value": value,
-                "klass": "positive-real" if grounded else "positive-unscored",
+                "klass": "positive-real" if grounded else "observed-unscored",
             })
             typo = mutate(value, rng)
             if typo != value:
                 cases.append({
                     "type": etype, "value": typo,
-                    "klass": "positive-typo" if grounded else "positive-typo-unscored",
+                    "klass": "positive-typo" if grounded else "observed-unscored-typo",
                     "expected": value,
                 })
 
@@ -339,9 +365,30 @@ def build_corpus(limit_per_type, types_filter, seed, use_pool_as_positive, catal
     return cases, suspects, sorted(weakly_grounded), archived
 
 
+_STOPWORDS_BY_TYPE = {}
+
+
+def search_cfg_stopwords(etype):
+    """Les `score_stopwords` declares pour ce type, lus une fois dans entity_resolution.json."""
+    if not _STOPWORDS_BY_TYPE:
+        try:
+            config = json.load(io.open(os.path.join(REPO, "data/entity_resolution.json"), encoding="utf-8"))
+        except Exception:
+            config = []
+        for entry in config:
+            for strategy in entry.get("search_list") or []:
+                if strategy.get("score_stopwords"):
+                    _STOPWORDS_BY_TYPE[entry.get("placeholder_prefix")] = strategy["score_stopwords"]
+                    break
+        _STOPWORDS_BY_TYPE.setdefault("__loaded__", [])
+    return _STOPWORDS_BY_TYPE.get(etype) or None
+
+
 def run_cases(cases, connection, collections_by_name):
     """Resolve each case and keep the score of the candidate the resolver weighed."""
     import entity  # imported late: it pulls the resolution stack in
+    global rapidfuzz_query
+    import rapidfuzz_query
 
     for index, case in enumerate(cases, 1):
         key = case["type"] + "1"
@@ -359,6 +406,30 @@ def run_cases(cases, connection, collections_by_name):
         mine = [s for s in scored if base_type(s.get("placeholder")) == case["type"]] or scored
         if mine:
             best = mine[0]
+            # Une injection croisee suppose qu'une valeur d'un type n'appartient jamais a un
+            # autre. Faux : un titre de serie a souvent sa collection. Mesure du 2026-08-24,
+            # "Star Trek: The Next Generation" resout vers "Star Trek: The Next Generation
+            # Collection" a 84,5, et c'est CORRECT. Compter ce cas comme un intrus accepte
+            # pousserait le seuil vers le haut pour punir une bonne reponse. On marque donc
+            # comme contamine tout croisement dont le candidat contient la valeur injectee.
+            if case["klass"] == "negative-cross":
+                # Le critere est l'EGALITE apres retrait des descripteurs, pas l'inclusion. Une
+                # inclusion simple attrapait "suicide" -> "Suicide Squad Collection" a 45,2 et
+                # "FX" -> "G.I. Joe (Reel FX) Collection" a 12,9, qui sont de vraies fausses
+                # acceptations : un mot court contenu dans un nom plus long ne prouve rien.
+                # L'egalite, elle, prouve quelque chose : "Star Trek: The Next Generation
+                # Collection" prive de son descripteur EST la valeur injectee, donc la resoudre
+                # est correct et la compter comme un intrus punirait une bonne reponse.
+                try:
+                    words = search_cfg_stopwords(case["type"])
+                    sought = rapidfuzz_query.strip_franchise_words(
+                        (case.get("value") or "").strip().lower(), words)
+                    found = rapidfuzz_query.strip_franchise_words(
+                        (best.get("candidate") or "").strip().lower(), words)
+                    if sought and sought == found:
+                        case["contaminated"] = True
+                except Exception:
+                    pass
             case["distance"] = best.get("distance")
             case["fuzz_ratio"] = best.get("fuzz_ratio")
             case["candidate"] = best.get("candidate")
@@ -380,6 +451,7 @@ def best_cut(positives, negatives, higher_is_better):
     if not values:
         return None
     best = None
+    scored = []
     for cut in values:
         if higher_is_better:
             refused = sum(1 for v in positives if v < cut)      # legitimate matches turned away
@@ -388,6 +460,7 @@ def best_cut(positives, negatives, higher_is_better):
             refused = sum(1 for v in positives if v > cut)
             let_in = sum(1 for v in negatives if v <= cut)
         rank = (refused + let_in, let_in)
+        scored.append((rank, float(cut), refused, let_in))
         if best is None or rank < best[0]:
             best = (rank, {
                 "cut": round(float(cut), 4),
@@ -396,11 +469,42 @@ def best_cut(positives, negatives, higher_is_better):
                 "positives": len(positives),
                 "negatives": len(negatives),
             })
+    # L'intervalle d'indifference, et il vaut mieux que le point. La coupe optimale tombe sur une
+    # valeur observee, souvent au bord d'un vide : mesure du 2026-08-24, aucun cas entre 76,5 et
+    # 93,3, si bien que la recommandation affichait 93,3 quand 77 donnait rigoureusement le meme
+    # resultat. Annoncer 93,3 seul serait une precision fausse. On rend donc la plage de seuils
+    # equivalents, dont le milieu est le choix le plus robuste : c'est celui qui est le plus loin
+    # des deux distributions a la fois.
+    equivalent = sorted(c for r, c, _, _ in scored if r == best[0])
+    if equivalent:
+        low, high = equivalent[0], equivalent[-1]
+        # La classification ne change qu'AUX valeurs observees, donc l'intervalle reel s'etend
+        # jusqu'a la valeur observee precedente, exclue. Ne considerer que les valeurs observees
+        # comme seuils candidats revient a poser le curseur sur un cas particulier alors qu'un
+        # seuil est un reel : mesure du 2026-08-24, la coupe sortait a 93,3 alors que tout seuil
+        # au-dessus de 76,5 donnait le meme resultat, et 76,5 etait le pire intrus.
+        below = [v for v in values if v < low]
+        if below:
+            low = below[-1]
+        best[1]["equivalent_from"] = round(low, 4)
+        best[1]["equivalent_to"] = round(high, 4)
+        best[1]["robust_cut"] = round((low + high) / 2, 4)
     return best[1]
 
 
+# En dessous de ce nombre de positifs mesures sur un champ, aucune recommandation n'est emise.
+# Trente n'a rien de sacre, c'est l'ordre de grandeur en dessous duquel un point aberrant deplace
+# la coupe a lui seul. Mieux vaut se taire que proposer un chiffre que la matiere ne soutient pas.
+MIN_POSITIVES_FOR_A_CUT = 30
+
+
 def report(cases):
-    """Print, per entity type, the two distributions and the cut they suggest."""
+    """Print, per entity type, the two distributions and the cut they suggest.
+
+    Only `positive-*` classes enter the arithmetic. The `observed-*` ones, values seen in the
+    logs and never arbitrated, are shown apart: they calibrate nothing, but their low tail names
+    the false acceptances already being served in production.
+    """
     grouped = collections.defaultdict(lambda: collections.defaultdict(list))
     for case in cases:
         if case.get("fuzz_ratio") is None and case.get("distance") is None:
@@ -411,25 +515,68 @@ def report(cases):
     for etype in sorted(grouped):
         klasses = grouped[etype]
         pos = [c for k, v in klasses.items() if k.startswith("positive") for c in v]
-        neg = [c for k, v in klasses.items() if k.startswith("negative") for c in v]
-        print("\n### %s   %d positifs, %d negatifs" % (etype, len(pos), len(neg)))
+        neg_all = [c for k, v in klasses.items() if k.startswith("negative") for c in v]
+        neg = [c for c in neg_all if not c.get("contaminated")]
+        dirty = [c for c in neg_all if c.get("contaminated")]
+        observed = [c for k, v in klasses.items() if k.startswith("observed") for c in v]
+
+        print("\n### %s   %d positifs, %d negatifs%s" % (
+            etype, len(pos), len(neg),
+            " (%d croisements ecartes, candidat legitime)" % len(dirty) if dirty else ""))
         if not pos or not neg:
             print("   pas assez de matiere pour proposer un seuil")
             continue
-        entry = {"positives": len(pos), "negatives": len(neg)}
+
+        entry = {"positives": len(pos), "negatives": len(neg), "contaminated": len(dirty)}
         for field, higher in (("fuzz_ratio", True), ("distance", False)):
             pv = sorted(c[field] for c in pos if isinstance(c.get(field), (int, float)))
             nv = sorted(c[field] for c in neg if isinstance(c.get(field), (int, float)))
             if not pv or not nv:
                 continue
+            print("   %-11s positifs n=%d med=%.1f min=%.1f | negatifs n=%d med=%.1f max=%.1f"
+                  % (field, len(pv), pv[len(pv) // 2], pv[0], len(nv), nv[len(nv) // 2], nv[-1]))
+            if len(pv) < MIN_POSITIVES_FOR_A_CUT:
+                # Lived case: on Collection_name, 98 of 119 positives resolve through rapidfuzz
+                # and carry no vector distance at all. The remaining 21 are precisely the ones
+                # rapidfuzz missed, so the sample is both small AND biased towards the hard
+                # cases, and its flattering cut means nothing.
+                print("   %-11s AUCUNE recommandation : %d positifs seulement, et ce sont ceux"
+                      % ("", len(pv)))
+                print("   %-11s que l'autre voie a rates, donc un echantillon biaise" % "")
+                entry[field] = {"skipped": "echantillon insuffisant", "positives": len(pv)}
+                continue
             cut = best_cut(pv, nv, higher)
-            print("   %-11s positifs med=%.1f min=%.1f | negatifs med=%.1f max=%.1f"
-                  % (field, pv[len(pv) // 2], pv[0], nv[len(nv) // 2], nv[-1]))
             if cut:
+                sense = ">=" if higher else "<="
                 print("   %-11s seuil propose %s %.2f  (legitimes refuses %d, intrus acceptes %d)"
-                      % ("", ">=" if higher else "<=", cut["cut"],
+                      % ("", sense, cut.get("robust_cut", cut["cut"]),
                          cut["legitimate_refused"], cut["strangers_accepted"]))
+                if cut.get("equivalent_from") is not None and cut["equivalent_from"] != cut["equivalent_to"]:
+                    print("   %-11s tout seuil de %.2f a %.2f donne le meme resultat ; le milieu"
+                          % ("", cut["equivalent_from"], cut["equivalent_to"]))
+                    print("   %-11s est retenu comme le plus eloigne des deux distributions" % "")
                 entry[field] = cut
+
+        if observed:
+            ov = sorted(c["fuzz_ratio"] for c in observed
+                        if isinstance(c.get("fuzz_ratio"), (int, float)))
+            if ov:
+                low = [c for c in observed
+                       if isinstance(c.get("fuzz_ratio"), (int, float)) and c["fuzz_ratio"] < 50]
+                print("   observe    n=%d med=%.1f, dont %d sous 50 : autant de resolutions"
+                      % (len(ov), ov[len(ov) // 2], len(low)))
+                print("              deja servies en production et probablement fausses")
+                for c in sorted(low, key=lambda x: x["fuzz_ratio"])[:5]:
+                    print("                r=%5.1f  %-26s -> %s"
+                          % (c["fuzz_ratio"], str(c["value"])[:26], str(c.get("candidate"))[:36]))
+                entry["observed_below_50"] = len(low)
+
+        if dirty:
+            print("   croisements ecartes, le candidat contient la valeur injectee :")
+            for c in dirty[:4]:
+                print("                r=%5.1f  %-26s -> %s"
+                      % (c.get("fuzz_ratio") or 0, str(c["value"])[:26], str(c.get("candidate"))[:36]))
+
         out[etype] = entry
     return out
 
