@@ -69,6 +69,16 @@ check("score", r[0]["SCORE"], 100.0)
 check("passes the gate", r[0]["SCORE"] >= THRESHOLD, True)
 check("ID_PERSON survives for resolve_to_canonical", r[0].get("ID_PERSON"), 3895)
 
+print("\n1bis. The same case with the string TMDb actually holds (Philippe, 2026-08-26)")
+# "Maurice Joseph Micklewhite Jr." is +2 tokens from the two-word form, which the extra-token
+# guard refused until generational suffixes were neutralised.
+DB_CAINE = "maurice joseph micklewhite jr"
+check("the two-word form now reaches it", rq.score_token_subset("maurice micklewhite", DB_CAINE, max_extra_tokens=EXTRA), 100.0)
+check("the full form still does", rq.score_token_subset("maurice joseph micklewhite", DB_CAINE, max_extra_tokens=EXTRA), 100.0)
+check("typing the suffix too is harmless", rq.score_token_subset("maurice micklewhite jr", DB_CAINE, max_extra_tokens=EXTRA), 100.0)
+check("plain ratio is untouched by the suffix rule", round(rq.score_ratio("maurice micklewhite", DB_CAINE), 1), 79.2)
+check("the wildcard door stays shut", rq.score_token_subset("sarah connor", "sarah connor jones smith", max_extra_tokens=EXTRA) < THRESHOLD, True)
+
 print("\n2. John Wayne, the case -214 was written on")
 r = rank("marion morrison", [row(1, "Marion Robert Morrison", 9.8, 4165), row(2, "Marion Yue", 0.1, 1900000)])
 check("best candidate", r[0]["PERSON_NAME"], "Marion Robert Morrison")

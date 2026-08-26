@@ -201,6 +201,15 @@ DEFAULT_SCORE_METRIC = "ratio"
 # the kind of decision that wants a bench run rather than a guess.
 DEFAULT_MAX_EXTRA_TOKENS = 1
 
+# Generational suffixes carry no identity, exactly like the franchise stopwords of -206: they
+# say which bearer of a name, never which name. TMDb stores Michael Caine's birth name as
+# "Maurice Joseph Micklewhite Jr.", so a user typing the two-word form is +2 tokens away and
+# the extra-token guard refuses it. Neutralising the suffix brings it back to +1, a middle
+# name, which is the case the guard was written for. Raising max_extra_tokens to 2 instead
+# would have worked here and opened the door to "Sarah Connor" matching "Sarah Connor Jones
+# Smith": the suffix is the precise fix, the wider guard is the blunt one.
+NAME_SUFFIX_TOKENS = frozenset({"jr", "sr", "jnr", "snr", "ii", "iii", "iv"})
+
 
 def score_ratio(q_norm: str, candidate_norm: str, **_: Any) -> float:
     """Plain `fuzz.ratio`, the historical metric. Length-normalised, punishes insertion."""
@@ -220,12 +229,17 @@ def score_token_subset(q_norm: str, candidate_norm: str, max_extra_tokens: int =
        what a middle name is. Without it, "Sarah Connor" would score 100 against "Sarah
        Connor Jones Smith" and the metric would be a wildcard.
 
+    Generational suffixes are neutralised on both sides before the count, so "Maurice
+    Micklewhite" reaches "Maurice Joseph Micklewhite Jr." as a +1 inclusion rather than a +2
+    refusal. They are dropped for the COUNT and the membership test only; the `fuzz.ratio`
+    fallback below still sees the untouched strings, so no measured score moves.
+
     Monotone by construction: it returns either 100 or exactly `fuzz.ratio`, never less. An
     existing `min_fuzz_ratio` therefore stays valid as an upper bound of strictness while the
     bench recalibrates it; the change can only admit inclusions, never refuse what passed.
     """
-    q_tokens = [t for t in (q_norm or "").split() if t]
-    c_tokens = [t for t in (candidate_norm or "").split() if t]
+    q_tokens = [t for t in (q_norm or "").split() if t and t not in NAME_SUFFIX_TOKENS]
+    c_tokens = [t for t in (candidate_norm or "").split() if t and t not in NAME_SUFFIX_TOKENS]
     if len(q_tokens) >= 2 and c_tokens:
         c_set = set(c_tokens)
         extra = len(c_tokens) - len(q_tokens)
