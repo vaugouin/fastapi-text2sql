@@ -1066,6 +1066,20 @@ ORDER BY CASE WHEN T_WC_T2S_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END, T_WC
   - The cast-section exclusion rules for `CAST_CHARACTER` (see above) still apply in `CREDIT_TYPE = 'cast'` queries.
 - ID_PERSON is the TMDb ID field for a person (The Movie Database)
 
+#### Two persons, two roles: never collapse them into one
+
+A question can NAME one person while ASKING FOR another: "the costume designer of Capote with Philip Seymour Hoffman", "who composed the music for the film X directed by Y", "le chef operateur du film avec Z". Two different humans are involved. The person the question names is a **property of the work**; the person it asks for is the **answer**. They never share a join instance, and the named one never constrains the `ID_PERSON` of the one you project.
+
+- **Never write this.** It is valid SQL, it executes, and it returns nothing by construction, because it demands that the costume designer BE the named actor:
+  `... AND T_WC_T2S_PERSON_MOVIE.CREW_DEPARTMENT = 'Costume & Make-Up' AND T_WC_T2S_PERSON_MOVIE.ID_PERSON IN (SELECT ID_PERSON FROM T_WC_T2S_PERSON_MOVIE WHERE ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE AND CREDIT_TYPE = 'cast' AND ID_PERSON = (SELECT ID_PERSON FROM T_WC_T2S_PERSON WHERE PERSON_NAME = '{{Person_name1}}'))`
+- **Write this instead.** The named person is an existence condition on the FILM, expressed with `EXISTS` correlated on `ID_MOVIE` (or `ID_SERIE`), through its own aliased instances of the credit and person tables:
+  `SELECT DISTINCT T_WC_T2S_PERSON.ID_PERSON, T_WC_T2S_PERSON.PERSON_NAME, T_WC_T2S_PERSON.POPULARITY, T_WC_T2S_PERSON.KNOWN_FOR_DEPARTMENT, T_WC_T2S_PERSON.BIRTH_YEAR, T_WC_T2S_PERSON.DEATH_YEAR, T_WC_T2S_PERSON.PROFILE_PATH FROM T_WC_T2S_PERSON JOIN T_WC_T2S_PERSON_MOVIE ON T_WC_T2S_PERSON_MOVIE.ID_PERSON = T_WC_T2S_PERSON.ID_PERSON JOIN T_WC_T2S_MOVIE ON T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_PERSON_MOVIE.ID_MOVIE WHERE T_WC_T2S_MOVIE.MOVIE_TITLE = '{{Movie_title1}}' AND T_WC_T2S_PERSON_MOVIE.CREDIT_TYPE = 'crew' AND T_WC_T2S_PERSON_MOVIE.CREW_DEPARTMENT = 'Costume & Make-Up' AND EXISTS (SELECT 1 FROM T_WC_T2S_PERSON_MOVIE pm_named JOIN T_WC_T2S_PERSON p_named ON p_named.ID_PERSON = pm_named.ID_PERSON WHERE pm_named.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE AND pm_named.CREDIT_TYPE = 'cast' AND p_named.PERSON_NAME = '{{Person_name1}}') ORDER BY T_WC_T2S_PERSON_MOVIE.DISPLAY_ORDER ASC`
+- **One aliased instance per person role.** Two persons in the question means two instances of `T_WC_T2S_PERSON_MOVIE` / `T_WC_T2S_PERSON_SERIE`, and two of `T_WC_T2S_PERSON` when both are matched by name. Alias the ones inside the `EXISTS` (`pm_named`, `p_named`) so they can never be confused with the projected credit.
+- **Never match a person with a scalar subquery.** `ID_PERSON = (SELECT ID_PERSON FROM T_WC_T2S_PERSON WHERE PERSON_NAME = '...')` raises MariaDB error 1242 the day two people share a name. Join `T_WC_T2S_PERSON` and compare `PERSON_NAME` directly, or use `IN` when a subquery is unavoidable.
+- **The rule covers every way a named person qualifies a work**: with / avec, starring, by / de, directed by, written by, produced by, composed by. Only the credit filter inside the `EXISTS` changes: `CREDIT_TYPE = 'cast'` for with / starring, `CREDIT_TYPE = 'crew'` plus the matching `CREW_DEPARTMENT` for the others.
+- **It applies in reverse too.** When the ANSWER is the film and two persons qualify it ("the film with A directed by B"), each person gets its own `EXISTS` on `T_WC_T2S_MOVIE.ID_MOVIE`, never a shared credit instance.
+- **Self-check before emitting.** If the question asks for a person by ROLE, no predicate anywhere in the query may force the projected `ID_PERSON` to equal a person NAMED in the question. If one does, you collapsed two people into one and the query will return zero rows whatever the data holds.
+
 ### Images about entities 
 - TYPE_IMAGE values: poster, logo, backdrop, profile
 

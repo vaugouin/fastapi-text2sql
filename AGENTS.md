@@ -145,6 +145,10 @@ Edit at the right layer; the architecture is intentionally split.
 - `search_sql_cache_by_question_hash()`, `search_sql_cache_by_question_text()`, `write_sql_cache_entry()` — all take the **formatted** API version (`XXX.YYY.ZZZ`).
 - `_normalize_cache_row()` — picks `SQL_QUERY` over `SQL_PROCESSED` when needed to preserve a smaller LLM-defined `LIMIT` (see `used_raw_query_to_preserve_limit`).
 
+**[sql_shapes.py](sql_shapes.py)** : structural predicates over a generated SQL query. Pure string analysis, no DB and no LLM: it answers *what shape does this query have*, never *is it right*.
+- `detect_person_role_collapse(sql_query, result_entity)` : true when a person-listing query pins the `ID_PERSON` it projects to a person named in the question, a shape that can only ever return that named person (FASTAPI-TEXT2SQL-211).
+- It exists as its own module so the runtime guard in `main.py` and the measurement in `analyze-complex-retry-logs.py` share the **exact same predicate**. A guard measured with a rule other than the one it runs is a number about nothing; do not fork the logic back into either caller.
+
 **[cleanup.py](cleanup.py)** — version-scoped purge utilities (off by default; see `intcleanupenabled` at [main.py:70-71](main.py#L70-L71)).
 
 **[auth.py](auth.py)** — `get_api_key()` Security dependency. Multi-key via `API_KEYS` (comma-separated); `secrets.compare_digest()` for constant-time comparison.
@@ -176,7 +180,7 @@ The app loads environment variables from `.env` via `python-dotenv`.
 - ChromaDB: `CHROMADB_HOST`, `CHROMADB_PORT`.
 - Blue/Green and MCP: `API_PORT_BLUE`, `API_PORT_GREEN`, `MCP_API_KEY`, `MCP_INTERNAL_API_KEY`, `MCP_INTERNAL_BASE_URL`.
   - **`MCP_API_KEY` empty means `/mcp` is open.** `_verify_mcp_bearer` only enforces a bearer `if MCP_API_KEY:`, so an unset value is not a weak configuration, it is no configuration: `sql_search` and the 16 entity tools answer anyone who reaches the port. Verified on 2026-08-23, when both colours and the public NGINX route returned 200 to `tools/list` with no token and with a wrong one. Startup now logs a warning when it is empty, and that log is the only signal.
-- Pipeline shape: `BKTREE_ENABLED` (default 1), `ENTITY_RESOLUTION_PARALLEL` (default 1). Both are read at import time, so changing one needs a restart.
+- Pipeline shape: `BKTREE_ENABLED` (default 1), `ENTITY_RESOLUTION_PARALLEL` (default 1), `CACHE_EMPTY_RESULTS` (default 0). All three are read at import time, so changing one needs a restart.
 
 Important startup constraint: `OPENAI_API_KEY` is required at import/startup because `main.py` initializes the OpenAI embedding function for ChromaDB even if the request-time text model is Anthropic or Google.
 
@@ -559,6 +563,12 @@ Open once per request, pass the connection around, close in a `finally`. Do NOT 
 
 ### Gotcha #8 — Complex Question Retry Recursion Guard
 The pipeline can retry via the stronger model, but only when `complex_question_already_resolved = False`. The recursive call sets it to `True` to prevent runaway retries.
+
+### Gotcha #8b : An empty result is never cached (FASTAPI-TEXT2SQL-212)
+A query returning **0 rows on page 1** is written to no cache tier: not the exact row, not the anonymized row, not the embeddings row, and not the row the stronger-model retry writes for the original question. All four go through the single `store_to_cache_allowed` / `retry_store_allowed` gate, so do not reintroduce a bare `request.store_to_cache` in a write. The reason is not tidiness: the **anonymized** row freezes the whole template, so one defective query poisons every entity pair on that pattern. Measured on 2026-08-25, a broken "costumière du film {{Movie_title1}} avec {{Person_name1}}" was written at 18:05:03 and served back verbatim at 18:06:36. `CACHE_EMPTY_RESULTS=1` restores the old behaviour. A page **beyond the first** returning empty is unaffected: that only means the result set ended.
+
+### Gotcha #8c : Signal (d) of the no-results guard reads the SQL, not the resolution (FASTAPI-TEXT2SQL-211)
+The three original signals of **-156** all watch **entity resolution**, so an empty result whose entities all resolved was declared authoritative. Signal (d) is the first one to look at the query itself, via `sql_shapes.detect_person_role_collapse`. It is a **suspicion, not a proof**, and that is deliberate: firing wrongly costs one stronger-model call on a result that was **already empty**, while missing it hands the user a silent "no results" on an answerable question. Keep that asymmetry in mind before tightening it. Before widening it, run `analyze-complex-retry-logs.py`, whose `person-role collapse` column reports how many blocked empties, and how many **authoritative** ones, the signal moves. Local corpus on 2026-08-26: 4 fires out of 438 logs, all 4 the same defect, 2 of them previously classified AUTHORITATIVE.
 
 ### Gotcha #9 — Closed-Vocabulary Resolution
 `Movie_genre`, `Serie_genre`, `Technical_format`, `Status_name`, `Serie_type`, and `Department_name` are resolved via [closed_vocab.py](closed_vocab.py): canonicals from the database at startup, aliases from [data/closed_vocabularies.json](data/closed_vocabularies.json) (hot-reloaded). Typo tolerance is uniform via RapidFuzz with `score_cutoff=85` and `margin=5`. Genre placeholders and `Technical_format` substitute integers (no quotes); `Status_name`, `Serie_type`, and `Department_name` substitute single-quoted canonical strings. `Movie_genre` and `Serie_genre` draw from the same `T_WC_TMDB_GENRE` table but each loader query filters by the `APPLIES_TO_MOVIE` / `APPLIES_TO_SERIE` flag, so a question filtering movies cannot resolve to a TV-only genre (e.g. `Reality`, `Sci-Fi & Fantasy`) and vice versa.

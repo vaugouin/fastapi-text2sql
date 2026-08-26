@@ -266,6 +266,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    # Pipeline shape (all read at import time, so a change needs a restart)
    BKTREE_ENABLED=1               # BK-tree index for RapidFuzz matching
    ENTITY_RESOLUTION_PARALLEL=1   # 1: resolve entities while the SQL is being generated
+   CACHE_EMPTY_RESULTS=0          # 0: never cache a query that returned 0 rows
    ```
 
    Provider key usage:
@@ -1298,6 +1299,23 @@ The API implements a sophisticated three-tier caching system for optimal perform
 - Finds similar questions even with different wording
 - Configurable similarity threshold (default: 0.15)
 - Stores anonymized SQL queries in metadata for quick retrieval
+
+#### What is never cached: an empty result
+
+A query that returns **0 rows on page 1** is not written to any of the three tiers. An empty result is precisely where the odds that the SQL is wrong, rather than the
+data genuinely absent, are at their highest, and caching one does not merely freeze the
+question that produced it: the anonymized row freezes the whole **template**.
+
+Measured on 2026-08-25. "Qui est la costumière du film Capote avec Philip Seymour Hoffman ?"
+produced a query that asked for a costume designer on condition she be Philip Seymour
+Hoffman, empty by construction. It was written to cache at 18:05:03 and served back
+verbatim at 18:06:36 without ever being regenerated. Left alone, every film/actor pair on
+the pattern `La costumière du film {{Movie_title1}} avec {{Person_name1}}` would have
+answered 0 rows for as long as the row lived.
+
+The cost of the rule is one regeneration per legitimately empty question. Set
+`CACHE_EMPTY_RESULTS=1` to restore the previous behaviour. A page beyond the first coming
+back empty is not affected: that only means the result set ended.
 
 ### Automatic Cache Cleanup (Refactored in v1.1.13)
 

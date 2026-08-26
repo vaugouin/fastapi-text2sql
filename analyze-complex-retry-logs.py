@@ -24,6 +24,13 @@ blocked empty into three buckets, because they do not have the same fix:
   AUTHORITATIVE       every extracted entity resolved to a real row. The empty is the truth
                       ("series directed by Chris Carter"). Correctly blocked; must stay so.
 
+A fourth column cuts ACROSS those three (FASTAPI-TEXT2SQL-211): "collapse" counts the
+empties whose SQL pins the person being LISTED to a person NAMED in the question, a shape
+that can only ever return that named person. Those are query defects, not answers, and
+signal (d) of the guard now reopens them. The column exists to keep that widening honest:
+run it before and after a prompt change and watch how many AUTHORITATIVE empties it moves.
+The predicate is imported from sql_shapes.py, the same one main.py runs, on purpose.
+
 Reads loose `*_text2sql_post_*.json` files and, with --archives, the monthly tarballs that
 archive-logs.sh produces under `logs/archive/<YYYYMM>.tar.gz`.
 
@@ -42,6 +49,9 @@ import re
 import sys
 import tarfile
 from collections import Counter, defaultdict
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sql_shapes
 
 GUARD_MESSAGE = "treating the empty result as authoritative"
 RETRY_MESSAGE = "SQL query returned 0 rows; attempting to simplify"
@@ -147,6 +157,11 @@ def main():
         bucket = classify(response)
         counts["blocked"] += 1
         counts[bucket] += 1
+        if sql_shapes.detect_person_role_collapse(
+            response.get("sql_query") or "", response.get("result_entity") or ""
+        ):
+            counts["collapse"] += 1
+            counts["collapse_" + bucket] += 1
         if args.show:
             samples[(version, bucket)].append(request.get("question") or "")
 
@@ -179,6 +194,8 @@ def main():
             print(f"          resolution failed (recoverable)   {c['RESOLUTION_FAILED']:>6}  <- widening the trigger catches these")
             print(f"          nothing extracted (recoverable)   {c['NOTHING_EXTRACTED']:>6}  <- needs its own condition")
             print(f"          authoritative (correctly blocked) {c['AUTHORITATIVE']:>6}  <- must stay blocked")
+            print(f"          person-role collapse (any bucket)  {c['collapse']:>6}  <- signal (d) reopens these")
+            print(f"            of which authoritative           {c['collapse_AUTHORITATIVE']:>6}  <- the widening's real cost")
         for bucket in ("RESOLUTION_FAILED", "NOTHING_EXTRACTED", "AUTHORITATIVE"):
             shown = samples.get((version, bucket), [])[: args.show]
             for question in shown:

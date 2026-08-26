@@ -27,6 +27,7 @@ import cleanup
 import entity
 import logs
 import sql_cache
+import sql_shapes
 import closed_vocab
 import samples_assertions as sa
 
@@ -103,6 +104,7 @@ def _extract_retry_metadata(error_text: str) -> dict:
 def _is_retryable_quota_error_text(error_text: str) -> bool:
     retry_metadata = _extract_retry_metadata(error_text)
     return bool(retry_metadata.get("is_retryable") and str(retry_metadata.get("error_code") or "") == "429")
+
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
 strapiversion = "1.1.18"
@@ -244,6 +246,18 @@ USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE = False
 # spend more than a second resolving. Set ENTITY_RESOLUTION_PARALLEL=0 to fall back to
 # the strictly sequential path (same results, no overlap).
 ENTITY_RESOLUTION_PARALLEL = os.getenv("ENTITY_RESOLUTION_PARALLEL", "1").strip().lower() in {"1", "true", "yes", "on"}
+
+# FASTAPI-TEXT2SQL-212: an empty result is the worst possible moment to freeze a query.
+# It is precisely the case where the odds that the SQL is wrong rather than the data
+# empty are highest, and caching it makes the defect permanent for the whole anonymized
+# TEMPLATE, not just the question that produced it. Measured on 2026-08-25: a broken
+# "costume designer of {{Movie_title1}} with {{Person_name1}}" was written to cache at
+# 18:05:03 and served back verbatim at 18:06:36 without ever being regenerated, so every
+# film/actor pair on that pattern would have answered 0 rows for as long as the row lived.
+# The cost of not caching is one regeneration per legitimately empty question, a few
+# hundred a month at current volume. Set CACHE_EMPTY_RESULTS=1 to restore the old
+# behaviour.
+CACHE_EMPTY_RESULTS = os.getenv("CACHE_EMPTY_RESULTS", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _mark_task_exception_retrieved(task) -> None:
@@ -2545,7 +2559,22 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 except Exception as consolidation_error:
                     print(f"Failed to consolidate complex-retry timings: {str(consolidation_error)}")
 
-                if request.store_to_cache:
+                # FASTAPI-TEXT2SQL-212. The same rule as the main write path, applied to
+                # the row this branch writes for the ORIGINAL question: a retry that also
+                # came back empty must not be frozen, or the stronger model's failure
+                # becomes the permanent answer to the question that triggered it.
+                retry_rows = getattr(retry_response, "result", None)
+                retry_returned_nothing = isinstance(retry_rows, list) and len(retry_rows) == 0
+                retry_store_allowed = bool(request.store_to_cache) and not (
+                    retry_returned_nothing and not CACHE_EMPTY_RESULTS
+                )
+                if request.store_to_cache and not retry_store_allowed:
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text="Stronger-model retry also returned 0 rows; not caching it under the original question (set CACHE_EMPTY_RESULTS=1 to restore caching)."
+                    ))
+                    position_counter += 1
+                if retry_store_allowed:
                     try:
                         retry_connection = get_db_connection()
                         original_question_hash = hashlib.sha256(original_question.encode('utf-8')).hexdigest()
@@ -3015,6 +3044,27 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     # retry was unreachable from 88a5e79 (2026-07-12). Measured in the retained usage logs
     # across both colours: 13 retries at 1.1.15, 12 at 1.1.16, then 0 at 1.1.17 and 0 at
     # 1.1.18 over 231 empty results. Nothing else in the collapse from 47 invocations to 4.
+
+    # (d) FASTAPI-TEXT2SQL-211. A structural signal, the first one that reads the SQL
+    # instead of the resolution. Computed here so the message below can name it and so the
+    # cost of the check (three regex passes over one query) is paid only on an empty page 1.
+    person_role_collapse = False
+    try:
+        if (
+            not sql_execution_failed
+            and lngpage == 1
+            and isinstance(query_results, list)
+            and len(query_results) == 0
+        ):
+            collapse_sql = ""
+            if "sql_query_processed_base" in locals() and isinstance(sql_query_processed_base, str):
+                collapse_sql = sql_query_processed_base
+            elif isinstance(sql_query, str):
+                collapse_sql = sql_query
+            person_role_collapse = sql_shapes.detect_person_role_collapse(collapse_sql, result_entity)
+    except Exception:
+        person_role_collapse = False
+
     try:
         can_retry_no_results = (
             request.complex_question_processing
@@ -3047,12 +3097,28 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 # anonymized and no placeholder existed to fall back. Another 44 of the 189,
                 # equal weight, which is why neither signal alone is enough.
                 or no_entity_extracted
+                # (d) the SQL pins the person being LISTED to the person being NAMED
+                # (FASTAPI-TEXT2SQL-211): it can only ever return that one named person, so
+                # its empty result describes the query, not the data, and blocking the retry
+                # hands the user a silent "no results" on an answerable question. Unlike (a),
+                # (b) and (c) this one reads the SQL, which is why it catches a failure where
+                # every entity resolved perfectly. Measured on the 438 retained local logs:
+                # it fires 4 times, all 4 the same defect, 0 false positives, and it reopens
+                # 2 of the 6 empties currently classified AUTHORITATIVE. Rerun the count on
+                # the VPS corpus with analyze-complex-retry-logs.py before widening it.
+                or person_role_collapse
             )
         )
     except Exception:
         can_retry_no_results = False
 
     if can_retry_no_results:
+        if person_role_collapse:
+            messages.append(TextMessage(
+                position=position_counter,
+                text="0 rows and the SQL constrains the person being listed to be the person named in the question (person-role collapse); the empty result is a query defect, not an answer."
+            ))
+            position_counter += 1
         retry_response = await _retry_with_resolved_complex_question(
             start_message=f"SQL query returned 0 rows; attempting to simplify the original question using the stronger model '{strcomplexquestionmodel}' (one-time retry).",
             success_message=f"No-results detected; attempting one-time retry with simplified question from stronger model '{strcomplexquestionmodel}'.",
@@ -3097,8 +3163,30 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # Compute the temporary global processing time before the write cache operations (SQL and embeddings)
         total_end_time = time.time()
         total_processing_time = total_end_time - total_start_time
+
+        # FASTAPI-TEXT2SQL-212. Do not freeze a query that returned nothing; see the
+        # CACHE_EMPTY_RESULTS comment at the top of the file. Only page 1 counts: a later
+        # page coming back empty just means the result set ended, which says nothing about
+        # the SQL. This gate replaces request.store_to_cache in every write below, the
+        # embeddings one included, so the three cannot drift apart.
+        empty_result_on_first_page = (
+            not sql_execution_failed
+            and lngpage == 1
+            and isinstance(query_results, list)
+            and len(query_results) == 0
+        )
+        store_to_cache_allowed = bool(request.store_to_cache) and not (
+            empty_result_on_first_page and not CACHE_EMPTY_RESULTS
+        )
+        if request.store_to_cache and not store_to_cache_allowed:
+            messages.append(TextMessage(
+                position=position_counter,
+                text="0 rows returned; skipping every cache write so a possibly defective query is not frozen for this question and its anonymized template (set CACHE_EMPTY_RESULTS=1 to restore caching)."
+            ))
+            position_counter += 1
+
         # Store to SQL cache if requested and not already stored as exact question or anonymized question
-        if request.store_to_cache and not cached_exact_question and not sql_execution_failed and request.question:
+        if store_to_cache_allowed and not cached_exact_question and not sql_execution_failed and request.question:
             messages.append(TextMessage(position=position_counter, text="Storing exact question and SQL query to cache."))
             position_counter += 1
             sql_cache.write_sql_cache_entry(
@@ -3129,7 +3217,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # at the top of the pipeline anyway. Skip it: it costs a row and makes the cache lookup
         # ambiguous between two rows sharing the same QUESTION and QUESTION_HASHED.
         if (
-            request.store_to_cache
+            store_to_cache_allowed
             and not cached_exact_question
             and not cached_anonymized_question
             and not sql_execution_failed
@@ -3160,7 +3248,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 result_entity=result_entity or "",
             )
         elif (
-            request.store_to_cache
+            store_to_cache_allowed
             and not cached_exact_question
             and not cached_anonymized_question
             and not sql_execution_failed
@@ -3172,7 +3260,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             ))
             position_counter += 1
 
-        if USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE and request.store_to_cache and not cached_anonymized_question_embedding and not sql_execution_failed and input_text_anonymized:
+        if USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE and store_to_cache_allowed and not cached_anonymized_question_embedding and not sql_execution_failed and input_text_anonymized:
             messages.append(TextMessage(
                 position=position_counter, 
                 text="Checking if anonymized question exists in embeddings cache before storing."
