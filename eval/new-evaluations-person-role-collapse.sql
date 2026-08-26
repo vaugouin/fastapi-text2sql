@@ -42,7 +42,7 @@
 -- The Capote question is observed extracting {Movie_title1, Person_name1} (usage log
 -- 20260825-180913), but the other three have never been measured, and the house method for
 -- an extraction assertion is three passes on each of the two languages. Do not assert what
--- has not been run. Section 3 holds a ready-to-edit block.
+-- has not been run. Section 6 holds a ready-to-edit block.
 --
 -- RE-RUN GUARD
 -- Each INSERT is an INSERT ... SELECT guarded by NOT EXISTS on the English question, wrapped
@@ -208,7 +208,72 @@ WHERE ID_T2S_EVALUATION = 2476;
 
 
 -- ---------------------------------------------------------------------------
--- 3. Ready to edit, AFTER a run. Extraction assertions, once the key set has
+-- 5. NOT YET APPLIED, AND SECTION 4 IS USELESS WITHOUT IT. Retire the two
+--    execution rows of 2476 so the evaluator actually re-runs the question.
+--
+--    THE PRECONDITION, NOT HOUSEKEEPING. Phase 11 excludes any evaluation that
+--    already carries a LIVE execution row for the same API_VERSION, the same
+--    three models and the same LANG (the `strnotinbase` subquery, around
+--    eval/text2sql-eval.py:409). 2476 was run on 2026-08-26 as rows 7068 (en)
+--    and 7069 (fr), so a re-run over 001.001.018 would skip it in silence and
+--    phase 20 would re-score the OLD stored JSON_RESULT, produced before the
+--    prompt gained its conjunctive rule. The report would look like a verdict
+--    on the fix while describing the state before it.
+--
+--    Soft delete only, which is what every evaluator query filters on. Phase 10
+--    of the same run physically removes the rows, phase 11 re-runs the question
+--    in both languages, phase 20 scores it against the assertion of section 4.
+--    Same pattern, and the same trap, as maintenance/eval-executions-retirer-1-1-17.sql.
+--
+--    Nothing else is touched: the other 837 evaluations keep their live rows and
+--    are skipped, so this run costs two API calls, not two thousand.
+-- ---------------------------------------------------------------------------
+
+-- 5a. Read-only. Run this first. Expect exactly two rows, 7068 and 7069.
+--     The primary key of this table is ID_ROW, not ID_T2S_EVALUATION_EXECUTION
+--     (doc/sql/T2S_EVALUATION-tables.sql). The JSON exports call it
+--     "execution_row_id", which is the same column under another name.
+SELECT ID_ROW, ID_T2S_EVALUATION, LANG, API_VERSION,
+       TIM_EXECUTION, ASSERTIONS_RESULT_SCORE, DELETED
+FROM T_WC_T2S_EVALUATION_EXECUTION
+WHERE ID_T2S_EVALUATION = 2476
+  AND API_VERSION = '001.001.018'
+  AND ENTITY_EXTRACTION_MODEL = 'gpt-4o'
+  AND TEXT2SQL_MODEL = 'gpt-4o'
+  AND COMPLEX_MODEL = 'gpt-4o'
+ORDER BY LANG;
+
+-- 5b. The write.
+UPDATE T_WC_T2S_EVALUATION_EXECUTION
+   SET DELETED = 1
+ WHERE ID_T2S_EVALUATION = 2476
+   AND API_VERSION = '001.001.018'
+   AND ENTITY_EXTRACTION_MODEL = 'gpt-4o'
+   AND TEXT2SQL_MODEL = 'gpt-4o'
+   AND COMPLEX_MODEL = 'gpt-4o'
+   AND DELETED = 0;
+
+-- 5c. The undo, as long as phase 10 has not yet swept them away.
+-- UPDATE T_WC_T2S_EVALUATION_EXECUTION
+--    SET DELETED = 0
+--  WHERE ID_T2S_EVALUATION = 2476
+--    AND API_VERSION = '001.001.018'
+--    AND DELETED = 1;
+
+-- 5d. One thing to check before launching, because it filters phase 11 in
+--     silence: the server variable strtext2sqlevalrunevalid is read at
+--     eval/text2sql-eval.py:319 and appended as "AND ID_T2S_EVALUATION >= <it>".
+--     A leftover value above 2476 would skip the question with no message.
+--     The table is <DB_NAMESPACE>SERVER_VARIABLE (citizenphil.py:72 and
+--     f_getservervariable), columns VAR_NAME / VAR_VALUE, so prefix as your
+--     DB_NAMESPACE does. Empty or absent is the normal state.
+SELECT VAR_NAME, VAR_VALUE, DELETED
+FROM T_WC_SERVER_VARIABLE
+WHERE VAR_NAME = 'strtext2sqlevalrunevalid';
+
+
+-- ---------------------------------------------------------------------------
+-- 6. Ready to edit, AFTER a run. Extraction assertions, once the key set has
 --    been observed three times in each language. The Capote one matches what
 --    usage log 20260825-180913 already shows; the other three are guesses
 --    until measured, which is why none of them is applied above.
