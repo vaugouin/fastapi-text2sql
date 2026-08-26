@@ -32,7 +32,15 @@
         },
         "rapidfuzz_col_norm": "PERSON_NAME_NORM",
         "rapidfuzz_col_key": "PERSON_NAME_KEY",
-        "rapidfuzz_col_popularity": "ID_PERSON",
+        "rapidfuzz_col_popularity": "POPULARITY",
+        "popularity_join": {
+          "table": "T_WC_T2S_PERSON",
+          "from_column": "ID_PERSON",
+          "id_column": "ID_PERSON",
+          "value_column": "POPULARITY"
+        },
+        "score_metric": "token_subset",
+        "max_extra_tokens": 1,
         "resolve_to_canonical": {
           "from_column": "ID_PERSON",
           "table": "T_WC_T2S_PERSON",

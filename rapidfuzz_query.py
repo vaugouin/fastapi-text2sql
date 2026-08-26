@@ -182,6 +182,73 @@ def normalize_collection_name(s: str) -> str:
     """
     return strip_franchise_words(normalize_name(s))
 
+# ----------------------------
+# Scoring metrics (FASTAPI-TEXT2SQL-214 / -218)
+# ----------------------------
+# The metric belongs to the ENTITY, not to the code, exactly like `score_stopwords` and
+# `document_name_separator`. `fuzz.ratio` was preferred to `WRatio` because the token
+# component let unrelated collections through on a shared "... Collection" suffix; that was
+# right for collections and wrong for person aliases, where TMDb stores the birth name in
+# full ("Marion Robert Morrison") and an inserted middle name is an INCLUSION, not an error.
+#
+# One metric, used at both ends (-218). Before this, `rank_candidates` chose with `WRatio`
+# and `entity.py` judged the winner with `fuzz.ratio`: two rules, so the gate could reject a
+# candidate the ranker had picked while a better one sat at rank 2, unread.
+
+DEFAULT_SCORE_METRIC = "ratio"
+# A middle name is one extra token. Configurable per strategy because a birth name can carry
+# two ("Allan Stewart Konigsberg" is +1, some are +2), and because widening this is exactly
+# the kind of decision that wants a bench run rather than a guess.
+DEFAULT_MAX_EXTRA_TOKENS = 1
+
+
+def score_ratio(q_norm: str, candidate_norm: str, **_: Any) -> float:
+    """Plain `fuzz.ratio`, the historical metric. Length-normalised, punishes insertion."""
+    return float(fuzz.ratio(q_norm or "", candidate_norm or ""))
+
+
+def score_token_subset(q_norm: str, candidate_norm: str, max_extra_tokens: int = DEFAULT_MAX_EXTRA_TOKENS, **_: Any) -> float:
+    """`ratio`, except that a strict token inclusion scores 100 (FASTAPI-TEXT2SQL-214).
+
+    Three guards, because the naive fix opens a door: `token_set_ratio("marion", "marion
+    robert morrison")` is also 100, so a one-word query would match every long name sharing
+    it.
+
+    1. The query needs **at least two tokens**. One word is never an inclusion, it is a prefix.
+    2. **Every** query token must appear in the candidate.
+    3. The candidate may carry at most `max_extra_tokens` tokens beyond the query, which is
+       what a middle name is. Without it, "Sarah Connor" would score 100 against "Sarah
+       Connor Jones Smith" and the metric would be a wildcard.
+
+    Monotone by construction: it returns either 100 or exactly `fuzz.ratio`, never less. An
+    existing `min_fuzz_ratio` therefore stays valid as an upper bound of strictness while the
+    bench recalibrates it; the change can only admit inclusions, never refuse what passed.
+    """
+    q_tokens = [t for t in (q_norm or "").split() if t]
+    c_tokens = [t for t in (candidate_norm or "").split() if t]
+    if len(q_tokens) >= 2 and c_tokens:
+        c_set = set(c_tokens)
+        extra = len(c_tokens) - len(q_tokens)
+        if 0 <= extra <= max_extra_tokens and all(t in c_set for t in q_tokens):
+            return 100.0
+    return float(fuzz.ratio(q_norm or "", candidate_norm or ""))
+
+
+SCORE_METRICS = {
+    "ratio": score_ratio,
+    "token_subset": score_token_subset,
+}
+
+
+def resolve_score_metric(name: Optional[str]) -> Any:
+    """Return the scoring callable for `name`, falling back to the default when unknown.
+
+    Unknown names fall back rather than raise: a typo in `entity_resolution.json` must
+    degrade to the historical behaviour, not take the resolver down.
+    """
+    return SCORE_METRICS.get((name or DEFAULT_SCORE_METRIC).strip().lower(), score_ratio)
+
+
 def build_boolean_query(tokens: List[str]) -> str:
     """Build a MariaDB FULLTEXT boolean query from normalized tokens.
 
@@ -405,6 +472,55 @@ def db_has_fulltext(
     )
     return cur.fetchone() is not None
 
+def build_select_prefix(
+    strtablename: str,
+    strcolumnid: str,
+    strcolumndesc: str,
+    strcolumndescnorm: str,
+    strcolumnpopularity: str,
+    popularity_join: Optional[Dict[str, str]] = None,
+) -> str:
+    """Build the shared `SELECT ... FROM ...` head, with an optional tie-break join.
+
+    FASTAPI-TEXT2SQL-218, Do #3. `rank_candidates` breaks a score tie on the popularity
+    column, and the alias table has none, so `entity_resolution.json` pointed the setting at
+    `ID_PERSON`: ties were decided by the highest TMDb id, that is by whoever was added to
+    TMDb most recently. It ranked the obscure above the famous, the exact opposite of the
+    intent, and it is what put "Maurice Maurice" ahead of Michael Caine (id 3895).
+
+    This matters MORE after the metric change, not less: `token_subset` returns a flat 100 to
+    every candidate that contains the query, so ties are now common by design and the
+    tie-break carries real weight.
+
+    The joined value is aliased to `strcolumnpopularity`, so every caller keeps reading the
+    same key and nothing downstream needs to know a join happened. Absent the config, the
+    query is byte-for-byte the previous one.
+    """
+    cols = (
+        f"`t`.`{strcolumnid}`, `t`.`{strcolumndesc}`, `t`.`{strcolumndescnorm}`"
+    )
+    if popularity_join:
+        jt = popularity_join["table"]
+        jid = popularity_join["id_column"]
+        jval = popularity_join["value_column"]
+        jfrom = popularity_join["from_column"]
+        # The join key must stay in the SELECT: `resolve_to_canonical` reads it off the matched
+        # row to reach the canonical name, and it used to arrive only because it doubled as the
+        # popularity column. Losing it here would silently degrade every alias hit to the AKA
+        # spelling instead of the credited one.
+        if jfrom not in {strcolumnid, strcolumndesc, strcolumndescnorm}:
+            cols += f", `t`.`{jfrom}`"
+        return (
+            f"SELECT {cols}, COALESCE(`j`.`{jval}`, 0) AS `{strcolumnpopularity}` "
+            f"FROM `{strtablename}` `t` "
+            f"LEFT JOIN `{jt}` `j` ON `j`.`{jid}` = `t`.`{jfrom}` "
+        )
+    return (
+        f"SELECT {cols}, `t`.`{strcolumnpopularity}` "
+        f"FROM `{strtablename}` `t` "
+    )
+
+
 def exact_match(
     cur,
     strtablename: str,
@@ -413,6 +529,7 @@ def exact_match(
     strcolumndescnorm: str,
     strcolumnpopularity: str,
     q_norm: str,
+    popularity_join: Optional[Dict[str, str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Find an exact normalized match in the database.
 
@@ -425,12 +542,11 @@ def exact_match(
     """
     # Exact match on normalized form (fast with index on PERSON_NAME_NORM)
     cur.execute(
-        f"""
-        SELECT `{strcolumnid}`, `{strcolumndesc}`, `{strcolumndescnorm}`, `{strcolumnpopularity}`
-        FROM `{strtablename}`
-        WHERE `{strcolumndescnorm}` = %s
-        LIMIT 1
-        """,
+        build_select_prefix(
+            strtablename, strcolumnid, strcolumndesc, strcolumndescnorm,
+            strcolumnpopularity, popularity_join,
+        )
+        + f"WHERE `t`.`{strcolumndescnorm}` = %s LIMIT 1",
         (q_norm,),
     )
     row = cur.fetchone()
@@ -451,6 +567,7 @@ def fetch_candidates(
     has_fulltext: bool,
     timings: Optional[Dict[str, Any]] = None,
     bktree: Optional[BKTreeIndex] = None,
+    popularity_join: Optional[Dict[str, str]] = None,
 ) -> List[Tuple[int, str, str]]:
     """Fetch candidate rows that may match the query.
 
@@ -478,13 +595,12 @@ def fetch_candidates(
     prefix = q_key[:prefix_len]
 
     t0 = time.perf_counter() if timings is not None else 0.0
+    select_prefix = build_select_prefix(
+        strtablename, strcolumnid, strcolumndesc, strcolumndescnorm,
+        strcolumnpopularity, popularity_join,
+    )
     cur.execute(
-        f"""
-        SELECT `{strcolumnid}`, `{strcolumndesc}`, `{strcolumndescnorm}`, `{strcolumnpopularity}`
-        FROM `{strtablename}`
-        WHERE `{strcolumndesckey}` LIKE CONCAT(%s, '%%')
-        LIMIT %s
-        """,
+        select_prefix + f"WHERE `t`.`{strcolumndesckey}` LIKE CONCAT(%s, '%%') LIMIT %s",
         (prefix, PREFIX_LIMIT),
     )
     rows = cur.fetchall() or []
@@ -511,11 +627,7 @@ def fetch_candidates(
             if ids_to_fetch:
                 placeholders = ",".join(["%s"] * len(ids_to_fetch))
                 cur.execute(
-                    f"""
-                    SELECT `{strcolumnid}`, `{strcolumndesc}`, `{strcolumndescnorm}`, `{strcolumnpopularity}`
-                    FROM `{strtablename}`
-                    WHERE `{strcolumnid}` IN ({placeholders})
-                    """,
+                    select_prefix + f"WHERE `t`.`{strcolumnid}` IN ({placeholders})",
                     ids_to_fetch,
                 )
                 bk_rows = cur.fetchall() or []
@@ -539,12 +651,7 @@ def fetch_candidates(
         t1 = time.perf_counter() if timings is not None else 0.0
         ftx_query = build_boolean_query(tokens)
         cur.execute(
-            f"""
-            SELECT `{strcolumnid}`, `{strcolumndesc}`, `{strcolumndescnorm}`, `{strcolumnpopularity}`
-            FROM `{strtablename}`
-            WHERE MATCH(`{strcolumndescnorm}`) AGAINST (%s IN BOOLEAN MODE)
-            LIMIT %s
-            """,
+            select_prefix + f"WHERE MATCH(`t`.`{strcolumndescnorm}`) AGAINST (%s IN BOOLEAN MODE) LIMIT %s",
             (ftx_query, FTX_LIMIT),
         )
         rows2 = cur.fetchall() or []
@@ -564,12 +671,7 @@ def fetch_candidates(
         t2 = time.perf_counter() if timings is not None else 0.0
         t = tokens[0]
         cur.execute(
-            f"""
-            SELECT `{strcolumnid}`, `{strcolumndesc}`, `{strcolumndescnorm}`, `{strcolumnpopularity}`
-            FROM `{strtablename}`
-            WHERE `{strcolumndescnorm}` LIKE CONCAT('%%', %s, '%%')
-            LIMIT %s
-            """,
+            select_prefix + f"WHERE `t`.`{strcolumndescnorm}` LIKE CONCAT('%%', %s, '%%') LIMIT %s",
             (t, LIKE_LIMIT),
         )
         rows3 = cur.fetchall() or []
@@ -599,8 +701,23 @@ def rank_candidates(
     q_norm: str,
     candidates: List[Dict[str, Any]],
     strip_stopwords: bool = False,
+    score_metric: Optional[str] = None,
+    max_extra_tokens: int = DEFAULT_MAX_EXTRA_TOKENS,
 ) -> List[Dict[str, Any]]:
-    """Rank candidate rows by lexical similarity using RapidFuzz.
+    """Rank candidate rows by lexical similarity, using the metric the GATE will apply.
+
+    FASTAPI-TEXT2SQL-218. This used to rank with `fuzz.WRatio` while the confidence gate in
+    `entity.py` judged the winner with `fuzz.ratio`. `WRatio` returns exactly 95.0 for a token
+    subset and for a token superset alike, so on "maurice micklewhite" both "Maurice Maurice"
+    and "Maurice Joseph Micklewhite" scored 95.0; the tie fell to the popularity column, which
+    on the alias table is `ID_PERSON`, so the person most recently added to TMDb won and
+    Michael Caine (id 3895) lost. The gate then measured that arbitrary winner with a stricter
+    metric and refused it, while the right row sat unread at rank 2.
+
+    `SCORE` is now the gate's own metric, so the candidate handed over is the best one BY THE
+    RULE THAT WILL JUDGE IT. `SCORE_WRATIO` is kept alongside for `decide_autocorrect`, whose
+    `AUTO_SCORE` / `MIN_MARGIN` were calibrated on the WRatio scale: changing what is ranked
+    must not silently re-tune what is auto-corrected.
 
     Args:
         q_norm: Normalized query string.
@@ -608,28 +725,38 @@ def rank_candidates(
         strip_stopwords: When True, neutralize franchise/collection words in each
             candidate's normalized name before scoring (test-side mirror of the
             query neutralization; idempotent once the stored NORM column is stripped).
+        score_metric: Name of the metric from `SCORE_METRICS`; defaults to `ratio`.
+        max_extra_tokens: Passed to the metric when it accepts one (`token_subset`).
 
     Returns:
-        A list of dicts containing the candidate fields plus a `SCORE` float.
+        A list of dicts containing the candidate fields plus `SCORE` and `SCORE_WRATIO`.
     """
+    metric = resolve_score_metric(score_metric)
+
     # Dict choices: id -> norm for scoring
     if strip_stopwords:
         choices = {row[strcolumnid]: strip_franchise_words(row[strcolumndescnorm]) for row in candidates}
     else:
         choices = {row[strcolumnid]: row[strcolumndescnorm] for row in candidates}
-    matches = process.extract(q_norm, choices, scorer=fuzz.WRatio, limit=TOP_K)
+
+    # Scored over the WHOLE pool, then truncated. `process.extract(limit=TOP_K)` truncated
+    # first, so a row tied on the ranking metric could be dropped before the tie-break ran.
+    scored = []
+    for pid, cand_norm in choices.items():
+        scored.append((pid, float(metric(q_norm, cand_norm, max_extra_tokens=max_extra_tokens))))
 
     id_to_row = {row[strcolumnid]: row for row in candidates}
     out = []
-    for _match, score, pid in matches:
+    for pid, score in scored:
         r = id_to_row[pid]
-        out.append({
-            strcolumnid: r[strcolumnid],
-            strcolumndesc: r[strcolumndesc],
-            strcolumndescnorm: r[strcolumndescnorm],
-            strcolumnpopularity: r.get(strcolumnpopularity),
-            "SCORE": float(score),
-        })
+        # Carry the whole row rather than a four-key whitelist. The whitelist dropped any
+        # other selected column, so `resolve_to_canonical` reached its id only by the accident
+        # that the id doubled as the popularity column; the moment a real popularity was joined
+        # in, the canonical lookup would have started failing silently.
+        entry = dict(r)
+        entry["SCORE"] = score
+        entry["SCORE_WRATIO"] = float(fuzz.WRatio(q_norm, choices[pid]))
+        out.append(entry)
 
     out.sort(
         key=lambda d: (
@@ -637,7 +764,7 @@ def rank_candidates(
             -(d.get(strcolumnpopularity) or 0),
         )
     )
-    return out
+    return out[:TOP_K]
 
 def decide_autocorrect(ranked: List[Dict[str, Any]]) -> Tuple[bool, Optional[Dict[str, Any]], str]:
     """Decide whether to auto-correct based on the top ranked candidates.
@@ -655,12 +782,22 @@ def decide_autocorrect(ranked: List[Dict[str, Any]]) -> Tuple[bool, Optional[Dic
 
     top1 = ranked[0]
     top2 = ranked[1] if len(ranked) > 1 else None
-    margin = (top1["SCORE"] - top2["SCORE"]) if top2 else 999.0
 
-    if top1["SCORE"] >= AUTO_SCORE and margin >= MIN_MARGIN:
-        return (True, top1, f"auto(score={top1['SCORE']:.1f}, margin={margin:.1f})")
+    # FASTAPI-TEXT2SQL-218: read the WRatio column when present. AUTO_SCORE and MIN_MARGIN
+    # were calibrated on that scale, and `SCORE` now carries the gate's metric, which sits
+    # systematically lower. Reading `SCORE` here would quietly make `require_confident`
+    # unsatisfiable without anyone changing a threshold.
+    def _auto_score(row: Dict[str, Any]) -> float:
+        value = row.get("SCORE_WRATIO")
+        return float(value) if value is not None else float(row["SCORE"])
 
-    return (False, top1, f"suggest(score={top1['SCORE']:.1f}, margin={margin:.1f})")
+    s1 = _auto_score(top1)
+    margin = (s1 - _auto_score(top2)) if top2 else 999.0
+
+    if s1 >= AUTO_SCORE and margin >= MIN_MARGIN:
+        return (True, top1, f"auto(score={s1:.1f}, margin={margin:.1f})")
+
+    return (False, top1, f"suggest(score={s1:.1f}, margin={margin:.1f})")
 
 def search_first_match(
     cur,
@@ -675,6 +812,9 @@ def search_first_match(
     timings_enabled: bool = False,
     bktree: Optional[BKTreeIndex] = None,
     strip_stopwords: bool = False,
+    score_metric: Optional[str] = None,
+    max_extra_tokens: int = DEFAULT_MAX_EXTRA_TOKENS,
+    popularity_join: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Search for a person name and return the best match.
 
@@ -733,6 +873,7 @@ def search_first_match(
         strcolumndescnorm,
         strcolumnpopularity,
         q_norm,
+        popularity_join=popularity_join,
     )
     t_exact1 = time.perf_counter() if timings_enabled else 0.0
     if hit:
@@ -761,6 +902,7 @@ def search_first_match(
         has_fulltext,
         timings=fetch_t,
         bktree=bktree,
+        popularity_join=popularity_join,
     )
     t_fetch1 = time.perf_counter() if timings_enabled else 0.0
 
@@ -773,6 +915,8 @@ def search_first_match(
         q_norm,
         candidates,
         strip_stopwords=strip_stopwords,
+        score_metric=score_metric,
+        max_extra_tokens=max_extra_tokens,
     )
     t_rank1 = time.perf_counter() if timings_enabled else 0.0
 

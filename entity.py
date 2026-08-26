@@ -836,6 +836,19 @@ def plan_entity_resolutions(
                                 has_fulltext=has_fulltext,
                                 timings_enabled=False,
                                 bktree=bktree_idx,
+                                # FASTAPI-TEXT2SQL-214 / -218: the metric is declared by the
+                                # entity, and the SAME one is used to rank here and to judge
+                                # below. Absent from a strategy, it falls back to `ratio`, so
+                                # every strategy that says nothing keeps its old behaviour.
+                                score_metric=search_cfg.get("score_metric"),
+                                max_extra_tokens=int(
+                                    search_cfg.get("max_extra_tokens", rapidfuzz_query.DEFAULT_MAX_EXTRA_TOKENS)
+                                ),
+                                # FASTAPI-TEXT2SQL-218, Do #3. Declared only by strategies whose
+                                # table has no popularity of its own (the alias table), so a tie
+                                # is broken by the person's real popularity instead of by their
+                                # TMDb id, which ranked the most recently added first.
+                                popularity_join=search_cfg.get("popularity_join"),
                                 # Neutralize generic franchise words (collections): "Star Wars
                                 # universe" ~ "Star Wars Collection". Applied to the query and,
                                 # in-memory, to each candidate NORM, so no stored-column backfill
@@ -854,6 +867,15 @@ def plan_entity_resolutions(
                         # the matched text, which is exactly what min_fuzz_ratio gates on. Using
                         # rapidfuzz's own internal score instead would produce two scales that
                         # cannot be compared when calibrating.
+                        #
+                        # FASTAPI-TEXT2SQL-218 completes that reasoning. It was right about the
+                        # SCALE and silent about the CHOICE: ranking still ran on WRatio, so the
+                        # gate measured, correctly, a candidate that had been selected by another
+                        # rule. `rank_candidates` now ranks with this same metric, and the
+                        # strategy declares which one. The strings compared are deliberately
+                        # unchanged (raw value against the display column, both lowercased, not
+                        # the NORM column the ranker uses), so the thresholds calibrated by -206
+                        # keep the meaning they were measured with.
                         # Initialises avant le try : le garde ci-dessous les lit, et un echec
                         # precoce du bloc les laisserait indefinis.
                         _matched_text = ""
@@ -864,7 +886,15 @@ def plan_entity_resolutions(
                             _matched_text = str(best.get(strcolumndesc) or "") if strcolumndesc else ""
                             _sought_norm = raw_value.strip().lower()
                             _matched_norm = _matched_text.strip().lower()
-                            _rf_ratio = fuzz.ratio(_sought_norm, _matched_norm) if _matched_norm else 0.0
+                            _rf_metric = rapidfuzz_query.resolve_score_metric(search_cfg.get("score_metric"))
+                            _rf_max_extra = int(
+                                search_cfg.get("max_extra_tokens", rapidfuzz_query.DEFAULT_MAX_EXTRA_TOKENS)
+                            )
+                            _rf_ratio = (
+                                _rf_metric(_sought_norm, _matched_norm, max_extra_tokens=_rf_max_extra)
+                                if _matched_norm
+                                else 0.0
+                            )
                             match_scores.append({
                                 "placeholder": placeholder,
                                 "search_mode": "rapidfuzz",
@@ -883,6 +913,10 @@ def plan_entity_resolutions(
                                 "rejected": False,
                                 "auto": bool((rapidfuzz_result or {}).get("auto")),
                                 "min_fuzz_ratio": search_cfg.get("min_fuzz_ratio"),
+                                # FASTAPI-TEXT2SQL-214: the bench compares distributions, and two
+                                # metrics produce two distributions. A score without the name of
+                                # the rule that produced it cannot be calibrated against anything.
+                                "score_metric": (search_cfg.get("score_metric") or rapidfuzz_query.DEFAULT_SCORE_METRIC),
                             })
                         except Exception:
                             _rf_ratio = None

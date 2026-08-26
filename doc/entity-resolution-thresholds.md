@@ -129,7 +129,7 @@ language filters.** A strategy that never announces itself has not failed, it ha
 and the two look identical from the outside. The bench cannot tell them apart either: a strategy
 that does not run produces no score, exactly like one that runs and finds nothing.
 
-The threshold work is what lets that door open (FASTAPI-TEXT2SQL-212): exclusion was a substitute
+The threshold work is what lets that door open (FASTAPI-TEXT2SQL-217): exclusion was a substitute
 for a confidence gate, and the gate now exists on both sides.
 
 ## 5. Traps the measurement walked into, and how each is handled
@@ -192,6 +192,54 @@ of fitting the noise of a small sample.
 **One parameter per entity, `min_fuzz_ratio`.** Simpler, decisively better than the distance, and
 nearly as good as the pair.
 
+## 6bis. A second metric, and why one number no longer describes a threshold (2026-08-26)
+
+Until this date one metric graded everything, so a `min_fuzz_ratio` needed no qualifier. Two
+defects ended that, and a threshold now means nothing without the name of the rule that produced
+the score it compares.
+
+**The scale was right and the choice was not (FASTAPI-TEXT2SQL-218).** `rank_candidates` picked
+the candidate with `fuzz.WRatio` while the gate judged it with `fuzz.ratio`. `WRatio` returns
+exactly 95.0 for a token subset and for a token superset alike, so on "maurice micklewhite" both
+"Maurice Maurice" and "Maurice Joseph Micklewhite" scored 95.0, and the tie fell to the popularity
+column, which on the alias table was `ID_PERSON`: the person most recently added to TMDb won.
+The gate then measured that arbitrary winner correctly and refused it, while the right row sat
+unread at rank 2. Ranking now uses the gate's own metric. `SCORE_WRATIO` is kept on each row for
+`decide_autocorrect`, whose `AUTO_SCORE` and `MIN_MARGIN` were calibrated on the WRatio scale.
+
+**A middle name is an inclusion, not an error (FASTAPI-TEXT2SQL-214).** TMDb stores birth names in
+full, so "Marion Morrison" scores 81.1 against "Marion Robert Morrison" and falls under any
+sensible threshold. This is not a threshold value problem: at 84.5, three of the four cases below
+still fail. `fuzz.ratio` normalises by length and cannot see an inclusion.
+
+```
+marion morrison      vs marion robert morrison       81,1
+maurice micklewhite  vs maurice joseph micklewhite   84,4
+archibald leach      vs archibald alec leach         85,7
+allan konigsberg     vs allan stewart konigsberg     80,0
+```
+
+**`score_metric`, declared per strategy**, default `ratio`, so every strategy that says nothing
+keeps its behaviour to the letter and collections in particular are untouched. The alias strategy
+declares `token_subset`, which returns 100 for a strict inclusion under three guards: at least two
+query tokens (one word is a prefix, not an inclusion), every query token present in the candidate,
+and at most `max_extra_tokens` extra tokens in the candidate, default 1, because the defect is a
+middle name and not a wildcard. Without that third guard "Sarah Connor" matches "Sarah Connor
+Jones Smith" at 100.
+
+**Why the thresholds in §7 were not touched.** `token_subset` returns either 100 or exactly
+`fuzz.ratio`, never less: it is **monotone**. Every existing number therefore stays valid as an
+upper bound of strictness, and recalibration can only relax it, never tighten it. That is what
+allows the metric to ship before the bench rather than after.
+
+**What this costs the bench.** Two metrics produce two distributions, so a score is no longer
+comparable across strategies without knowing which rule produced it. `match_scores` now carries
+`score_metric` next to `fuzz_ratio` for exactly that reason. Re-read §9 with this in mind: a bench
+run that mixes metrics in one histogram is measuring nothing.
+
+**Verified without a database**: `eval/check-score-metrics.py`, which feeds `rank_candidates` the
+rows the SELECT would have returned and asserts each guard. It is not a substitute for the bench.
+
 ## 7. The thresholds in force
 
 Midpoint of the measured equivalence interval. "refused" counts legitimate matches turned away,
@@ -234,8 +282,9 @@ Thai or Korean ones. Opened to Latin names it used to produce perverse effects, 
 usable at all. The expected gain is real: "Maurice Schérer" should find Éric Rohmer where the
 persons table returns a wrong entity today.
 
-Its 90.0 is **provisional and unmeasured**, set deliberately stricter because that table is the
-noisier one. An exact normalized match always passes the gate regardless, so "Maurice Schérer"
+Its threshold is **provisional and unmeasured**, set deliberately stricter because that table is
+the noisier one, and since 2026-08-26 it also grades with a different metric (§6bis), so the
+measurement owed here is now twofold: the value, and the distribution the new metric produces. An exact normalized match always passes the gate regardless, so "Maurice Schérer"
 keeps being served. Calibrating it needs a second bench run **after** this deployment, since a
 strategy that cannot be reached cannot be measured. That two-stage sequence cannot be collapsed.
 
