@@ -111,6 +111,27 @@ instrument attributed a rejection to the wrong population.
 Each case therefore carries its full `scores` trace, one entry per strategy that weighed it, and
 the per-strategy report is built from those entries rather than from a single collapsed value.
 
+## 4ter. A closed door is not a broken one
+
+`Person_name` searches the persons table for a Latin name and the alias table otherwise, and that
+split is written in the config as a pair of language filters. On 2026-08-26 the bench showed 27
+alias-drawn values rejected by the persons table and reaching nothing afterwards, and no case in
+the corpus carrying two score entries. That reads exactly like a broken cascade, and it was
+reported as one.
+
+It was not. The trace on "Nikita Kolesnikov" prints "searching with RapidFuzz in table" **once**,
+and the config says why: `apply_when_language_family_not_in: ["Latin"]` on the alias strategy. The
+door was shut on purpose, years before this work, because with no threshold that table resolved
+"Bruce Lee" and "Sid Vicious" to the wrong entities and exclusion was the only guard available.
+
+The lesson generalises past this one case. **Before calling a resolution path broken, read its
+language filters.** A strategy that never announces itself has not failed, it has been skipped,
+and the two look identical from the outside. The bench cannot tell them apart either: a strategy
+that does not run produces no score, exactly like one that runs and finds nothing.
+
+The threshold work is what lets that door open (FASTAPI-TEXT2SQL-212): exclusion was a substitute
+for a confidence gate, and the gate now exists on both sides.
+
 ## 5. Traps the measurement walked into, and how each is handled
 
 Every one of these was found by the bench contradicting itself, not by reading the code.
