@@ -1,0 +1,27 @@
+{
+  "evaluation_id": 2480,
+  "evaluation_category_id": 30,
+  "question_en": "Arnol Swartzeneger",
+  "question_fr": "Arnol Swartzeneger",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages. A misspelled proper noun is deliberately identical on both sides: translating it would destroy the case under test.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_PERSON IN (1100)"
+  },
+  "assertion_refresh_sql": "SELECT ID_PERSON FROM T_WC_T2S_PERSON WHERE PERSON_NAME = 'Arnold Schwarzenegger' LIMIT 1",
+  "assertion_refresh_last": null,
+  "comment": "FASTAPI-TEXT2SQL-219, and -215 for the recovery. Two errors, one of them in the first six characters. Measured 2026-08-26: fuzz.ratio against the real name is 87.2, ABOVE the 84.5 threshold, so the gate would have accepted it, but the candidate never reached the gate. The missing 'd' moves the prefix pool to 'arnols%' while the target lives in 'arnold%', and the BK-tree that exists to cover typos inside the prefix reaches 3 edits where 5 were needed. The stronger model rescued it instead, which is the silent cost -219 describes. It passes today by the expensive path, so this evaluation currently proves the outcome, not the fix: when -219 ships, add an assertion that complex_model_used is false, otherwise the eval stays green through the very path the ticket wants to eliminate. ID 1100 verified by Philippe against person.php on 2026-08-26.",
+  "keywords": "person, misspelling, candidate recall, bk-tree, complex question",
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2026-08-26",
+  "tim_updated": null,
+  "is_showcase": null,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
+}

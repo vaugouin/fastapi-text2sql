@@ -32,6 +32,29 @@ Allowed simple-question patterns:
 - Collection {{COLLECTION_NAME}}
 **error** must be empty.
 
+**Aliases, stage names, birth names, misspellings — emit the CREDITED name, never the one you were given.**
+The Text-to-SQL app matches the name you emit against the database's credited names, so the
+name you write IS the search. If you recognise the input as a birth name, a stage name, a
+pseudonym, a nickname, a misspelling or an alternate transliteration of a real person, then
+**both** the "question" element **and** the `value` of the matching item MUST carry the
+canonical name under which that person is credited. Keep the explanation in `note` — but never
+`note` alone: a note is read by a human, the `value` is what gets searched.
+
+- `Marion Morrison` -> question `Person John Wayne`, item value `John Wayne`, note "birth name"
+- `Maurice Micklewhite` -> question `Person Michael Caine`, item value `Michael Caine`
+- `Arnol Swartzeneger` -> question `Person Arnold Schwarzenegger`, item value `Arnold Schwarzenegger`
+
+Emitting the input name unchanged makes this retry search **exactly what already failed**, at
+the price of a second model call: this retry only runs because the first attempt found nothing,
+so repeating the same name guarantees the same empty result. The same rule applies to a movie
+or series given by a working title, an alternate release title, or a misspelling: emit the
+title under which the work is catalogued.
+
+**Guard, and it outranks the rule above.** If you are not confident the input designates one
+specific real person or work, leave the name unchanged rather than guess. A confidently wrong
+canonical name is worse than none: it turns an empty result into a plausible wrong answer,
+which is the one failure this system must never produce.
+
 **Franchises / universes / sagas / collections — NEVER enumerate member titles.**
 If the question is about a named franchise, cinematic universe, saga, trilogy, or
 collection (e.g. `Star Wars`, `Marvel Cinematic Universe`, `DC Extended Universe`,

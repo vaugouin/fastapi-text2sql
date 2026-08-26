@@ -1,0 +1,27 @@
+{
+  "evaluation_id": 2478,
+  "evaluation_category_id": 30,
+  "question_en": "Who is Marion Morrison?",
+  "question_fr": "Qui est Marion Morrison ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_PERSON IN (4165)"
+  },
+  "assertion_refresh_sql": "SELECT ID_PERSON FROM T_WC_T2S_PERSON WHERE PERSON_NAME = 'John Wayne' LIMIT 1",
+  "assertion_refresh_last": null,
+  "comment": "FASTAPI-TEXT2SQL-215 / -214. The two-word form of a birth name TMDb stores in full ('Marion Robert Morrison'). It failed twice over on 2026-08-26: the resolver refused the alias at 81.1 against a threshold of 87.8 (-214), and the complex-question retry, which HAD identified John Wayne, wrote him into the free-text 'note' and rewrote the question with the same failing name (-215), so the second pass searched exactly what had just failed. The assertion is on the identity returned, not on the path taken: either fix satisfies it, and the user only cares that the card appears. ID 4165 read from the voice-agent rehearsal log of 2026-08-26 (get_person_detail id=4165 answering on Marion Robert Morrison); assertion_refresh_sql re-derives it by name.",
+  "keywords": "person, alias, birth name, complex question, entity resolution",
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2026-08-26",
+  "tim_updated": null,
+  "is_showcase": null,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
+}
