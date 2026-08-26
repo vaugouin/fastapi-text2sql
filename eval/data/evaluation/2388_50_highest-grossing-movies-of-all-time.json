@@ -10,7 +10,7 @@
     "query_result": "ID_MOVIE IN (19995, 299534, 76600, 597, 980477, 969681, 140607, 299536)"
   },
   "assertion_refresh_sql": "SELECT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE ORDER BY T_WC_T2S_MOVIE.REVENUE DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-24T04:22:47",
+  "assertion_refresh_last": "2026-08-26T04:36:48",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

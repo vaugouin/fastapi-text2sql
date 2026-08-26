@@ -39,7 +39,7 @@
           "id_column": "ID_PERSON",
           "value_column": "PERSON_NAME"
         },
-        "min_fuzz_ratio": 90.0
+        "min_fuzz_ratio": 87.8
       }
     ]
   },

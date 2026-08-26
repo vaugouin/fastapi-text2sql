@@ -1,6 +1,8 @@
 -- New evaluations closing FASTAPI-TEXT2SQL-211 (person-role collapse).
 --
--- NOT YET APPLIED. 4 evaluations, English and French, across 2 categories.
+-- APPLIED 2026-08-26. 4 evaluations, English and French, across 2 categories, run in
+-- both languages on 001.001.018 as executions 7064 to 7071. Section 1 is spent; section 4
+-- is what the run itself made necessary and is NOT yet applied.
 --
 -- WHY THIS FILE EXISTS
 -- On 2026-08-25, "La costumière du film Capote avec Philip seymour Hofmann" returned zero
@@ -49,10 +51,24 @@
 -- executed against a server from this machine. Run section 0 first, then one single INSERT,
 -- then section 0 again.
 --
--- AFTER IMPORT
--- Re-run phase 11 (the questions have never been executed) then phase 20. Evaluation 4 is
--- the counter-example and may come back red for a data reason rather than a query one; read
--- its result before touching it, and leave it red if the gap is real.
+-- WHAT THE FIRST RUN FOUND (2026-08-26, executions 7064-7071)
+-- Eight green out of eight, and three of the four for the right reasons: the generated SQL
+-- carries the EXISTS form of the prompt rule, aliases included, and returns real people
+-- (Kasia Walicka Maimone and Aldo Signoretti on Capote, Michael Chapman on Taxi Driver,
+-- Vince Gilligan on Breaking Bad), in English and in French alike.
+--
+-- The counter-example, 2476, was green for the WRONG reason, and that is the finding.
+-- English returns 1 row, Quentin Tarantino, through two aliased instances. French returns
+-- 37, the director plus the whole cast, because it wrote the two credit filters as an OR on
+-- a single instance: the "et" of the question became a disjunction. Its justification claims
+-- the conjunction the SQL does not implement.
+--
+-- COUNT(*) &gt; 0 could not see it. That is the trap this project already named: a toothless
+-- assertion is worse than an absent one, because an absence at least shows. Section 4 gives
+-- it teeth, using an anchor taken from the observed English run. It will turn the French side
+-- RED on purpose, and it must stay red until the prompt rule for the conjunctive form (added
+-- to data/text_to_sql.md the same day, "The mirror case: ONE person in TWO roles") has been
+-- exercised by a fresh run.
 
 
 -- ---------------------------------------------------------------------------
@@ -150,6 +166,45 @@ WHERE QUESTION IN (
   'Who both directed and acted in the movie Pulp Fiction?'
 )
 ORDER BY ID_T2S_EVALUATION;
+
+
+-- ---------------------------------------------------------------------------
+-- 4. NOT YET APPLIED. Tighten evaluation 2476 so the conjunction is actually
+--    tested. Guarded on the EXACT current value rather than on emptiness: it
+--    applies once, does nothing on re-run, and withdraws itself if someone
+--    edited the assertion in between.
+--
+--    COUNT(*) &lt; 5 rather than == 1: the answer set is small by nature, and a
+--    strict count would break the day a second person gains both credits on the
+--    film. 1 passes, 37 does not, which is the whole discrimination needed.
+--    PERSON_NAME IN keeps the anchor honest, since a small WRONG set would
+--    otherwise satisfy the count alone.
+--
+--    After it applies, re-run phase 11 for 2476 in both languages, then phase 20.
+--    Scoring alone (phase 20) is not enough here: the stored JSON_RESULT predates
+--    the prompt change, so it would score the old French answer.
+--
+--    ON THE QUOTES, AND WHY THE GUARD IS A LIKE. Section 1 wrote '' for the inner
+--    apostrophes and the column came back holding &#039;, while the &gt; it also
+--    wrote survived untouched. So the import path escapes apostrophes and leaves
+--    ampersands alone. Both spellings therefore reach html.unescape() the same way
+--    at eval/text2sql-eval.py:768, and '' is kept below because it is the one this
+--    file has already been round-tripped with. The guard, however, must not depend
+--    on guessing how the CURRENT value was escaped: matching the ID plus the
+--    absence of PERSON_NAME is escaping-proof and still applies exactly once, since
+--    the new value contains PERSON_NAME.
+-- ---------------------------------------------------------------------------
+UPDATE T_WC_T2S_EVALUATION
+   SET ASSERTIONS_QUERY_RESULT = 'COUNT(*) &lt; 5 AND PERSON_NAME IN (''Quentin Tarantino'')',
+       LONG_DESC = 'One person in two roles on the same film is legitimate, and the query that expresses it looks exactly like the collapse it must not be confused with. Guards the -211 rule against overshooting, and guards the conjunction itself: "and" between two roles needs two aliased credit instances both correlated on the same film, never an OR on one instance, which answers "either role" and returns the whole cast.'
+ WHERE ID_T2S_EVALUATION = 2476
+   AND ASSERTIONS_QUERY_RESULT LIKE 'COUNT(*)%'
+   AND ASSERTIONS_QUERY_RESULT NOT LIKE '%PERSON_NAME%';
+
+-- Verify. Expect one row carrying the new assertion.
+SELECT ID_T2S_EVALUATION, LEFT(QUESTION, 55) AS QUESTION, ASSERTIONS_QUERY_RESULT
+FROM T_WC_T2S_EVALUATION
+WHERE ID_T2S_EVALUATION = 2476;
 
 
 -- ---------------------------------------------------------------------------
