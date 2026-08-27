@@ -33,12 +33,17 @@ _SCHEMAS = {
         "required": {"question": str},
         "types": {"question": str, "error": str, "raw_content": str},
     },
-    # f_text2sql -> {"result_entity"?, "sql_query"|"error", "justification"?, "answer"?}
+    # f_text2sql -> {"result_entity"?, "sql_query"|"error", "justification"?, "answer"?,
+    #                "dropped_clause"?}
+    # dropped_clause (FASTAPI-TEXT2SQL-220) names the part of the question the SQL does not
+    # implement, and is empty when it implements all of it. Typed like justification and answer
+    # because it is advisory prose; unlisted keys are allowed, so an older model that omits it
+    # stays valid.
     "text2sql": {
         "any_of_required": ["sql_query", "error"],
         "types": {
             "result_entity": str, "sql_query": str, "justification": str,
-            "answer": str, "error": str, "raw_content": str,
+            "answer": str, "dropped_clause": str, "error": str, "raw_content": str,
         },
     },
     # f_resolve_complex_question -> {"question"|"error", "justification"?, "answer"?}

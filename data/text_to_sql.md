@@ -10,6 +10,7 @@ Convert the provided natural language question into the following json structure
   "sql_query": "**valid SQL query**",
   "justification": "**brief explanation**",
   "answer": "**user-oriented answer**",
+  "dropped_clause": "**the part of the question the SQL does not implement, empty when it implements all of it**",
   "error": "**request clarification**"
 }
 
@@ -33,6 +34,9 @@ Rules:
 - Generate the SQL query using placeholders AS-IS, and preserve them exactly (including braces and numbering).
 - When comparing against a placeholder in SQL, treat it as a string literal, for example: T_WC_T2S_MOVIE.MOVIE_TITLE = '{{Movie_title1}}'
 - The placeholders will be substituted with real values AFTER you generate the SQL.
+- **Use ONLY placeholders that appear verbatim in the question you were given.** The list above is a glossary of every placeholder the system knows, NOT a menu to pick from. A placeholder you write that was not in the input will never be substituted, because no value was ever produced for it: the query becomes unexecutable and is discarded, so the user gets NOTHING instead of a narrower answer.
+- **If a filter would need a placeholder that is absent, drop that filter**, along with any join that existed only to serve it. Do NOT replace it with a value recalled from memory, and do NOT replace it with a numeric id: the prohibition stated below for genres and technical formats is not lifted here. An answer narrower than the question but which runs is worth more than an exact query that cannot run. This is the "make your best interpretation" rule above, applied to a missing placeholder.
+- **Declare what you dropped** in `dropped_clause`: a short phrase naming the part of the question the SQL does not implement, for example `genre filter: science-fiction`. Leave it empty when the SQL implements the whole question. The `answer` element must then not claim a filter the SQL does not apply.
 
 Genre and Technical_format placeholder special case (integer-ID columns):
 - `{{Movie_genreN}}` represents a movie genre name (TMDb /genre/movie/list). Do NOT convert it yourself into the numeric ID. Use it ONLY against the movie genre junction.

@@ -142,7 +142,8 @@ Examples:
 - `Philip Marlowe`
 
 ### Movie_genre
-Extract `Movie_genre` when the user question mentions a movie genre AND the question is about movies (not TV series).
+Extract `Movie_genre` when the user question mentions a movie genre AND that genre **qualifies movies**, whatever kind of thing the question ultimately returns.
+**What decides the placeholder is what the genre describes, not what the answer lists.** A question can return collections, people or companies and still filter on a movie genre reached through a join: `science fiction collections` means collections whose MOVIES are science fiction, so the genre is a movie genre and `Movie_genre` is correct. Extract it. Only when the genre qualifies neither movies nor series should it be left unextracted.
 **Normalize the value to the EXACT canonical name from the list below — do NOT keep the user's inflected surface form.** The value MUST be one of (case-insensitive):
 - `Action`, `Adventure`, `Animation`, `Comedy`, `Crime`, `Documentary`, `Drama`, `Family`, `Fantasy`, `History`, `Horror`, `Music`, `Mystery`, `Romance`, `Science Fiction`, `Sci-Fi`, `Thriller`, `TV Movie`, `War`, `Western`
 
@@ -157,9 +158,11 @@ Examples:
 - `Comedy` (in `feel-good comedies`)
 - `Animation` (in `animated films`)
 - `Science Fiction` (in `Science Fiction movies`)
+- `Science Fiction` (in `science fiction collections with exactly 3 movies`: the answer is a collection, the genre still qualifies its movies)
+- `Horror` (in `which companies produced the most horror films?`: the answer is a company, the genre still qualifies films)
 
 ### Serie_genre
-Extract `Serie_genre` when the user question mentions a TV series genre AND the question is about TV series / shows (not movies).
+Extract `Serie_genre` when the user question mentions a TV series genre AND that genre **qualifies TV series / shows**, whatever kind of thing the question ultimately returns. Same reasoning as `Movie_genre` above: what the genre describes decides, not what the answer lists.
 **Normalize the value to the EXACT canonical name from the list below — do NOT keep the user's inflected surface form.** The value MUST be one of (case-insensitive):
 - `Action & Adventure`, `Animation`, `Comedy`, `Crime`, `Documentary`, `Drama`, `Family`, `Kids`, `Mystery`, `News`, `Reality`, `Sci-Fi & Fantasy`, `Soap`, `Talk`, `War & Politics`, `Western`
 
@@ -172,12 +175,12 @@ Examples:
 - `Crime` (in `trending crime series`)
 
 ### Genre disambiguation
-- Picking the right placeholder is determined by what the question is filtering — movies use `Movie_genre`, series/shows/TV use `Serie_genre`. For example, `comedy movies` → `{{Movie_genre1}} = "comedy"`; `comedy series` → `{{Serie_genre1}} = "comedy"`. The two placeholders map to different ID spaces with some overlap (Animation, Comedy, Crime, Documentary, Drama, Family, Mystery, Western are valid on both sides).
+- Picking the right placeholder is determined by what the **genre** qualifies, not by what the question returns: a genre describing movies uses `Movie_genre`, a genre describing series/shows/TV uses `Serie_genre`, even when the rows finally listed are collections, people or companies. For example, `comedy movies` → `{{Movie_genre1}} = "comedy"`; `comedy series` → `{{Serie_genre1}} = "comedy"`. The two placeholders map to different ID spaces with some overlap (Animation, Comedy, Crime, Documentary, Drama, Family, Mystery, Western are valid on both sides).
 - If the user writes a simple word that matches a supported genre (e.g., `war movies`, `comedy series`), extract it as `Movie_genre` or `Serie_genre`, NOT as `Topic_name`.
 - If the user writes `documentary` or `documentaries` **without** an explicit series/TV or movie context (e.g., `List documentaries`, `best documentaries of 2020`), do **NOT** extract it as a genre at all. Leave the word in the question unchanged so the text-to-SQL step can handle it directly.
 - If the user writes a compound topic that includes a genre word but refers to a specific theme (e.g., `Vietnam war`, `World War II`, `cold war`), extract it as `Topic_name`, NOT as a genre.
 - Do NOT extract a genre when the genre word is part of an **audience or mood descriptor** rather than a genre filter. In `animated films the whole family loves`, `the whole family loves` is praise, NOT the `Family` genre — extract only `Animation`. In `action-packed thriller`, `action-packed` describes the thriller — extract only `Thriller`. Never emit two AND-ed genres from a single descriptor phrase.
-- If the surface form is not in the matching side's supported list above, do NOT extract it as a genre placeholder. Leave it in the anonymized question unchanged, or treat it as a topic if appropriate. In particular: `Action & Adventure`, `Kids`, `News`, `Reality`, `Sci-Fi & Fantasy`, `Soap`, `Talk`, `War & Politics` are TV-only; `Action`, `Adventure`, `Fantasy`, `History`, `Horror`, `Music`, `Romance`, `Science Fiction`, `TV Movie`, `Thriller`, `War` are movie-only.
+- The "matching side" is the side the **genre** qualifies (movies or series), never the entity the question returns. If the surface form is not in that side's supported list above, do NOT extract it as a genre placeholder. Leave it in the anonymized question unchanged, or treat it as a topic if appropriate. In particular: `Action & Adventure`, `Kids`, `News`, `Reality`, `Sci-Fi & Fantasy`, `Soap`, `Talk`, `War & Politics` are TV-only; `Action`, `Adventure`, `Fantasy`, `History`, `Horror`, `Music`, `Romance`, `Science Fiction`, `TV Movie`, `Thriller`, `War` are movie-only.
 
 ### Status_name
 Production lifecycle status of a movie or TV series.
