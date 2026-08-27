@@ -251,6 +251,19 @@ def main():
         for counts in per_version.values():
             merged.update(counts)
         per_version = {"ALL": merged}
+        # The samples are keyed by the REAL version while the counts are merged under "ALL",
+        # so without this they are looked up under a key nothing ever wrote and --show prints
+        # nothing at all. It had never worked without --by-version, for the original buckets
+        # as much as for the undeclared ones: a flag that silently does nothing is worse than
+        # an absent flag, because it answers "there are none" to a question never asked.
+        merged_samples = defaultdict(list)
+        for (version_key, bucket), questions in samples.items():
+            merged_samples[("ALL", bucket)].extend(questions)
+        samples = merged_samples
+        merged_undeclared = defaultdict(list)
+        for version_key, rows in undeclared_samples.items():
+            merged_undeclared["ALL"].extend(rows)
+        undeclared_samples = merged_undeclared
 
     for version in versions:
         c = per_version[version]
