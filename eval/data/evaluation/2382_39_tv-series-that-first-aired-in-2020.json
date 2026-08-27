@@ -10,7 +10,7 @@
     "query_result": "ID_SERIE IN (111188, 79525, 331477, 101352, 97546, 87739, 95479, 89905)"
   },
   "assertion_refresh_sql": "SELECT T_WC_T2S_SERIE.ID_SERIE FROM T_WC_T2S_SERIE WHERE YEAR(T_WC_T2S_SERIE.DAT_FIRST_AIR) = 2020 ORDER BY T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-26T04:36:47",
+  "assertion_refresh_last": "2026-08-27T04:57:21",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

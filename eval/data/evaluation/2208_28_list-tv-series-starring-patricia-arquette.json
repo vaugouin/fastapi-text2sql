@@ -10,7 +10,7 @@
     "query_result": "ID_SERIE IN (95396, 72039, 82883, 14981, 43221, 36, 1448, 270734)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT s.ID_SERIE FROM T_WC_T2S_SERIE s JOIN T_WC_T2S_PERSON_SERIE ps ON ps.ID_SERIE = s.ID_SERIE JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON WHERE p.PERSON_NAME = &#039;Patricia Arquette&#039; AND ps.CREDIT_TYPE = &#039;cast&#039; ORDER BY s.IMDB_RATING_WEIGHTED DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-26T04:36:06",
+  "assertion_refresh_last": "2026-08-27T04:56:41",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

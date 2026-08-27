@@ -1,0 +1,27 @@
+{
+  "evaluation_id": 2481,
+  "evaluation_category_id": 47,
+  "question_en": "List science fiction collections with exactly 3 movies",
+  "question_fr": "Répertorier les collections de science-fiction avec exactement 3 films",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_T2S_COLLECTION IN (2375, 2876, 72, 1299, 608, 2173, 2088, 475)"
+  },
+  "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_COLLECTION.ID_T2S_COLLECTION, T_WC_T2S_COLLECTION.COLLECTION_NAME, T_WC_T2S_COLLECTION.COLLECTION_SOURCE, T_WC_T2S_COLLECTION.COLLECTION_TYPE, T_WC_T2S_COLLECTION.POSTER_PATH, T_WC_T2S_COLLECTION.WIKIPEDIA_IMAGE_PATH, T_WC_T2S_COLLECTION.OVERVIEW, T_WC_T2S_COLLECTION.MOVIE_COUNT, T_WC_T2S_COLLECTION.SERIE_COUNT, T_WC_T2S_COLLECTION.IMDB_RATING FROM T_WC_T2S_COLLECTION JOIN T_WC_T2S_MOVIE_COLLECTION ON T_WC_T2S_COLLECTION.ID_T2S_COLLECTION = T_WC_T2S_MOVIE_COLLECTION.ID_T2S_COLLECTION JOIN T_WC_T2S_MOVIE ON T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_COLLECTION.ID_MOVIE JOIN T_WC_T2S_MOVIE_GENRE ON T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_GENRE.ID_MOVIE WHERE T_WC_T2S_MOVIE_GENRE.ID_GENRE = 878 GROUP BY T_WC_T2S_COLLECTION.ID_T2S_COLLECTION, T_WC_T2S_COLLECTION.COLLECTION_NAME, T_WC_T2S_COLLECTION.COLLECTION_SOURCE, T_WC_T2S_COLLECTION.COLLECTION_TYPE, T_WC_T2S_COLLECTION.POSTER_PATH, T_WC_T2S_COLLECTION.WIKIPEDIA_IMAGE_PATH, T_WC_T2S_COLLECTION.OVERVIEW, T_WC_T2S_COLLECTION.MOVIE_COUNT, T_WC_T2S_COLLECTION.SERIE_COUNT, T_WC_T2S_COLLECTION.IMDB_RATING HAVING COUNT(DISTINCT T_WC_T2S_MOVIE.ID_MOVIE) = 3 ORDER BY T_WC_T2S_COLLECTION.IMDB_RATING_WEIGHTED DESC LIMIT 8",
+  "assertion_refresh_last": null,
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-08-27",
+  "tim_updated": "2026-08-27T09:10:11",
+  "is_showcase": 1,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
+}

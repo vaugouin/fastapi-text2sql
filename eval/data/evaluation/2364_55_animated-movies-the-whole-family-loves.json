@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Movie_genre1&quot;]) AND matches($.Movie_genre1, /^Animation$/i)",
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (1084244, 1315772, 980431, 1311031, 1226863, 1084242, 569094, 1327819)"
+    "query_result": "ID_MOVIE IN (1084244, 1315772, 980431, 1311031, 1226863, 569094, 1560520, 1084242)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_MOVIE_GENRE ON T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_GENRE.ID_MOVIE WHERE T_WC_T2S_MOVIE_GENRE.ID_GENRE = 16 ORDER BY T_WC_T2S_MOVIE.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-26T04:36:39",
+  "assertion_refresh_last": "2026-08-27T04:57:11",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

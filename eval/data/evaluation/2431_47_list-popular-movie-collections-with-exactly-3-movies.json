@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_T2S_COLLECTION IN (2286, 83, 2375, 71, 70, 1875, 67, 716)"
+    "query_result": "ID_T2S_COLLECTION IN (2286, 83, 2375, 71, 70, 67, 1875, 716)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT c.ID_T2S_COLLECTION FROM T_WC_T2S_COLLECTION c WHERE c.MOVIE_COUNT = 3 ORDER BY c.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-26T04:36:30",
+  "assertion_refresh_last": "2026-08-27T04:57:02",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

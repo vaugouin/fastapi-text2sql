@@ -10,7 +10,7 @@
     "query_result": "ID_MOVIE IN (798051, 532255, 1515139, 737885, 811946, 1687804, 1475768, 1701141)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.STATUS = 'In Production' ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-26T04:36:05",
+  "assertion_refresh_last": "2026-08-27T04:56:40",
   "comment": "In Production, the status the bank never exercised on the movie side.",
   "keywords": null,
   "keywords_auto": null,

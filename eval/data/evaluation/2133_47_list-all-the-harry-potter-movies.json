@@ -10,7 +10,7 @@
     "query_result": "ID_MOVIE IN (671, 672, 673, 674, 675, 767, 12444, 12445)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT m.ID_MOVIE FROM T_WC_T2S_MOVIE m JOIN T_WC_T2S_MOVIE_COLLECTION mc ON mc.ID_MOVIE = m.ID_MOVIE JOIN T_WC_T2S_COLLECTION c ON c.ID_T2S_COLLECTION = mc.ID_T2S_COLLECTION WHERE c.COLLECTION_NAME = &#039;Harry Potter Collection&#039; ORDER BY mc.DISPLAY_ORDER ASC LIMIT 8",
-  "assertion_refresh_last": "2026-08-26T04:36:06",
+  "assertion_refresh_last": "2026-08-27T04:56:41",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

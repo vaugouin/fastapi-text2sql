@@ -7,21 +7,21 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_PERSON IN (4165)"
+    "query_result": "COUNT(*) &gt; 0 AND ID_PERSON IN (4165)"
   },
-  "assertion_refresh_sql": "SELECT ID_PERSON FROM T_WC_T2S_PERSON WHERE PERSON_NAME = 'John Wayne' LIMIT 1",
+  "assertion_refresh_sql": null,
   "assertion_refresh_last": null,
-  "comment": "FASTAPI-TEXT2SQL-215 / -214. The two-word form of a birth name TMDb stores in full ('Marion Robert Morrison'). It failed twice over on 2026-08-26: the resolver refused the alias at 81.1 against a threshold of 87.8 (-214), and the complex-question retry, which HAD identified John Wayne, wrote him into the free-text 'note' and rewrote the question with the same failing name (-215), so the second pass searched exactly what had just failed. The assertion is on the identity returned, not on the path taken: either fix satisfies it, and the user only cares that the card appears. ID 4165 read from the voice-agent rehearsal log of 2026-08-26 (get_person_detail id=4165 answering on Marion Robert Morrison); assertion_refresh_sql re-derives it by name.",
-  "keywords": "person, alias, birth name, complex question, entity resolution",
+  "comment": "Birth name of John Wayne, stored by TMDb in full as &quot;Marion Robert Morrison&quot;. The two-word form scored 81.1 against a threshold of 87.8 on 2026-08-26 and returned nothing, while the complex-question retry had identified John Wayne and put him in a field nothing reads. Asserts the identity returned, not the path taken: -214 satisfies it on the first pass, -215 on the second.",
+  "keywords": null,
   "keywords_auto": null,
   "is_eval": 1,
-  "is_sample": 0,
+  "is_sample": 1,
   "display_order": null,
-  "dat_creat": "2026-08-26",
-  "tim_updated": null,
-  "is_showcase": null,
+  "dat_creat": "2026-08-27",
+  "tim_updated": "2026-08-27T09:00:28",
+  "is_showcase": 0,
   "deleted": 0,
-  "id_creator": 1,
-  "id_owner": 1,
+  "id_creator": null,
+  "id_owner": null,
   "id_user_updated": 1
 }

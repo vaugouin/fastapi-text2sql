@@ -7,21 +7,21 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_PERSON IN (3895)"
+    "query_result": "COUNT(*) &gt; 0 AND ID_PERSON IN (3895)"
   },
-  "assertion_refresh_sql": "SELECT ID_PERSON FROM T_WC_T2S_PERSON WHERE PERSON_NAME = 'Michael Caine' LIMIT 1",
+  "assertion_refresh_sql": null,
   "assertion_refresh_last": null,
-  "comment": "FASTAPI-TEXT2SQL-218 / -214 / -215. The two-word form of a birth name TMDb stores as 'Maurice Joseph Micklewhite Jr.', so it is two tokens short, not one. On 2026-08-26 the trace never even named a Micklewhite: the ranker scored with WRatio, which grades a token subset ('Maurice Maurice') exactly like the real birth name, broke the tie on the highest TMDb id, and handed the gate an unrelated person to refuse (-218). Two extra tokens then defeated the first version of the -214 guard until generational suffixes were neutralised. The assertion is on the identity returned, not on the path taken. ID 3895 verified by Philippe against person.php on 2026-08-26.",
-  "keywords": "person, alias, birth name, entity resolution, ranking",
+  "comment": "Birth name of Michael Caine, stored by TMDb as &quot;Maurice Joseph Micklewhite Jr.&quot;, two tokens more than the form a user types. On 2026-08-26 the trace never named a Micklewhite at all: WRatio grades a token subset (&quot;Maurice Maurice&quot;) exactly like the real birth name and the tie fell to the highest TMDb id, so the gate was handed a stranger to refuse.",
+  "keywords": null,
   "keywords_auto": null,
   "is_eval": 1,
-  "is_sample": 0,
+  "is_sample": 1,
   "display_order": null,
-  "dat_creat": "2026-08-26",
-  "tim_updated": null,
-  "is_showcase": null,
+  "dat_creat": "2026-08-27",
+  "tim_updated": "2026-08-27T09:00:40",
+  "is_showcase": 0,
   "deleted": 0,
-  "id_creator": 1,
-  "id_owner": 1,
+  "id_creator": null,
+  "id_owner": null,
   "id_user_updated": 1
 }

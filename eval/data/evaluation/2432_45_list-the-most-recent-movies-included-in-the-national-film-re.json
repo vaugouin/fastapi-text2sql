@@ -10,7 +10,7 @@
     "query_result": "ID_MOVIE IN (120467, 76203, 73939, 37799, 27205, 113377, 12162, 155)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_MOVIE_LIST ON T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_LIST.ID_MOVIE JOIN T_WC_T2S_LIST ON T_WC_T2S_LIST.ID_T2S_LIST = T_WC_T2S_MOVIE_LIST.ID_T2S_LIST WHERE T_WC_T2S_LIST.LIST_NAME = &#039;National Film Registry&#039; ORDER BY T_WC_T2S_MOVIE.DAT_RELEASE DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-26T04:36:30",
+  "assertion_refresh_last": "2026-08-27T04:57:02",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
