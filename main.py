@@ -1491,6 +1491,14 @@ class Text2SQLResponse(BaseModel):
     # pure name/title equality on one literal returning >=2 distinct rows. Clients
     # decide what to do with it (voice-agent disambiguates; tmdb-front ignores it).
     name_ambiguity: Optional[dict] = None
+    # FASTAPI-TEXT2SQL-220. Names the part of the question the generated SQL does NOT
+    # implement, empty when it implements all of it. The generator fills it when a filter had
+    # to be dropped, typically because it would have needed a placeholder entity extraction
+    # never produced: dropping the filter widens the answer, and saying nothing would present
+    # a narrower answer as if it were complete. Neutral like name_ambiguity: the API states
+    # the fact, clients decide. Deliberately NOT wired into the empty-result retry decision,
+    # which -207 wants measured before it is changed.
+    dropped_clause: str = ""
     error: str
     error_code: Optional[str] = None
     is_retryable: bool = False
@@ -1719,6 +1727,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     answer = None
     answer_anonymized = None
     result_entity = ""
+    dropped_clause = ""  # FASTAPI-TEXT2SQL-220
     error_text2sql = None
     llm_defined_limit = None
     llm_defined_offset = None
@@ -2313,6 +2322,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 justification_anonymized = justification
                 answer = json_content.get('answer') or ""
                 answer_anonymized = answer
+                dropped_clause = (json_content.get('dropped_clause') or "").strip()
                 error_text2sql = json_content.get('error') or 'Text2SQL failed to return sql_query'
                 messages.append(TextMessage(
                     position=position_counter,
@@ -2329,6 +2339,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 justification_anonymized = justification
                 answer = json_content.get('answer') or ""
                 answer_anonymized = answer
+                dropped_clause = (json_content.get('dropped_clause') or "").strip()
                 error_text2sql = json_content.get('error') or ''
 
             text2sql_end_time = time.time()
@@ -2338,6 +2349,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 text=f"Generated SQL query: {sql_query_anonymized.replace('"', '\\"')}"
             ))
             position_counter += 1
+            if dropped_clause:
+                # FASTAPI-TEXT2SQL-220. Placed immediately after the SQL, because it is a
+                # property of that SQL: the answer will be wider than the question asked.
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Generator dropped part of the question, the SQL does not implement it: {dropped_clause}"
+                ))
+                position_counter += 1
             messages.append(TextMessage(
                 position=position_counter,
                 text="Justification: " + justification
@@ -2415,6 +2434,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             sql_query = _retry_sql
                             sql_query_anonymized = _retry_sql
                             justification = json_content_retry.get('justification') or justification
+                            # FASTAPI-TEXT2SQL-220: a new SQL carries its own dropped clause,
+                            # and the previous one no longer describes anything.
+                            dropped_clause = (json_content_retry.get('dropped_clause') or "").strip()
                             justification_anonymized = justification
                             answer = json_content_retry.get('answer') or answer
                             answer_anonymized = answer
@@ -3409,6 +3431,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         answer_anonymized=answer_anonymized,
         result_entity=result_entity or "",
         name_ambiguity=name_ambiguity,
+        dropped_clause=dropped_clause,
         error=response_error_text,
         error_code=retry_metadata.get("error_code"),
         is_retryable=bool(retry_metadata.get("is_retryable")),
