@@ -31,6 +31,27 @@ signal (d) of the guard now reopens them. The column exists to keep that widenin
 run it before and after a prompt change and watch how many AUTHORITATIVE empties it moves.
 The predicate is imported from sql_shapes.py, the same one main.py runs, on purpose.
 
+A fifth column counts `dropped_clause` (FASTAPI-TEXT2SQL-220): the generator declaring that
+its SQL does not implement the whole question, typically because a filter would have needed a
+placeholder entity extraction never produced. Two figures, and they answer different questions.
+Over ALL calls it says how often the phenomenon happens at all, which is the measurement -220
+asks for. Among BLOCKED empties it says how many of them come from a query that never asked the
+whole question, which is a different animal from an authoritative empty and is the structural
+signal -207 has been asking for.
+
+A sixth column needs no new field and reads the WHOLE history (FASTAPI-TEXT2SQL-220): among the
+empties never evaluated because a `{{placeholder}}` survived into the final SQL, how many of
+those placeholders were never produced by entity extraction at all. A surviving placeholder whose
+key IS in the extraction is a resolution that failed; a surviving placeholder whose key is NOT
+there was invented by the generator, and no resolver could ever have filled it. The message
+`entity.py` already writes names the survivors, and the response already carries the extraction
+keys, so the split is computable on every log ever written, back to 2025.
+
+**Read a zero carefully.** `dropped_clause` only exists from the version that shipped it, so a
+log written before carries no such key and a zero would be indistinguishable from "never
+happens". The report therefore prints how many responses carry the field at all: when that line
+reads 0, the column below it means nothing yet. Use --by-version to see the field appear.
+
 Reads loose `*_text2sql_post_*.json` files and, with --archives, the monthly tarballs that
 archive-logs.sh produces under `logs/archive/<YYYYMM>.tar.gz`.
 
@@ -52,6 +73,11 @@ from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sql_shapes
+
+# entity.py writes: "Unresolved placeholders remain in SQL after entity resolution: {{A}}, {{B}}"
+# and truncates past ten with ", ...". Parsing it costs nothing and works on archived logs.
+UNRESOLVED_MARK = "Unresolved placeholders remain in SQL after entity resolution:"
+PLACEHOLDER_RE = re.compile(r"\{\{([^}]+)\}\}")
 
 GUARD_MESSAGE = "treating the empty result as authoritative"
 RETRY_MESSAGE = "SQL query returned 0 rows; attempting to simplify"
@@ -89,6 +115,26 @@ def iter_logs(logs_dir: str, include_archives: bool):
             print(f"  (skipped archive {os.path.basename(archive)}: {e})", file=sys.stderr)
 
 
+def undeclared_placeholders(response: dict):
+    """Placeholders that survived into the SQL although extraction never produced them.
+
+    FASTAPI-TEXT2SQL-220. Returns (survivors, undeclared). A survivor whose key is among the
+    extraction keys is a resolution that found nothing; one whose key is absent was invented by
+    the generator, and no resolver could have filled it because no value was ever produced.
+    """
+    survivors = []
+    for message in response.get("messages") or []:
+        text = message.get("text") or ""
+        if UNRESOLVED_MARK in text:
+            survivors = PLACEHOLDER_RE.findall(text.split(UNRESOLVED_MARK, 1)[1])
+            break
+    if not survivors:
+        return [], []
+    extraction = response.get("entity_extraction")
+    keys = {k for k in (extraction or {}) if k != "question"} if isinstance(extraction, dict) else set()
+    return survivors, [p for p in survivors if p not in keys]
+
+
 def classify(response: dict) -> str:
     """Return the bucket a blocked empty result belongs to."""
     extraction = response.get("entity_extraction")
@@ -116,6 +162,7 @@ def main():
 
     per_version = defaultdict(Counter)
     samples = defaultdict(list)
+    undeclared_samples = defaultdict(list)
     dates = []
 
     for name, payload in iter_logs(args.logs_dir, args.archives):
@@ -124,6 +171,28 @@ def main():
         version = response.get("api_version") or "unknown"
         counts = per_version[version]
         counts["calls"] += 1
+
+        # FASTAPI-TEXT2SQL-220. Counted here, before every `continue` below, because a dropped
+        # clause is a property of the generation and not of the empty-result path: it matters
+        # just as much on a call that returned rows, where it means the user got a WIDER answer
+        # than they asked for without being told.
+        if "dropped_clause" in response:
+            counts["dropped_field_present"] += 1
+            if (response.get("dropped_clause") or "").strip():
+                counts["dropped_any"] += 1
+
+        # FASTAPI-TEXT2SQL-220, retroactive: needs no new field, so it reads the whole history.
+        survivors, undeclared = undeclared_placeholders(response)
+        if survivors:
+            counts["placeholder_survived"] += 1
+            if undeclared:
+                counts["placeholder_undeclared"] += 1
+                if args.show:
+                    undeclared_samples[version].append(
+                        (request.get("question") or "", ", ".join(undeclared))
+                    )
+            else:
+                counts["placeholder_unresolved"] += 1
 
         match = FILENAME_RE.match(name)
         if match:
@@ -162,6 +231,11 @@ def main():
         ):
             counts["collapse"] += 1
             counts["collapse_" + bucket] += 1
+        # FASTAPI-TEXT2SQL-220 / -207: an empty whose query never asked the whole question.
+        # Its emptiness cannot be authoritative for a question that was never posed in full.
+        if (response.get("dropped_clause") or "").strip():
+            counts["dropped_blocked"] += 1
+            counts["dropped_" + bucket] += 1
         if args.show:
             samples[(version, bucket)].append(request.get("question") or "")
 
@@ -186,8 +260,13 @@ def main():
         print(f"    complex mode off (cannot trigger)   {c['complex_disabled']:>6}")
         print(f"    complex mode on                     {c['complex_enabled']:>6}")
         print(f"      complex model actually used       {c['complex_used']:>6}")
+        print(f"      dropped a clause (any outcome)    {c['dropped_any']:>6}  <- answer wider than the question")
+        print(f"        responses carrying the field    {c['dropped_field_present']:>6}  <- if 0, the line above is meaningless")
         print(f"      empty result on page 1            {c['empty_page1']:>6}")
         print(f"        never evaluated (ambiguous=1)   {c['empty_never_evaluated']:>6}")
+        print(f"          a placeholder survived the SQL  {c['placeholder_survived']:>6}")
+        print(f"            extraction HAD the key        {c['placeholder_unresolved']:>6}  <- resolution found nothing")
+        print(f"            extraction NEVER had it       {c['placeholder_undeclared']:>6}  <- generator invented it, -220")
         print(f"        reached the guard, BLOCKED      {c['blocked']:>6}")
         print(f"        no-results retry actually fired {c['retry_fired']:>6}  <- 0 means the retry is dead code")
         if c["blocked"]:
@@ -196,6 +275,10 @@ def main():
             print(f"          authoritative (correctly blocked) {c['AUTHORITATIVE']:>6}  <- must stay blocked")
             print(f"          person-role collapse (any bucket)  {c['collapse']:>6}  <- signal (d) reopens these")
             print(f"            of which authoritative           {c['collapse_AUTHORITATIVE']:>6}  <- the widening's real cost")
+            print(f"          dropped a clause (any bucket)      {c['dropped_blocked']:>6}  <- the query never asked the whole question")
+            print(f"            of which authoritative           {c['dropped_AUTHORITATIVE']:>6}  <- empties -207 could reopen on a certain signal")
+        for question, placeholders in undeclared_samples.get(version, [])[: args.show]:
+            print(f"          [UNDECLARED {placeholders}] {question[:70]}")
         for bucket in ("RESOLUTION_FAILED", "NOTHING_EXTRACTED", "AUTHORITATIVE"):
             shown = samples.get((version, bucket), [])[: args.show]
             for question in shown:
