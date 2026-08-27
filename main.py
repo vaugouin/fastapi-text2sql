@@ -106,6 +106,23 @@ def _is_retryable_quota_error_text(error_text: str) -> bool:
     return bool(retry_metadata.get("is_retryable") and str(retry_metadata.get("error_code") or "") == "429")
 
 
+# FASTAPI-TEXT2SQL-223: raised when the generated SQL carries a predicate the guard refuses to
+# execute. It is a generation defect, not a database failure, so it gets its own type and its own
+# handler: the generic `except Exception` would log it as "Database query execution failed", which
+# is both false and untraceable in the stats.
+class SqlGuardRejected(Exception):
+    pass
+
+
+# FASTAPI-TEXT2SQL-223: a leading wildcard makes every B-tree index unusable, so the engine reads
+# the whole table. Measured on 2026-08-27: `CAST_CHARACTER LIKE '%psychiatrist%' AND LIKE
+# '%cannibal%'` took 100.64 s to return 0 rows, and `LIKE '%queen%' AND LIKE '%refused to marry%'`
+# took 98.68 s, also for 0 rows. `data/text_to_sql.md` already forbids LIKE for name, title,
+# character and ID matching, and LIKE appears nowhere else in that prompt, so nothing legitimate
+# is rejected here. A trailing-only wildcard (`LIKE 'abc%'`) stays indexable and is not matched.
+SQL_GUARD_LEADING_WILDCARD_LIKE = re.compile(r"\bLIKE\s+'%", re.IGNORECASE)
+
+
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
 strapiversion = "1.1.18"
 # Convert API version to XXX.YYY.ZZZ format
@@ -2869,6 +2886,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             print("SQL query execution:", sql_query)
             sql_execution_failed = False
             try: 
+                # FASTAPI-TEXT2SQL-223: refuse the query before it reaches the engine.
+                guard_match = SQL_GUARD_LEADING_WILDCARD_LIKE.search(sql_query or "")
+                if guard_match:
+                    raise SqlGuardRejected(sql_query[max(0, guard_match.start() - 60):guard_match.end() + 40])
                 messages.append(TextMessage(
                     position=position_counter,
                     text=f"Executing SQL query: {sql_query}"
@@ -2883,6 +2904,22 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         "index": index,
                         "data": {k: html.unescape(v) if isinstance(v, str) else v for k, v in record.items()}
                     })
+            except SqlGuardRejected as e:
+                # Treated as an execution failure on purpose: that is the flag the stronger-model
+                # retry already reads (can_retry_sql_execution_error), so the recovery path costs
+                # nothing new. See FASTAPI-TEXT2SQL-223.
+                print(f"SQL guard rejected the generated query: {e}")
+                sql_execution_failed = True
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=(
+                        "Generated SQL rejected before execution: it carries a leading-wildcard LIKE, "
+                        "which no index can serve and which the text2sql prompt forbids. Skipping "
+                        "execution and handing over to the stronger-model retry. Offending fragment: "
+                        f"...{e}..."
+                    )
+                ))
+                position_counter += 1
             except Exception as e:
                 print(f"Database operation failed: {e}")
                 sql_execution_failed = True
