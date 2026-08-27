@@ -1041,8 +1041,10 @@ VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, DAT_PUBLISHED, ID_SERIE
 
 ### Criterion Collection movies
 - Movies in the Criterion Collection match the following condition: ID_CRITERION IS NOT NULL AND ID_CRITERION > 0
+- A movie with no spine number carries NULL, not 0. The COALESCE below covers both,
+  because the column held 0 before 2026-08-26 and NULL after.
 - Sort using the following expression: 
-ORDER BY CASE WHEN T_WC_T2S_MOVIE.ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END, T_WC_T2S_MOVIE.ID_CRITERION_SPINE ASC
+ORDER BY CASE WHEN COALESCE(T_WC_T2S_MOVIE.ID_CRITERION_SPINE, 0) = 0 THEN 1 ELSE 0 END, T_WC_T2S_MOVIE.ID_CRITERION_SPINE ASC
 
 ### Person search
 - CREDIT_TYPE possible values are: cast, crew

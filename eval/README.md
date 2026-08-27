@@ -1,7 +1,7 @@
 # Text2SQL Evaluator
 
 **Version:** 2.5
-**Last Updated:** 2026-05-06
+**Last Updated:** 2026-08-27
 **Status:** Production Ready
 **Main file:** [text2sql-eval.py](text2sql-eval.py)
 
@@ -367,6 +367,59 @@ In practice: derive the expected sort from that section, then **confirm it again
 **Do not give a refresh SQL to an evaluation with a good permanent anchor.** "Canceled TV series" looks like a moving target, but Firefly is the canonical answer and makes a stable anchor, where a popularity-ranked top-8 of cancellations would drift toward recent ones and could drop it. A certain anchor beats a self-maintaining but uncertain list.
 
 **State of the bank on 2026-08-22.** 98 evaluations carry a refresh SQL; all 98 pass the four guardrails, and 95 have a non-null `ASSERTION_REFRESH_LAST`, so the mechanism is doing real work. The house style, worth following: `SELECT DISTINCT`, table-qualified columns, the same joins as the evaluated query, and `LIMIT 8` (96 of the 98). The three that have never run are #2434, #2439 and #2471.
+
+**The blind spot the alignment rule creates.** The alignment rule above is right, and it
+is also the reason this mechanism cannot audit itself. A refresh SQL is required to mirror
+the evaluated query's `ORDER BY` and joins; when that shared expression is wrong, the
+refresh SQL is wrong in exactly the same way, recomputes an expectation from the same
+faulty ranking, and rewrites the assertion to match it. The evaluation then passes, in
+green, certifying the defect. **A living assertion measures stability, not correctness, for
+everything it shares with the query it feeds.**
+
+The case that revealed it, on 2026-08-27. `TMDB-MOVIE-PREPROCESS-043` moved
+`T_WC_T2S_MOVIE.ID_CRITERION_SPINE` from the Wikidata V1 tables to V2 statements. V1 stored
+`0` for "this film has no spine number"; V2 stores nothing, so `NULL`. That is a correction,
+`0` never designated a film. But the sort taught by
+[data/text_to_sql.md](../data/text_to_sql.md) was written against the sentinel:
+
+```sql
+ORDER BY CASE WHEN ID_CRITERION_SPINE = 0 THEN 1 ELSE 0 END, ID_CRITERION_SPINE ASC
+```
+
+`NULL = 0` is not true, it is `NULL`, so the `CASE` falls through to `ELSE` and returns `0`,
+and MariaDB then sorts `NULL` **first** on an ascending order. Roughly 447 spine-less films
+moved from the end of the list to its front, with no error and no message. Evaluation 44
+*Criterion Collection* carries a refresh SQL built on that same expression: at 04:56:40, a
+few hours after the night run, it re-executed, captured the new head of the list, and
+rewrote `ASSERTIONS_QUERY_RESULT` to assert it. Nothing records what it replaced, so the
+only trace is `ASSERTION_REFRESH_LAST` sitting later than the change.
+
+**What follows, in practice.**
+
+- A refresh SQL protects **membership**, which rows belong in the answer. It does not
+  protect the **ordering**, nor any expression it shares with the query, nor the semantics
+  of the columns both read.
+- Keep at least one evaluation per subject on a **permanent anchor** that no refresh SQL
+  can overwrite. Section 4.6 already prefers a certain anchor to a self-maintaining list;
+  this case gives the second reason. A Criterion evaluation asserting that spine 1 is
+  *Grand Illusion* would have gone red the same morning, because a spine number is a fact
+  and not a ranking.
+- Treat a schema or semantics change as invalidating every refresh SQL that touches the
+  columns it moves. A sentinel becoming `NULL` is the archetype: `0` and `NULL` both say
+  "absent", they neither compare nor sort alike, and every query written against the
+  sentinel changes behaviour silently. Sweep the bank before trusting the next run:
+
+```sql
+SELECT ID_T2S_EVALUATION, LEFT(QUESTION, 50) AS QUESTION
+FROM T_WC_T2S_EVALUATION
+WHERE ASSERTION_REFRESH_SQL LIKE '%<column> = 0%'
+   OR ASSERTIONS_QUERY_RESULT LIKE '%<column> = 0%'
+   OR ASSERTIONS_SQL_QUERY LIKE '%<column> = 0%';
+```
+
+- An `ASSERTION_REFRESH_LAST` newer than a known data change is a reason to **inspect**,
+  not a reason to trust. The refresh does its job either way; whether what it captured is
+  right is a separate question, and only a human or a fixed anchor answers it.
 
 ### 4.7 Authoring checklist
 
@@ -907,6 +960,7 @@ Phase 11 only selects questions where at least one assertion column is non-empty
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.7 | 2026-08-27 | **Documented the blind spot of living assertions** (4.6): a refresh SQL must mirror the evaluated query's `ORDER BY`, so a defect in that shared expression is recomputed rather than caught, and the rewritten assertion certifies it in green. Case in point: eval 44 absorbed the `ID_CRITERION_SPINE` sentinel-to-`NULL` change of `TMDB-MOVIE-PREPROCESS-043` hours after it landed. Adds the practical rules, keep a permanent anchor per subject, treat a semantics change as invalidating every refresh SQL on the columns it moves, and the sweep query to find them. |
 | 2.6 | 2026-08-22 | **Exports are now complete by construction.** Phases 30 and 31 `SELECT *` and pass the row through the new `add_extra_columns()` helper: curated fields keep their key and placement, every other column lands at the top level under its lower-cased name, and a column added to the table later needs no code change. `json_default()` gained `bytes` handling, since selecting every column widens the type surface. The trigger: `ASSERTION_REFRESH_SQL` and `ASSERTION_REFRESH_LAST` had been live in `T_WC_T2S_EVALUATION` for weeks, driving the living-assertion refresh in `tmdb-movie-preprocess` process 70, while the hand-listed export never mentioned them, so `data/evaluation/` read as if the feature did not exist. Both columns now have curated keys. Section 4 was renamed **Assertion Types & Authoring** and gained §4.5 (the three assertion levels: floor, anchor, counter-example), §4.6 (living assertions and their guardrails), and §4.7 (authoring checklist: category, bilingual question, rationale, the answerable/discriminating go-no-go, known traps, batch template). Written after campaign 1.1.18, where 21 of 22 new evaluations scored 1.0 on entity extraction while four returned zero rows. |
 | 2.5 | 2026-05-06 | Added the **unified-schema column bridge** to `evaluate_dataframe_assertions()` in [text2sql_eval_functions.py](text2sql_eval_functions.py): when a result DataFrame carries both `ID_CONTENT` and `CONTENT_TYPE` (the unified movie/serie/person shape prescribed in [data/text_to_sql.md](../data/text_to_sql.md)), virtual `ID_MOVIE` / `ID_SERIE` / `ID_PERSON` columns are synthesized so legacy `ID_MOVIE IN (...)` / `ID_SERIE IN (...)` / `ID_PERSON IN (...)` assertions resolve without any question-bank migration. Existing columns are never overwritten; non-matching rows become NaN. Fixed the systemic regression where ~621 evaluation rows scored 0 with `Column 'ID_MOVIE' does not exist in DataFrame`. Added [test-unified-schema-bridge.py](test-unified-schema-bridge.py) (12 cases: movies-only, mixed movies+series, ID_PERSON, mixed-case `Movie`, no-op when column already exists, no-op when `CONTENT_TYPE` is absent, `NOT IN` semantics). Documented the bridge in [§4.3 Unified-schema column bridge](#unified-schema-column-bridge) and the matching troubleshooting entry in §12. |
 | 2.4 | 2026-04-27 | Documented the [lib/](lib/) PHP web UI — `global-light.inc.php` (shared bootstrap), `t2sevalexecgraph.inc.php` (multi-layer comparison graph with selectable Y axis and per-layer color), `t2sevalexecdetails.inc.php` (per-`(layer, category)` drill-down with pagination and sort), and `t2sevalexecjson.inc.php` (`JSON_RESULT` viewer with `?format=json` switch). Added [§11 Interactive Web UI (PHP)](#11-interactive-web-ui-php) and a `lib/` row in the source files table; renumbered Troubleshooting (§12) and Version History (§13). Also rewrote [how-many-samples-evals-by-category.ipynb](how-many-samples-evals-by-category.ipynb) to read the Phase 30/31 JSON exports (replacing the legacy CSV source) and updated its source-files entry plus a downstream-consumer note in §10. |
@@ -920,6 +974,6 @@ Phase 11 only selects questions where at least one assertion column is non-empty
 
 ---
 
-**Last Updated:** 2026-05-06
+**Last Updated:** 2026-08-27
 **Maintainer:** See repository owner
 **Primary entry point:** [text2sql-eval.py](text2sql-eval.py)
