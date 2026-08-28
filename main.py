@@ -2545,6 +2545,21 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         ))
         position_counter += 1
 
+        # FASTAPI-TEXT2SQL-221: dire le vide plutot que de le taire. Sans cette ligne le
+        # cas se lisait comme une erreur de garde-fou, et rien ne distinguait un modele
+        # qui confirme delibererement le resultat vide d'un modele qui a echoue.
+        if retry_payload.get("authoritative_empty"):
+            _why = str(retry_payload.get("justification") or "").strip()
+            messages.append(TextMessage(
+                position=position_counter,
+                text=(
+                    "Complex question resolution confirms the empty result is authoritative; "
+                    "no retry is attempted. "
+                    + (_why if _why else "The model gave no justification.")
+                )
+            ))
+            position_counter += 1
+
         if not retry_payload.get("has_error"):
             retry_question = retry_payload.get("retry_question") or ""
             if retry_question != "":

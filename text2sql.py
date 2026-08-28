@@ -792,4 +792,10 @@ def f_resolve_complex_question_retry_payload(user_question: str, strcomplexquest
         "retry_question": retry_question,
         "justification": reasoning_justification,
         "has_error": not (isinstance(resolved_complex, dict) and not resolved_complex.get("error")),
+        # FASTAPI-TEXT2SQL-221. Distinct from has_error on purpose: this is not a failure,
+        # it is the model affirming that the empty database result stands. The caller has
+        # to be able to tell the two apart, which is what -156 and -207 have been asking
+        # for, and what an empty "question" alone could never express.
+        "authoritative_empty": bool(
+            isinstance(resolved_complex, dict) and resolved_complex.get("authoritative_empty")),
     }

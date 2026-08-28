@@ -46,12 +46,28 @@ _SCHEMAS = {
             "answer": str, "dropped_clause": str, "error": str, "raw_content": str,
         },
     },
-    # f_resolve_complex_question -> {"question"|"error", "justification"?, "answer"?}
+    # f_resolve_complex_question ->
+    #   {"question"|"error"|"authoritative_empty", "justification"?, "answer"?}
+    #
+    # FASTAPI-TEXT2SQL-221. `authoritative_empty` exists because the prompt asked the
+    # model to say something by staying silent, and this guardrail refused the silence.
+    # The rule at data/complex_question.md:75 prescribed an empty "question", empty
+    # "items" and empty "error" to mean "the database result is authoritative", a shape
+    # `any_of_required` rejects by construction. Every correct application of that
+    # branch was therefore recorded as a malformed output and the retry was abandoned.
+    # Measured on 18 097 calls, 2026-08-28: 13 of the 17 complex retries on 1.1.18, the
+    # live version, died here, and that version produced zero usable conclusions.
+    #
+    # Loosening `any_of_required` to accept three empty fields was the tempting fix and
+    # the wrong one: it would admit a genuinely empty output, indistinguishable from a
+    # model failure, which is precisely what -038 built this guardrail to catch. An
+    # authoritative empty is not an absence of answer, it is an affirmative one, so it
+    # gets a field and says so.
     "complex_question": {
-        "any_of_required": ["question", "error"],
+        "any_of_required": ["question", "error", "authoritative_empty"],
         "types": {
             "question": str, "justification": str, "answer": str,
-            "error": str, "raw_content": str,
+            "error": str, "raw_content": str, "authoritative_empty": bool,
         },
     },
 }
@@ -82,7 +98,13 @@ def validate_llm_json(payload: Any, step: str) -> Tuple[bool, str]:
             return False, f"{step}: key '{key}' must be {typ.__name__}, got {type(payload[key]).__name__}"
 
     any_of = schema.get("any_of_required")
-    if any_of and not any(k in payload and payload[k] not in (None, "") for k in any_of):
+    # Truthiness rather than a membership test against (None, ""), because a boolean
+    # key joined this list with -221 and `False not in (None, "")` is True: a model
+    # returning `authoritative_empty: false` alongside an empty question and an empty
+    # error would have satisfied the gate, which is the exact hole this guardrail
+    # exists to close. Equivalent for every string field already listed, where "" is
+    # falsy and any other value truthy, so no existing schema changes behaviour.
+    if any_of and not any(k in payload and bool(payload[k]) for k in any_of):
         return False, f"{step}: at least one of {any_of} must be present and non-empty"
 
     types = schema.get("types", {})

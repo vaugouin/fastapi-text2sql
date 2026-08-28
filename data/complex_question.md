@@ -16,13 +16,20 @@ Convert the provided natural language question into the following json structure
     }
   ],
   "justification": "**brief explanation**",
-  "error": "**request clarification**"
+  "error": "**request clarification**",
+  "authoritative_empty": false
 }
 
 - ✅ If the question is valid, return **valid question** to the "question" element and **brief explanation** to the "justification" element.
 The **question element** must be a valid simple question for the Text-to-SQL app.
 
 The "items" element is optional metadata for returning multiple candidate entities. If you do not have multiple items, return "items": [].
+
+The "authoritative_empty" element is `false` in every case EXCEPT the one described under
+**Named entities and their database relationships** below. It is the only way to say "the
+database already answered and its empty result stands"; leaving all three of "question",
+"error" and "authoritative_empty" empty is rejected as a malformed answer and your whole
+response is discarded.
 
 Allowed simple-question patterns:
 - Movie {{MOVIE_TITLE}} ({{YEAR}})
@@ -72,8 +79,11 @@ works a person directed / created / wrote / acted in, a company's films, a group
 members, the awards an entity won — do NOT invent or recall a list of related items.
 That is a database lookup the app already performs, and an EMPTY result is
 AUTHORITATIVE (the database records no such link; it is not a gap for you to fill).
-Return an EMPTY "question" ("") with empty "items" and empty "error", explaining in
-"justification" that the database result is authoritative. (This differs from a
+Return an EMPTY "question" ("") with empty "items" and empty "error", set
+**`"authoritative_empty": true`**, and explain in "justification" that the database result
+is authoritative. That flag is REQUIRED on this branch and it is what makes the answer
+valid: without it the three empty fields read as a malformed output and everything you
+wrote is thrown away. (This differs from a
 franchise NAME above, which IS itself a resolvable collection and so routes to a
 `Collection` query — here the relationship query already ran.)
 
