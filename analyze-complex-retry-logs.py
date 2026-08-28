@@ -163,6 +163,9 @@ def main():
     per_version = defaultdict(Counter)
     samples = defaultdict(list)
     undeclared_samples = defaultdict(list)
+    # Kept aside from per_version, which gets merged into "ALL": this one must survive the
+    # merge to answer "is the defect recent, or already fixed?" in a single run.
+    version_split = defaultdict(Counter)
     dates = []
 
     for name, payload in iter_logs(args.logs_dir, args.archives):
@@ -187,9 +190,10 @@ def main():
             counts["placeholder_survived"] += 1
             if undeclared:
                 counts["placeholder_undeclared"] += 1
+                version_split[version]["undeclared"] += 1
                 if args.show:
                     undeclared_samples[version].append(
-                        (request.get("question") or "", ", ".join(undeclared))
+                        (version, request.get("question") or "", ", ".join(undeclared))
                     )
             else:
                 counts["placeholder_unresolved"] += 1
@@ -226,6 +230,8 @@ def main():
         bucket = classify(response)
         counts["blocked"] += 1
         counts[bucket] += 1
+        if bucket == "RESOLUTION_FAILED":
+            version_split[version]["resolution_failed"] += 1
         if sql_shapes.detect_person_role_collapse(
             response.get("sql_query") or "", response.get("result_entity") or ""
         ):
@@ -237,7 +243,7 @@ def main():
             counts["dropped_blocked"] += 1
             counts["dropped_" + bucket] += 1
         if args.show:
-            samples[(version, bucket)].append(request.get("question") or "")
+            samples[(version, bucket)].append((version, request.get("question") or ""))
 
     if not per_version:
         print("No text2sql log found.")
@@ -280,6 +286,12 @@ def main():
         print(f"          a placeholder survived the SQL  {c['placeholder_survived']:>6}")
         print(f"            extraction HAD the key        {c['placeholder_unresolved']:>6}  <- resolution found nothing")
         print(f"            extraction NEVER had it       {c['placeholder_undeclared']:>6}  <- generator invented it, -220")
+        if not args.by_version and (c["placeholder_undeclared"] or c["RESOLUTION_FAILED"]):
+            print("          per API version (undeclared / resolution-failed):")
+            for v in sorted(version_split):
+                u, r = version_split[v]["undeclared"], version_split[v]["resolution_failed"]
+                if u or r:
+                    print(f"            {v:<16} {u:>4} / {r:>4}")
         print(f"        reached the guard, BLOCKED      {c['blocked']:>6}")
         print(f"        no-results retry actually fired {c['retry_fired']:>6}  <- 0 means the retry is dead code")
         if c["blocked"]:
@@ -290,12 +302,12 @@ def main():
             print(f"            of which authoritative           {c['collapse_AUTHORITATIVE']:>6}  <- the widening's real cost")
             print(f"          dropped a clause (any bucket)      {c['dropped_blocked']:>6}  <- the query never asked the whole question")
             print(f"            of which authoritative           {c['dropped_AUTHORITATIVE']:>6}  <- empties -207 could reopen on a certain signal")
-        for question, placeholders in undeclared_samples.get(version, [])[: args.show]:
-            print(f"          [UNDECLARED {placeholders}] {question[:70]}")
+        for sample_version, question, placeholders in undeclared_samples.get(version, [])[: args.show]:
+            print(f"          [UNDECLARED {sample_version} {placeholders}] {question[:60]}")
         for bucket in ("RESOLUTION_FAILED", "NOTHING_EXTRACTED", "AUTHORITATIVE"):
             shown = samples.get((version, bucket), [])[: args.show]
-            for question in shown:
-                print(f"          [{bucket}] {question[:90]}")
+            for sample_version, question in shown:
+                print(f"          [{bucket} {sample_version}] {question[:75]}")
     return 0
 
 
