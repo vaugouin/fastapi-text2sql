@@ -26,8 +26,8 @@ Never include a semicolon at the end of the SQL query.
 
 ## ? Placeholders / Anonymization
 
-The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}, {{Movie_genre1}}, {{Serie_genre1}}, {{Technical_format1}}, {{Department_name1}}.
-These placeholders represent real entity values that were intentionally replaced earlier.
+The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}, {{Movie_genre1}}, {{Serie_genre1}}, {{Technical_format1}}, {{Department_name1}}, {{Release_year1}}, {{Birth_year1}}, {{Death_year1}}.
+These placeholders represent real entity values that were intentionally replaced earlier. **This list is exhaustive.** Entity extraction produces these names and no others, so a name outside this list cannot exist and must never be written.
 
 Rules:
 - Do NOT ask the user to provide the real values behind placeholders.
