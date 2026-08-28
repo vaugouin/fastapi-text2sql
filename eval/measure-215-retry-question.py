@@ -56,6 +56,10 @@ PREFIXES_REPONSE = ("movie ", "person ", "serie ", "topic ")
 RE_ENUMERATION = re.compile(r"^(items|movies|persons|topics|companies|networks|locations|series|\w+s) ", re.I)
 # Le nom du fichier porte la version : 20260319-040651_text2sql_post_1.1.15_<hash>.json
 RE_VERSION = re.compile(r"_text2sql_post_(\d+\.\d+\.\d+)_")
+# La signature de -221 : le prompt prescrit une forme que ce garde-fou refuse par
+# construction, donc chaque occurrence est une reprise perdue sans que le modele
+# ait failli. Croisee avec la version, elle dit si le defaut est actif aujourd'hui.
+MARQUE_221 = "JSON guardrail: complex_question"
 
 
 def charge_payloads(dossier, avec_archives):
@@ -183,8 +187,11 @@ def main():
         seaux[seau] += 1
         trouve = RE_VERSION.search(nom)
         version = trouve.group(1) if trouve else "inconnue"
-        ligne = par_version.setdefault(version, {"sorties": 0, "conclusions": 0, "defaut215": 0})
+        ligne = par_version.setdefault(
+            version, {"sorties": 0, "conclusions": 0, "defaut215": 0, "g221": 0})
         ligne["sorties"] += 1
+        if MARQUE_221 in str(resolved.get("error") or ""):
+            ligne["g221"] += 1
         if seau.startswith("ENUMERATION"):
             ligne["defaut215"] += 1
         if str(resolved.get("question") or "").strip():
@@ -229,10 +236,12 @@ def main():
     if par_version:
         print()
         print("Par version d'API :")
-        print("  %-10s %8s %12s %10s" % ("version", "sorties", "conclusions", "defaut-215"))
+        print("  %-10s %8s %12s %11s %11s"
+              % ("version", "sorties", "conclusions", "defaut-215", "garde-221"))
         for version in sorted(par_version):
             l = par_version[version]
-            print("  %-10s %8d %12d %10d" % (version, l["sorties"], l["conclusions"], l["defaut215"]))
+            print("  %-10s %8d %12d %11d %11d"
+                  % (version, l["sorties"], l["conclusions"], l["defaut215"], l["g221"]))
         print("  Une version absente de ce tableau n'a produit aucune reprise complexe.")
 
     if motifs:
