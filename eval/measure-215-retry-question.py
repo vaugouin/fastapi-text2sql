@@ -54,6 +54,8 @@ MARQUE = "Complex question resolution output:"
 PREFIXES_REPONSE = ("movie ", "person ", "serie ", "topic ")
 # Ceux que la branche a deux elements ou plus produit.
 RE_ENUMERATION = re.compile(r"^(items|movies|persons|topics|companies|networks|locations|series|\w+s) ", re.I)
+# Le nom du fichier porte la version : 20260319-040651_text2sql_post_1.1.15_<hash>.json
+RE_VERSION = re.compile(r"_text2sql_post_(\d+\.\d+\.\d+)_")
 
 
 def charge_payloads(dossier, avec_archives):
@@ -155,6 +157,10 @@ def main():
     args = parseur.parse_args()
 
     seaux = Counter()
+    # Par version, parce qu'un zero sur un corpus anterieur au comportement mesure ne dit
+    # rien. Trois colonnes : combien de sorties, combien portent une conclusion, combien
+    # tombent dans le defaut de -215.
+    par_version = {}
     motifs = Counter()      # FASTAPI-TEXT2SQL-221 : quelles erreurs, et dans quelles proportions
     avec_conclusion = 0     # la population que -215 concerne reellement
     lus = 0
@@ -175,8 +181,15 @@ def main():
         candidate = variante_candidate(resolved)
         seau = classe(resolved, production, candidate)
         seaux[seau] += 1
+        trouve = RE_VERSION.search(nom)
+        version = trouve.group(1) if trouve else "inconnue"
+        ligne = par_version.setdefault(version, {"sorties": 0, "conclusions": 0, "defaut215": 0})
+        ligne["sorties"] += 1
+        if seau.startswith("ENUMERATION"):
+            ligne["defaut215"] += 1
         if str(resolved.get("question") or "").strip():
             avec_conclusion += 1
+            ligne["conclusions"] += 1
         erreur = str(resolved.get("error") or "").strip()
         if erreur:
             motifs[erreur[:110]] += 1
@@ -212,6 +225,15 @@ def main():
     if avec_conclusion == 0:
         print("    ATTENTION : aucune conclusion dans le corpus, donc -215 n'est pas mesure ici,")
         print("    il est seulement sans objet sur ces donnees. Lire d'abord la ventilation ci-dessous.")
+
+    if par_version:
+        print()
+        print("Par version d'API :")
+        print("  %-10s %8s %12s %10s" % ("version", "sorties", "conclusions", "defaut-215"))
+        for version in sorted(par_version):
+            l = par_version[version]
+            print("  %-10s %8d %12d %10d" % (version, l["sorties"], l["conclusions"], l["defaut215"]))
+        print("  Une version absente de ce tableau n'a produit aucune reprise complexe.")
 
     if motifs:
         print()
