@@ -1023,12 +1023,51 @@ def plan_entity_resolutions(
                                 f"('{raw_value}' = '{_matched_text}'), confidence gate skipped"
                             )
                         _rf_min = search_cfg.get("min_fuzz_ratio")
-                        if (
+                        _rf_rejected = (
                             _rf_min is not None
                             and _rf_ratio is not None
                             and _sought_fold != _matched_fold
                             and _rf_ratio < _rf_min
-                        ):
+                        )
+                        # FASTAPI-TEXT2SQL-224. The gate read `ranked[0]` and gave up, while
+                        # `search_first_match` returns a shortlist of ten. Walking it changes
+                        # nothing about WHAT the gate accepts, every candidate facing the same
+                        # threshold and the same folding escape of -225; it changes how many
+                        # candidates the gate is allowed to see. Rank order is preserved, so the
+                        # first that passes wins, exactly as if it had been ranked first.
+                        _rf_rescued_rank = None
+                        if _rf_rejected:
+                            for _rank, _cand in enumerate((rapidfuzz_result or {}).get("ranked") or []):
+                                if _rank == 0 or not isinstance(_cand, dict):
+                                    continue
+                                try:
+                                    _cand_text = str(_cand.get(strcolumndesc) or "") if strcolumndesc else ""
+                                    _cand_norm = _cand_text.strip().lower()
+                                    if not _cand_norm:
+                                        continue
+                                    _cand_fold = fold_for_exactness(_cand_norm)
+                                    _cand_ratio = float(_rf_metric(
+                                        _sought_norm, _cand_norm, max_extra_tokens=_rf_max_extra))
+                                except Exception:
+                                    continue
+                                if (_sought_fold and _sought_fold == _cand_fold) or _cand_ratio >= _rf_min:
+                                    best = _cand
+                                    _matched_text, _matched_norm, _matched_fold = _cand_text, _cand_norm, _cand_fold
+                                    _rf_ratio, _rf_rescued_rank = _cand_ratio, _rank
+                                    _rf_rejected = False
+                                    if match_scores and match_scores[-1].get("search_mode") == "rapidfuzz":
+                                        match_scores[-1].update({
+                                            "candidate": _cand_text,
+                                            "fuzz_ratio": round(_cand_ratio, 1),
+                                            "rescued_rank": _rank,
+                                        })
+                                    planned.note(
+                                        f"Entity resolution: {placeholder} -> top RapidFuzz candidate refused, "
+                                        f"accepted '{_cand_text}' found at rank {_rank + 1} of the shortlist "
+                                        f"(fuzz_ratio={_cand_ratio:.0f}, min_fuzz_ratio={_rf_min}) in {strtablename}"
+                                    )
+                                    break
+                        if _rf_rejected:
                             if match_scores and match_scores[-1].get("search_mode") == "rapidfuzz":
                                 match_scores[-1]["rejected"] = True
                             planned.note(
@@ -1190,53 +1229,92 @@ def plan_entity_resolutions(
                     # one from. The gate below keeps its former semantics to the letter: with
                     # both thresholds absent, distance_ok and ratio_ok stay True and nothing is
                     # ever rejected, as before.
-                    chosen_doc = documents[matched_result_position] if matched_result_position < len(documents) else ""
-                    chosen_doc_norm = chosen_doc.strip().lower() if isinstance(chosen_doc, str) else ""
-                    # Certaines collections indexent "nom<sep>description", ce qui aide beaucoup
-                    # la recherche semantique et ruine la comparaison lexicale : mesure du
-                    # 2026-08-25, "Blaxploitation" contre "Blaxploitation: Here is the list of..."
-                    # note 2,3 alors que c'est une correspondance PARFAITE. La description a sa
-                    # place dans l'espace vectoriel et rien a faire dans un ratio d'edition.
-                    # Declare par entite, jamais globalement : un nom peut legitimement contenir
-                    # le separateur ("Star Trek: The Next Generation"), et decouper a l'aveugle le
-                    # tronquerait. Le nom nu sert AUSSI de candidat rapporte, pour que le banc et
-                    # les journaux montrent ce qui a reellement ete compare.
-                    _name_separator = search_cfg.get("document_name_separator")
-                    if _name_separator and _name_separator in chosen_doc_norm:
-                        chosen_doc_norm = chosen_doc_norm.split(_name_separator, 1)[0].strip()
-                        if isinstance(chosen_doc, str) and _name_separator in chosen_doc:
-                            chosen_doc = chosen_doc.split(_name_separator, 1)[0].strip()
-                    chosen_distance = None
-                    if matched_result_position < len(distances):
-                        try:
-                            chosen_distance = float(distances[matched_result_position])
-                        except (TypeError, ValueError):
-                            chosen_distance = None
-                    # Neutralize the entity's own descriptor words on BOTH sides before scoring
-                    # (FASTAPI-TEXT2SQL-206). A word shared by the sought value and the candidate
-                    # inflates the similarity without carrying any identifying signal: measured
-                    # 2026-08-24, "wagonlit collection" against "life collection" scores 76.5 and
-                    # cleared the threshold of 72, where "wagonlit" against "life" scores 33.3.
-                    # Moving from WRatio to fuzz.ratio had already been tried against this family
-                    # of defect and was not enough: the descriptor survives the change of metric,
-                    # only removing it works. Per-entity list, since what is generic for a
-                    # collection is identifying for an award ("Academy Award for Best Picture"
-                    # minus "award" and "best" is not the same name any more).
-                    _score_stopwords = search_cfg.get("score_stopwords")
-                    _sought_scored, _candidate_scored = target_value_norm, chosen_doc_norm
-                    if _score_stopwords:
-                        try:
-                            _sought_scored = rapidfuzz_query.strip_franchise_words(
-                                target_value_norm, _score_stopwords)
-                            _candidate_scored = rapidfuzz_query.strip_franchise_words(
-                                chosen_doc_norm, _score_stopwords)
-                        except Exception:
-                            _sought_scored, _candidate_scored = target_value_norm, chosen_doc_norm
-                    chosen_ratio = fuzz.ratio(_sought_scored, _candidate_scored) if _candidate_scored else 0.0
-                    # Kept for calibration: what the score would have been without stripping, so
-                    # the bench can weigh the two and the effect stays auditable.
-                    chosen_ratio_raw = fuzz.ratio(target_value_norm, chosen_doc_norm) if chosen_doc_norm else 0.0
+                    # FASTAPI-TEXT2SQL-224. Scoring moved into a function because it is now
+                    # applied to more than one candidate. Same computation as before, to the
+                    # letter; only the number of candidates it is called on changes.
+                    def _score_candidate(pos):
+                        _doc = documents[pos] if pos < len(documents) else ""
+                        _doc_norm = _doc.strip().lower() if isinstance(_doc, str) else ""
+                        # Certaines collections indexent "nom<sep>description", ce qui aide beaucoup
+                        # la recherche semantique et ruine la comparaison lexicale : mesure du
+                        # 2026-08-25, "Blaxploitation" contre "Blaxploitation: Here is the list of..."
+                        # note 2,3 alors que c'est une correspondance PARFAITE. La description a sa
+                        # place dans l'espace vectoriel et rien a faire dans un ratio d'edition.
+                        # Declare par entite, jamais globalement : un nom peut legitimement contenir
+                        # le separateur ("Star Trek: The Next Generation"), et decouper a l'aveugle le
+                        # tronquerait. Le nom nu sert AUSSI de candidat rapporte, pour que le banc et
+                        # les journaux montrent ce qui a reellement ete compare.
+                        _sep = search_cfg.get("document_name_separator")
+                        _doc_shown = _doc
+                        if _sep and _doc_norm and _sep in _doc_norm:
+                            _doc_norm = _doc_norm.split(_sep, 1)[0].strip()
+                            if isinstance(_doc_shown, str) and _sep in _doc_shown:
+                                _doc_shown = _doc_shown.split(_sep, 1)[0].strip()
+                        _dist = None
+                        if pos < len(distances):
+                            try:
+                                _dist = float(distances[pos])
+                            except (TypeError, ValueError):
+                                _dist = None
+                        # Neutralize the entity's own descriptor words on BOTH sides before scoring
+                        # (FASTAPI-TEXT2SQL-206). A word shared by the sought value and the candidate
+                        # inflates the similarity without carrying any identifying signal: measured
+                        # 2026-08-24, "wagonlit collection" against "life collection" scores 76.5 and
+                        # cleared the threshold of 72, where "wagonlit" against "life" scores 33.3.
+                        # Moving from WRatio to fuzz.ratio had already been tried against this family
+                        # of defect and was not enough: the descriptor survives the change of metric,
+                        # only removing it works. Per-entity list, since what is generic for a
+                        # collection is identifying for an award ("Academy Award for Best Picture"
+                        # minus "award" and "best" is not the same name any more).
+                        _stop = search_cfg.get("score_stopwords")
+                        _sought_s, _cand_s = target_value_norm, _doc_norm
+                        if _stop:
+                            try:
+                                _sought_s = rapidfuzz_query.strip_franchise_words(target_value_norm, _stop)
+                                _cand_s = rapidfuzz_query.strip_franchise_words(_doc_norm, _stop)
+                            except Exception:
+                                _sought_s, _cand_s = target_value_norm, _doc_norm
+                        _ratio = fuzz.ratio(_sought_s, _cand_s) if _cand_s else 0.0
+                        # Kept for calibration: what the score would have been without stripping, so
+                        # the bench can weigh the two and the effect stays auditable.
+                        _ratio_raw = fuzz.ratio(target_value_norm, _doc_norm) if _doc_norm else 0.0
+                        _dist_ok = (max_distance is None) or (_dist is None) or (_dist <= max_distance)
+                        _ratio_ok = (min_fuzz_ratio is None) or (_ratio >= min_fuzz_ratio)
+                        return {
+                            "pos": pos, "doc": _doc_shown, "doc_norm": _doc_norm, "distance": _dist,
+                            "ratio": _ratio, "ratio_raw": _ratio_raw,
+                            "passes": bool(_dist_ok and _ratio_ok),
+                        }
 
+                    _top = _score_candidate(matched_result_position)
+                    _chosen = _top
+                    _rescued_rank = None
+                    if not found_match and not _top["passes"]:
+                        # FASTAPI-TEXT2SQL-224. The gate used to read the first candidate and give
+                        # up. Measured 2026-08-28 on "Movies in the flamenco trilogy": the vector
+                        # search ranked "Carlos Saura's Flamenco trilogy" first (d=0.360, ratio 52,
+                        # refused) and "The Flamenco Trilogy" second (d=0.516, ratio 80), which
+                        # would have passed the same threshold of 72. The right answer was in the
+                        # shortlist, one row down, and nobody looked.
+                        #
+                        # Walking the rest of the shortlist cannot loosen anything: every candidate
+                        # is judged by the SAME thresholds, so this only turns rejections into
+                        # acceptances that the gate itself approves. What changes is how many
+                        # candidates the gate is allowed to see, not what it accepts.
+                        for _pos in range(len(documents)):
+                            if _pos == matched_result_position:
+                                continue
+                            _try = _score_candidate(_pos)
+                            if _try["passes"]:
+                                _chosen, _rescued_rank = _try, _pos
+                                matched_result_position = _pos
+                                break
+
+                    chosen_doc = _chosen["doc"]
+                    chosen_doc_norm = _chosen["doc_norm"]
+                    chosen_distance = _chosen["distance"]
+                    chosen_ratio = _chosen["ratio"]
+                    chosen_ratio_raw = _chosen["ratio_raw"]
                     distance_ok = (max_distance is None) or (chosen_distance is None) or (chosen_distance <= max_distance)
                     ratio_ok = (min_fuzz_ratio is None) or (chosen_ratio >= min_fuzz_ratio)
                     rejected = (not found_match) and not (distance_ok and ratio_ok)
@@ -1255,7 +1333,19 @@ def plan_entity_resolutions(
                         "rejected": bool(rejected),
                         "max_distance": max_distance,
                         "min_fuzz_ratio": min_fuzz_ratio,
+                        # FASTAPI-TEXT2SQL-224: rank at which the accepted candidate was found,
+                        # None when it was the first. The bench needs it to answer the only
+                        # question that matters here, how often the right answer was NOT first.
+                        "rescued_rank": _rescued_rank,
                     })
+
+                    if _rescued_rank is not None:
+                        planned.note(
+                            f"Entity resolution: {placeholder} -> top embeddings candidate refused, "
+                            f"accepted '{chosen_doc}' found at rank {_rescued_rank + 1} of the shortlist "
+                            f"(distance={chosen_distance}, fuzz_ratio={chosen_ratio:.0f}, "
+                            f"min_fuzz_ratio={min_fuzz_ratio})"
+                        )
 
                     if rejected:
                         shortlist_parts = []
