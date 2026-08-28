@@ -88,7 +88,17 @@ def extrait_sortie(document):
         if MARQUE not in texte:
             continue
         brut = texte.split(MARQUE, 1)[1].strip()
-        for tentative in (brut, brut.replace('\\"', '"').replace("\\n", "\n")):
+        # L'ordre compte, et la version precedente n'avait jamais essaye le deuxieme
+        # seul. Les journaux echappent les guillemets une fois : `\\"` -> `"` suffit et
+        # rend un JSON valide. Y enchainer `\\n` -> saut de ligne reel **recasse** ce
+        # qui venait d'etre repare, un saut de ligne brut etant interdit dans une chaine
+        # JSON. Resultat, 13 charges sur 57 etaient declarees illisibles alors qu'elles
+        # se lisaient parfaitement, et ce sont justement les rejets du garde-fou de -221.
+        for tentative in (
+            brut,
+            brut.replace('\\"', '"'),
+            brut.replace('\\"', '"').replace("\\n", "\n"),
+        ):
             try:
                 valeur = json.loads(tentative)
                 if isinstance(valeur, dict):
@@ -121,9 +131,12 @@ def classe(resolved, production, candidate):
     """Range un cas dans le seau qui dit quoi en faire."""
     if "__illisible__" in resolved:
         return "ILLISIBLE"
-    if resolved.get("error"):
-        return "ERREUR_DU_MODELE"
     base = str(resolved.get("question") or "").strip()
+    if resolved.get("error"):
+        # Deux cas tres differents sous un seul mot. Le modele qui refuse et n'ecrit rien
+        # d'autre est un refus legitime. Le modele qui ecrit une conclusion ET une erreur
+        # a repondu, et la reprise jette sa reponse parce qu'un champ voisin est rempli.
+        return "ERREUR_AVEC_CONCLUSION" if base else "ERREUR_SEULE"
     if not base:
         return "PAS_DE_REPONSE"
     if production == candidate:
@@ -177,12 +190,13 @@ def main():
 
     print()
     LEGENDE = [
-        ("ENUMERATION_AUTRE_TYPE", "LE DEFAUT. La reprise demande un autre type que la reponse trouvee"),
+        ("ERREUR_AVEC_CONCLUSION", "Le modele a conclu ET rempli error. Sa reponse est-elle jetee ?"),
+        ("ENUMERATION_AUTRE_TYPE", "LE DEFAUT -215. La reprise demande un autre type que la reponse trouvee"),
         ("ENUMERATION_MEME_TYPE", "Enumeration au lieu de la reponse, mais du bon type. Degrade, pas faux"),
         ("DIVERGENT_AUTRE", "Divergent sans etre une enumeration. A lire un par un"),
         ("IDENTIQUE", "Deferer a la conclusion ne changerait rien"),
         ("PAS_DE_REPONSE", "Le modele n'a pas conclu. Rien a preferer"),
-        ("ERREUR_DU_MODELE", "Sortie en erreur ou refusee par le garde-fou JSON"),
+        ("ERREUR_SEULE", "Refus net du modele, ou rejet du garde-fou JSON. Legitime"),
         ("ILLISIBLE", "Charge non decodable"),
     ]
     for cle, libelle in LEGENDE:
@@ -206,9 +220,11 @@ def main():
             print("  %5d  %5.1f %%  %s" % (n, 100.0 * n / avec_reprise, motif))
 
     for cle in ("ENUMERATION_AUTRE_TYPE", "ENUMERATION_MEME_TYPE", "DIVERGENT_AUTRE",
-                "ILLISIBLE", "PAS_DE_REPONSE"):
+                "ERREUR_AVEC_CONCLUSION", "ILLISIBLE", "PAS_DE_REPONSE"):
         for nom, resolved, production, candidate in (exemples.get(cle) or [])[:args.examples]:
             print("\n--- %s  %s" % (cle, nom))
+            print("    question   : %s" % (str(resolved.get("question") or "")[:120] or "(vide)"))
+            print("    error      : %s" % (str(resolved.get("error") or "")[:120] or "(vide)"))
             print("    items      : %s" % json.dumps(resolved.get("items"), ensure_ascii=False)[:160])
             print("    production : %s" % production)
             print("    candidate  : %s" % candidate)
