@@ -95,7 +95,10 @@ def extrait_sortie(document):
                     return valeur
             except Exception:
                 continue
-        return {}
+        # Sentinelle explicite. Rendre {} melangeait un echec de lecture avec un modele
+        # qui n'a pas conclu, et un zero devenait alors indistinguable d'une panne du
+        # script. Une mesure qui ne sait pas distinguer ses propres pannes ne mesure rien.
+        return {"__illisible__": brut[:400]}
     return None
 
 
@@ -116,6 +119,8 @@ def variante_candidate(resolved):
 
 def classe(resolved, production, candidate):
     """Range un cas dans le seau qui dit quoi en faire."""
+    if "__illisible__" in resolved:
+        return "ILLISIBLE"
     if resolved.get("error"):
         return "ERREUR_DU_MODELE"
     base = str(resolved.get("question") or "").strip()
@@ -137,6 +142,8 @@ def main():
     args = parseur.parse_args()
 
     seaux = Counter()
+    motifs = Counter()      # FASTAPI-TEXT2SQL-221 : quelles erreurs, et dans quelles proportions
+    avec_conclusion = 0     # la population que -215 concerne reellement
     lus = 0
     avec_reprise = 0
     exemples = {}
@@ -155,6 +162,11 @@ def main():
         candidate = variante_candidate(resolved)
         seau = classe(resolved, production, candidate)
         seaux[seau] += 1
+        if str(resolved.get("question") or "").strip():
+            avec_conclusion += 1
+        erreur = str(resolved.get("error") or "").strip()
+        if erreur:
+            motifs[erreur[:110]] += 1
         exemples.setdefault(seau, []).append((nom, resolved, production, candidate))
 
     print("Fichiers lus                        : %d" % lus)
@@ -180,10 +192,21 @@ def main():
 
     defaut = seaux.get("ENUMERATION_AUTRE_TYPE", 0) + seaux.get("ENUMERATION_MEME_TYPE", 0)
     print()
-    print("Ce que le correctif de -215 changerait : %d reprise(s) sur %d (%.1f %%)"
+    print("Sorties portant une conclusion non vide : %d sur %d" % (avec_conclusion, avec_reprise))
+    print("Ce que le correctif de -215 changerait  : %d reprise(s) sur %d (%.1f %%)"
           % (defaut, avec_reprise, 100.0 * defaut / avec_reprise if avec_reprise else 0.0))
+    if avec_conclusion == 0:
+        print("    ATTENTION : aucune conclusion dans le corpus, donc -215 n'est pas mesure ici,")
+        print("    il est seulement sans objet sur ces donnees. Lire d'abord la ventilation ci-dessous.")
 
-    for cle in ("ENUMERATION_AUTRE_TYPE", "ENUMERATION_MEME_TYPE", "DIVERGENT_AUTRE"):
+    if motifs:
+        print()
+        print("Motifs d'erreur (FASTAPI-TEXT2SQL-221) :")
+        for motif, n in motifs.most_common():
+            print("  %5d  %5.1f %%  %s" % (n, 100.0 * n / avec_reprise, motif))
+
+    for cle in ("ENUMERATION_AUTRE_TYPE", "ENUMERATION_MEME_TYPE", "DIVERGENT_AUTRE",
+                "ILLISIBLE", "PAS_DE_REPONSE"):
         for nom, resolved, production, candidate in (exemples.get(cle) or [])[:args.examples]:
             print("\n--- %s  %s" % (cle, nom))
             print("    items      : %s" % json.dumps(resolved.get("items"), ensure_ascii=False)[:160])
