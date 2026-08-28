@@ -114,6 +114,15 @@ class SqlGuardRejected(Exception):
     pass
 
 
+# FASTAPI-TEXT2SQL-226: raised when entity resolution fell back to the user's own words and
+# those words carry no Latin letter. The equality that produces against a canonical TMDb name
+# column cannot match, so executing it is a guaranteed empty round trip. Same treatment as
+# -223 and for the same reason: the stronger-model retry already reads the execution-failure
+# flag, so the recovery path costs nothing new.
+class EntityFallbackUnmatchable(Exception):
+    pass
+
+
 # FASTAPI-TEXT2SQL-223: a leading wildcard makes every B-tree index unusable, so the engine reads
 # the whole table. Measured on 2026-08-27: `CAST_CHARACTER LIKE '%psychiatrist%' AND LIKE
 # '%cannibal%'` took 100.64 s to return 0 rows, and `LIKE '%queen%' AND LIKE '%refused to marry%'`
@@ -1772,6 +1781,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     query_execution_time = 0.0
     total_processing_time = 0.0
     sql_execution_failed = False
+    entity_unmatchable_raw_fallback_count = 0
     ambiguous_question_for_text2sql = 0
     complex_model_used = False
     strentityextractionmodel = entity.strentityextractionmodeldefault
@@ -2789,6 +2799,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             entity_resolution_result.get("ambiguous_question_for_text2sql", 0),
         )
         entity_raw_fallback_count = entity_resolution_result.get("raw_fallback_count", 0)
+        entity_unmatchable_raw_fallback_count = entity_resolution_result.get(
+            "raw_fallback_unmatchable_count", 0
+        )
         # No entity key beside "question" means the extraction found nothing, so the question
         # was never anonymized: no placeholder existed, hence no fallback could be counted.
         no_entity_extracted = (
@@ -2886,6 +2899,25 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             print("SQL query execution:", sql_query)
             sql_execution_failed = False
             try: 
+                # FASTAPI-TEXT2SQL-226: refuse a query whose WHERE carries the user's own
+                # non-Latin words because resolution failed. It cannot match a canonical
+                # name column, so the execution is pure latency before the retry.
+                #
+                # Gated on the retry's OWN preconditions, and that is not belt and braces.
+                # Skipping the execution sets sql_execution_failed, which silences the
+                # "Aucun résultat" answer and the cache writes further down. That is right
+                # when the stronger model is about to take over, and a regression when it is
+                # not: a client running with complex_question_processing off would lose the
+                # empty-result answer it used to get. So when the retry cannot fire, we pay
+                # the few milliseconds and execute, exactly as before.
+                _fallback_retry_will_fire = (
+                    request.complex_question_processing
+                    and lngpage == 1
+                    and bool(request.question)
+                    and not getattr(request, "complex_question_already_resolved", False)
+                )
+                if entity_unmatchable_raw_fallback_count and _fallback_retry_will_fire:
+                    raise EntityFallbackUnmatchable(str(entity_unmatchable_raw_fallback_count))
                 # FASTAPI-TEXT2SQL-223: refuse the query before it reaches the engine.
                 guard_match = SQL_GUARD_LEADING_WILDCARD_LIKE.search(sql_query or "")
                 if guard_match:
@@ -2904,6 +2936,20 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         "index": index,
                         "data": {k: html.unescape(v) if isinstance(v, str) else v for k, v in record.items()}
                     })
+            except EntityFallbackUnmatchable as e:
+                # See FASTAPI-TEXT2SQL-226. Flagged as an execution failure on purpose: that
+                # is the flag can_retry_sql_execution_error already reads.
+                print(f"Entity fallback unmatchable, execution skipped: {e}")
+                sql_execution_failed = True
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=(
+                        "SQL execution skipped: entity resolution fell back to the raw question "
+                        f"words for {e} entity value(s) written in a non-Latin script, which "
+                        "cannot match a canonical name column. Going straight to the stronger model."
+                    )
+                ))
+                position_counter += 1
             except SqlGuardRejected as e:
                 # Treated as an execution failure on purpose: that is the flag the stronger-model
                 # retry already reads (can_retry_sql_execution_error), so the recovery path costs

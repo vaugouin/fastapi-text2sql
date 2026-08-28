@@ -3,6 +3,7 @@ import os
 import re
 import time
 import threading
+import unicodedata
 from typing import Any
 
 from language_family import guess_language_family
@@ -404,7 +405,7 @@ class _PlannedEntity:
             apply if the placeholder actually occurs in one of the three texts.
     """
 
-    __slots__ = ("key", "placeholder", "messages", "substitution", "final_message", "require_present", "is_raw_fallback")
+    __slots__ = ("key", "placeholder", "messages", "substitution", "final_message", "require_present", "is_raw_fallback", "is_unmatchable_raw_fallback")
 
     def __init__(self, key: str, placeholder: str):
         self.key = key
@@ -418,17 +419,84 @@ class _PlannedEntity:
         # REMOVES the placeholder, so ambiguous_question_for_text2sql drops back to 0 at the
         # exact moment resolution failed, and the caller loses the only signal it had.
         self.is_raw_fallback = False
+        # True when that raw fallback carries no Latin letter, so the equality it produces
+        # against a canonical name column cannot match anything (FASTAPI-TEXT2SQL-226).
+        self.is_unmatchable_raw_fallback = False
 
     def note(self, text: str) -> None:
         """Record a diagnostic to be replayed when the plan is applied."""
         self.messages.append(text)
 
-    def resolve_with(self, substitution, final_message=None, require_present: bool = False, is_raw_fallback: bool = False) -> None:
+    def resolve_with(self, substitution, final_message=None, require_present: bool = False, is_raw_fallback: bool = False, is_unmatchable_raw_fallback: bool = False) -> None:
         """Attach the substitution that resolves this placeholder."""
         self.substitution = substitution
         self.final_message = final_message
         self.require_present = require_present
         self.is_raw_fallback = is_raw_fallback
+        self.is_unmatchable_raw_fallback = is_unmatchable_raw_fallback
+
+
+# FASTAPI-TEXT2SQL-225 / -226: a Latin letter anywhere means the value can plausibly match a
+# canonical TMDb name column; none means it cannot.
+_LATIN_LETTER_RE = re.compile(r"[A-Za-z]")
+_INNER_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def fold_for_exactness(value: str) -> str:
+    """Fold typographic variants so two spellings of the SAME name compare equal.
+
+    FASTAPI-TEXT2SQL-225. `fuzz.ratio` on two strings of length `n` differing by `k`
+    characters is `(n-k)/n`, so a single difference caps at 66.7 on a three-character name
+    against a gate of 87.8. A name in Han characters is two to four characters long and a
+    name in Hangul is three, which makes the fuzzy gate strict equality in disguise exactly
+    where variant spellings are the rule.
+
+    **The obvious fix is refused, and the data says why.** A length-scaled edit-distance
+    tolerance would accept any one-character difference on a short name. But 黑澤明 (Akira
+    Kurosawa) and 黑澤清 (Kiyoshi Kurosawa) are both directors, both in this database, and
+    differ by exactly one character. Any such tolerance merges them.
+
+    So this folding is wired into the EXACTNESS test only, never into the score. It can turn
+    a near-miss into an exact match; it can never soften a partial one, and it cannot bring
+    two genuinely different characters together. What it covers, measured:
+
+    - a space inside a Han name, "宮崎 駿" against "宮崎駿", where the space carries no meaning
+    - the full-width Latin forms, "ＡＫＩＲＡ" against "akira"
+    - the CJK compatibility ideographs that carry an NFKC decomposition
+
+    Two classes are NOT covered, both deliberately, and both measured rather than assumed:
+
+    - the simplified/traditional and shinjitai/traditional pairs, 黒 (U+9ED2) against 黑
+      (U+9ED1), 张艺谋 against 張藝謀, which are distinct unified ideographs
+    - the compatibility ideographs Unicode left WITHOUT a decomposition, 﨑 (U+FA11) among
+      them, which NFKC therefore leaves untouched
+
+    Both would need a Unihan-derived table (kTraditionalVariant) or an OpenCC-class
+    dependency. That is a decision to take deliberately, not a line to slip into this
+    function, and the alias table already carries both spellings for many people, which may
+    well make it moot.
+    """
+    if not value:
+        return ""
+    folded = unicodedata.normalize("NFKC", value).strip().lower()
+    if not _LATIN_LETTER_RE.search(folded):
+        folded = _INNER_WHITESPACE_RE.sub("", folded)
+    return folded
+
+
+def is_unmatchable_against_canonical(value: str) -> bool:
+    """True when substituting `value` raw into a canonical Latin name column cannot match.
+
+    FASTAPI-TEXT2SQL-226. When every configured strategy fails, the raw value is substituted
+    as-is, which yields `WHERE T_WC_T2S_PERSON.PERSON_NAME = '<value>'`. That column holds the
+    canonical TMDb name; the non-Latin spellings live in `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` by
+    design. A value carrying no Latin letter at all therefore cannot match, and the execution
+    that follows is a guaranteed empty round trip before the stronger-model retry.
+
+    A single Latin letter is enough to keep the old behaviour: "宮崎 Hayao" stays executable,
+    and so does every misspelt Latin name, whose raw fallback does sometimes hit.
+    """
+    return bool(value) and not _LATIN_LETTER_RE.search(value)
 
 
 def _substitute_literal(placeholder: str, sql_value: str, text_value: str):
@@ -881,11 +949,16 @@ def plan_entity_resolutions(
                         _matched_text = ""
                         _sought_norm = ""
                         _matched_norm = ""
+                        _sought_fold = ""
+                        _matched_fold = ""
                         _rf_ratio = None
                         try:
                             _matched_text = str(best.get(strcolumndesc) or "") if strcolumndesc else ""
                             _sought_norm = raw_value.strip().lower()
                             _matched_norm = _matched_text.strip().lower()
+                            # FASTAPI-TEXT2SQL-225: exactness only, never the score.
+                            _sought_fold = fold_for_exactness(_sought_norm)
+                            _matched_fold = fold_for_exactness(_matched_norm)
                             _rf_metric = rapidfuzz_query.resolve_score_metric(search_cfg.get("score_metric"))
                             _rf_max_extra = int(
                                 search_cfg.get("max_extra_tokens", rapidfuzz_query.DEFAULT_MAX_EXTRA_TOKENS)
@@ -910,6 +983,9 @@ def plan_entity_resolutions(
                                 "distance": None,
                                 "fuzz_ratio": round(float(_rf_ratio), 1),
                                 "exact_match": _sought_norm == _matched_norm,
+                                # Same test after typographic folding, recorded separately so the
+                                # bench can weigh what the folding admits (FASTAPI-TEXT2SQL-225).
+                                "exact_match_folded": _sought_fold == _matched_fold,
                                 "rejected": False,
                                 "auto": bool((rapidfuzz_result or {}).get("auto")),
                                 "min_fuzz_ratio": search_cfg.get("min_fuzz_ratio"),
@@ -932,11 +1008,25 @@ def plan_entity_resolutions(
                         # normalized match always passes, a rejection falls through to the next
                         # strategy and, failing that, to the raw fallback the complex-question
                         # retry then catches.
+                        # FASTAPI-TEXT2SQL-225: the exactness escape now runs on the folded
+                        # strings, so a name that differs only by a compatibility ideograph, a
+                        # full-width form or a space inside a Han name stops being scored at
+                        # all. Widening the ESCAPE, not the threshold, is what keeps
+                        # 黑澤明 and 黑澤清 apart: folding never turns one character into another.
+                        if (
+                            _sought_fold
+                            and _sought_fold == _matched_fold
+                            and _sought_norm != _matched_norm
+                        ):
+                            planned.note(
+                                f"Entity resolution: {placeholder} -> exact after typographic folding "
+                                f"('{raw_value}' = '{_matched_text}'), confidence gate skipped"
+                            )
                         _rf_min = search_cfg.get("min_fuzz_ratio")
                         if (
                             _rf_min is not None
                             and _rf_ratio is not None
-                            and _sought_norm != _matched_norm
+                            and _sought_fold != _matched_fold
                             and _rf_ratio < _rf_min
                         ):
                             if match_scores and match_scores[-1].get("search_mode") == "rapidfuzz":
@@ -1206,11 +1296,20 @@ def plan_entity_resolutions(
                 if resolved:
                     continue
 
+                # FASTAPI-TEXT2SQL-226. Only reached when a resolver WAS configured for this
+                # key and every one of its strategies failed; an unconfigured key takes the
+                # 'generic' path above and never lands here. So the target really is a
+                # canonical name column, and a value with no Latin letter cannot match it.
+                _unmatchable = is_unmatchable_against_canonical(raw_value)
                 planned.resolve_with(
                     _substitute_plain(placeholder, raw_value_sql, raw_value),
-                    final_message=f"Entity resolution: {placeholder} -> {raw_value} (raw fallback)",
+                    final_message=(
+                        f"Entity resolution: {placeholder} -> {raw_value} (raw fallback"
+                        + (", unmatchable against a canonical Latin name column)" if _unmatchable else ")")
+                    ),
                     require_present=True,
                     is_raw_fallback=True,
+                    is_unmatchable_raw_fallback=_unmatchable,
                 )
 
     return {
@@ -1261,6 +1360,7 @@ def apply_entity_resolutions(
 
     ambiguous_question_for_text2sql = 0
     raw_fallback_count = 0
+    raw_fallback_unmatchable_count = 0
 
     for planned in (plan or {}).get("entities", []) or []:
         for text in planned.messages:
@@ -1277,6 +1377,8 @@ def apply_entity_resolutions(
         sql_query, justification, answer = planned.substitution(sql_query, justification, answer)
         if planned.is_raw_fallback:
             raw_fallback_count += 1
+            if planned.is_unmatchable_raw_fallback:
+                raw_fallback_unmatchable_count += 1
         if planned.final_message:
             add_message(planned.final_message)
 
@@ -1302,6 +1404,10 @@ def apply_entity_resolutions(
         # strategy matched. A non-zero count means the empty result that may follow is a
         # resolution failure, not a fact about the data (FASTAPI-TEXT2SQL-156).
         "raw_fallback_count": raw_fallback_count,
+        # Of those, how many carry no Latin letter at all, so the equality they produce
+        # against a canonical name column is a guaranteed empty round trip
+        # (FASTAPI-TEXT2SQL-226).
+        "raw_fallback_unmatchable_count": raw_fallback_unmatchable_count,
     }
 
 
