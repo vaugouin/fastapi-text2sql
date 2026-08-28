@@ -7,6 +7,8 @@ FASTAPI-TEXT2SQL-225 : `fold_for_exactness`, le repliement typographique branche
 test d'exactitude et sur lui seul.
 FASTAPI-TEXT2SQL-226 : `is_unmatchable_against_canonical`, qui dit si un repli brut peut
 encore esperer trouver une ligne.
+FASTAPI-TEXT2SQL-227 : `resolution_key`, qui neutralise en plus les descripteurs generiques
+que la strategie declare, pour que le garde juge les memes chaines que sa propre recherche.
 
 Le code teste est lu sur le disque et non importe : `entity.py` tire rapidfuzz, chromadb et
 une connexion, dont aucune n'est necessaire ici, et qui rendraient cette verification
@@ -28,10 +30,19 @@ SOURCE = os.path.join(RACINE, "entity.py")
 src = io.open(SOURCE, encoding="utf-8").read()
 debut = src.index('_LATIN_LETTER_RE = re.compile(r"[A-Za-z]")')
 fin = src.index("def _substitute_literal(")
-espace = {"re": re, "unicodedata": unicodedata}
+sys.path.insert(0, RACINE)  # lance depuis eval/, la racine n'est pas sur le chemin
+import rapidfuzz_query
+
+espace = {"re": re, "unicodedata": unicodedata, "rapidfuzz_query": rapidfuzz_query}
 exec(compile(src[debut:fin], SOURCE, "exec"), espace)
 fold = espace["fold_for_exactness"]
 unmatchable = espace["is_unmatchable_against_canonical"]
+cle = espace["resolution_key"]
+
+# La strategie reelle de Collection_name, telle que entity_resolution.json la declare.
+CFG_COLLECTION = {"score_stopwords": ["collection", "saga", "trilogy", "universe"]}
+# Une strategie qui ne declare rien : elle doit garder exactement son comportement.
+CFG_NEUTRE = {}
 
 CAS_FOLD = [
     ("宮崎 駿", "宮崎駿", True, "espace interne dans un nom Han, Miyazaki"),
@@ -70,9 +81,46 @@ def joue(titre, cas, fonction, deux_arguments):
     print()
     return succes
 
-total = len(CAS_FOLD) + len(CAS_UNMATCHABLE)
+CAS_CLE = [
+    ("indiana jones", "indiana jones collection", CFG_COLLECTION, True,
+     "LE CAS DU 2026-08-28, refuse a 70,27 pour un seuil de 72"),
+    ("star wars", "star wars collection", CFG_COLLECTION, True, "meme forme, suffixe generique"),
+    ("indiana jones", "the young indiana jones collection", CFG_COLLECTION, False,
+     "le candidat que les embeddings avaient prefere, doit rester refuse"),
+    ("alien", "predator collection", CFG_COLLECTION, False, "deux franchises distinctes"),
+    ("indiana jones", "indiana jones collection", CFG_NEUTRE, False,
+     "NON-REGRESSION : une strategie qui ne declare rien ne depouille rien"),
+    ("collection", "star wars collection", CFG_COLLECTION, False,
+     "garde-fou : depouiller ne doit pas vider la chaine cherchee"),
+    ("\u9ed1\u6fa4\u660e", "\u9ed1\u6fa4\u6e05", CFG_COLLECTION, False,
+     "CONTRE-EXEMPLE Kurosawa, le depouillement ne le fusionne pas davantage"),
+]
+
+def joue_cle():
+    """La cle -227, et la monotonie qu'elle doit respecter vis-a-vis de -225."""
+    print("--- resolution_key (FASTAPI-TEXT2SQL-227)")
+    succes = 0
+    for a, b, cfg, attendu, pourquoi in CAS_CLE:
+        obtenu = cle(a, cfg) == cle(b, cfg)
+        conforme = obtenu == attendu
+        succes += conforme
+        print("%s  obtenu=%-5s attendu=%-5s  %s" % ("OK   " if conforme else "ECHEC", obtenu, attendu, pourquoi))
+
+    # Monotonie : tout ce que -225 declarait egal doit le rester avec -227, sinon le
+    # nouveau garde serait plus severe que l'ancien sur des cas deja acquis.
+    manquements = [p for a, b, att, p in CAS_FOLD
+                   if fold(a) == fold(b) and cle(a, CFG_COLLECTION) != cle(b, CFG_COLLECTION)]
+    conforme = not manquements
+    succes += conforme
+    print("%s  monotonie vis-a-vis de -225 : %s" % (
+        "OK   " if conforme else "ECHEC", "aucun cas perdu" if conforme else manquements))
+    print()
+    return succes
+
+total = len(CAS_FOLD) + len(CAS_UNMATCHABLE) + len(CAS_CLE) + 1
 ok = joue("fold_for_exactness (FASTAPI-TEXT2SQL-225)", CAS_FOLD, fold, True)
 ok += joue("is_unmatchable_against_canonical (FASTAPI-TEXT2SQL-226)", CAS_UNMATCHABLE, unmatchable, False)
+ok += joue_cle()
 
 print("%d/%d" % (ok, total))
 sys.exit(0 if ok == total else 1)

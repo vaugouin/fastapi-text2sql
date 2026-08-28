@@ -499,6 +499,45 @@ def is_unmatchable_against_canonical(value: str) -> bool:
     return bool(value) and not _LATIN_LETTER_RE.search(value)
 
 
+def strip_declared_descriptors(value: str, search_cfg: dict) -> str:
+    """Neutralise the generic descriptor words this strategy declares, if it declares any.
+
+    FASTAPI-TEXT2SQL-227. `Collection_name` asks its rapidfuzz SEARCH to neutralise
+    "collection" (`strip_franchise_stopwords`), and the search obeys: it ranks on
+    COLLECTION_NAME_NORM, a generated column that is itself franchise-stripped. The GATE then
+    scored the untouched display column, so it judged a pair of strings the search had never
+    compared. Measured 2026-08-28 on "Who directed both jaws and the Indiana jones movie?":
+
+        fuzz.ratio('indiana jones', 'indiana jones collection') = 70.27  against a gate of 72
+        the same pair, descriptors neutralised                   = 100.0
+
+    The search found the right collection and the gate turned it away over 1.73 points, which
+    sent a correct SQL query into a raw fallback, zero rows, and a stronger-model retry.
+
+    Read from `score_stopwords`, exactly like the embeddings branch does, so one entity type
+    cannot hold two meanings for the same word across its own strategies. Falls back to the
+    default franchise set when a strategy declares only `strip_franchise_stopwords`, so a gate
+    can never again lag behind the search that same strategy configured.
+    """
+    words = search_cfg.get("score_stopwords")
+    if words:
+        return rapidfuzz_query.strip_franchise_words(value, words)
+    if search_cfg.get("strip_franchise_stopwords"):
+        return rapidfuzz_query.strip_franchise_words(value)
+    return value
+
+
+def resolution_key(value: str, search_cfg: dict) -> str:
+    """Descriptors first, then typography: the key the confidence escape compares.
+
+    Order matters. `strip_declared_descriptors` splits on whitespace, so it has to run before
+    a fold that may remove whitespace. Monotone with respect to `fold_for_exactness`: two
+    values equal after folding are still equal here, so FASTAPI-TEXT2SQL-225 keeps its
+    behaviour to the letter and this can only ever admit more.
+    """
+    return fold_for_exactness(strip_declared_descriptors(value, search_cfg))
+
+
 def _substitute_literal(placeholder: str, sql_value: str, text_value: str):
     """Build a substitution replacing ``placeholder`` by a bare SQL literal.
 
@@ -951,6 +990,8 @@ def plan_entity_resolutions(
                         _matched_norm = ""
                         _sought_fold = ""
                         _matched_fold = ""
+                        _sought_key = ""
+                        _matched_key = ""
                         _rf_ratio = None
                         try:
                             _matched_text = str(best.get(strcolumndesc) or "") if strcolumndesc else ""
@@ -959,6 +1000,9 @@ def plan_entity_resolutions(
                             # FASTAPI-TEXT2SQL-225: exactness only, never the score.
                             _sought_fold = fold_for_exactness(_sought_norm)
                             _matched_fold = fold_for_exactness(_matched_norm)
+                            # FASTAPI-TEXT2SQL-227: same escape, one step wider.
+                            _sought_key = resolution_key(_sought_norm, search_cfg)
+                            _matched_key = resolution_key(_matched_norm, search_cfg)
                             _rf_metric = rapidfuzz_query.resolve_score_metric(search_cfg.get("score_metric"))
                             _rf_max_extra = int(
                                 search_cfg.get("max_extra_tokens", rapidfuzz_query.DEFAULT_MAX_EXTRA_TOKENS)
@@ -986,6 +1030,9 @@ def plan_entity_resolutions(
                                 # Same test after typographic folding, recorded separately so the
                                 # bench can weigh what the folding admits (FASTAPI-TEXT2SQL-225).
                                 "exact_match_folded": _sought_fold == _matched_fold,
+                                # And once the declared descriptors are neutralised too, which
+                                # is what the escape actually tests (FASTAPI-TEXT2SQL-227).
+                                "exact_match_descriptors": _sought_key == _matched_key,
                                 "rejected": False,
                                 "auto": bool((rapidfuzz_result or {}).get("auto")),
                                 "min_fuzz_ratio": search_cfg.get("min_fuzz_ratio"),
@@ -1008,25 +1055,30 @@ def plan_entity_resolutions(
                         # normalized match always passes, a rejection falls through to the next
                         # strategy and, failing that, to the raw fallback the complex-question
                         # retry then catches.
-                        # FASTAPI-TEXT2SQL-225: the exactness escape now runs on the folded
-                        # strings, so a name that differs only by a compatibility ideograph, a
-                        # full-width form or a space inside a Han name stops being scored at
-                        # all. Widening the ESCAPE, not the threshold, is what keeps
-                        # 黑澤明 and 黑澤清 apart: folding never turns one character into another.
+                        # FASTAPI-TEXT2SQL-225 and -227: the exactness escape runs on a key that
+                        # neutralises the descriptors this strategy declares, then folds
+                        # typographic variants. **The score itself is deliberately untouched.**
+                        # The comment above is right that -206 calibrated every threshold on the
+                        # raw display column, and moving that scale would invalidate all of them
+                        # at once. Widening the ESCAPE costs the calibration nothing, because an
+                        # escape admits equality and never a near miss. It is also what keeps
+                        # 黑澤明 and 黑澤清 apart: neither folding nor stripping ever turns one
+                        # character into another.
                         if (
-                            _sought_fold
-                            and _sought_fold == _matched_fold
+                            _sought_key
+                            and _sought_key == _matched_key
                             and _sought_norm != _matched_norm
                         ):
                             planned.note(
-                                f"Entity resolution: {placeholder} -> exact after typographic folding "
-                                f"('{raw_value}' = '{_matched_text}'), confidence gate skipped"
+                                f"Entity resolution: {placeholder} -> exact once descriptors and "
+                                f"typography are neutralised ('{raw_value}' = '{_matched_text}'), "
+                                f"confidence gate skipped"
                             )
                         _rf_min = search_cfg.get("min_fuzz_ratio")
                         _rf_rejected = (
                             _rf_min is not None
                             and _rf_ratio is not None
-                            and _sought_fold != _matched_fold
+                            and _sought_key != _matched_key
                             and _rf_ratio < _rf_min
                         )
                         # FASTAPI-TEXT2SQL-224. The gate read `ranked[0]` and gave up, while
@@ -1046,13 +1098,19 @@ def plan_entity_resolutions(
                                     if not _cand_norm:
                                         continue
                                     _cand_fold = fold_for_exactness(_cand_norm)
+                                    # FASTAPI-TEXT2SQL-227: the shortlist walk judges by the same
+                                    # rule as the first entry, descriptors included, otherwise a
+                                    # candidate could be accepted at rank 1 and refused at rank 4
+                                    # on a difference the strategy itself declared meaningless.
+                                    _cand_key = resolution_key(_cand_norm, search_cfg)
                                     _cand_ratio = float(_rf_metric(
                                         _sought_norm, _cand_norm, max_extra_tokens=_rf_max_extra))
                                 except Exception:
                                     continue
-                                if (_sought_fold and _sought_fold == _cand_fold) or _cand_ratio >= _rf_min:
+                                if (_sought_key and _sought_key == _cand_key) or _cand_ratio >= _rf_min:
                                     best = _cand
                                     _matched_text, _matched_norm, _matched_fold = _cand_text, _cand_norm, _cand_fold
+                                    _matched_key = _cand_key
                                     _rf_ratio, _rf_rescued_rank = _cand_ratio, _rank
                                     _rf_rejected = False
                                     if match_scores and match_scores[-1].get("search_mode") == "rapidfuzz":
