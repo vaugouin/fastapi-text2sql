@@ -174,6 +174,7 @@ def main():
         version = response.get("api_version") or "unknown"
         counts = per_version[version]
         counts["calls"] += 1
+        version_split[version]["calls"] += 1
 
         # FASTAPI-TEXT2SQL-220. Counted here, before every `continue` below, because a dropped
         # clause is a property of the generation and not of the empty-result path: it matters
@@ -287,11 +288,14 @@ def main():
         print(f"            extraction HAD the key        {c['placeholder_unresolved']:>6}  <- resolution found nothing")
         print(f"            extraction NEVER had it       {c['placeholder_undeclared']:>6}  <- generator invented it, -220")
         if not args.by_version and (c["placeholder_undeclared"] or c["RESOLUTION_FAILED"]):
-            print("          per API version (undeclared / resolution-failed):")
+            print("          per API version (undeclared / resolution-failed, per 1000 calls):")
             for v in sorted(version_split):
-                u, r = version_split[v]["undeclared"], version_split[v]["resolution_failed"]
+                u = version_split[v]["undeclared"]
+                r = version_split[v]["resolution_failed"]
+                n = version_split[v]["calls"] or 1
                 if u or r:
-                    print(f"            {v:<16} {u:>4} / {r:>4}")
+                    print(f"            {v:<12} {u:>4} / {r:>4}   on {n:>6} calls"
+                          f"   ({u * 1000.0 / n:>5.2f} / {r * 1000.0 / n:>5.2f} per 1000)")
         print(f"        reached the guard, BLOCKED      {c['blocked']:>6}")
         print(f"        no-results retry actually fired {c['retry_fired']:>6}  <- 0 means the retry is dead code")
         if c["blocked"]:
