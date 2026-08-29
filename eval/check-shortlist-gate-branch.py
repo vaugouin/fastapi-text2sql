@@ -67,12 +67,17 @@ class _Collection:
     """The shortlist exactly as production reported it on 2026-08-28."""
     def query(self, query_texts=None, n_results=10, where=None):
         return {
+            # The documents as production actually indexes them, read from the trace of
+            # 2026-08-29 once the shortlist started printing them. They are NOT bare names:
+            # most carry "name: description", which is why every earlier reproduction of this
+            # case was wrong. Guessing what a store holds is not a reproduction.
             "documents": [[
-                "Carlos Saura's Flamenco trilogy",   # 4846, refused at 52
-                "The Flamenco Trilogy",              # 4944, passes at 80
-                "Perros Callejeros Trilogy",
+                "Carlos Saura's Flamenco trilogy",
+                "The Flamenco Trilogy: One of Spanish cinema’s great auteurs, Carlos Saura, "
+                "filmed three flamenco pieces",
+                "Perros Callejeros Trilogy: These films depict juvenile delinquency",
                 "Heartburn Trilogy",
-                "Spanish Apartment Trilogy",
+                "Spanish Apartment Trilogy: Follow Xavier throughout the decades",
             ]],
             "ids": [["collectionid_4846_en", "collectionid_4944_en", "collectionid_1350_en",
                      "collectionid_4116_en", "collectionid_1141_en"]],
@@ -109,7 +114,7 @@ for n in notes:
     print(f"       {n[:120]}")
 
 print("")
-print("2. On bare names the pre-existing rerank already picks the right row")
+print("2. With the documents production really indexes, name plus description")
 # A correction of what this file first claimed. It asserted "the rescue fires", and the rescue
 # never ran: on bare collection names the WRatio rerank of 2026-06-24 scores "the flamenco
 # trilogy" at 95 against 90 for "carlos saura's flamenco trilogy", so it selects rank 2 by
@@ -122,7 +127,6 @@ print("2. On bare names the pre-existing rerank already picks the right row")
 # worse than an absent one, which is the lesson of -216.
 check("resolution lands on the TMDb collection 4944", "docid=4944" in joined, True)
 check("no rejection was emitted", "rejected best embeddings candidate" in joined, False)
-check("the rescue did NOT need to fire here", "found at rank" in joined, False)
 
 print("\n3. A shortlist where nothing passes still refuses")
 

@@ -224,11 +224,33 @@
         "require_confident": true,
         "strip_franchise_stopwords": true,
         "score_stopwords": [
-          "collection", "universe", "franchise", "saga",
-          "trilogy", "duology", "tetralogy", "quadrilogy", "pentalogy", "hexalogy", "heptalogy",
-          "film", "films", "movie", "movies", "series", "cinematic",
-          "univers", "trilogie", "duologie", "tetralogie", "quadrilogie",
-          "pentalogie", "hexalogie", "heptalogie", "serie", "cinematographique"
+          "collection",
+          "universe",
+          "franchise",
+          "saga",
+          "trilogy",
+          "duology",
+          "tetralogy",
+          "quadrilogy",
+          "pentalogy",
+          "hexalogy",
+          "heptalogy",
+          "film",
+          "films",
+          "movie",
+          "movies",
+          "series",
+          "cinematic",
+          "univers",
+          "trilogie",
+          "duologie",
+          "tetralogie",
+          "quadrilogie",
+          "pentalogie",
+          "hexalogie",
+          "heptalogie",
+          "serie",
+          "cinematographique"
         ],
         "languages": {
           "*": "COLLECTION_NAME"
@@ -281,7 +303,8 @@
           "séries",
           "cinematographique",
           "cinématographique"
-        ]
+        ],
+        "document_name_separator": ": "
       }
     ]
   },

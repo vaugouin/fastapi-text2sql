@@ -1259,11 +1259,24 @@ def plan_entity_resolutions(
                         # candidate whose title is lexically closest to the typed value
                         # (e.g. "le bonnheur" -> "Le Bonheur"). Falls back to the
                         # embedding top-1 if nothing scores.
+                        # FASTAPI-TEXT2SQL-224: coupe au meme separateur que le garde. Ce rerang
+                        # est une comparaison LEXICALE, et l'argument de -206 vaut ici mot pour
+                        # mot : la description a sa place dans l'espace vectoriel et rien a faire
+                        # dans une mesure d'edition. Mesure du 2026-08-29 sur « flamenco trilogy »,
+                        # le document indexe etant « The Flamenco Trilogy: One of Spanish cinema's
+                        # great auteurs... » : sur le document entier il note 90, a egalite avec
+                        # « Carlos Saura's Flamenco trilogy », donc le premier rencontre gagnait ;
+                        # sur le nom seul il note 95 et gagne. Sans separateur declare, rien ne
+                        # change, la coupe etant opt-in par entite.
+                        _rerank_sep = search_cfg.get("document_name_separator")
                         best_score = -1.0
                         for i, document in enumerate(documents):
                             if not isinstance(document, str):
                                 continue
-                            score = fuzz.WRatio(target_value_norm, document.strip().lower())
+                            _doc_cmp = document.strip().lower()
+                            if _rerank_sep and _rerank_sep in _doc_cmp:
+                                _doc_cmp = _doc_cmp.split(_rerank_sep, 1)[0].strip()
+                            score = fuzz.WRatio(target_value_norm, _doc_cmp)
                             if score > best_score:
                                 best_score = score
                                 matched_result_position = i
