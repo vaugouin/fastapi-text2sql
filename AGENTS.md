@@ -367,6 +367,29 @@ measured then", `0` would claim "measured at zero".
 
 ---
 
+## Run pyflakes before committing Python, and read the "undefined name" lines
+
+```bash
+uv run --with pyflakes python -m pyflakes *.py | grep "undefined name"
+```
+
+**Why this is written down.** On 2026-08-29 a refactor moved
+`_score_stopwords = search_cfg.get("score_stopwords")` into a new closure under another name and
+left one reader behind, in the `match_scores` append. That line is unconditional, so **every**
+resolution reaching the embeddings branch raised `NameError` and returned 500: `Collection_name`,
+`Topic_name`, `Network_name`, `Company_name`, the titles, the awards. A total outage on that path,
+shipped and only found on the next restart.
+
+**Neither `ast.parse` nor `import` can catch it.** Both passed on the broken file: a name lookup
+inside a function body is resolved at call time, and no test imported that branch. `pyflakes`
+flagged it in under a second, by name and line number. The one-line command above is the cheapest
+guard this repo has against a whole class of defect, and the class is specific: **a refactor that
+moves a variable's definition is not verified by re-reading the new block, but by finding who else
+read the old name.**
+
+Read the `undefined name` lines as blocking. The `assigned to but never used` lines are worth a
+look too, since they usually mean a refactor left something behind, but they do not break anything.
+
 ## Code conventions
 
 - **Hungarian notation** for variables (legacy style):

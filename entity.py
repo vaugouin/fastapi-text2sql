@@ -1087,7 +1087,6 @@ def plan_entity_resolutions(
                         # threshold and the same folding escape of -225; it changes how many
                         # candidates the gate is allowed to see. Rank order is preserved, so the
                         # first that passes wins, exactly as if it had been ranked first.
-                        _rf_rescued_rank = None
                         if _rf_rejected:
                             for _rank, _cand in enumerate((rapidfuzz_result or {}).get("ranked") or []):
                                 if _rank == 0 or not isinstance(_cand, dict):
@@ -1111,7 +1110,7 @@ def plan_entity_resolutions(
                                     best = _cand
                                     _matched_text, _matched_norm, _matched_fold = _cand_text, _cand_norm, _cand_fold
                                     _matched_key = _cand_key
-                                    _rf_ratio, _rf_rescued_rank = _cand_ratio, _rank
+                                    _rf_ratio = _cand_ratio
                                     _rf_rejected = False
                                     if match_scores and match_scores[-1].get("search_mode") == "rapidfuzz":
                                         match_scores[-1].update({
@@ -1377,7 +1376,6 @@ def plan_entity_resolutions(
                                 break
 
                     chosen_doc = _chosen["doc"]
-                    chosen_doc_norm = _chosen["doc_norm"]
                     chosen_distance = _chosen["distance"]
                     chosen_ratio = _chosen["ratio"]
                     chosen_ratio_raw = _chosen["ratio_raw"]
