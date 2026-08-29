@@ -1002,8 +1002,20 @@ uv run eval/check-chromadb.py --sample 2000         # bigger sample, slower
 On the VPS, in Docker, same shape as section 2:
 
 ```bash
-docker run -it --rm --network="host"   --env-file /home/debian/docker/fastapi-text2sql/.env   --name fastapi-text2sql-check   fastapi-text2sql-python-app python eval/check-chromadb.py
+docker run -it --rm --network="host" \
+  --env-file /home/debian/docker/fastapi-text2sql-blue/.env \
+  --name fastapi-text2sql-check \
+  -v /home/debian/docker/fastapi-text2sql-blue:/app \
+  fastapi-text2sql-blue-app \
+  python eval/check-chromadb.py
 ```
+
+**The `-v` mount is required, and rebuilding is not an alternative.** Neither image can run
+this script alone: the API image installs `chromadb` but its `Dockerfile` copies only `*.py`
+and `./data/`, so `eval/` never enters it; the evaluator image copies `eval/` but has neither
+`chromadb` nor `data/`. Mounting the checkout over `/app` gives the API image the script and
+a `data/entity_resolution.json` read from disk rather than frozen at build time. Mount the
+colour currently serving, since its configuration is the one in force.
 
 Exit code 1 on any ERROR, so it can gate a deployment. Host and port come from `CHROMADB_HOST`
 and `CHROMADB_PORT`, defaulting to `localhost:8100`, which is what the VPS serves. Note that
@@ -1031,14 +1043,34 @@ the real documents cannot.
 A name may legitimately contain the separator, `Star Trek: The Next Generation`, which is exactly
 why cutting is opt-in per entity and must never be global. From the store alone, only **tail
 length** separates a subtitle from a description: measured, subtitles run around 19 characters
-while the descriptions appended to `T_WC_T2S_LIST` average 105. Hence `DESCRIPTION_MIN_TAIL = 40`
-and `SUSPECT_SHARE = 0.10`.
+while the descriptions appended to `T_WC_T2S_LIST` average 105. Hence
+`DESCRIPTION_MIN_TAIL = 40` and `SUSPECT_SHARE = 0.10`.
+
+**A share alone is not enough, and the first real run proved it.** On 2026-08-29 `lists` held
+23 documents, 2 of them carrying a description, and reported **9%**, one point under the bar.
+The check would have missed the very defect it was written for: on a small collection each
+document weighs 4.3 points and a proportion stops being able to decide. Hence a second, softer
+band, `WARN_MIN_COUNT = 2` with `WARN_MIN_SHARE = 0.02`: a handful of described documents warns
+even when the share is low, while the floor of two keeps it quiet on the large catalogues where
+a long subtitle is a legitimate accident. The same run measured `movies` at 3 long tails out of
+1000, which is 0.3% and stays silent.
 
 That is a heuristic, so the check never hands down a bare verdict: every line prints the numbers
 it measured, and an accusation prints up to three offending documents. A human settles in one
-glance what no threshold can. `--selftest` asserts precisely this discrimination offline, on a
-series catalogue full of subtitles that must NOT be flagged and a list catalogue carrying
-descriptions that must be.
+glance what no threshold can. `--selftest` asserts the discrimination offline on four fixtures,
+each one a shape measured on the real store: a series catalogue whose names are 40% colons and
+must NOT be flagged, a list catalogue full of descriptions that must error, the real 23-document
+`lists` at 9% that must warn, and a 1000-document catalogue with 3 long subtitles that must stay
+silent.
+
+### First run, 2026-08-29
+
+No error. `topics` came back clean, confirming from the store what SQL had said, its `OVERVIEW`
+is empty throughout. `collections`, the entity that started all this, shows 86% long tails with
+a median of 227 characters and its separator properly declared. `lists` still carries its four
+descriptions, so it doubles as a witness that the re-index has not run yet. And no false
+positive on `movies` or `series`, whose colons are subtitles with medians of 17 and 15
+characters.
 
 ### Adding a check
 

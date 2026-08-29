@@ -47,9 +47,18 @@ USAGE
 On the VPS, in Docker, following the pattern of eval/README.md:
 
     docker run -it --rm --network="host" \
-      --env-file /home/debian/docker/fastapi-text2sql/.env \
+      --env-file /home/debian/docker/fastapi-text2sql-blue/.env \
       --name fastapi-text2sql-check \
-      fastapi-text2sql-python-app python eval/check-chromadb.py
+      -v /home/debian/docker/fastapi-text2sql-blue:/app \
+      fastapi-text2sql-blue-app \
+      python eval/check-chromadb.py
+
+The -v mount is REQUIRED, and rebuilding is not an alternative. Neither image can run this
+script alone: the API image installs `chromadb` but its Dockerfile copies only `*.py` and
+`./data/`, so `eval/` never enters it; the evaluator image copies `eval/` to `/app` but has
+neither `chromadb` nor `data/`. Mounting the checkout over `/app` gives the API image both the
+script and a `data/entity_resolution.json` read from disk rather than frozen at build time.
+Mount the colour currently serving, since its configuration is the one in force.
 
 Exit code is 1 when at least one ERROR is reported, 0 otherwise, so it can gate a deployment.
 
@@ -94,6 +103,18 @@ DESCRIPTION_MIN_TAIL = 40
 # descriptions. Set low on purpose: at one document in ten, one resolution in ten meets the
 # defect, which is already a production problem and not a curiosity.
 SUSPECT_SHARE = 0.10
+
+# A share alone is not enough, and the first real run proved it. On 2026-08-29 `lists` held 23
+# documents, 2 of them carrying a description, and reported 9%, ONE POINT under the bar. The
+# check would have missed the very defect it was written for: on a small collection each
+# document weighs 4.3 points and a proportion stops being able to decide.
+#
+# Hence a second, softer band. A handful of described documents warns even when the share is
+# low, and the floor of two keeps it quiet on the large catalogues where a long subtitle is a
+# legitimate accident. Measured the same day: `movies` carried 3 long tails out of 1000, which
+# is 0.3% and stays silent, while `lists` at 8.7% speaks.
+WARN_MIN_COUNT = 2
+WARN_MIN_SHARE = 0.02
 
 DEFAULT_SAMPLE = 1000
 
@@ -194,12 +215,20 @@ def check_separator_agreement(ctx):
                     f"{with_long_tail} with a tail >= {DESCRIPTION_MIN_TAIL} chars "
                     f"({long_share:.0%}), median tail {median_tail}")
 
+        shown = "".join(f"\n         e.g. {o}" for o in offenders)
         if not declared and long_share >= SUSPECT_SHARE:
-            shown = "".join(f"\n         e.g. {o}" for o in offenders)
             findings.append(Finding(
                 "ERROR", name,
                 "indexes descriptions but declares no document_name_separator, so the gate "
                 "scores the typed name against the description too",
+                evidence + shown))
+        elif (not declared and with_long_tail >= WARN_MIN_COUNT
+                and long_share >= WARN_MIN_SHARE):
+            findings.append(Finding(
+                "WARN", name,
+                f"{with_long_tail} document(s) carry a description while no "
+                "document_name_separator is declared; under the error bar, but each one is a "
+                "resolution that can fail",
                 evidence + shown))
         elif declared and with_sep == 0:
             # Not a production defect, but it means the producer stopped appending descriptions
@@ -280,26 +309,43 @@ def selftest():
                 raise KeyError(name)
             return _Coll(self._by_name[name])
 
+    # Four fixtures, each one a shape measured on the real store on 2026-08-29.
     subtitles = ["Star Trek: The Next Generation", "Doctor Who", "Breaking Bad",
                  "Sherlock: A Study in Pink", "The Wire"] * 20
     described = ["Wikiflix", "Cannes winners",
                  "The Flamenco Trilogy: One of Spanish cinema's great auteurs, Carlos Saura, "
                  "filmed three flamenco pieces"] * 20
+    # The real `lists`: 23 documents, 2 of them described. It reported 9%, ONE POINT under the
+    # error bar, which is what added the warning band. Kept so the day someone raises
+    # SUSPECT_SHARE, this fixture says out loud what that would cost.
+    small = (["Wikiflix"] * 21 +
+             ["The Flamenco Trilogy: One of Spanish cinema's great auteurs, Carlos Saura, "
+              "filmed three flamenco pieces",
+              "The BRD Trilogy: Fassbinder on postwar West Germany, three films made between "
+              "1979 and 1982"])
+    # The real `movies`: 1000 documents, 90 with a colon, 3 with a long tail. Must stay silent,
+    # otherwise the check cries wolf on every run and stops being read at all.
+    big = (["Doctor Who"] * 910 + ["Mission: Impossible"] * 87 +
+           ["Dune: Part Two and a subtitle long enough to look like a description here"] * 3)
 
-    ctx = Context(client=_Client({"series": subtitles, "lists": described}),
-                  strategies={"series": {"placeholder": "Serie_title", "config": {}},
-                              "lists": {"placeholder": "List_name", "config": {}}},
+    fixtures = {"series": subtitles, "lists": described, "small": small, "big": big}
+    ctx = Context(client=_Client(fixtures),
+                  strategies={k: {"placeholder": k, "config": {}} for k in fixtures},
                   sample=DEFAULT_SAMPLE)
     got = {f.target: f.level for f in check_separator_agreement(ctx)}
 
     failures = []
-    for target, want in (("series", "OK"), ("lists", "ERROR")):
+    for target, want in (("series", "OK"), ("lists", "ERROR"),
+                         ("small", "WARN"), ("big", "OK")):
         ok = got.get(target) == want
-        print(f"  [{'OK  ' if ok else 'FAIL'}] {target}: {got.get(target)} (wanted {want})")
+        mark = 'OK  ' if ok else 'FAIL'
+        print(f"  [{mark}] {target}: {got.get(target)} (wanted {want})")
         if not ok:
             failures.append(target)
-    print("  series carries colons in 40% of its names and must NOT be flagged;")
-    print("  lists carries descriptions and must be.")
+    print("  series: colons in 40% of the names, all short, must NOT be flagged.")
+    print("  lists:  descriptions throughout, must be an error.")
+    print("  small:  23 documents, 2 described, 9%, under the error bar but must warn.")
+    print("  big:    1000 documents, 3 long subtitles, 0.3%, must stay silent.")
     if failures:
         print(f"\nSELFTEST FAILED on {', '.join(failures)}")
         return 1
