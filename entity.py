@@ -1420,7 +1420,18 @@ def plan_entity_resolutions(
                                     dtxt = f" d={float(distances[j]):.3f}"
                                 except (TypeError, ValueError):
                                     dtxt = ""
-                            shortlist_parts.append(f"{ids[j]}{dtxt}")
+                            # FASTAPI-TEXT2SQL-224: the TEXT that was compared, not only its id.
+                            # The shortlist listed ids and distances, so a rejection could not be
+                            # re-derived from the trace: reading it required guessing what the
+                            # collection had indexed. On 2026-08-29 that guess was wrong, the
+                            # documents turned out not to be the bare names, and a whole diagnosis
+                            # rested on it. An id says which row, the document says what the gate
+                            # actually scored, and only the second explains a refusal.
+                            _dj = documents[j] if j < len(documents) else ""
+                            _dj = _dj.strip() if isinstance(_dj, str) else ""
+                            if len(_dj) > 60:
+                                _dj = _dj[:57] + "..."
+                            shortlist_parts.append(f"{ids[j]}{dtxt} '{_dj}'")
                         planned.note(
                             f"Entity resolution: {placeholder} -> rejected best embeddings candidate "
                             f"'{chosen_doc}' (distance={chosen_distance}, fuzz_ratio={chosen_ratio:.0f}) "
