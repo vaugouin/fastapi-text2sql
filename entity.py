@@ -1244,6 +1244,12 @@ def plan_entity_resolutions(
 
                     matched_result_position = 0
                     found_match = False
+                    # FASTAPI-TEXT2SQL-228. Ce que le rerang a compare, garde pour la trace.
+                    # Initialise ici et pas dans la branche qui le remplit : la trace se lit
+                    # apres, et une liste absente y ferait une NameError, exactement le defaut
+                    # de 2026-08-29 ou une variable deplacee avait laisse son lecteur derriere.
+                    _rerank_scores = []
+                    _rerank_cut = False
                     try:
                         target_value_norm = raw_value.strip().lower()
                     except Exception:
@@ -1276,10 +1282,57 @@ def plan_entity_resolutions(
                             _doc_cmp = document.strip().lower()
                             if _rerank_sep and _rerank_sep in _doc_cmp:
                                 _doc_cmp = _doc_cmp.split(_rerank_sep, 1)[0].strip()
+                                _rerank_cut = True
                             score = fuzz.WRatio(target_value_norm, _doc_cmp)
+                            _rerank_scores.append((i, _doc_cmp, float(score)))
                             if score > best_score:
                                 best_score = score
                                 matched_result_position = i
+
+                    # FASTAPI-TEXT2SQL-228. Dire COMMENT le candidat a ete choisi, pas seulement
+                    # lequel. Trois etages decident sur cette voie, la correspondance exacte, le
+                    # rerang lexical et le garde, et jusqu'ici seul le dernier parlait. Le cas
+                    # « flamenco trilogy » du 2026-08-29 a ete repare par le DEUXIEME, invisible :
+                    # la trace montrait la bonne reponse sans montrer qui l'avait choisie, ce qui
+                    # rend un correctif indistinguable d'un autre au moment de lire un journal.
+                    def _doc_short(_t, _n=48):
+                        _t = str(_t or "")
+                        return _t if len(_t) <= _n else _t[: _n - 1] + "…"
+
+                    if found_match:
+                        planned.note(
+                            f"Entity resolution: {placeholder} -> embeddings shortlist of "
+                            f"{len(documents)} candidates, exact document match at rank "
+                            f"{matched_result_position + 1} "
+                            f"('{_doc_short(documents[matched_result_position])}'); gate skipped"
+                        )
+                    elif _rerank_scores:
+                        _ranked = sorted(_rerank_scores, key=lambda t: (-t[2], t[0]))
+                        _win = next((t for t in _rerank_scores if t[0] == matched_result_position), None)
+                        _runner = next((t for t in _ranked if t[0] != matched_result_position), None)
+                        _msg = (
+                            f"Entity resolution: {placeholder} -> embeddings returned "
+                            f"{len(documents)} candidates ordered by vector distance; lexical "
+                            f"rerank picked rank {matched_result_position + 1} "
+                            f"'{_doc_short(_win[1]) if _win else ''}' (WRatio={_win[2]:.0f})"
+                            if _win else
+                            f"Entity resolution: {placeholder} -> embeddings returned "
+                            f"{len(documents)} candidates"
+                        )
+                        if _runner and _win:
+                            _msg += (
+                                f", ahead of rank {_runner[0] + 1} '{_doc_short(_runner[1])}' "
+                                f"(WRatio={_runner[2]:.0f})"
+                            )
+                        if _rerank_cut:
+                            # Sans cette mention, un document coupe et un document court se
+                            # ressemblent dans le journal, alors que la coupe est justement ce
+                            # qui a change le classement le 2026-08-29.
+                            _msg += (
+                                f"; documents cut at '{search_cfg.get('document_name_separator')}' "
+                                f"before scoring"
+                            )
+                        planned.note(_msg)
 
                     # Confidence gate (FASTAPI-TEXT2SQL-062): when the chosen
                     # candidate is not an exact normalized match, optionally reject
@@ -1422,6 +1475,29 @@ def plan_entity_resolutions(
                             f"accepted '{chosen_doc}' found at rank {_rescued_rank + 1} of the shortlist "
                             f"(distance={chosen_distance}, fuzz_ratio={chosen_ratio:.0f}, "
                             f"min_fuzz_ratio={min_fuzz_ratio})"
+                        )
+
+                    # FASTAPI-TEXT2SQL-228. L'acceptation etait muette sur ses chiffres, et c'est
+                    # l'asymetrie qui coute : un refus disait pourquoi, une acceptation ne disait
+                    # rien. Or la question « de combien est-on passe » se pose autant dans un cas
+                    # que dans l'autre, et c'est elle qui permet de regler un seuil sans deviner.
+                    if _rescued_rank is None and not rejected and not found_match:
+                        _bits = [f"fuzz_ratio={chosen_ratio:.0f}"]
+                        if min_fuzz_ratio is not None:
+                            _bits.append(f"min={min_fuzz_ratio}")
+                        if chosen_distance is not None:
+                            _bits.append(f"distance={chosen_distance:.3f}")
+                        if max_distance is not None:
+                            _bits.append(f"max_distance={max_distance}")
+                        if _score_stopwords:
+                            # Le score brut vaut d'etre montre a cote du score retenu : l'ecart
+                            # entre les deux EST l'effet du retrait des descripteurs, mesurable
+                            # au lieu d'etre suppose.
+                            _bits.append(f"before_stopwords={chosen_ratio_raw:.0f}")
+                        planned.note(
+                            f"Entity resolution: {placeholder} -> gate accepted rank "
+                            f"{matched_result_position + 1} '{_doc_short(chosen_doc)}' "
+                            f"({', '.join(_bits)})"
                         )
 
                     if rejected:
