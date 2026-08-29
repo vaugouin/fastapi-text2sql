@@ -1287,6 +1287,14 @@ def plan_entity_resolutions(
                     # one from. The gate below keeps its former semantics to the letter: with
                     # both thresholds absent, distance_ok and ratio_ok stay True and nothing is
                     # ever rejected, as before.
+                    # Lu une seule fois, au niveau exterieur, parce que DEUX endroits en ont
+                    # besoin : la closure ci-dessous pour scorer, et `match_scores` plus bas pour
+                    # tracer `stopwords_applied`. Le refactor de -224 l'avait deplace dans la
+                    # closure sous le nom `_stop` en laissant la trace pointer sur l'ancien nom,
+                    # d'ou une NameError sur toute resolution par embeddings, donc un 500 sur
+                    # chaque question atteignant cette branche. Une seule source, deux lecteurs.
+                    _score_stopwords = search_cfg.get("score_stopwords")
+
                     # FASTAPI-TEXT2SQL-224. Scoring moved into a function because it is now
                     # applied to more than one candidate. Same computation as before, to the
                     # letter; only the number of candidates it is called on changes.
@@ -1324,7 +1332,7 @@ def plan_entity_resolutions(
                         # only removing it works. Per-entity list, since what is generic for a
                         # collection is identifying for an award ("Academy Award for Best Picture"
                         # minus "award" and "best" is not the same name any more).
-                        _stop = search_cfg.get("score_stopwords")
+                        _stop = _score_stopwords
                         _sought_s, _cand_s = target_value_norm, _doc_norm
                         if _stop:
                             try:
