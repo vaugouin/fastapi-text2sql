@@ -190,6 +190,26 @@ def report(results, elapsed, model_a, model_b):
     print("=" * 78)
     print(f"Questions run: {len(results)}   scored: {len(scored)}   wall clock: {elapsed:.1f}s")
     print(f"A = {model_a}")
+    # The gap between run and scored is not cosmetic: those questions were DROPPED, not
+    # failed, so the percentages below are computed on the survivors. Said here rather
+    # than in the errors block at the bottom, because that is where a reader stops.
+    dropped = len(results) - len(scored)
+    # --questions-file carries no gold assertions by design, so everything is "dropped"
+    # and saying so would be crying wolf in the one mode where it is expected. Only a
+    # question that HAD an assertion and still failed to score is worth a warning.
+    droppable = [r for r in results if r["assertion"]]
+    if not droppable:
+        print("No gold assertions in this mode: outputs are shown, nothing is scored.")
+    elif dropped:
+        share = dropped / len(droppable)
+        errored = sum(1 for r in results if "error" in (r["a"] or {}) or "error" in (r["b"] or {}))
+        print(f"Dropped from scoring: {dropped} of {len(droppable)} scorable ({share:.0%}), "
+              f"of which {errored} carry an extraction error.")
+        print("Those are excluded from the denominator, NOT counted as failures. Every percentage")
+        print("below is computed on the survivors only.")
+        if share > 0.10:
+            print("WARNING: over a tenth of the scorable set was dropped. Read the errors block")
+            print("before trusting any score; one side may be failing rather than losing.")
     print(f"B = {model_b}")
     if model_a == model_b:
         print("Same configuration on both sides: what follows is the noise floor, not a comparison.")
@@ -237,6 +257,29 @@ def report(results, elapsed, model_a, model_b):
     print("=" * 78)
 
 
+def preflight(models):
+    """Prove every model actually answers, before paying for a whole run.
+
+    `f_entity_extraction` does not raise: it returns {"error": ...}, and `score()` then
+    returns None for that question, which removes it from the DENOMINATOR rather than
+    counting it against the model. So a configuration that fails on every call reports
+    "scored: 0" and a perfect record on nothing at all, and one that fails on half scores
+    100 % on the half that survived. Neither reads as a failure at a glance.
+
+    The sibling bench (bench-result-entity.py) learned this the expensive way on
+    2026-08-30, where a 400 on every call was reported as six polite abstentions out of
+    six. One probe call per model costs a fraction of a cent and removes the whole class
+    of mistake.
+    """
+    for model in sorted(set(models)):
+        payload = measure(model, "who directed Inception?")[0]
+        if isinstance(payload, dict) and "error" in payload:
+            print(f"  preflight FAILED for {model}: {str(payload['error'])[:300]}")
+            return False
+        print(f"  preflight OK: {model}")
+    return True
+
+
 def main():
     """Parse the CLI, run both configurations over the bank and report."""
     parser = argparse.ArgumentParser(description="Compare two entity-extraction configurations, off production.")
@@ -249,6 +292,11 @@ def main():
     parser.add_argument("--out", default=None, help="Write the full per-question result as JSON.")
     parser.add_argument("--verbose", action="store_true", help="Keep the extraction step's own console output.")
     args = parser.parse_args()
+
+    print("Preflight, one call per model. An error removes a question from the denominator, it is not counted against the model:")
+    if not preflight([args.model_a, args.model_b]):
+        print("Aborting before spending a run. Fix the model name or its parameters first.")
+        return 1
 
     if args.questions_file:
         items = load_questions_file(args.questions_file, args.limit)

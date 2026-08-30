@@ -519,6 +519,21 @@ label is 100 % of the class.
 **Bench artefacts are gitignored** (`eval/data/bench/`), for the same reason as the
 execution exports: they carry the evaluation questions verbatim.
 
+**Both benches preflight one call per model and abort before spending anything.** The
+failure they guard against is not a crash but a plausible-looking report: the classifier
+turns an exception into `""`, which scores as an abstention, and entity extraction turns
+one into `{"error": ...}`, which `score()` maps to `None` and which therefore leaves the
+DENOMINATOR rather than counting against the model. A configuration failing on every call
+reads as "abstained a lot" in one and "scored: 0" in the other; failing on half reads as a
+perfect record on the survivors. The entity bench now also states, at the top of its report
+rather than at the bottom, how many questions were dropped and warns past a tenth.
+
+**They do not run in the same places.** `bench-result-entity.py` reads its ground truth
+from the execution exports on disk and needs **no database**, so it runs anywhere the repo
+is checked out. `bench-entity-extraction.py` reads the bank from MariaDB and therefore only
+runs where the database is reachable, which is not a developer laptop. Plan the entity work
+on the VPS or behind a tunnel.
+
 ## Reasoning models reject `temperature` (FASTAPI-TEXT2SQL-231)
 
 **The trap, and it is a hard failure, not a degradation.** Every one of the five tasks passes
