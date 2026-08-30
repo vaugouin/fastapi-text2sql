@@ -1476,6 +1476,12 @@ class Text2SQLRequest(BaseModel):
     llm_model_entity_extraction: Optional[str] = "default"
     llm_model_text2sql: Optional[str] = "default"
     llm_model_complex: Optional[str] = "default"
+    # FASTAPI-TEXT2SQL-232. The pipeline makes five distinct LLM calls, not three: the
+    # answer-entity classifier and the single-value answerer were reachable only through a
+    # module default or by borrowing the complex-question knob, so neither could be priced
+    # or moved on its own. Five tasks, five selectors, each echoed back in the response.
+    llm_model_result_entity: Optional[str] = "default"
+    llm_model_answer_single_value: Optional[str] = "default"
     complex_question_processing: bool = False
     complex_question_already_resolved: bool = False
     ui_language: Optional[str] = "en"
@@ -1551,6 +1557,12 @@ class Text2SQLResponse(BaseModel):
     # (FASTAPI-TEXT2SQL-204). 0.0 when no retry happened, which makes it the most direct
     # marker of a retried request, more so than complex_model_used.
     complex_question_processing_time: float = 0.0
+    # Wall clock of the direct scalar answer asked of the stronger model when SQL came back
+    # with a single cell worth 0 (FASTAPI-TEXT2SQL-233). It used to be billed silently: the
+    # call happens after the SQL step, so its seconds landed in total_processing_time with
+    # nothing to attribute them to, which is exactly the shape of latency that looks like
+    # database slowness in a campaign. 0.0 when the branch did not fire.
+    answer_single_value_processing_time: float = 0.0
     # How far the accepted match actually sat from the sought value, per resolved entity
     # (FASTAPI-TEXT2SQL-206). The list is the calibration material; the two scalars below are
     # the weakest link of the request, which is precisely what a threshold would cut, and they
@@ -1576,6 +1588,10 @@ class Text2SQLResponse(BaseModel):
     llm_model_entity_extraction: str
     llm_model_text2sql: str
     llm_model_complex: str
+    # FASTAPI-TEXT2SQL-232. Which model actually served the other two tasks. Defaulted
+    # rather than required so a client reading an older cached payload still validates.
+    llm_model_result_entity: str = ""
+    llm_model_answer_single_value: str = ""
     complex_model_used: bool = False
     ui_language: str = "en"
     api_version: str
@@ -1666,6 +1682,12 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
               "default" resolves to gpt-4o.
             - llm_model_complex (str, default "default"): Stronger LLM used for
               complex-question escalation and one-time retry. "default" resolves to gpt-4o.
+            - llm_model_result_entity (str, default "default"): LLM for the answer-entity
+              classifier, which decides from the ORIGINAL question what kind of thing the
+              rows should be. "default" resolves to gpt-4o. FASTAPI-TEXT2SQL-232.
+            - llm_model_answer_single_value (str, default "default"): LLM asked for a
+              direct scalar answer when SQL returned a single cell worth 0. Until -232 it
+              borrowed llm_model_complex; it now has its own selector and its own default.
         api_key (str): Valid API key injected via X-API-Key header.
 
     Returns:
@@ -1690,14 +1712,21 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             - cached_exact_question, cached_anonymized_question,
               cached_anonymized_question_embedding: Cache hit indicators.
             - entity_extraction_processing_time, text2sql_processing_time,
-              result_entity_processing_time, embeddings_processing_time,
+              result_entity_processing_time, complex_question_processing_time,
+              answer_single_value_processing_time, embeddings_processing_time,
               query_execution_time, total_processing_time: Latency breakdown in
-              seconds. `result_entity_processing_time` is 0.0 when the
-              answer-entity classifier did not run (no SQL, or a text2sql error).
+              seconds. One field per LLM task since FASTAPI-TEXT2SQL-233, so the five
+              calls can be priced and paced separately. Each is 0.0 when its task did
+              not run: `result_entity_processing_time` on no SQL or a text2sql error,
+              the last two on any request that never escalated. They do not sum to
+              `total_processing_time`, which is measured end to end and includes the
+              plumbing between the steps.
             - ambiguous_question_for_text2sql: True when the question was too vague to
               produce a SQL query.
             - messages (list): Ordered processing-step messages for debugging.
-            - llm_model_entity_extraction, llm_model_text2sql, llm_model_complex.
+            - llm_model_entity_extraction, llm_model_text2sql, llm_model_complex,
+              llm_model_result_entity, llm_model_answer_single_value: the model that
+              actually served each of the five LLM tasks, resolved (never "default").
             - api_version: Running API version string.
 
     Raises:
@@ -1776,6 +1805,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     entity_extraction_processing_time = 0.0
     text2sql_processing_time = 0.0
     result_entity_processing_time = 0.0
+    answer_single_value_processing_time = 0.0
     embeddings_processing_time = 0.0
     embeddings_cache_search_time = 0.0
     query_execution_time = 0.0
@@ -1793,11 +1823,19 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     strcomplexquestionmodel = t2s.strcomplexquestionmodeldefault
     if request.llm_model_complex and request.llm_model_complex != "default":
         strcomplexquestionmodel = request.llm_model_complex
+    strresultentitymodel = t2s.strresultentitymodeldefault
+    if request.llm_model_result_entity and request.llm_model_result_entity != "default":
+        strresultentitymodel = request.llm_model_result_entity
+    stranswersinglevaluemodel = t2s.stranswersinglevaluemodeldefault
+    if request.llm_model_answer_single_value and request.llm_model_answer_single_value != "default":
+        stranswersinglevaluemodel = request.llm_model_answer_single_value
 
     print("/search/text2sql LLM selection:")
     print("- Entity extraction model:", strentityextractionmodel)
     print("- Text2SQL model:", strtext2sqlmodel)
     print("- Complex question model:", strcomplexquestionmodel)
+    print("- Result entity model:", strresultentitymodel)
+    print("- Answer single value model:", stranswersinglevaluemodel)
 
     # --- Bare-identifier fast path (FASTAPI-TEXT2SQL-137) ----------------------
     # When the whole question is just a self-identifying id (tt…/nm…/Q…), answer it
@@ -1916,6 +1954,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             llm_model_entity_extraction=strentityextractionmodel,
             llm_model_text2sql=strtext2sqlmodel,
             llm_model_complex=strcomplexquestionmodel,
+            llm_model_result_entity=strresultentitymodel,
+            llm_model_answer_single_value=stranswersinglevaluemodel,
             complex_model_used=False,
             ui_language=request.ui_language,
             api_version=strapiversion,
@@ -2049,6 +2089,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 llm_model_entity_extraction=strentityextractionmodel,
                 llm_model_text2sql=strtext2sqlmodel,
                 llm_model_complex=strcomplexquestionmodel,
+                llm_model_result_entity=strresultentitymodel,
+                llm_model_answer_single_value=stranswersinglevaluemodel,
                 ui_language=request.ui_language,
                 api_version=strapiversion,
                 messages=messages,
@@ -2410,6 +2452,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 expected_result_entity = await asyncio.to_thread(
                     t2s.f_classify_result_entity,
                     input_text, list(_RESULT_ENTITY_SOURCES.keys()),
+                    strresultentitymodel,
                 )
                 result_entity_processing_time = time.time() - _result_entity_start_time
                 if expected_result_entity and expected_result_entity != result_entity:
@@ -2606,6 +2649,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         ("entity_extraction_processing_time", entity_extraction_processing_time),
                         ("text2sql_processing_time", text2sql_processing_time),
                         ("result_entity_processing_time", result_entity_processing_time),
+                        ("answer_single_value_processing_time", answer_single_value_processing_time),
                         ("embeddings_processing_time", embeddings_processing_time),
                         ("embeddings_cache_search_time", embeddings_cache_search_time),
                         ("query_execution_time", query_execution_time),
@@ -3058,23 +3102,28 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             complex_model_used = True
             messages.append(TextMessage(
                 position=position_counter,
-                text=f"SQL query returned a single-cell result with value 0; asking the stronger model '{strcomplexquestionmodel}' for a direct answer."
+                text=f"SQL query returned a single-cell result with value 0; asking the stronger model '{stranswersinglevaluemodel}' for a direct answer."
             ))
             position_counter += 1
 
-            answer_result = t2s.f_answer_single_value(original_question, strcomplexquestionmodel)
+            # FASTAPI-TEXT2SQL-233: bank the wall clock before any branch can bail out, the
+            # same rule -205 established for the complex-question retry. An answer that
+            # errors still costs the seconds and the tokens it spent.
+            _answer_single_value_start = time.time()
+            answer_result = t2s.f_answer_single_value(original_question, stranswersinglevaluemodel)
+            answer_single_value_processing_time += time.time() - _answer_single_value_start
 
             if answer_result.get("error"):
                 messages.append(TextMessage(
                     position=position_counter,
-                    text=f"Stronger model '{strcomplexquestionmodel}' could not provide a direct answer: {answer_result['error']}"
+                    text=f"Stronger model '{stranswersinglevaluemodel}' could not provide a direct answer: {answer_result['error']}"
                 ))
                 position_counter += 1
             else:
                 answer_value = answer_result["value"]
                 messages.append(TextMessage(
                     position=position_counter,
-                    text=f"Stronger model '{strcomplexquestionmodel}' provided direct answer: {answer_value}"
+                    text=f"Stronger model '{stranswersinglevaluemodel}' provided direct answer: {answer_value}"
                 ))
                 position_counter += 1
 
@@ -3547,6 +3596,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         entity_raw_fallback_count=entity_raw_fallback_count,
         no_entity_extracted=no_entity_extracted,
         complex_question_processing_time=complex_question_processing_time,
+        answer_single_value_processing_time=answer_single_value_processing_time,
         embeddings_processing_time=embeddings_processing_time,
         embeddings_cache_search_time=embeddings_cache_search_time,
         query_execution_time=query_execution_time,
@@ -3564,6 +3614,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         llm_model_entity_extraction=strentityextractionmodel,
         llm_model_text2sql=strtext2sqlmodel,
         llm_model_complex=strcomplexquestionmodel,
+        llm_model_result_entity=strresultentitymodel,
+        llm_model_answer_single_value=stranswersinglevaluemodel,
         complex_model_used=complex_model_used,
         ui_language=request.ui_language,
         api_version=strapiversion,
@@ -6808,6 +6860,8 @@ async def _mcp_sql_search(
     llm_model_entity_extraction: str = "default",
     llm_model_text2sql: str = "default",
     llm_model_complex: str = "default",
+    llm_model_result_entity: str = "default",
+    llm_model_answer_single_value: str = "default",
 ) -> str:
     """
     Query the cinema and TV database in natural language.
@@ -6831,10 +6885,13 @@ async def _mcp_sql_search(
     persons). Use it to ask the user which one they mean before drilling in.
 
     Optional model overrides (each defaults to "default" = the server's configured
-    model, currently gpt-4o): llm_model_entity_extraction, llm_model_text2sql, and
-    llm_model_complex route the entity-extraction, SQL-generation, and complex-question
-    steps through a chosen provider/model (an OpenAI "gpt-*"/"o1*"/"o3*" model, a
-    "claude-*" model, or a "gemini-*" model).
+    model, currently gpt-4o). The pipeline makes five distinct LLM calls and each has
+    its own selector: llm_model_entity_extraction, llm_model_text2sql,
+    llm_model_complex, llm_model_result_entity (the answer-entity classifier) and
+    llm_model_answer_single_value (the direct scalar answer). Each routes its step
+    through a chosen provider/model (an OpenAI "gpt-*"/"o1*"/"o3*"/"o4*" model, a
+    "claude-*" model, or a "gemini-*" model). The response echoes back the five
+    resolved names and the per-task wall clock, so a run can be priced task by task.
 
     For precise field knowledge (column names, value ranges, genre codes) read
     the resource context://database-scope before formulating complex questions.
@@ -6866,6 +6923,8 @@ async def _mcp_sql_search(
                     "llm_model_entity_extraction": llm_model_entity_extraction,
                     "llm_model_text2sql": llm_model_text2sql,
                     "llm_model_complex": llm_model_complex,
+                    "llm_model_result_entity": llm_model_result_entity,
+                    "llm_model_answer_single_value": llm_model_answer_single_value,
                 },
                 headers={"X-API-Key": MCP_INTERNAL_API_KEY},
             )

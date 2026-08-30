@@ -84,9 +84,28 @@ docker run -it --rm --network="host" \
   --no-store-to-cache \
   --no-complex-model-used
 
+# Per-task model campaign: one model per LLM task rather than one per API.
+# The five knobs are independent since FASTAPI-TEXT2SQL-232; before that, three of the
+# five tasks had no selector at all and a mix like this could not be expressed.
+docker run -it --rm --network="host"   --env-file /home/debian/docker/text2sql-eval/.env   --name text2sql-eval   -v /home/debian/docker/shared_data/text2sql-eval:/shared   text2sql-eval-python-app   --api-version 1.1.19   --entity-extraction-model gpt-5.6-luna   --text2sql-model gpt-5.6-terra   --result-entity-model gpt-5.6-luna   --complex-model gpt-5.6-sol   --answer-single-value-model gpt-5.6-sol   --language en
+
 # Launch via helper script (builds image, runs detached, already wired with --env-file)
 ./text2sql-eval.sh
 ```
+
+**Isolate one task at a time.** A run that moves all five knobs at once measures a
+configuration, not a model: when the pass rate drops there is nothing to attribute it to.
+Move one, hold the other four at `gpt-4o`, and compare against the baseline for the same
+API version and language.
+
+**Two knobs do not yet reach the run signature.** `--result-entity-model` and
+`--answer-single-value-model` are sent to the API and verified against its echo, but
+`T_WC_T2S_EVALUATION_EXECUTION` has no column for them, so the execution folder is still
+named after the version, the language and the first three models only. Two runs differing
+only in those two knobs therefore write into the **same** folder and cannot be told apart
+from the path. Until FASTAPI-TEXT2SQL-234 adds the columns, separate such runs by hand
+(different `--api-version`, or move the folder between runs), and read the per-row truth
+from `api_output.llm_model_result_entity` inside each execution file.
 
 All CLI arguments are optional; defaults are chosen so `docker run` without arguments reproduces the previous hardcoded configuration. The `--env-file` path must always be supplied explicitly — the env file lives outside the app source tree so it cannot end up in image layers, build cache, or registries.
 
@@ -97,6 +116,8 @@ The `/shared` mount is now **read-write**. Phases 30/31/32 write JSON exports th
 | `--entity-extraction-model` | `gpt-4o` | LLM model for entity extraction (matches API `llm_model_entity_extraction`) |
 | `--text2sql-model` | `gpt-4o` | LLM model for text-to-SQL generation |
 | `--complex-model` | `gpt-4o` | LLM model for complex-question processing / stronger-model retry |
+| `--result-entity-model` | `gpt-4o` | LLM model for the answer-entity classifier (matches API `llm_model_result_entity`). Third LLM task of the pipeline, fires on 99.9 % of requests |
+| `--answer-single-value-model` | `gpt-4o` | LLM model for the direct scalar answer when SQL returns a single cell worth 0 (matches API `llm_model_answer_single_value`). Fires on well under 1 % of requests |
 | `--api-version` | `1.1.14` | API version expected in the response; execution aborts on mismatch |
 | `--language` | `*` | Language filter: `en`, `fr`, or `*` for both |
 | `--store-to-cache` | `true` | Store evaluation API results in the FastAPI cache |

@@ -259,6 +259,13 @@ _parser.add_argument("--text2sql-model", default="gpt-4o",
                      help="LLM model for text-to-SQL (default: gpt-4o)")
 _parser.add_argument("--complex-model", default="gpt-4o",
                      help="LLM model for complex question processing (default: gpt-4o)")
+# FASTAPI-TEXT2SQL-232 gave the answer-entity classifier and the single-value answerer their
+# own selectors. They are the third and fifth LLM tasks of the pipeline, and until then the
+# evaluator could not move either one, so a per-task model campaign was not expressible here.
+_parser.add_argument("--result-entity-model", default="gpt-4o",
+                     help="LLM model for the answer-entity classifier (default: gpt-4o)")
+_parser.add_argument("--answer-single-value-model", default="gpt-4o",
+                     help="LLM model for the direct scalar answer (default: gpt-4o)")
 _parser.add_argument("--api-version", default="1.1.14",
                      help="API version to evaluate against (default: 1.1.14)")
 _parser.add_argument("--language", default="*",
@@ -307,6 +314,8 @@ try:
             strentityextractionmodeleval = _cli_args.entity_extraction_model
             strtext2sqlmodeleval = _cli_args.text2sql_model
             strcomplexmodeleval = _cli_args.complex_model
+            strresultentitymodeleval = _cli_args.result_entity_model
+            stranswersinglevaluemodeleval = _cli_args.answer_single_value_model
             strapiversioneval = _cli_args.api_version
             strlanguage = _cli_args.language
             blnstoretocache = _cli_args.store_to_cache
@@ -620,6 +629,8 @@ try:
                                     "llm_model_entity_extraction": strentityextractionmodeleval,
                                     "llm_model_text2sql": strtext2sqlmodeleval,
                                     "llm_model_complex": strcomplexmodeleval,
+                                    "llm_model_result_entity": strresultentitymodeleval,
+                                    "llm_model_answer_single_value": stranswersinglevaluemodeleval,
                                     "complex_model_used": blncomplexmodelused,
                                     "complex_question_processing": True,
                                     "complex_question_already_resolved": False,
@@ -711,6 +722,20 @@ try:
                                 response_llm_model_complex = response_json.get('llm_model_complex')
                                 if response_llm_model_complex is not None and response_llm_model_complex != strcomplexmodeleval:
                                     print("API llm_model_complex mismatch; queried: ", response_llm_model_complex, " expected: ", strcomplexmodeleval)
+                                    intconfigerror = True
+                                # The two selectors added by FASTAPI-TEXT2SQL-232. Checked with
+                                # `.get()` and an empty-string guard, like llm_model_complex above:
+                                # an instance predating -232 answers without the keys at all, and a
+                                # missing field is a deployment fact, not a configuration error. It
+                                # would otherwise abort every run against Green until both colours
+                                # carry the change.
+                                response_llm_model_result_entity = response_json.get('llm_model_result_entity')
+                                if response_llm_model_result_entity and response_llm_model_result_entity != strresultentitymodeleval:
+                                    print("API llm_model_result_entity mismatch; queried: ", response_llm_model_result_entity, " expected: ", strresultentitymodeleval)
+                                    intconfigerror = True
+                                response_llm_model_answer_single_value = response_json.get('llm_model_answer_single_value')
+                                if response_llm_model_answer_single_value and response_llm_model_answer_single_value != stranswersinglevaluemodeleval:
+                                    print("API llm_model_answer_single_value mismatch; queried: ", response_llm_model_answer_single_value, " expected: ", stranswersinglevaluemodeleval)
                                     intconfigerror = True
                                 if intconfigerror:
                                     # We stop now so we do not consume tokens and money because there is a configuration error
@@ -1140,6 +1165,17 @@ try:
                                         "entity_extraction_model": ee_model,
                                         "text2sql_model": t2s_model,
                                         "complex_model": complex_model,
+                                        # FASTAPI-TEXT2SQL-234. These two come from the CLI, not
+                                        # from the execution row: T_WC_T2S_EVALUATION_EXECUTION has
+                                        # no column for them yet. So they describe THIS run's
+                                        # configuration, and on a re-export of rows written by an
+                                        # earlier run sharing the same version and model triple they
+                                        # would label those rows with today's setting. Read them as
+                                        # the run's intent until the columns exist; `api_output`
+                                        # carries what the API actually used, per row, and that one
+                                        # never lies.
+                                        "result_entity_model": strresultentitymodeleval,
+                                        "answer_single_value_model": stranswersinglevaluemodeleval,
                                         "ui_language": row_lang,
                                     },
                                     "api_output": api_output,

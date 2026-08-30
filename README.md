@@ -338,6 +338,8 @@ Content-Type: application/json
   "llm_model_entity_extraction": "default",
   "llm_model_text2sql": "default",
   "llm_model_complex": "default",
+  "llm_model_result_entity": "default",
+  "llm_model_answer_single_value": "default",
   "complex_question_processing": false,
   "ui_language": "en"
 }
@@ -353,6 +355,8 @@ Content-Type: application/json
 - `llm_model_entity_extraction` (optional, str, default: "default"): LLM model to use for entity extraction
 - `llm_model_text2sql` (optional, str, default: "default"): LLM model to use for text-to-SQL conversion
 - `llm_model_complex` (optional, str, default: "default"): LLM model to use for complex-question resolution / stronger-model retry
+- `llm_model_result_entity` (optional, str, default: "default"): LLM model for the answer-entity classifier, which decides from the **original** question what kind of thing the returned rows should be. Before FASTAPI-TEXT2SQL-232 this task was reachable only through its module default, so it could be neither priced nor moved.
+- `llm_model_answer_single_value` (optional, str, default: "default"): LLM model asked for a direct scalar answer when the SQL came back as a single cell worth 0. Before -232 it borrowed `llm_model_complex`; the two share a caller but not a job, so they now have separate selectors and separate defaults.
 - `ui_language` (optional, str, default: `"en"`): Language code for the user-oriented `answer` field in the response. Only `"en"` (English) and `"fr"` (French) are supported; the value is normalized (case-insensitive, region/script subtags stripped, so `"fr-FR"` → `"fr"`) and any missing, empty, or unsupported value falls back to `"en"`. The answer is a plain-language sentence describing what the query returns, written in the specified language, with no table/column names or SQL details. This value is also used as part of the cache key, so the same question submitted with different `ui_language` values produces separate cache entries.
 - `complex_question_processing` (optional, bool, default: `false`): Controls whether the API is allowed to escalate to the stronger model when the primary pipeline fails. When `false` (the default), the API returns the raw error or empty result set directly to the caller without retrying. When `true`, the three automatic retry triggers are active:
   - The text-to-SQL model cannot produce a SQL query and returns an error
@@ -361,7 +365,7 @@ Content-Type: application/json
 
   Set to `false` when calling from an agent or MCP tool so that the agent itself handles error conditions and decides whether to rephrase or escalate the question.
 
-**Supported LLM Values for the 3 model parameters:**
+**Supported LLM Values for the 5 model parameters:**
 
 - `default`
   - Uses the module default for the corresponding stage
@@ -369,6 +373,8 @@ Content-Type: application/json
     - `llm_model_entity_extraction` → `gpt-4o`
     - `llm_model_text2sql` → `gpt-4o`
     - `llm_model_complex` → `gpt-4o`
+    - `llm_model_result_entity` → `gpt-4o`
+    - `llm_model_answer_single_value` → `gpt-4o`
 
 - OpenAI models
   - Supported when the value is:
@@ -422,10 +428,13 @@ Content-Type: application/json
   - `llm_model_entity_extraction`
   - `llm_model_text2sql`
   - `llm_model_complex`
+  - `llm_model_result_entity`
+  - `llm_model_answer_single_value`
 - `gemma-4-google` is intended for direct Google Gemma 4 access on entity extraction and text-to-SQL.
 - `gemma-4` is available through OpenRouter and is useful if you prefer the OpenRouter route for Gemma 4.
 - For `llm_model_complex`, if the selected stronger model is unavailable and it is not already `gpt-4o`, the application may retry once with `gpt-4o`.
-- For `llm_model_complex`, `o1*` and `o3*` models are called with `temperature=1` for compatibility, while the other supported model families use `temperature=0` in the complex-question flow.
+- **Reasoning models do not take `temperature` at all (FASTAPI-TEXT2SQL-231).** The whole o-series and the entire GPT-5.x family, the 5.6 Sol / Terra / Luna tiers included, answer HTTP 400 on any explicit `temperature`. `_openai_sampling_kwargs` therefore omits the parameter for those families and sends `reasoning_effort` instead; `gpt-4o` and the other 4.x models keep `temperature=0` and behave exactly as before. This applies to all five parameters, not just `llm_model_complex`.
+- **`reasoning_effort` is the cost and latency knob, and it matters more than the tier.** The same model runs about 1.8 s to first token at `low` and about 115 s at `max`, and reasoning tokens are billed at the output rate. Defaults are `minimal` for the three tasks on the 100 % path and `medium` for the two complex-question tasks that fire on roughly 1 % of requests.
 - The project now uses Google's current `google-genai` SDK for Google-hosted Gemini and Gemma requests.
 
 **Note:** Either `question` or `question_hashed` must be provided.
@@ -477,6 +486,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "entity_raw_fallback_count": 0,
   "no_entity_extracted": false,
   "complex_question_processing_time": 0.0,
+  "answer_single_value_processing_time": 0.0,
   "entity_match_worst_distance": 0.41,
   "entity_match_worst_fuzz_ratio": 88.0,
   "entity_match_scores": [
@@ -500,6 +510,8 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "llm_model_entity_extraction": "gpt-4o",
   "llm_model_text2sql": "gpt-4o",
   "llm_model_complex": "gpt-4o",
+  "llm_model_result_entity": "gpt-4o",
+  "llm_model_answer_single_value": "gpt-4o",
   "complex_model_used": false,
   "api_version": "1.1.16",
   "messages": [
@@ -566,6 +578,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `entity_match_worst_fuzz_ratio` (float or null): `fuzz.ratio` of the weakest accepted match, on 100. A similarity, so larger is closer and a threshold reads `>= min_fuzz_ratio`. The two "worst" therefore run in opposite directions
 - `entity_match_scores` (list): One entry per candidate weighed by an embeddings or rapidfuzz strategy, accepted or not, with what was sought, what was found and how far apart they sat. `fuzz_ratio` is the score the gate actually used, after the entity's own descriptor words were neutralised on both sides; `fuzz_ratio_raw` is what it would have been without that, kept so the effect stays auditable. Measured 2026-08-24: "wagonlit collection" against "life collection" scores 76.5 raw and 33.3 stripped, and the threshold sits at 72. This is the calibration material for FASTAPI-TEXT2SQL-206: twelve of the fourteen resolvers currently have no threshold and accept their nearest neighbour however far it sits. Not summed across a retry, like the counts: it describes the resolution that produced the returned result
 - `complex_question_processing_time` (float): The stronger-model simplification call that precedes a complex retry. 0.0 when no retry happened, so it is the most direct marker of a retried request. **On a retried request every timing above covers both passes**, and `total_processing_time` is the real end-to-end elapsed
+- `answer_single_value_processing_time` (float): The direct scalar answer asked of the stronger model when the SQL returned a single cell worth 0 (FASTAPI-TEXT2SQL-233). 0.0 when that branch did not fire. Banked before any early return, so an answer that errored still reports the seconds it spent. With this field the response carries **one wall clock per LLM task**, which is what makes a per-task model swap measurable rather than merely configurable. The five do not sum to `total_processing_time`: that one is measured end to end and includes the plumbing between the steps
 - `query_execution_time` (float): Time for SQL execution in seconds
 - `total_processing_time` (float): Total request processing time in seconds
 
@@ -587,6 +600,8 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `llm_model_entity_extraction` (str): LLM model actually used for entity extraction (resolved value, never `"default"`)
 - `llm_model_text2sql` (str): LLM model actually used for text-to-SQL conversion
 - `llm_model_complex` (str): LLM model **configured** for complex-question resolution / stronger-model retry — exposed even when the retry path was not taken
+- `llm_model_result_entity` (str): LLM model actually used for the answer-entity classifier (FASTAPI-TEXT2SQL-232)
+- `llm_model_answer_single_value` (str): LLM model **configured** for the direct scalar answer, exposed even when that branch did not fire
 - `complex_model_used` (bool, default `false`): **Whether the stronger model was actually invoked** during the request — set to `true` when any of the four complex-retry code paths fired (text2sql error, SQL execution error, zero-row result on page 1, or single-cell zero-count direct answer). Use this rather than `llm_model_complex` to know whether the extra LLM call happened.
 - `ui_language` (str): Normalized language code used for the `answer` field and the cache key — either `"en"` or `"fr"` (any other requested value falls back to `"en"`)
 - `api_version` (str): Current API version
@@ -1648,6 +1663,7 @@ All successful text2sql requests return a comprehensive response with:
 - `entity_raw_fallback_count`: Entities left unresolved and substituted raw (count)
 - `no_entity_extracted`: Extraction returned nothing at all (bool)
 - `complex_question_processing_time`: The stronger-model simplification call (seconds, 0.0 without a retry)
+- `answer_single_value_processing_time`: The direct scalar answer when SQL returned a single cell worth 0 (seconds, 0.0 when the branch did not fire)
 - `entity_match_worst_distance` / `entity_match_worst_fuzz_ratio`: How far the weakest accepted entity match sat from the value sought (dissimilarity and similarity respectively, so the two run in opposite directions)
 - `entity_match_scores`: The same, detailed per entity, accepted candidates and rejected ones alike
 - `query_execution_time`: Time for SQL execution (seconds)
@@ -1670,6 +1686,8 @@ All successful text2sql requests return a comprehensive response with:
 - `llm_model_entity_extraction`: LLM model actually used for entity extraction
 - `llm_model_text2sql`: LLM model actually used for text-to-SQL conversion
 - `llm_model_complex`: LLM model **configured** for complex-question resolution / stronger-model retry (does not by itself indicate the retry path was taken)
+- `llm_model_result_entity`: LLM model used for the answer-entity classifier
+- `llm_model_answer_single_value`: LLM model **configured** for the direct scalar answer
 - `complex_model_used` (bool, new in v1.1.15): Whether the stronger model was actually invoked during the request — `true` only when one of the four complex-retry code paths fired (text2sql error, SQL execution error, zero-row result on page 1, or single-cell zero-count direct answer)
 - `ui_language` (new in v1.1.15): Language code used for the `answer` field and as part of the cache key
 - `api_version`: Current API version (e.g., "1.1.16")

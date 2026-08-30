@@ -7,6 +7,7 @@ import os
 import json
 import re
 import contextvars
+from typing import Optional
 
 import data_watcher
 import json_guardrails
@@ -51,6 +52,12 @@ strcomplexquestionmodeldefault = "gpt-4o"
 # override a correct query. Isolated here so the cost/latency knob is easy to change.
 # See f_classify_result_entity().
 strresultentitymodeldefault = "gpt-4o"
+
+# Direct scalar answer when the SQL path returned a single cell worth 0 (FASTAPI-TEXT2SQL-232).
+# Until then this task borrowed the complex-question model, which made the two impossible to
+# price or to move apart: they are different jobs (one rewrites a question, the other answers
+# it from parametric memory) and they deserve their own knob.
+stranswersinglevaluemodeldefault = "gpt-4o"
 
 # Sentinel that marks the boundary between the byte-stable static prefix and the
 # dynamic suffix (the user question / ui_language) in the prompt templates. Used
@@ -252,12 +259,66 @@ def _build_anthropic_user_content(user_prompt: str):
     return user_prompt
 
 
-def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperature: float, cache_label: str = "text2sql") -> str:
+# --- OpenAI reasoning-model sampling rules (FASTAPI-TEXT2SQL-231) -------------------
+# Reasoning models (o-series, GPT-5.x including the 5.6 Sol / Terra / Luna tiers) reject
+# any `temperature` other than the default and answer 400
+# "Unsupported value: 'temperature' does not support 0 with this model". Every task in
+# this pipeline passes temperature=0 on purpose, so before this guard a model swap as
+# simple as gpt-4o -> gpt-5.6-terra failed on the first request of all five tasks.
+# They take `reasoning_effort` instead, and that parameter is the real cost and latency
+# knob: the same model spans ~1.8 s to first token at "low" and ~115 s at "max", and
+# reasoning tokens are billed at the output rate.
+_REASONING_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+
+# Per-task default effort. Deliberately conservative: the four tasks that sit on the
+# 100 % path get the cheapest setting that still reasons, because the API's p50 is 5.45 s
+# end to end and there is no room for a thinking budget there. Only the complex-question
+# pair, which fires on ~1 % of requests, is allowed to spend.
+_DEFAULT_REASONING_EFFORT = {
+    "entity_extraction": "minimal",
+    "text2sql": "minimal",
+    "result_entity": "minimal",
+    "complex_question": "medium",
+    "answer_single_value": "medium",
+}
+
+
+def _is_openai_reasoning_model(model_norm: str) -> bool:
+    """True when the model rejects `temperature` and expects `reasoning_effort` instead."""
+    return str(model_norm).strip().lower().startswith(_REASONING_MODEL_PREFIXES)
+
+
+def _openai_sampling_kwargs(model_norm: str, temperature: float, cache_label: str,
+                            reasoning_effort: Optional[str] = None) -> dict:
+    """Build the sampling half of an OpenAI call, per model family.
+
+    Non-reasoning models (gpt-4o and the rest of the 4.x line) keep `temperature`, so
+    nothing about existing behaviour moves. Reasoning models get `reasoning_effort` and
+    no `temperature` at all: passing the default value explicitly is still a 400 on some
+    routes, so the parameter is omitted rather than pinned to 1.
+
+    Args:
+        reasoning_effort: Explicit override; when None the per-task default above applies.
+            Pass "none" to disable reasoning where the model allows it.
+    """
+    if not _is_openai_reasoning_model(model_norm):
+        return {"temperature": temperature}
+    effort = reasoning_effort or _DEFAULT_REASONING_EFFORT.get(cache_label, "minimal")
+    if not effort or str(effort).strip().lower() == "default":
+        return {}
+    return {"reasoning_effort": str(effort).strip().lower()}
+
+
+def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperature: float,
+                   cache_label: str = "text2sql", reasoning_effort: Optional[str] = None) -> str:
     """Call the selected LLM and return raw text content.
 
     Args:
         cache_label: Pipeline step name used to tag prompt-cache observations
-            (e.g. "entity_extraction", "text2sql", "complex_question").
+            (e.g. "entity_extraction", "text2sql", "complex_question"). Also selects the
+            default reasoning effort when the model is an OpenAI reasoning model.
+        reasoning_effort: Optional per-call override of that default. Ignored by models
+            that do not take the parameter.
     """
     model_norm = str(model).strip()
     if model_norm == "gemma-4":
@@ -270,12 +331,15 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
     # is automatic/prefix-based, so the sentinel would only pollute the prompt text).
     user_prompt_plain = user_prompt.replace(CACHE_BOUNDARY_MARKER, "")
 
-    if model_norm in {"gpt-4o"} or model_norm.startswith("gpt-") or model_norm.startswith("o1") or model_norm.startswith("o3"):
+    if model_norm in {"gpt-4o"} or model_norm.startswith("gpt-") or model_norm.startswith("o1") or model_norm.startswith("o3") or model_norm.startswith("o4"):
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY not found in environment variables")
         client = openai.OpenAI(api_key=api_key)
+        sampling_kwargs = _openai_sampling_kwargs(model_norm, temperature, cache_label, reasoning_effort)
 
-        if model_norm.startswith("o1") or model_norm.startswith("o3"):
+        if _is_openai_reasoning_model(model_norm) and not model_norm.startswith("gpt-5"):
+            # o-series only. GPT-5.x is served through chat.completions below, where the
+            # prompt-cache accounting this pipeline depends on is the one already measured.
             try:
                 response = client.responses.create(
                     model=model_norm,
@@ -283,7 +347,7 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt_plain},
                     ],
-                    temperature=temperature,
+                    **sampling_kwargs,
                 )
                 _log_openai_cache_usage(response, model_norm=model_norm, label=cache_label)
                 out_text = getattr(response, "output_text", None)
@@ -296,11 +360,11 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
 
         response = client.chat.completions.create(
             model=model_norm,
-            temperature=temperature,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt_plain},
             ],
+            **sampling_kwargs,
         )
         _log_openai_cache_usage(response, model_norm=model_norm, label=cache_label)
         if not response.choices or not response.choices[0].message or not response.choices[0].message.content:
@@ -405,9 +469,17 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
 
 
 def _complex_question_temperature(model: str) -> float:
-    """Return a model-compatible temperature for complex-question resolution."""
+    """Return a model-compatible temperature for complex-question resolution.
+
+    Since FASTAPI-TEXT2SQL-231 the value returned here is simply ignored for reasoning
+    models: `_openai_sampling_kwargs` omits `temperature` for the whole o-series and
+    GPT-5.x family rather than pinning it to the default, because passing it explicitly
+    is still rejected on some routes. The function is kept because it is the single
+    place that answers "what temperature does this task want", which stays a real
+    question for gpt-4o and for the Anthropic/Gemini/OpenRouter branches.
+    """
     model_norm = str(model).strip()
-    if model_norm.startswith("o1") or model_norm.startswith("o3"):
+    if _is_openai_reasoning_model(model_norm):
         return 1
     return 0
 
@@ -732,14 +804,18 @@ def f_answer_single_value(user_question: str, strcomplexquestionmodel: str = "de
 
     Args:
         user_question: The original user question.
-        strcomplexquestionmodel: The model to use for answering.
+        strcomplexquestionmodel: The model to use for answering. Since
+            FASTAPI-TEXT2SQL-232 this resolves against
+            ``stranswersinglevaluemodeldefault``, its own default, not the
+            complex-question one: the two tasks share a caller but not a job, and the
+            parameter name is kept only so existing positional callers keep working.
 
     Returns:
         dict with keys:
             - "value": the scalar answer (int, float, or str), or None on failure
             - "error": error message if the call failed, else ""
     """
-    model_to_use = _normalize_llm_model(strcomplexquestionmodel, strcomplexquestionmodeldefault)
+    model_to_use = _normalize_llm_model(strcomplexquestionmodel, stranswersinglevaluemodeldefault)
     temperature_to_use = _complex_question_temperature(model_to_use)
 
     system_prompt = (

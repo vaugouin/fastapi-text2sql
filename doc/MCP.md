@@ -57,7 +57,16 @@ MCP_INTERNAL_BASE_URL = os.getenv(
 # --- MCP Tools ---
 
 @mcp.tool(name="sql_search")
-async def _mcp_sql_search(question: str, ui_language: str = "en") -> str:
+async def _mcp_sql_search(
+    question: str,
+    ui_language: str = "en",
+    # Five selectors, one per LLM task in the pipeline (FASTAPI-TEXT2SQL-232).
+    llm_model_entity_extraction: str = "default",
+    llm_model_text2sql: str = "default",
+    llm_model_complex: str = "default",
+    llm_model_result_entity: str = "default",
+    llm_model_answer_single_value: str = "default",
+) -> str:
     """
     Query the cinema and TV database in natural language.
 
@@ -457,6 +466,8 @@ The response from `POST /search/text2sql` contains the full pipeline trace along
   "llm_model_entity_extraction": "gpt-4o",
   "llm_model_text2sql": "gpt-4o",
   "llm_model_complex": "gpt-4o",
+  "llm_model_result_entity": "gpt-4o",
+  "llm_model_answer_single_value": "gpt-4o",
   "api_version": "1.1.15",
   "messages": [
     { "position": 1, "text": "Attempting to retrieve exact question from cache." },

@@ -262,6 +262,127 @@ Always also:
 
 ---
 
+## The five LLM tasks, and what each one actually costs
+
+There are **five** LLM calls in this pipeline, not the three the `llm_model_*` parameters
+suggested until FASTAPI-TEXT2SQL-232. All five route through `text2sql._call_chat_llm`, and
+each is tagged with a `cache_label` that is also its key in the prompt-cache log and its
+default reasoning effort. Since -232 each has its own request selector, its own response
+field naming the model that served it, and since -233 its own wall clock.
+
+| # | Task (`cache_label`) | Call site | Fires on | Selector |
+|---|---|---|---|---|
+| 1 | `entity_extraction` | `entity.py:269` | 100 % | `llm_model_entity_extraction` |
+| 2 | `text2sql` | `text2sql.py:518` | 100 % | `llm_model_text2sql` |
+| 3 | `result_entity` | `text2sql.py:629` | 99.9 % | `llm_model_result_entity` |
+| 4 | `complex_question` | `text2sql.py:663` | ~1 % | `llm_model_complex` |
+| 5 | `answer_single_value` | `text2sql.py:835` | < 1 % | `llm_model_answer_single_value` |
+
+Line numbers move; the `cache_label` does not. `grep -n 'cache_label="' text2sql.py entity.py`
+is the durable way to find all five.
+
+### Measured token profile (gpt-4o, v1.1.17–1.1.18)
+
+Not estimates. Prompt and cache figures come from the 424 `Prompt cache (…)` records in
+`logs/`; frequencies and latencies from the 1,690 executions of eval run `001.001.018`
+(EN + FR). Reproduce with:
+
+```bash
+grep -rho "Prompt cache ([a-z0-9_]*): provider=[a-z]*, model=[^,]*, prompt_tokens=[0-9]*, cached_tokens=[0-9]*" logs/
+```
+
+Note the `[a-z0-9_]` character class: `text2sql` carries a digit, and a `[a-z_]` class
+silently drops the single most expensive task in the pipeline from the tally.
+
+| Task | Prompt tok | Cache hit | Uncached in | Output tok |
+|---|---:|---:|---:|---:|
+| `entity_extraction` | 8,555 | 73.9 % | 2,339 | ~25 |
+| `text2sql` | 19,146 | 62.0 % | 7,378 | ~217 |
+| `result_entity` | 577 | 0 % | 577 | ~2 |
+| `complex_question` | 1,107 | 3.3 % | 1,073 | ~120 (est.) |
+| `answer_single_value` | ~60 | 0 % | 60 | ~5 (est.) |
+
+**`result_entity` never caches, and that is not a bug to fix by tuning.** At 577 tokens it
+sits under OpenAI's ~1,024-token caching floor. Making it cacheable would mean padding the
+prompt, which costs more than it saves.
+
+**Tasks 1 and 2 carry 97 % of the bill.** Anything spent optimising 3, 4 and 5 is rounding
+error, so measure before moving them. On gpt-4o the whole pipeline costs about **$50.69 per
+1,000 requests**, which puts a full 1,690-execution evaluator run at roughly **$86**.
+
+Latency baseline from the same run, for comparing any model swap against:
+
+| Phase | mean | p50 | p90 | max |
+|---|---:|---:|---:|---:|
+| `entity_extraction` | 1.06 s | 0.91 s | 1.34 s | 7.65 s |
+| `text2sql` | 3.61 s | 3.23 s | 5.39 s | 36.24 s |
+| embeddings | 0.38 s | 0.02 s | 0.56 s | 99.09 s |
+| query execution | 0.08 s | 0.00 s | 0.07 s | 10.66 s |
+| **total** | **6.04 s** | **5.45 s** | **8.26 s** | **114.09 s** |
+
+### Who can drive the five, and the one gap
+
+| client | how it selects | state |
+|---|---|---|
+| **evaluator** (`eval/text2sql-eval.py`) | `--entity-extraction-model`, `--text2sql-model`, `--complex-model`, `--result-entity-model`, `--answer-single-value-model` | all five since 2026-08-30 |
+| **tmdb-front** | request params / cookies `eemodel`, `t2smodel`, `complexmodel`, `resultentitymodel`, `answermodel`, radio groups on the settings page | all five since 2026-08-30 |
+| **Claude, via MCP** | the five arguments of `sql_search` | all five |
+| **voice-agent** | does not send any; takes the server defaults | unchanged |
+
+**The gap, and it bites the evaluator only.** `T_WC_T2S_EVALUATION_EXECUTION` has columns for
+`ENTITY_EXTRACTION_MODEL`, `TEXT2SQL_MODEL` and `COMPLEX_MODEL`, and none for the two new
+tasks. The execution folder name is built from those columns
+(`<version>_<lang>_<ee>_<t2s>_<complex>`), so **two runs that differ only in
+`--result-entity-model` write into the same folder and cannot be told apart from the path**.
+Until FASTAPI-TEXT2SQL-234 adds the columns, separate such runs by hand and read the per-row
+truth from `api_output.llm_model_result_entity` inside each execution file, which the API now
+returns and which is never wrong. The folder signature was deliberately **not** extended: the
+two extra slugs would have to come from the CLI rather than from the row, which mislabels any
+re-export of rows written by an earlier run sharing the same triple, and it would break
+`eval/claude/*.py`, which hard-code the three-model folder shape.
+
+## Reasoning models reject `temperature` (FASTAPI-TEXT2SQL-231)
+
+**The trap, and it is a hard failure, not a degradation.** Every one of the five tasks passes
+`temperature=0` on purpose. Reasoning models, the whole o-series and the entire GPT-5.x family
+including the 5.6 Sol / Terra / Luna tiers, accept only the default and answer **HTTP 400,
+`Unsupported value: 'temperature' does not support 0 with this model`**. Before -231 the model
+router at `text2sql.py` matched anything starting with `gpt-` and sent it to
+`chat.completions` with the parameter attached, so a swap as innocent as
+`gpt-4o` → `gpt-5.6-terra` failed on the **first request of all five tasks**. Four call sites
+fed it: `_complex_question_temperature`, which exempted only `o1`/`o3`, plus three hard-coded
+`temperature=0` arguments in `entity.py` and `text2sql.py`. Those arguments are still there and
+still correct: the guard is central, in `_call_chat_llm`, so no caller had to learn about model
+families.
+
+**The fix.** `_openai_sampling_kwargs(model_norm, temperature, cache_label, reasoning_effort)`
+builds the sampling half of the call per model family. Non-reasoning models keep
+`temperature` and their behaviour is byte-identical. Reasoning models get `reasoning_effort`
+and **no `temperature` at all**: the parameter is omitted rather than pinned to `1`, because
+passing the default explicitly is still rejected on some routes.
+
+**`reasoning_effort` is the real cost and latency knob, and it dwarfs the choice of tier.**
+The same model spans roughly **1.8 s to first token at `low` and 115 s at `max`**, and
+reasoning tokens are billed at the output rate, so effort multiplies the output bill severalfold
+before the tier's price list is even consulted. `_DEFAULT_REASONING_EFFORT` therefore gives
+`minimal` to the four tasks on the 100 % path, where the p50 is 5.45 s end to end and there is
+no room for a thinking budget, and `medium` only to the complex-question pair that fires on
+~1 % of requests. Override per call with the `reasoning_effort` argument; `"default"` omits
+the parameter and lets the API decide.
+
+**Two things NOT to assume.**
+
+- **GPT-5.x goes through `chat.completions`, not the Responses API.** The `responses.create`
+  branch is now restricted to the o-series. The prompt-cache accounting this pipeline reports
+  is the one measured on `chat.completions`, and the two routes name their usage fields
+  differently.
+- **Reported incompatibility, not yet hit here:** function tools combined with
+  `reasoning_effort` are refused for `gpt-5.6-sol` on `/v1/chat/completions`. This pipeline
+  uses neither tools nor `response_format`, so it does not bite today. It will the moment
+  someone adds structured outputs.
+
+---
+
 ## Entity resolution thresholds (`min_fuzz_ratio`)
 
 Every resolver now carries a rejection threshold. Do NOT adjust one by hand on the strength of a
