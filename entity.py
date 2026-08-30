@@ -964,7 +964,7 @@ def plan_entity_resolutions(
                                 except Exception as _exc:
                                     planned.note(f"Entity resolution: {placeholder} BK-tree unavailable for {strtablename}.{strcolumndescnorm} ({type(_exc).__name__}: {_exc}); the lexical search runs without it")
                                     bktree_idx = None
-                            rapidfuzz_result = rapidfuzz_query.search_first_match(
+                            _rf_args = (
                                 cursor,
                                 strtablename,
                                 strtableid,
@@ -972,6 +972,9 @@ def plan_entity_resolutions(
                                 strcolumndescnorm,
                                 strcolumndesckey,
                                 strcolumnpopularity,
+                            )
+                            rapidfuzz_result = rapidfuzz_query.search_first_match(
+                                *_rf_args,
                                 raw=raw_value,
                                 has_fulltext=has_fulltext,
                                 timings_enabled=False,
@@ -999,7 +1002,46 @@ def plan_entity_resolutions(
                             planned.note(f"Entity resolution: {placeholder} RapidFuzz search on {strtablename} RAISED {type(_exc).__name__}: {_exc}; falling through to the next strategy")
                             continue
 
+                        # FASTAPI-TEXT2SQL-236, repli A. La recherche neutralise le descripteur AVANT
+                        # d'interroger la base (rapidfuzz_query.py, q_norm), pas seulement avant de
+                        # noter. Deux consequences, et ce repli les traite toutes les deux.
+                        #
+                        # 1. Une valeur faite uniquement de descripteurs se reduit a la chaine vide et
+                        #    la recherche rend `empty_query`, donc AUCUN candidat. « la collection »
+                        #    tombe dans ce cas, et les articles ajoutes le 2026-08-30 ont elargi la
+                        #    famille concernee.
+                        # 2. Le descripteur ne dit rien sur l'IDENTITE, les deux cotes le portent, mais
+                        #    il dit beaucoup sur la PERTINENCE : c'est lui qui fait remonter en tete du
+                        #    plein texte les lignes qui portent les deux mots.
+                        #
+                        # Le repli est PUREMENT ADDITIF et ne touche pas la garde. Elargir l'ensemble
+                        # des candidats ne peut pas faire disparaitre un bon candidat, et le score reste
+                        # calcule sur les chaines neutralisees : aucun faux positif ne peut entrer que
+                        # la garde n'aurait pas deja refuse. C'est la seule raison pour laquelle il peut
+                        # etre pose sans recalibrer les seuils, contrairement a -236 lui-meme.
                         best = (rapidfuzz_result or {}).get("best")
+                        if not isinstance(best, dict) and bool(search_cfg.get("strip_franchise_stopwords")):
+                            planned.note(f"Entity resolution: {placeholder} -> no RapidFuzz candidate in {strtablename} with descriptors neutralised (reason: {(rapidfuzz_result or {}).get('reason')}); retrying the search on the raw value '{raw_value}'")
+                            try:
+                                rapidfuzz_result = rapidfuzz_query.search_first_match(
+                                    *_rf_args,
+                                    raw=raw_value,
+                                    has_fulltext=has_fulltext,
+                                    timings_enabled=False,
+                                    bktree=bktree_idx,
+                                    score_metric=search_cfg.get("score_metric"),
+                                    max_extra_tokens=int(
+                                        search_cfg.get("max_extra_tokens", rapidfuzz_query.DEFAULT_MAX_EXTRA_TOKENS)
+                                    ),
+                                    popularity_join=search_cfg.get("popularity_join"),
+                                    strip_stopwords=False,
+                                )
+                            except Exception as _exc:
+                                planned.note(f"Entity resolution: {placeholder} raw-value RapidFuzz retry on {strtablename} RAISED {type(_exc).__name__}: {_exc}")
+                                rapidfuzz_result = None
+                            best = (rapidfuzz_result or {}).get("best")
+                            if isinstance(best, dict):
+                                planned.note(f"Entity resolution: {placeholder} -> the raw-value retry found a candidate the neutralised search had missed; it still faces the same confidence gate")
                         if not isinstance(best, dict):
                             planned.note(f"Entity resolution: {placeholder} -> no RapidFuzz candidate at all in {strtablename} for '{raw_value}'; falling through to the next strategy")
                             continue
