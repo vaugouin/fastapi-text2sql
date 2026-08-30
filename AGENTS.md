@@ -55,6 +55,46 @@ Two things worth knowing.
 
 **Not clients, despite appearances:** `data-monitoring` (one mention, a design analogy in its `AGENTS.md`), `extract-movie-questions` (no reference at all). `eval-text2sql` no longer exists, 404 on GitHub.
 
+### Redeploying in place, without bumping the version
+
+Sometimes the right call is to ship code **without** changing `strapiversion`, so the colour
+does not move and no client has to be repointed. Decided this way on 2026-08-30 for
+FASTAPI-TEXT2SQL-231/-232/-233, which stay on `1.1.18` on Blue.
+
+**What it buys.** Nothing to repoint. The evaluator derives its port from `--api-version`
+parity, tmdb-front keeps `$strtext2sqlapicolor` and `$strtext2sqlapiblueversion` as they are,
+NGINX keeps its upstream, voice-agent keeps its `.env`. The entire four-client table above
+becomes a no-op, which is the whole point.
+
+**What it costs, and it is not small: `api_version` stops discriminating.** `GET /` answers
+`1.1.18` before and after, so the standard check, "every client reports the new version", is
+blind. There is no way to tell the old code from the new one by asking for a version.
+
+**Use a capability probe instead of a version probe.** Ask for something only the new code can
+answer. For -232 that is the presence of `llm_model_result_entity` in a `/search/text2sql`
+payload. The cheapest form is the bare-identifier fast path, which costs no LLM call and writes
+no cache entry, and whose response carries the five model fields like any other:
+
+```bash
+curl -s -H "X-API-Key: …" -X POST http://<host>:8186/search/text2sql   -H "Content-Type: application/json" -d '{"question":"tt0033467"}'   | jq '{api_version, llm_model_result_entity, answer_single_value_processing_time}'
+```
+
+A response missing `llm_model_result_entity` is the old container, whatever the version says.
+
+**Two traps specific to redeploying in place.**
+
+1. **`T_WC_T2S_CACHE` is filtered by API version, so old rows written by the old code stay
+   live.** Harmless for -231/-232/-233, whose gpt-4o behaviour is byte-identical, and the
+   evaluator sends `retrieve_from_cache: False` anyway. It would NOT be harmless for a change
+   that alters generated SQL: there, reusing the version means serving yesterday's answers from
+   cache and concluding the change did nothing.
+2. **The execution folder collides with the baseline.** A run on `1.1.18` moving only
+   `--result-entity-model` writes into the existing
+   `001.001.018_en_gpt-4o_gpt-4o_gpt-4o` folder, because that model is not part of the run
+   signature (FASTAPI-TEXT2SQL-234). Staying on the version makes -234 bite immediately rather
+   than eventually. Measure such a change with an **offline bench**, which writes no execution
+   row at all, not with the evaluator.
+
 ### Verifying the flip actually took
 
 Changing a client's configuration is not evidence that it followed. Each one hides its
