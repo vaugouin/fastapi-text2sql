@@ -2272,6 +2272,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                                     # Also check if distance is below threshold
                                     if distance < similarity_threshold:
                                         print(f"Found valid result at index {i} with all required variables and acceptable distance")
+                                        messages.append(TextMessage(
+                                            position=position_counter,
+                                            text=f"Questions embeddings cache: candidate at rank {i + 1} carries every required entity variable and sits at distance {distance} (threshold {similarity_threshold}); reusing it."
+                                        ))
+                                        position_counter += 1
                                         valid_result_found = True
                                         valid_result_index = i
                                         break
@@ -2438,7 +2443,28 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 ))
                 position_counter += 1
 
-            # --- Answer-entity expectation from the ORIGINAL question --------------
+            # ---- TRACE COMPLETE DES BRANCHEMENTS (2026-08-30) --------------------------------
+    #
+    # Meme contrat que plan_entity_resolutions dans entity.py : toute decision qui change
+    # la reponse laisse un message dans messages[], y compris et surtout les echecs, pour
+    # qu'une question puisse etre REJOUEE a posteriori.
+    #
+    # Ce qui a ete ouvert dans cette passe : les cinq gardes de reprise (can_retry,
+    # can_retry_sql_execution_error, can_answer_zero_count, can_retry_no_results et la
+    # detection person_role_collapse) desactivaient silencieusement un chemin entier sur
+    # une exception ; la consolidation des timings, la justification du modele fort et les
+    # deux etapes de name_ambiguity n'ecrivaient que sur stdout, invisible dans la trace
+    # d'une question. Une exception avalee n'est pas un silence, c'est une fonction qui
+    # disparait sans que personne ne puisse le savoir.
+    #
+    # Ce qui reste volontairement muet : le `except Exception: pass` autour de
+    # connection.close(), qui ne decide rien. Le cache d'embeddings de questions garde ses
+    # `print` de mise au point en plus de son message de resultat, ce chemin etant desactive
+    # en production ; s'il est reactive, sa branche negative (aucun candidat valide) merite
+    # son message a son tour.
+    # ----------------------------------------------------------------------------------
+
+    # --- Answer-entity expectation from the ORIGINAL question --------------
             # result_entity above is decided by the LLM on the ANONYMIZED question.
             # Anonymizing a head-noun entity word flips the apparent answer type:
             # "Which movie directors died in 2025?" -> "Which movie {{Department_name1}}
@@ -2628,8 +2654,12 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 if reasoning_justification != "":
                     try:
                         retry_response.justification = reasoning_justification
-                    except Exception:
-                        pass
+                    except Exception as _just_exc:
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"Complex retry: could not attach the reasoning justification ({type(_just_exc).__name__}: {_just_exc}); the answer keeps the first-pass justification."
+                        ))
+                        position_counter += 1
 
                 # --- Consolidate the two passes (FASTAPI-TEXT2SQL-204) -----------------
                 # retry_response is the INNER response, so without this every timing would
@@ -2666,6 +2696,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     retry_response.total_processing_time = time.time() - total_start_time
                 except Exception as consolidation_error:
                     print(f"Failed to consolidate complex-retry timings: {str(consolidation_error)}")
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=f"Complex retry: timing consolidation failed ({type(consolidation_error).__name__}: {consolidation_error}); the reported times cover the first pass only."
+                    ))
+                    position_counter += 1
 
                 # FASTAPI-TEXT2SQL-212. The same rule as the main write path, applied to
                 # the row this branch writes for the ORIGINAL question: a retry that also
@@ -2776,8 +2811,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 and isinstance(original_question, str)
                 and original_question.strip() != ""
             )
-        except Exception:
+        except Exception as _guard_exc:
             can_retry = False
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Retry guard: evaluating can_retry raised {type(_guard_exc).__name__}: {_guard_exc}; the quota-error retry is disabled for this question."
+            ))
+            position_counter += 1
 
         if retryable_quota_error_text2sql:
             messages.append(TextMessage(
@@ -3056,8 +3096,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 and isinstance(original_question, str)
                 and original_question.strip() != ""
             )
-        except Exception:
+        except Exception as _guard_exc:
             can_retry_sql_execution_error = False
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Retry guard: evaluating can_retry_sql_execution_error raised {type(_guard_exc).__name__}: {_guard_exc}; the execution-error retry is disabled for this question."
+            ))
+            position_counter += 1
 
         if can_retry_sql_execution_error:
             retry_response = await _retry_with_resolved_complex_question(
@@ -3095,8 +3140,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 and isinstance(original_question, str)
                 and original_question.strip() != ""
             )
-        except Exception:
+        except Exception as _guard_exc:
             can_answer_zero_count = False
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Retry guard: evaluating can_answer_zero_count raised {type(_guard_exc).__name__}: {_guard_exc}; the zero-count answer path is disabled for this question."
+            ))
+            position_counter += 1
 
         if can_answer_zero_count:
             complex_model_used = True
@@ -3231,8 +3281,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             elif isinstance(sql_query, str):
                 collapse_sql = sql_query
             person_role_collapse = sql_shapes.detect_person_role_collapse(collapse_sql, result_entity)
-    except Exception:
+    except Exception as _collapse_exc:
         person_role_collapse = False
+        messages.append(TextMessage(
+            position=position_counter,
+            text=f"Retry guard: person-role-collapse detection raised {type(_collapse_exc).__name__}: {_collapse_exc}; treated as no collapse, which narrows the no-results retry."
+        ))
+        position_counter += 1
 
     try:
         can_retry_no_results = (
@@ -3278,8 +3333,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 or person_role_collapse
             )
         )
-    except Exception:
+    except Exception as _guard_exc:
         can_retry_no_results = False
+        messages.append(TextMessage(
+            position=position_counter,
+            text=f"Retry guard: evaluating can_retry_no_results raised {type(_guard_exc).__name__}: {_guard_exc}; the no-results retry is disabled for this question."
+        ))
+        position_counter += 1
 
     if can_retry_no_results:
         if person_role_collapse:
@@ -3546,6 +3606,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             name_ambiguity = compute_name_ambiguity(sql_query, result_entity, query_results)
         except Exception as _name_ambiguity_exc:
             print(f"name_ambiguity computation skipped: {_name_ambiguity_exc}")
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Name ambiguity: computation skipped ({type(_name_ambiguity_exc).__name__}: {_name_ambiguity_exc}); the answer carries no ambiguity flag."
+            ))
+            position_counter += 1
             name_ambiguity = None
         # FASTAPI-TEXT2SQL-176: hydrate movie/serie candidates with director(s), creator(s)
         # and top-3 cast, so same-title/same-year twins can be told apart by name. Kept in
@@ -3566,6 +3631,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     f"name_ambiguity hydration skipped (entity="
                     f"{name_ambiguity.get('entity')}): {type(_na_hydrate_exc).__name__}: "
                     f"{_na_hydrate_exc}")
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Name ambiguity: candidate hydration skipped for '{name_ambiguity.get('entity')}' ({type(_na_hydrate_exc).__name__}: {_na_hydrate_exc}); the flag is returned without director / creator / cast detail."
+                ))
+                position_counter += 1
 
     response = Text2SQLResponse(
         question=input_text,
