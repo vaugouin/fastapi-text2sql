@@ -280,7 +280,7 @@ Do not extract as `Topic_name`:
 - vague descriptive phrases that are not recognizable topics or collections
 - technical specifications when the question is about the technical aspect itself
 - `silent films`, `sound films`, `black and white films`, `color films`
-- `Criterion Collection` by itself
+- `Criterion Collection` by itself — use `Collection_name` instead
 - film movements or styles such as `Film Noir`, `French New Wave`, `New Hollywood`, `Cinéma vérité`, `Surrealism`, `Pre-Code movies`
 - trilogies or named series of works such as `Dollars Trilogy`, `James Bond Collection`, `Kill Bill - Saga`
 - universes or franchises such as `Star Wars`, `Marvel Cinematic Universe`, `DC Extended Universe`, `Batman universe`, `Middle-Earth`, `Harry Potter movies`, `James Bond films` — use `Collection_name` instead
@@ -309,8 +309,10 @@ Extract as `Nomination_name` when the phrase refers to a named award nomination 
 Do not extract as `Nomination_name` for film movements, franchises, trilogies, generic themes, curated ranking lists, or already-awarded recognitions.
 
 ### Collection_name boundaries
-Extract as `Collection_name` when the phrase refers to a trilogy, named series of works, universe, or franchise grouping movies or TV series together (e.g., `Dollars Trilogy`, `Kill Bill - Saga`, `Star Wars`, `Marvel Cinematic Universe`, `DC Extended Universe`, `Batman universe`, `Middle-Earth`, `Harry Potter movies`, `James Bond films`).
-Do not extract as `Collection_name` for generic topics, awards, nominations, `Criterion Collection` by itself, or curated ranking lists.
+Extract as `Collection_name` when the phrase refers to a trilogy, named series of works, universe, franchise, or **home-video publisher catalogue** grouping movies or TV series together (e.g., `Dollars Trilogy`, `Kill Bill - Saga`, `Star Wars`, `Marvel Cinematic Universe`, `DC Extended Universe`, `Batman universe`, `Middle-Earth`, `Harry Potter movies`, `James Bond films`, `Criterion Collection`).
+Extract the phrase **as it appears**, in either language and whatever the word order (`Criterion Collection`, `Collection Criterion`, `collection Criterion`, `Criterion`): resolution is a later step and it handles the descriptor word and the article on its own.
+Do not extract as `Collection_name` for generic topics, awards, nominations, or curated ranking lists.
+**Spine questions are not collection questions.** When the question is about a spine number (`Criterion spine 42`, `What is Criterion spine number 100?`, `le film au spine 1`), extract `Criterion_spine_ID` ONLY and do NOT also extract `Collection_name`: the question asks for one title by its number, not for the catalogue.
 
 ### Movement_name boundaries
 Extract as `Movement_name` when the phrase refers to a named film movement, cinematic style, or historical school of filmmaking.

@@ -319,6 +319,17 @@ def report(results, elapsed, model_a, model_b, min_decidable, noise_floor):
     print("\n  An abstention falls back to the text-to-SQL model's own result_entity, which is")
     print("  the pre-existing behaviour, so it costs nothing. Only WRONG overrides a query.")
 
+    # A spike in abstentions is the second symptom of a broken configuration, the first
+    # being the preflight. Worth saying out loud, because "the model declined" and "every
+    # call failed" look identical in the column above.
+    for side, name, abstain in (("A", model_a, a_abs), ("B", model_b, b_abs)):
+        share = abstain / total
+        if share > 0.25:
+            print("")
+            print(f"  WARNING: {side} = {name} abstained on {share:.0%} of questions. Above a quarter,")
+            print("  suspect the configuration before concluding the model is cautious: a call that")
+            print("  raises is swallowed by the classifier and counted here as an abstention.")
+
     # Per-class, with the tail refused a percentage rather than given a meaningless one.
     by_class = defaultdict(lambda: {"n": 0, "a": 0, "b": 0, "a_bad": 0, "b_bad": 0})
     for row in scored:
@@ -422,6 +433,34 @@ def report(results, elapsed, model_a, model_b, min_decidable, noise_floor):
             "majority_label": majority_label, "majority_n": majority_n}
 
 
+def preflight(models, allowed):
+    """Prove every model actually answers, before paying for a whole run.
+
+    `f_classify_result_entity` swallows its own exceptions on purpose, since a
+    classification failure must never break a live request, and returns "". The bench
+    therefore sees a failed call and a deliberate abstention as the same thing. On
+    2026-08-30 that turned a 400 on every single call into a clean-looking report where
+    Luna "abstained" six times out of six, which reads as a cautious model rather than as
+    a broken configuration. Calling the underlying `_call_chat_llm`, which does raise, is
+    what makes the difference visible.
+    """
+    for model in sorted(set(models)):
+        try:
+            t2s._call_chat_llm(
+                model=model,
+                system_prompt="Reply with exactly one lowercase word from this set: " + ", ".join(allowed),
+                user_prompt="who directed Inception?",
+                temperature=0,
+                cache_label="result_entity",
+            )
+            print(f"  preflight OK: {model}")
+        except Exception as e:
+            print(f"  preflight FAILED for {model}: {type(e).__name__}: {str(e)[:300]}")
+            return False
+    return True
+
+
+
 def force_utf8_console():
     """Make stdout/stderr UTF-8, because the bank is full of accents and this is Windows.
 
@@ -467,6 +506,11 @@ def main():
 
     allowed = load_allowed_entities()
     allowed_set = set(allowed)
+
+    print("Preflight, one call per model (a swallowed error would otherwise read as an abstention):")
+    if not preflight([args.model_a, args.model_b], allowed):
+        print("Aborting before spending a run. Fix the model name or its parameters first.")
+        return 1
     print(f"Classifier vocabulary: {len(allowed)} labels, read from main.py")
 
     if args.questions_file:

@@ -405,6 +405,44 @@ So the bar for a challenger on this task is exact: **adopt it if it makes at mos
 confident error than `gpt-4o` on the decidable classes**. The FR floor has not been
 measured.
 
+**Result, `gpt-5.6-luna` against `gpt-4o`, 689 EN questions, 2026-08-30: HOLD.**
+
+| | correct | abstained | **wrong** |
+|---|---:|---:|---:|
+| gpt-4o | 659 | 28 | **2** |
+| gpt-5.6-luna | 678 | 5 | **6** |
+
+On decidable classes only, which is what the verdict uses: 1 against 3, so **+2 against a
+floor of 1**. Latency is a wash (median 0.59 s against 0.64 s; Luna's worst case is
+actually better, 3.16 s against 13.58 s).
+
+**This is the case the three-outcome design exists for.** A single accuracy number would
+read "98.4 % against 95.6 %, adopt it", because Luna is right more often overall. It is
+right more often because it abstains 23 times less, and an abstention costs nothing: the
+caller falls back to the text-to-SQL model's own answer. What Luna actually does is convert
+those abstentions into answers, most of them right and four of them **confidently wrong**,
+and a confident error overrides a query that may have been correct. More correct and more
+dangerous at the same time.
+
+**The qualitative signal is worse than the count.** Of Luna's six, one is the known bad
+label on evaluation 948, two are defensible readings of genuinely ambiguous questions
+("Documentaries", "What talk shows are in the database?", both answered `genre`), and one
+is the exact failure the classifier exists to prevent: **"Which people died from a heart
+attack?" answered `death`**, taking the filter for the answer, when the prompt gives that
+very shape as a worked example. `gpt-4o` gets it right.
+
+**And the upside was never large.** This task costs $1.46 per 1,000 requests against Luna's
+$0.12: the swap saves **$1.34 per 1,000, 2.7 % of the pipeline's $50.69**. Four extra
+confident errors per 689 questions is a bad price for 2.7 %. Worth remembering when
+sequencing the remaining swaps: `text2sql` ($35.33) and `entity_extraction` ($13.87) hold
+97 % of the bill, so they are where a model change is worth the risk of measuring.
+
+**Where to look next on this task, if it is worth revisiting:** two of the six errors are
+`-> genre`, which suggests the classifier prompt's "a genre used to scope a search is a
+filter" guidance is not emphatic enough for a weaker model. That prompt is inline in
+`text2sql.f_classify_result_entity`, not a hot-reloaded file, so testing a rewrite means a
+code change and two bench runs, before and after.
+
 **Three outcomes, never one accuracy number**, and this is the part that transfers to any
 future classifier. *Correct*; *abstained*, where the caller falls back to the pre-existing
 behaviour so nothing is lost; and *confidently wrong*, a different valid label, which is

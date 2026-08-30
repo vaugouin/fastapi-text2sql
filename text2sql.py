@@ -270,17 +270,35 @@ def _build_anthropic_user_content(user_prompt: str):
 # reasoning tokens are billed at the output rate.
 _REASONING_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 
-# Per-task default effort. Deliberately conservative: the four tasks that sit on the
-# 100 % path get the cheapest setting that still reasons, because the API's p50 is 5.45 s
-# end to end and there is no room for a thinking budget there. Only the complex-question
-# pair, which fires on ~1 % of requests, is allowed to spend.
-_DEFAULT_REASONING_EFFORT = {
-    "entity_extraction": "minimal",
-    "text2sql": "minimal",
-    "result_entity": "minimal",
+# Per-task effort TIER, resolved to a provider value by _resolve_reasoning_effort below.
+# Deliberately conservative: the tasks on the 100 % path get the cheapest setting, because
+# the API's p50 is 5.45 s end to end and there is no room for a thinking budget there. Only
+# the complex-question pair, which fires on ~1 % of requests, is allowed to spend.
+_DEFAULT_EFFORT_TIER = {
+    "entity_extraction": "cheapest",
+    "text2sql": "cheapest",
+    "result_entity": "cheapest",
     "complex_question": "medium",
     "answer_single_value": "medium",
 }
+
+# The families do not share a vocabulary, and getting this wrong is a 400 on every call,
+# not a degradation. Measured against the live API on 2026-08-30: GPT-5.6 answers
+# "Unsupported value: 'reasoning_effort' does not support 'minimal' with this model.
+# Supported values are: 'none', 'low', 'medium', 'high', and 'xhigh'." `minimal` was a
+# GPT-5.0-era value and it is gone; the cheapest 5.6 setting is `none`, which spends no
+# reasoning tokens at all. The o-series has no `none`, so its floor is `low`.
+_EFFORT_BY_FAMILY = {
+    "gpt-5": {"cheapest": "none", "medium": "medium"},
+    "o":     {"cheapest": "low", "medium": "medium"},
+}
+
+
+def _resolve_reasoning_effort(model_norm: str, cache_label: str) -> str:
+    """Return the provider-accepted effort value for this model family and task."""
+    family = "gpt-5" if str(model_norm).strip().lower().startswith("gpt-5") else "o"
+    tier = _DEFAULT_EFFORT_TIER.get(cache_label, "cheapest")
+    return _EFFORT_BY_FAMILY[family][tier]
 
 
 def _is_openai_reasoning_model(model_norm: str) -> bool:
@@ -303,7 +321,7 @@ def _openai_sampling_kwargs(model_norm: str, temperature: float, cache_label: st
     """
     if not _is_openai_reasoning_model(model_norm):
         return {"temperature": temperature}
-    effort = reasoning_effort or _DEFAULT_REASONING_EFFORT.get(cache_label, "minimal")
+    effort = reasoning_effort or _resolve_reasoning_effort(model_norm, cache_label)
     if not effort or str(effort).strip().lower() == "default":
         return {}
     return {"reasoning_effort": str(effort).strip().lower()}
