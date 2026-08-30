@@ -437,11 +437,53 @@ confident errors per 689 questions is a bad price for 2.7 %. Worth remembering w
 sequencing the remaining swaps: `text2sql` ($35.33) and `entity_extraction` ($13.87) hold
 97 % of the bill, so they are where a model change is worth the risk of measuring.
 
-**Where to look next on this task, if it is worth revisiting:** two of the six errors are
-`-> genre`, which suggests the classifier prompt's "a genre used to scope a search is a
-filter" guidance is not emphatic enough for a weaker model. That prompt is inline in
-`text2sql.f_classify_result_entity`, not a hot-reloaded file, so testing a rewrite means a
-code change and two bench runs, before and after.
+**French, 643 questions, floor 2: HOLD more clearly still.**
+
+| | correct | abstained | **wrong** | wrong, decidable classes |
+|---|---:|---:|---:|---:|
+| gpt-4o | 618 | 23 | 2 | **0** |
+| gpt-5.6-luna | 630 | 6 | 7 | **5** |
+
+Same shape as English, wider gap: +5 against a floor of 2, and `gpt-4o` makes **no**
+confident error at all on the decidable classes in French (both of its errors are in the
+unscored tail). Latency again a wash.
+
+**The FR floor is 2 where the EN floor is 1**, and `gpt-4o` is a little less accurate in
+French across the board. That is the documented EN/FR gap showing up in this task too, and
+it means a French comparison tolerates more slack before it means anything.
+
+**Running both languages is what turns the result from a count into a diagnosis.** Three of
+Luna's failures reproduce in both:
+
+| eval | question | truth | Luna |
+|---|---|---|---|
+| 2467 | "Which people died from a heart attack?" / "Quelles personnes sont mortes d'une crise cardiaque ?" | person | **death** |
+| 2321 | "Documentaries" / "Documentaires" | movie | **genre** |
+| 825 | the Gendarme de Saint-Tropez collection | (differs, see below) | wrong both ways |
+
+Eval 2467 in both languages is the finding. It is not noise, it is not an ambiguous label,
+and it is exactly the confusion this classifier exists to prevent: the cause of death is the
+**filter**, the people are the answer, and the prompt gives that shape as a worked example.
+Luna takes the filter for the answer in both languages; `gpt-4o` gets it right in both.
+Together with the `-> genre` pair, the failure mode is systematic: **a weaker model
+generalises "the words in the question" into "the type of the answer"**, which is the single
+thing this task must not do.
+
+**A ground-truth caveat the two runs expose, and it is new.** The same evaluation carries a
+**different label in EN and FR on 5 of 622** shared questions (825, 948, 2179, 2323, 2457).
+The labels come from two separate executions, so this is the pipeline's own EN/FR divergence
+leaking into the ground truth. Half of Luna's raw errors land on those five. The verdict is
+unaffected, because only one of them (825) sits in a decidable class and the FR gap is +5
+against a floor of 2 with or without it, but any future reading of a small delta must check
+whether it rests on one of these.
+
+**Where to look next on this task, if it is worth revisiting:** the `-> genre` and
+`-> death` errors all say the same thing, that the prompt's "a genre used to scope a search
+is a filter, not the answer" guidance is not emphatic enough for a weaker model. That prompt
+is inline in `text2sql.f_classify_result_entity`, not a hot-reloaded file, so testing a
+rewrite means a code change and four bench runs, before and after in both languages. Given
+the task is 2.7 % of the bill, that is a poor use of the next hour compared with benching
+`entity_extraction` or `text2sql`.
 
 **Three outcomes, never one accuracy number**, and this is the part that transfers to any
 future classifier. *Correct*; *abstained*, where the caller falls back to the pre-existing
