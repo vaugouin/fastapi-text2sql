@@ -69,5 +69,9 @@ citizenphilsecrets.py
 #data/
 data/evaluation_execution/
 data/harness/
+# Bench artefacts carry the evaluation questions verbatim, like the execution exports
+# above. EVALUATIONS-008 flagged that committing the bank could publish the evaluation
+# questions, so these stay local whatever the repository's visibility happens to be.
+data/bench/
 claude/
 codex/

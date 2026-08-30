@@ -381,6 +381,64 @@ two extra slugs would have to come from the CLI rather than from the row, which 
 re-export of rows written by an earlier run sharing the same triple, and it would break
 `eval/claude/*.py`, which hard-code the three-model folder shape.
 
+### Measuring a model change on one task
+
+Two off-production benches exist, one per classification task, and they follow the same
+discipline: two configurations over the same questions in one process, no API server, no
+execution row, no cache write.
+
+| bench | task | ground truth |
+|---|---|---|
+| `eval/bench-entity-extraction.py` | 1, entity extraction | `ASSERTIONS_ENTITY_EXTRACTION` in the bank |
+| `eval/bench-result-entity.py` | 3, answer-entity classifier | `result_entity` of executions that PASSED |
+
+**Always measure the noise floor first, by running one model against itself.** At
+temperature 0 a configuration still disagrees with itself, and until that number exists a
+small delta cannot be told from a coin flip. Measured for the classifier on 2026-08-30,
+`gpt-4o` against `gpt-4o`, 689 EN questions: **1 confident error on the 631 questions in
+decidable classes, and 13 self-disagreements out of 689**. Eleven of those thirteen are an
+abstention appearing or vanishing, which costs nothing; the run repeated a day apart gave
+11 then 13, so treat the disagreement count as approximate and the confident-error floor,
+1, as the number the verdict uses. Latency was identical on both sides, median 0.59 s.
+
+So the bar for a challenger on this task is exact: **adopt it if it makes at most one more
+confident error than `gpt-4o` on the decidable classes**. The FR floor has not been
+measured.
+
+**Three outcomes, never one accuracy number**, and this is the part that transfers to any
+future classifier. *Correct*; *abstained*, where the caller falls back to the pre-existing
+behaviour so nothing is lost; and *confidently wrong*, a different valid label, which is
+the only outcome that overrides a query that may have been right. A model that abstains
+more is not a model that errs more, and one accuracy figure hides exactly that difference.
+
+**The label distribution decides how the result can be read.** `movie`, `person` and
+`serie` carry 90 % of the classifier's ground truth, so answering "movie" every time
+already scores 55.2 %. Eleven classes have fewer than 30 examples. The bench therefore
+prints the majority baseline beside every score and refuses a percentage below
+`--min-decidable`, listing those classes as counted-but-unscored instead. Same lesson as
+the ChromaDB `lists` check that returned OK at 9 % on 23 documents: a proportion computed
+on a handful of rows cannot discriminate, and a check that reports "fine" from too little
+data is worse than no check.
+
+**`--limit` samples round-robin across classes, rarest first, not off the top.** The
+exports open on a long run of `movie` questions, so a head slice of 12 was twelve movies
+and a perfect score. The stratified version surfaced something on its first 14-question
+run that the head slice could never have reached, and it turned out to be about the
+ground truth rather than about the model. See below.
+
+**A passing execution proves its assertions were satisfied, NOT that its `result_entity`
+is the label a human would pick.** That distinction is the one real weakness of harvesting
+labels this way, and it showed up immediately. Evaluation 948 is the single `serie_image`
+row in the EN set; its question is `Serie game of thrones`, which asks for nothing about
+images, yet the execution ran against `T_WC_T2S_SERIE_IMAGE` and passed. `gpt-4o` answers
+`serie`, which is defensible, and the bench scores it a confident error. So a
+confident-error line on a class with n=1 is a prompt to go read the case, never a verdict
+on the model. This is also why `--min-decidable` exists: at n=1 a single questionable
+label is 100 % of the class.
+
+**Bench artefacts are gitignored** (`eval/data/bench/`), for the same reason as the
+execution exports: they carry the evaluation questions verbatim.
+
 ## Reasoning models reject `temperature` (FASTAPI-TEXT2SQL-231)
 
 **The trap, and it is a hard failure, not a degradation.** Every one of the five tasks passes
