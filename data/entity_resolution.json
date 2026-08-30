@@ -250,7 +250,13 @@
           "hexalogie",
           "heptalogie",
           "serie",
-          "cinematographique"
+          "cinematographique",
+          "the",
+          "a",
+          "an",
+          "la",
+          "le",
+          "les"
         ],
         "languages": {
           "*": "COLLECTION_NAME"
@@ -302,7 +308,13 @@
           "series",
           "séries",
           "cinematographique",
-          "cinématographique"
+          "cinématographique",
+          "the",
+          "a",
+          "an",
+          "la",
+          "le",
+          "les"
         ],
         "document_name_separator": ": "
       }
