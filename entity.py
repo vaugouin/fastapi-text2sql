@@ -749,6 +749,30 @@ def plan_entity_resolutions(
     match_scores: list = []
     planned_entities: list[_PlannedEntity] = []
 
+    # ---- TRACE COMPLETE DES BRANCHEMENTS (2026-08-30) --------------------------------
+    #
+    # OBJECTIF : la trace doit permettre de REJOUER le traitement d'une question a
+    # posteriori. Toute decision qui change le sort d'un placeholder laisse donc un
+    # `planned.note`, y compris, et surtout, les echecs.
+    #
+    # CE QUI A MOTIVE CET AUDIT. Le 2026-08-30, la resolution de {{Collection_name1}}
+    # tombait en repli brut sans qu'on puisse savoir pourquoi : la branche RapidFuzz
+    # sortait par `except Exception: continue` et par `best n'est pas un dict: continue`,
+    # toutes deux MUETTES, et son seul message d'entree etait conditionne a Person_name.
+    # L'absence de message ne distinguait donc pas trois situations opposees : la
+    # strategie n'a pas tourne, elle a plante, elle n'a rien trouve. Un diagnostic a ete
+    # construit sur cette ambiguite, puis dementi. Une sortie muette ne coute pas un
+    # silence, elle coute une fausse conclusion.
+    #
+    # CE QUI RESTE VOLONTAIREMENT SANS NOTE, et c'est un choix, pas un oubli. Huit
+    # sorties de boucle qui ne decident rien du sort du placeholder : la cle "question"
+    # qui n'est pas un placeholder, le rang 0 de la shortlist deja juge comme `best`, les
+    # `break`/`continue` qui suivent `resolved = True` et dont le succes est trace par le
+    # `final_message` de `resolve_with`, et le parcours de rerang dont seul le verdict est
+    # publie. Les tracer noierait la trace utile sous de la mecanique, ce qui reviendrait
+    # au meme resultat qu'un trou : une trace qu'on ne lit plus.
+    # ----------------------------------------------------------------------------------
+
     if isinstance(entity_extraction, dict):
         with connection.cursor() as cursor:
             for key, value in entity_extraction.items():
@@ -786,6 +810,7 @@ def plan_entity_resolutions(
                 if isinstance(key, str) and (key.startswith("Movie_genre") or key.startswith("Serie_genre")):
                     raw_value = "" if value is None else str(value).strip()
                     if raw_value == "":
+                        planned.note(f"Entity resolution: {placeholder} -> empty value from extraction; placeholder left unresolved")
                         continue
 
                     if key.startswith("Movie_genre"):
@@ -829,6 +854,7 @@ def plan_entity_resolutions(
                 ):
                     raw_value = "" if value is None else str(value).strip()
                     if raw_value == "":
+                        planned.note(f"Entity resolution: {placeholder} -> empty value from extraction; placeholder left unresolved")
                         continue
 
                     if key.startswith("Status_name"):
@@ -854,8 +880,10 @@ def plan_entity_resolutions(
 
                 cfg = _find_entity_config(key)
                 if cfg is None:
+                    planned.note(f"Entity resolution: {placeholder} has no strategy in entity_resolution.json; substituting the raw value")
                     raw_value = "" if value is None else str(value)
                     if raw_value.strip() == "":
+                        planned.note(f"Entity resolution: {placeholder} -> empty value from extraction; placeholder left unresolved")
                         continue
                     raw_value_sql = _sql_escape_literal(raw_value)
                     planned.resolve_with(
@@ -867,6 +895,7 @@ def plan_entity_resolutions(
 
                 raw_value = "" if value is None else str(value)
                 if raw_value.strip() == "":
+                    planned.note(f"Entity resolution: {placeholder} -> empty value from extraction; placeholder left unresolved")
                     continue
 
                 raw_value_sql = _sql_escape_literal(raw_value)
@@ -876,7 +905,8 @@ def plan_entity_resolutions(
                 if isinstance(key, str) and key.startswith("Person_name"):
                     try:
                         language_family = guess_language_family(raw_value)
-                    except Exception:
+                    except Exception as _exc:
+                        planned.note(f"Entity resolution: {placeholder} language-family guess raised {type(_exc).__name__}: {_exc}; treating as unknown")
                         language_family = None
                     planned.note(f"Entity resolution: {placeholder} guessed language family = {language_family or 'unknown'}")
 
@@ -897,6 +927,7 @@ def plan_entity_resolutions(
                         strtablename = search_cfg.get("strtablename")
                         strtableid = search_cfg.get("strtableid")
                         if not strtablename or not strtableid:
+                            planned.note(f"Entity resolution: {placeholder} skipped a RapidFuzz strategy declaring no strtablename/strtableid; check entity_resolution.json")
                             continue
 
                         strcolumndesc = search_cfg.get("default_field")
@@ -904,6 +935,7 @@ def plan_entity_resolutions(
                         strcolumndesckey = search_cfg.get("rapidfuzz_col_key") or (f"{strcolumndesc}_KEY" if strcolumndesc else None)
                         strcolumnpopularity = search_cfg.get("rapidfuzz_col_popularity") or search_cfg.get("order_by") or "POPULARITY"
                         if not strcolumndesc or not strcolumndescnorm or not strcolumndesckey:
+                            planned.note(f"Entity resolution: {placeholder} skipped the RapidFuzz strategy on {strtablename}: missing default_field / _NORM / _KEY column names")
                             continue
 
                         if isinstance(key, str) and key.startswith("Person_name"):
@@ -929,7 +961,8 @@ def plan_entity_resolutions(
                                     )
                                     if not was_cached and bktree_idx is not None:
                                         print(f"[entity] BK-tree loaded on-demand for RapidFuzz search on {strtablename}.{strcolumndescnorm}: {bktree_idx.size} entries")
-                                except Exception:
+                                except Exception as _exc:
+                                    planned.note(f"Entity resolution: {placeholder} BK-tree unavailable for {strtablename}.{strcolumndescnorm} ({type(_exc).__name__}: {_exc}); the lexical search runs without it")
                                     bktree_idx = None
                             rapidfuzz_result = rapidfuzz_query.search_first_match(
                                 cursor,
@@ -962,11 +995,13 @@ def plan_entity_resolutions(
                                 # is required. Opt-in per strategy in entity_resolution.json.
                                 strip_stopwords=bool(search_cfg.get("strip_franchise_stopwords")),
                             )
-                        except Exception:
+                        except Exception as _exc:
+                            planned.note(f"Entity resolution: {placeholder} RapidFuzz search on {strtablename} RAISED {type(_exc).__name__}: {_exc}; falling through to the next strategy")
                             continue
 
                         best = (rapidfuzz_result or {}).get("best")
                         if not isinstance(best, dict):
+                            planned.note(f"Entity resolution: {placeholder} -> no RapidFuzz candidate at all in {strtablename} for '{raw_value}'; falling through to the next strategy")
                             continue
 
                         # Same measurement as the embeddings path (FASTAPI-TEXT2SQL-206), and
@@ -1041,7 +1076,8 @@ def plan_entity_resolutions(
                                 # the rule that produced it cannot be calibrated against anything.
                                 "score_metric": (search_cfg.get("score_metric") or rapidfuzz_query.DEFAULT_SCORE_METRIC),
                             })
-                        except Exception:
+                        except Exception as _exc:
+                            planned.note(f"Entity resolution: {placeholder} could not score the RapidFuzz candidate ({type(_exc).__name__}: {_exc}); confidence judged without a ratio")
                             _rf_ratio = None
 
                         # Confidence gate, rapidfuzz side (FASTAPI-TEXT2SQL-206). `min_fuzz_ratio`
@@ -1095,6 +1131,7 @@ def plan_entity_resolutions(
                                     _cand_text = str(_cand.get(strcolumndesc) or "") if strcolumndesc else ""
                                     _cand_norm = _cand_text.strip().lower()
                                     if not _cand_norm:
+                                        planned.note(f"Entity resolution: {placeholder} shortlist rank {_rank + 1} carries no comparable text; candidate skipped")
                                         continue
                                     _cand_fold = fold_for_exactness(_cand_norm)
                                     # FASTAPI-TEXT2SQL-227: the shortlist walk judges by the same
@@ -1104,7 +1141,8 @@ def plan_entity_resolutions(
                                     _cand_key = resolution_key(_cand_norm, search_cfg)
                                     _cand_ratio = float(_rf_metric(
                                         _sought_norm, _cand_norm, max_extra_tokens=_rf_max_extra))
-                                except Exception:
+                                except Exception as _exc:
+                                    planned.note(f"Entity resolution: {placeholder} could not score shortlist rank {_rank + 1} ({type(_exc).__name__}: {_exc}); candidate skipped")
                                     continue
                                 if (_sought_key and _sought_key == _cand_key) or _cand_ratio >= _rf_min:
                                     best = _cand
@@ -1172,7 +1210,8 @@ def plan_entity_resolutions(
                                     row = cursor.fetchone()
                                     if isinstance(row, dict):
                                         canonical_value = row.get(canonical_value_col)
-                            except Exception:
+                            except Exception as _exc:
+                                planned.note(f"Entity resolution: {placeholder} canonical lookup raised {type(_exc).__name__}: {_exc}")
                                 canonical_value = None
 
                             if canonical_value is None or str(canonical_value).strip() == "":
@@ -1208,11 +1247,13 @@ def plan_entity_resolutions(
                         continue
 
                     if search_mode != "embeddings":
+                        planned.note(f"Entity resolution: {placeholder} skipped a strategy declaring an unknown search_mode '{search_mode}'; check entity_resolution.json")
                         continue
 
                     collection_name = search_cfg.get("collection")
                     current_collection = chromadb_collections_by_name.get(collection_name)
                     if current_collection is None:
+                        planned.note(f"Entity resolution: {placeholder} skipped the embeddings strategy: ChromaDB collection '{collection_name}' is not loaded")
                         continue
 
                     # Hybrid (voie B): when this entity carries year metadata and a
@@ -1232,7 +1273,8 @@ def plan_entity_resolutions(
                                 )
                                 if (_filtered.get("documents", [[]]) or [[]])[0] or []:
                                     results = _filtered
-                            except Exception:
+                            except Exception as _exc:
+                                planned.note(f"Entity resolution: {placeholder} year-filtered search raised {type(_exc).__name__}: {_exc}; falling back to the unfiltered search")
                                 results = None
                     if results is None:
                         results = current_collection.query(query_texts=[raw_value], n_results=10)
@@ -1240,6 +1282,7 @@ def plan_entity_resolutions(
                     ids = (results.get("ids", [[]]) or [[]])[0] or []
                     distances = (results.get("distances", [[]]) or [[]])[0] or []
                     if not documents or not ids:
+                        planned.note(f"Entity resolution: {placeholder} -> ChromaDB collection '{collection_name}' returned no candidate for '{raw_value}'; falling through to the next strategy")
                         continue
 
                     matched_result_position = 0
@@ -1252,7 +1295,8 @@ def plan_entity_resolutions(
                     _rerank_cut = False
                     try:
                         target_value_norm = raw_value.strip().lower()
-                    except Exception:
+                    except Exception as _exc:
+                        planned.note(f"Entity resolution: {placeholder} could not normalise the sought value ({type(_exc).__name__}: {_exc}); exact-match pass disabled")
                         target_value_norm = ""
 
                     for i, document in enumerate(documents):
@@ -1278,6 +1322,7 @@ def plan_entity_resolutions(
                         best_score = -1.0
                         for i, document in enumerate(documents):
                             if not isinstance(document, str):
+                                planned.note(f"Entity resolution: {placeholder} rerank skipped rank {i + 1}: the ChromaDB document is not text")
                                 continue
                             _doc_cmp = document.strip().lower()
                             if _rerank_sep and _rerank_sep in _doc_cmp:
@@ -1385,7 +1430,8 @@ def plan_entity_resolutions(
                         if pos < len(distances):
                             try:
                                 _dist = float(distances[pos])
-                            except (TypeError, ValueError):
+                            except (TypeError, ValueError) as _exc:
+                                planned.note(f"Entity resolution: {placeholder} unreadable ChromaDB distance at rank {pos + 1} ({type(_exc).__name__}); scored without it")
                                 _dist = None
                         # Neutralize the entity's own descriptor words on BOTH sides before scoring
                         # (FASTAPI-TEXT2SQL-206). A word shared by the sought value and the candidate
@@ -1403,7 +1449,8 @@ def plan_entity_resolutions(
                             try:
                                 _sought_s = rapidfuzz_query.strip_franchise_words(target_value_norm, _stop)
                                 _cand_s = rapidfuzz_query.strip_franchise_words(_doc_norm, _stop)
-                            except Exception:
+                            except Exception as _exc:
+                                planned.note(f"Entity resolution: {placeholder} descriptor neutralisation failed at rank {pos + 1} ({type(_exc).__name__}: {_exc}); scored on the raw strings, which INFLATES a shared descriptor")
                                 _sought_s, _cand_s = target_value_norm, _doc_norm
                         _ratio = fuzz.ratio(_sought_s, _cand_s) if _cand_s else 0.0
                         # Kept for calibration: what the score would have been without stripping, so

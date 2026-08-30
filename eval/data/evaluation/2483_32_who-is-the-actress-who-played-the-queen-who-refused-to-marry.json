@@ -1,0 +1,27 @@
+{
+  "evaluation_id": 2483,
+  "evaluation_category_id": 32,
+  "question_en": "Who is the actress who played the queen who refused to marry?",
+  "question_fr": "Qui est l'actrice qui a joué la reine qui a refusé de se marier ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": "(?is)\\A(?!.*\\bLIKE\\s*&#039;%)",
+    "query_result": null
+  },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
+  "comment": "Description d un personnage sans nommer ni la personne ni le film, sur une question volontairement ambigue : plusieurs actrices ont joue une reine qui refuse de se marier. Mesure du 2026-08-27 : avant le garde-fou FASTAPI-TEXT2SQL-223, le generateur ecrivait CAST_CHARACTER LIKE deux fois avec joker en tete, 98,68 s d execution pour zero ligne et 106,60 s bout en bout sans aucune reponse. Apres le garde-fou, 0,006 s d execution et 15,14 s bout en bout, la reprise resolvant Cate Blanchett. AUCUNE assertion de resultat ici, volontairement : la reponse est legitimement non deterministe sur une question ambigue, et asserter une personne precise serait vert pour la mauvaise raison. Seule l assertion de forme du SQL est posee, et elle est UNILATERALE : son rouge signale que le SQL fautif a atteint la reponse, donc une regression du garde-fou ; son vert ne prouve rien, puisque le SQL final propre le satisfait aussi.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-08-28",
+  "tim_updated": "2026-08-28T07:35:36",
+  "is_showcase": 0,
+  "deleted": 0,
+  "id_creator": null,
+  "id_owner": null,
+  "id_user_updated": 1
+}

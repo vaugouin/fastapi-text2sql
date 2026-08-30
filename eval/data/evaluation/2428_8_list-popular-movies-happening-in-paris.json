@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Location_name1&quot;]) AND matches($.Location_name1, /^Paris$/i)",
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (27205, 350, 16869, 127585, 2062, 603692, 49013, 77338)"
+    "query_result": "ID_MOVIE IN (27205, 16869, 350, 127585, 603692, 2062, 77338, 49013)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE JOIN T_WC_WIKIDATA_ITEM_PROPERTY ON T_WC_T2S_MOVIE.ID_WIKIDATA = T_WC_WIKIDATA_ITEM_PROPERTY.ID_WIKIDATA JOIN T_WC_T2S_ITEM ON T_WC_WIKIDATA_ITEM_PROPERTY.ID_ITEM = T_WC_T2S_ITEM.ID_WIKIDATA WHERE T_WC_WIKIDATA_ITEM_PROPERTY.ID_PROPERTY = &#039;P840&#039; AND T_WC_T2S_ITEM.ITEM_LABEL = &#039;Paris&#039; ORDER BY T_WC_T2S_MOVIE.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-27T04:57:00",
+  "assertion_refresh_last": "2026-08-30T03:53:23",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

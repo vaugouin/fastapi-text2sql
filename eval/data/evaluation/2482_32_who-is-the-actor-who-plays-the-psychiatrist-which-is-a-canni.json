@@ -1,0 +1,27 @@
+{
+  "evaluation_id": 2482,
+  "evaluation_category_id": 32,
+  "question_en": "Who is the actor who plays the psychiatrist which is a cannibal?",
+  "question_fr": "Qui est l'acteur qui joue le psychiatre qui est un cannibale ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "COUNT(*) &gt; 0 AND ID_PERSON IN (4173)"
+  },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
+  "comment": "Description d un personnage sans nommer ni la personne ni le film. Mesure du 2026-08-27 : le generateur a ecrit CAST_CHARACTER LIKE deux fois avec joker en tete, la base a lu toute la table des credits en 100,64 s pour rendre zero ligne, et la reprise par le modele fort a resolu Anthony Hopkins en une seconde. Assertion sur l identite rendue, valable avant comme apres FASTAPI-TEXT2SQL-223.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-08-28",
+  "tim_updated": "2026-08-28T09:03:55",
+  "is_showcase": 0,
+  "deleted": 0,
+  "id_creator": null,
+  "id_owner": null,
+  "id_user_updated": 1
+}

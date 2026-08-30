@@ -10,7 +10,7 @@
     "query_result": "ID_NETWORK IN (49, 2686, 4405, 26, 19, 2858, 3081, 7577)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT n.ID_NETWORK FROM T_WC_T2S_NETWORK n JOIN T_WC_T2S_SERIE_NETWORK sn ON sn.ID_NETWORK = n.ID_NETWORK JOIN T_WC_T2S_SERIE s ON s.ID_SERIE = sn.ID_SERIE JOIN T_WC_T2S_SERIE_GENRE sg ON sg.ID_SERIE = s.ID_SERIE WHERE sg.ID_GENRE = 18 ORDER BY s.IMDB_RATING_WEIGHTED DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-27T04:57:04",
+  "assertion_refresh_last": "2026-08-30T03:53:26",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

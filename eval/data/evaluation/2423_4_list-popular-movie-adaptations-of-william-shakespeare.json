@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (1072790, 4951, 9655, 11645, 454, 11065, 6003, 240745)"
+    "query_result": "ID_MOVIE IN (1072790, 4951, 9655, 11645, 454, 11065, 240745, 45772)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT m.ID_MOVIE FROM T_WC_T2S_MOVIE m JOIN T_WC_T2S_PERSON_MOVIE pm ON pm.ID_MOVIE = m.ID_MOVIE JOIN T_WC_T2S_PERSON p ON p.ID_PERSON = pm.ID_PERSON WHERE p.PERSON_NAME = &#039;William Shakespeare&#039; AND pm.CREDIT_TYPE = &#039;crew&#039; AND pm.CREW_DEPARTMENT = &#039;Writing&#039; ORDER BY m.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-27T04:56:58",
+  "assertion_refresh_last": "2026-08-30T03:53:21",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

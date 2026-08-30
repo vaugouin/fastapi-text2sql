@@ -10,7 +10,7 @@
     "query_result": "ID_MOVIE IN (777, 346, 940, 7857, 147, 648, 10971, 10835, 11782, 36040, 490, 11031, 274, 31372, 31374, 31378, 5336, 26031, 25504, 14924)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.ID_CRITERION IS NOT NULL AND T_WC_T2S_MOVIE.ID_CRITERION &gt; 0 ORDER BY CASE WHEN COALESCE(T_WC_T2S_MOVIE.ID_CRITERION_SPINE, 0) = 0 THEN 1 ELSE 0 END, T_WC_T2S_MOVIE.ID_CRITERION_SPINE ASC LIMIT 20",
-  "assertion_refresh_last": null,
+  "assertion_refresh_last": "2026-08-30T03:53:06",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -18,7 +18,7 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2025-10-30",
-  "tim_updated": "2026-07-11T20:15:55",
+  "tim_updated": "2026-08-27T16:35:47",
   "is_showcase": 1,
   "deleted": 0,
   "id_creator": 1,

@@ -10,7 +10,7 @@
     "query_result": "ID_MOVIE IN (1385209, 1718699, 1170608, 1596296, 1634949, 1422562, 1317288, 1425725)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT m.ID_MOVIE FROM T_WC_T2S_MOVIE m JOIN T_WC_T2S_PERSON_MOVIE pm ON pm.ID_MOVIE = m.ID_MOVIE JOIN T_WC_T2S_PERSON p ON p.ID_PERSON = pm.ID_PERSON WHERE p.PERSON_NAME = &#039;Timothée Chalamet&#039; ORDER BY m.DAT_RELEASE DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-27T04:56:41",
+  "assertion_refresh_last": "2026-08-30T03:53:08",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

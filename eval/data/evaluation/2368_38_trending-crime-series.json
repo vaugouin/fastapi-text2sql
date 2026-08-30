@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Serie_genre1&quot;]) AND matches($.Serie_genre1, /^Crime$/i)",
     "sql_query": null,
-    "query_result": "ID_SERIE IN (108978, 5920, 2734, 79744, 4614, 4057, 549, 1431)"
+    "query_result": "ID_SERIE IN (108978, 5920, 2734, 79744, 4614, 549, 4057, 1431)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_SERIE.ID_SERIE FROM T_WC_T2S_SERIE JOIN T_WC_T2S_SERIE_GENRE ON T_WC_T2S_SERIE.ID_SERIE = T_WC_T2S_SERIE_GENRE.ID_SERIE WHERE T_WC_T2S_SERIE_GENRE.ID_GENRE = 80 ORDER BY T_WC_T2S_SERIE.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-27T04:57:14",
+  "assertion_refresh_last": "2026-08-30T03:53:31",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
