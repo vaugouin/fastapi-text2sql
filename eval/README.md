@@ -523,7 +523,7 @@ One row per execution. Key columns:
 - `ID_T2S_EVALUATION` (FK to question)
 - `LANG` — `en` or `fr`
 - `API_VERSION` — stored in `XXX.YYY.ZZZ` form (via `t2s_eval.format_api_version()`)
-- `ENTITY_EXTRACTION_MODEL`, `TEXT2SQL_MODEL`, `COMPLEX_MODEL` — the tuple that disambiguates executions
+- `ENTITY_EXTRACTION_MODEL`, `TEXT2SQL_MODEL`, `COMPLEX_MODEL` — the tuple that disambiguates executions. **Three of the five model selectors, and no column exists for the other two** (`llm_model_result_entity`, `llm_model_answer_single_value`), which is FASTAPI-TEXT2SQL-234. So a run that moves only one of those two is skipped as already done, and if forced through it lands in the baseline's own folder. Measure those two with `bench-result-entity.py` instead, or bump the API version to open a clean namespace
 - `JSON_RESULT` — full API response (mediumtext)
 - Timings: `ENTITY_EXTRACTION_PROCESSING_TIME`, `TEXT2SQL_PROCESSING_TIME`, `RESULT_ENTITY_PROCESSING_TIME`, `EMBEDDINGS_PROCESSING_TIME`, `EMBEDDINGS_CACHE_SEARCH_TIME`, `ENTITY_RESOLUTION_PLANNING_TIME`, `COMPLEX_QUESTION_PROCESSING_TIME`, `QUERY_EXECUTION_TIME`, `TOTAL_PROCESSING_TIME`
 
@@ -643,7 +643,7 @@ ASSERTIONS_ENTITY_EXTRACTION: PASS
 | [test-unified-schema-bridge.py](test-unified-schema-bridge.py) | Standalone regression test for the unified-schema column bridge (`ID_CONTENT` + `CONTENT_TYPE` → virtual `ID_MOVIE` / `ID_SERIE` / `ID_PERSON`); see [§4.3 Unified-schema column bridge](#unified-schema-column-bridge) |
 | [check-chromadb.py](check-chromadb.py) | Consistency checks on the ChromaDB store read by entity resolution. A home for such checks, not a one-shot: `--list`, `--check NAME`, `--selftest`. Reads only, needs no OpenAI key. See section 14. |
 | [Dockerfile](Dockerfile) | `python:3.11-slim` base; installs `requirements.txt`; entrypoint `python ./text2sql-eval.py` |
-| [text2sql-eval.sh](text2sql-eval.sh) | Build image + run container (detached, host network) |
+| [text2sql-eval.sh](text2sql-eval.sh) | Build image + run container (detached, host network). Everything is overridable from the environment: `API_VERSION`, `LANGUAGE`, `ENTITY_EXTRACTION_MODEL`, `TEXT2SQL_MODEL`, `COMPLEX_MODEL`, `RESULT_ENTITY_MODEL`, `ANSWER_SINGLE_VALUE_MODEL`, `STORE_TO_CACHE`, `COMPLEX_MODEL_USED`. The last two model variables were added with FASTAPI-TEXT2SQL-232; the script warns when either is moved, because the execution table has no column for them and the run is then either skipped or written into the baseline's folder. Example: `TEXT2SQL_MODEL=gpt-5.6-terra API_VERSION=1.1.19 ./text2sql-eval.sh` |
 | [requirements.txt](requirements.txt) | `requests`, `pymysql`, `pandas>=1.5`, `numpy>=1.21`, `pytest>=7`, `pytz`, `python-dotenv>=1`, `openai>=1` |
 | [T2S_EVALUATION-tables.sql](../doc/sql/T2S_EVALUATION-tables.sql) | DDL for the three evaluation tables |
 | [T2S_EVALUATION-tables-with-data.sql](../doc/sql/T2S_EVALUATION-tables-with-data.sql) | DDL + seed question bank |

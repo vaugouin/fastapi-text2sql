@@ -11,6 +11,21 @@
 # convention asks for anyway once a data/ prompt has changed. Without either, this script
 # reports a suspiciously fast, suspiciously empty pass.
 #
+# THE TWO NEW KNOBS DO NOT OPEN A NAMESPACE, AND THAT IS A TRAP
+# The API takes five model selectors since FASTAPI-TEXT2SQL-232, and this script now passes
+# all five. But T_WC_T2S_EVALUATION_EXECUTION still has columns for only three of them
+# (FASTAPI-TEXT2SQL-234), so the skip rule above and the run folder name are both keyed on
+# ENTITY_EXTRACTION_MODEL / TEXT2SQL_MODEL / COMPLEX_MODEL alone. Two consequences, and both
+# of them look like success:
+#   * A run that changes ONLY RESULT_ENTITY_MODEL or ANSWER_SINGLE_VALUE_MODEL is skipped
+#     entirely, because rows already exist for that version, triple and language. Empty pass,
+#     no error, nothing measured.
+#   * Force it through by retiring those rows and it writes into the SAME folder as the
+#     baseline, indistinguishable from it afterwards.
+# So to move one of those two, bump API_VERSION to open a clean namespace, or do not use this
+# script at all: eval/bench-result-entity.py measures the answer-entity classifier offline,
+# with no execution row and no cache write, which is exactly what it was written for.
+#
 # BLUE OR GREEN IS DECIDED BY THE VERSION
 # An even patch targets BLUE, an odd one GREEN, in main.py for the MCP and in
 # text2sql-eval.py:563 for this run. 1.1.18 is even, so deploy on BLUE before launching.
@@ -29,6 +44,7 @@
 # Everything can be overridden from the environment without editing this file:
 #   LANGUAGE=fr ./text2sql-eval.sh
 #   API_VERSION=1.1.18 LANGUAGE='*' ./text2sql-eval.sh
+#   TEXT2SQL_MODEL=gpt-5.6-terra API_VERSION=1.1.19 ./text2sql-eval.sh
 
 set -u
 
@@ -37,6 +53,10 @@ LANGUAGE=${LANGUAGE:-*}
 ENTITY_EXTRACTION_MODEL=${ENTITY_EXTRACTION_MODEL:-gpt-4o}
 TEXT2SQL_MODEL=${TEXT2SQL_MODEL:-gpt-4o}
 COMPLEX_MODEL=${COMPLEX_MODEL:-gpt-4o}
+# FASTAPI-TEXT2SQL-232: the answer-entity classifier and the single-value answerer. Read the
+# header before changing either on a version that already carries executions.
+RESULT_ENTITY_MODEL=${RESULT_ENTITY_MODEL:-gpt-4o}
+ANSWER_SINGLE_VALUE_MODEL=${ANSWER_SINGLE_VALUE_MODEL:-gpt-4o}
 STORE_TO_CACHE=${STORE_TO_CACHE:---store-to-cache}
 COMPLEX_MODEL_USED=${COMPLEX_MODEL_USED:---no-complex-model-used}
 
@@ -53,8 +73,17 @@ echo "=== $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
 echo "API version : $API_VERSION"
 echo "Language    : $LANGUAGE"
 echo "Models      : $ENTITY_EXTRACTION_MODEL / $TEXT2SQL_MODEL / $COMPLEX_MODEL"
+echo "              result_entity=$RESULT_ENTITY_MODEL answer_single_value=$ANSWER_SINGLE_VALUE_MODEL"
 echo "Cache       : $STORE_TO_CACHE"
 echo
+
+if [ "$RESULT_ENTITY_MODEL" != "gpt-4o" ] || [ "$ANSWER_SINGLE_VALUE_MODEL" != "gpt-4o" ]; then
+    echo "WARNING: you moved a model the execution table has no column for (-234)."
+    echo "  The skip rule and the run folder are keyed on the first three models only, so this"
+    echo "  run is either skipped as already done, or written into the baseline's own folder."
+    echo "  Bump API_VERSION to open a clean namespace, or use eval/bench-result-entity.py."
+    echo
+fi
 
 if [ "$LANGUAGE" = "*" ]; then
     echo "Full two-language pass. Does $API_VERSION already carry executions?"
@@ -76,6 +105,8 @@ docker run -d --rm --network="host" \
     --entity-extraction-model "$ENTITY_EXTRACTION_MODEL" \
     --text2sql-model "$TEXT2SQL_MODEL" \
     --complex-model "$COMPLEX_MODEL" \
+    --result-entity-model "$RESULT_ENTITY_MODEL" \
+    --answer-single-value-model "$ANSWER_SINGLE_VALUE_MODEL" \
     --api-version "$API_VERSION" \
     --language "$LANGUAGE" \
     "$STORE_TO_CACHE" \
