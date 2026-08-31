@@ -1002,46 +1002,22 @@ def plan_entity_resolutions(
                             planned.note(f"Entity resolution: {placeholder} RapidFuzz search on {strtablename} RAISED {type(_exc).__name__}: {_exc}; falling through to the next strategy")
                             continue
 
-                        # FASTAPI-TEXT2SQL-236, repli A. La recherche neutralise le descripteur AVANT
-                        # d'interroger la base (rapidfuzz_query.py, q_norm), pas seulement avant de
-                        # noter. Deux consequences, et ce repli les traite toutes les deux.
+                        # Le repli A (2026-08-30) a ete RETIRE le 2026-08-31, et la raison
+                        # merite d'etre gardee. Il rejouait la recherche avec
+                        # strip_stopwords=False quand la premiere revenait vide, sur l'idee que
+                        # le descripteur aiderait a TROUVER. La lecture de fetch_candidates dit
+                        # le contraire sur cette implementation : le plein texte est CONJONCTIF
+                        # (+token* sur chacun des trois tokens les plus longs) et le LIKE de
+                        # dernier recours ne garde que tokens[0], le mot le plus LONG. Rejouer
+                        # sans neutralisation EXIGE donc un mot de plus et, sur « collection
+                        # criterion », deplace le LIKE de '%criterion%' vers '%collection%'.
+                        # Le repli ne pouvait pas elargir, il ne pouvait que nuire.
                         #
-                        # 1. Une valeur faite uniquement de descripteurs se reduit a la chaine vide et
-                        #    la recherche rend `empty_query`, donc AUCUN candidat. « la collection »
-                        #    tombe dans ce cas, et les articles ajoutes le 2026-08-30 ont elargi la
-                        #    famille concernee.
-                        # 2. Le descripteur ne dit rien sur l'IDENTITE, les deux cotes le portent, mais
-                        #    il dit beaucoup sur la PERTINENCE : c'est lui qui fait remonter en tete du
-                        #    plein texte les lignes qui portent les deux mots.
-                        #
-                        # Le repli est PUREMENT ADDITIF et ne touche pas la garde. Elargir l'ensemble
-                        # des candidats ne peut pas faire disparaitre un bon candidat, et le score reste
-                        # calcule sur les chaines neutralisees : aucun faux positif ne peut entrer que
-                        # la garde n'aurait pas deja refuse. C'est la seule raison pour laquelle il peut
-                        # etre pose sans recalibrer les seuils, contrairement a -236 lui-meme.
-                        best = (rapidfuzz_result or {}).get("best")
-                        if not isinstance(best, dict) and bool(search_cfg.get("strip_franchise_stopwords")):
-                            planned.note(f"Entity resolution: {placeholder} -> no RapidFuzz candidate in {strtablename} with descriptors neutralised (reason: {(rapidfuzz_result or {}).get('reason')}); retrying the search on the raw value '{raw_value}'")
-                            try:
-                                rapidfuzz_result = rapidfuzz_query.search_first_match(
-                                    *_rf_args,
-                                    raw=raw_value,
-                                    has_fulltext=has_fulltext,
-                                    timings_enabled=False,
-                                    bktree=bktree_idx,
-                                    score_metric=search_cfg.get("score_metric"),
-                                    max_extra_tokens=int(
-                                        search_cfg.get("max_extra_tokens", rapidfuzz_query.DEFAULT_MAX_EXTRA_TOKENS)
-                                    ),
-                                    popularity_join=search_cfg.get("popularity_join"),
-                                    strip_stopwords=False,
-                                )
-                            except Exception as _exc:
-                                planned.note(f"Entity resolution: {placeholder} raw-value RapidFuzz retry on {strtablename} RAISED {type(_exc).__name__}: {_exc}")
-                                rapidfuzz_result = None
-                            best = (rapidfuzz_result or {}).get("best")
-                            if isinstance(best, dict):
-                                planned.note(f"Entity resolution: {placeholder} -> the raw-value retry found a candidate the neutralised search had missed; it still faces the same confidence gate")
+                        # Ce que le repli visait vraiment est traite en amont desormais : la
+                        # correspondance exacte et la cle de prefixe lisent la forme complete
+                        # (rapidfuzz_query.py, -236), et le garde empty_query teste cette meme
+                        # forme, si bien qu'une valeur faite uniquement de descripteurs garde
+                        # ses canaux au lieu de ne rien rendre.
                         if not isinstance(best, dict):
                             planned.note(f"Entity resolution: {placeholder} -> no RapidFuzz candidate at all in {strtablename} for '{raw_value}'; falling through to the next strategy")
                             continue
@@ -1084,8 +1060,26 @@ def plan_entity_resolutions(
                             _rf_max_extra = int(
                                 search_cfg.get("max_extra_tokens", rapidfuzz_query.DEFAULT_MAX_EXTRA_TOKENS)
                             )
+                            # FASTAPI-TEXT2SQL-236, volet 1. La garde notait les colonnes
+                            # d'AFFICHAGE pendant que le classement comparait des chaines
+                            # neutralisees : elle jugeait un couple que la recherche n'avait
+                            # jamais compare. Mesure du 2026-08-30 sur Criterion :
+                            # ratio('collection criterion', 'the criterion collection') = 54,5
+                            # contre une garde a 72, alors que le meme couple neutralise vaut
+                            # 81,8. Le candidat etait le BON et il partait en repli brut.
+                            #
+                            # Le sens du deplacement est connu et va dans le bon sens : un vrai
+                            # positif MONTE (54,5 vers 81,8) et un faux positif DESCEND
+                            # ("wagonlit collection" contre "life collection" tombe de 76,5 a
+                            # 33,3, mesure du 2026-08-24). La garde devient donc plus
+                            # discriminante, pas plus laxiste. C'est aussi pourquoi les seuils
+                            # doivent etre recalibres au banc plutot que deduits de deux points.
                             _rf_ratio = (
-                                _rf_metric(_sought_norm, _matched_norm, max_extra_tokens=_rf_max_extra)
+                                _rf_metric(
+                                    strip_declared_descriptors(_sought_norm, search_cfg),
+                                    strip_declared_descriptors(_matched_norm, search_cfg),
+                                    max_extra_tokens=_rf_max_extra,
+                                )
                                 if _matched_norm
                                 else 0.0
                             )
@@ -1181,8 +1175,13 @@ def plan_entity_resolutions(
                                     # candidate could be accepted at rank 1 and refused at rank 4
                                     # on a difference the strategy itself declared meaningless.
                                     _cand_key = resolution_key(_cand_norm, search_cfg)
+                                    # Meme echelle que la garde ci-dessus (-236) : sans cela un
+                                    # candidat serait accepte au rang 1 et refuse au rang 4 sur
+                                    # une difference que la strategie declare non identifiante.
                                     _cand_ratio = float(_rf_metric(
-                                        _sought_norm, _cand_norm, max_extra_tokens=_rf_max_extra))
+                                        strip_declared_descriptors(_sought_norm, search_cfg),
+                                        strip_declared_descriptors(_cand_norm, search_cfg),
+                                        max_extra_tokens=_rf_max_extra))
                                 except Exception as _exc:
                                     planned.note(f"Entity resolution: {placeholder} could not score shortlist rank {_rank + 1} ({type(_exc).__name__}: {_exc}); candidate skipped")
                                     continue

@@ -1566,7 +1566,7 @@ a handful of monthly tarballs, the remote directory listing stays fast and the
 additive sync just pulls the new archives plus the current month's loose files.
 **The archives are part of the dataset and are mirrored** — they are not excluded
 from backup. (Off-box mirroring is handled by `sync_vps_docker.py` in the
-`tmdb-front` repo under `doc/debian-migration/`, whose SFTP timeouts were raised
+`tmdb-front` repo under `%USERPROFILE%/Nestor/projets/t2s-backlog/topics/debian-migration/`, whose SFTP timeouts were raised
 so large log directories don't abort a sync mid-listing.)
 
 ## 🔒 Security

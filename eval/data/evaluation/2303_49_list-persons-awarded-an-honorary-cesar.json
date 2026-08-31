@@ -10,7 +10,7 @@
     "query_result": "ID_PERSON IN (1245, 138, 16483, 85, 488, 1269, 3, 1032)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT p.ID_PERSON FROM T_WC_T2S_PERSON p JOIN T_WC_T2S_PERSON_AWARD pa ON pa.ID_PERSON = p.ID_PERSON JOIN T_WC_T2S_AWARD a ON a.ID_AWARD = pa.ID_AWARD WHERE a.AWARD_NAME = &#039;Honorary César&#039; ORDER BY pa.DISPLAY_ORDER ASC LIMIT 8",
-  "assertion_refresh_last": "2026-08-30T03:53:11",
+  "assertion_refresh_last": "2026-08-31T04:49:41",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

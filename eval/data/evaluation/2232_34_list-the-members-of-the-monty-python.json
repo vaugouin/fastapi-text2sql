@@ -10,7 +10,7 @@
     "query_result": "ID_PERSON IN (383, 8930, 10713, 10707, 280, 10722)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT p.ID_PERSON FROM T_WC_T2S_PERSON p JOIN T_WC_T2S_PERSON_GROUP pg ON pg.ID_PERSON = p.ID_PERSON JOIN T_WC_T2S_GROUP g ON g.ID_GROUP = pg.ID_GROUP WHERE g.GROUP_NAME = &#039;Monty Python&#039; ORDER BY pg.DISPLAY_ORDER ASC LIMIT 8",
-  "assertion_refresh_last": "2026-08-30T03:53:11",
+  "assertion_refresh_last": "2026-08-31T04:49:41",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

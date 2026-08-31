@@ -10,7 +10,7 @@
     "query_result": "ID_SERIE IN (51025, 36109, 37528, 67707, 31472, 70672, 4656, 37678)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_SERIE.ID_SERIE FROM T_WC_T2S_SERIE JOIN T_WC_T2S_SERIE_GENRE ON T_WC_T2S_SERIE.ID_SERIE = T_WC_T2S_SERIE_GENRE.ID_SERIE WHERE T_WC_T2S_SERIE_GENRE.ID_GENRE = 10764 ORDER BY T_WC_T2S_SERIE.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-30T03:53:17",
+  "assertion_refresh_last": "2026-08-31T04:49:49",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

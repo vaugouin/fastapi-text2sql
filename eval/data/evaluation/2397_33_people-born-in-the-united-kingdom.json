@@ -10,7 +10,7 @@
     "query_result": "ID_PERSON IN (1866223, 13472, 67228, 976, 1136406, 2438358, 1043449, 1731959)"
   },
   "assertion_refresh_sql": "SELECT T_WC_T2S_PERSON.ID_PERSON FROM T_WC_T2S_PERSON WHERE T_WC_T2S_PERSON.COUNTRY_OF_BIRTH = 'gb' ORDER BY T_WC_T2S_PERSON.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-30T03:53:19",
+  "assertion_refresh_last": "2026-08-31T04:49:53",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

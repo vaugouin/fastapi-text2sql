@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Status_name1&quot;])",
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (1612063, 1563758, 877553, 1506560, 1152099, 1541119, 1499989, 1250502)"
+    "query_result": "ID_MOVIE IN (1612063, 1563758, 877553, 1506560, 1152099, 1499989, 1541119, 1250502)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.STATUS = 'Post Production' ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-30T03:53:09",
+  "assertion_refresh_last": "2026-08-31T04:49:37",
   "comment": "Post Production, a two-word canonical whose French alias is identical.",
   "keywords": null,
   "keywords_auto": null,

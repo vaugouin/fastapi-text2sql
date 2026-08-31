@@ -10,7 +10,7 @@
     "query_result": "ID_MOVEMENT IN (7, 5, 11, 19, 2, 16, 4, 21)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT ID_MOVEMENT FROM T_WC_T2S_MOVEMENT ORDER BY IMDB_RATING_WEIGHTED DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-30T03:53:26",
+  "assertion_refresh_last": "2026-08-31T04:50:07",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

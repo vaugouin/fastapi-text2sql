@@ -860,10 +860,30 @@ def search_first_match(
             - timings: dict of timing breakdown (may be empty)
             - candidates_count: number of candidates fetched
     """
-    q_norm = normalize_name(raw)
+    # FASTAPI-TEXT2SQL-236. DEUX chaines, et le partage n'est pas celui qu'on croit.
+    #
+    # q_norm_full : la valeur normalisee, descripteurs COMPRIS. Elle sert aux canaux qui
+    # se comparent a la valeur STOCKEE, laquelle n'est jamais neutralisee : la
+    # correspondance exacte et la cle de prefixe. Avec l'ancien code, chercher le nom
+    # canonique exact « The Criterion Collection » se reduisait a « criterion » et ne
+    # pouvait donc JAMAIS declencher exact_match sur la colonne NORM qui vaut « the
+    # criterion collection ». Un raccourci sur et gratuit etait mort depuis le debut.
+    #
+    # q_norm : la valeur neutralisee, qui sert au plein texte, au LIKE et au classement.
+    # Et ici neutraliser AIDE, contrairement a ce qu'on pourrait croire : le plein texte
+    # est CONJONCTIF (build_boolean_query pose +token* sur chaque mot), donc un
+    # descripteur en plus est une exigence en plus. Sur « star wars universe », la forme
+    # brute exigerait +universe* et EXCLURAIT « Star Wars Collection ». Le LIKE, lui, ne
+    # retient que tokens[0], le mot le plus LONG : sur « collection criterion », la forme
+    # brute donnerait LIKE '%collection%', qui ramene tout.
+    q_norm_full = normalize_name(raw)
+    q_norm = q_norm_full
     if strip_stopwords:
-        q_norm = strip_franchise_words(q_norm)
-    if not q_norm:
+        q_norm = strip_franchise_words(q_norm_full)
+    # Le garde teste la forme COMPLETE : une valeur faite uniquement de descripteurs
+    # ("la collection") laissait la chaine vide et rendait empty_query, donc aucun
+    # candidat. Elle garde desormais ses canaux exact et prefixe.
+    if not q_norm_full:
         return {
             "hit": None,
             "ranked": [],
@@ -874,11 +894,14 @@ def search_first_match(
             "candidates_count": 0,
         }
 
-    # Derive the prefix key from the (possibly stopword-stripped) q_norm so retrieval
-    # and scoring stay consistent. For the non-strip path this equals to_key(raw).
-    q_key = q_norm.replace(" ", "")
+    # La cle de prefixe se derive de la forme COMPLETE (-236) : la colonne *_KEY stockee
+    # vaut le NORM sans espaces, donc non neutralisee. Une cle neutralisee ne pouvait
+    # correspondre a rien des que la strategie declarait des descripteurs.
+    q_key = q_norm_full.replace(" ", "")
 
     t_exact0 = time.perf_counter() if timings_enabled else 0.0
+    # Exact d'abord, sur la forme COMPLETE : c'est le seul canal qui compare a la valeur
+    # stockee telle quelle, et un succes ici court-circuite tout le reste.
     hit = exact_match(
         cur,
         strtablename,
@@ -886,7 +909,7 @@ def search_first_match(
         strcolumndesc,
         strcolumndescnorm,
         strcolumnpopularity,
-        q_norm,
+        q_norm_full,
         popularity_join=popularity_join,
     )
     t_exact1 = time.perf_counter() if timings_enabled else 0.0

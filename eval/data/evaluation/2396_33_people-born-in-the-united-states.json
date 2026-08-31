@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_PERSON IN (18270, 22303, 22066, 2248, 17146, 125364, 143533, 148821)"
+    "query_result": "ID_PERSON IN (18270, 22303, 22066, 17146, 125364, 2248, 143533, 148821)"
   },
   "assertion_refresh_sql": "SELECT T_WC_T2S_PERSON.ID_PERSON FROM T_WC_T2S_PERSON WHERE T_WC_T2S_PERSON.COUNTRY_OF_BIRTH = 'us' ORDER BY T_WC_T2S_PERSON.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-30T03:53:19",
+  "assertion_refresh_last": "2026-08-31T04:49:53",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

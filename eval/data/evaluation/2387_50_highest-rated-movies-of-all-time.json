@@ -10,7 +10,7 @@
     "query_result": "ID_MOVIE IN (1757703, 278, 238, 1757568, 155, 122, 424, 240)"
   },
   "assertion_refresh_sql": "SELECT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-30T03:53:35",
+  "assertion_refresh_last": "2026-08-31T04:50:26",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

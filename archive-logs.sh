@@ -3,7 +3,7 @@
 #
 # The logs/ folder is a retained usage & agent-behaviour dataset (see the README
 # section "Why these logs are kept"). This script keeps the *live* directory
-# small — so tools like the off-box mirror (doc/debian-migration/sync_vps_docker.py
+# small — so tools like the off-box mirror (%USERPROFILE%/Nestor/projets/t2s-backlog/topics/debian-migration/sync_vps_docker.py
 # in the tmdb-front repo) don't choke listing tens of thousands of files —
 # WITHOUT deleting any data: every past month's *.json files are packed into
 # logs/archive/<YYYYMM>.tar.gz, the archive is verified, then the loose

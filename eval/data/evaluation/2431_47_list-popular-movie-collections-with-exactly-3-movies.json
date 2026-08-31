@@ -10,7 +10,7 @@
     "query_result": "ID_T2S_COLLECTION IN (2286, 83, 2375, 67, 71, 1875, 70, 716)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT c.ID_T2S_COLLECTION FROM T_WC_T2S_COLLECTION c WHERE c.MOVIE_COUNT = 3 ORDER BY c.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-30T03:53:24",
+  "assertion_refresh_last": "2026-08-31T04:50:02",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

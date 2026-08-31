@@ -10,7 +10,7 @@
     "query_result": "ID_MOVIE IN (969681, 1084242, 83533, 1368337, 1084244, 936075, 1226863, 1314481)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.DAT_RELEASE BETWEEN DATE_SUB(CURDATE(), INTERVAL 12 MONTH) AND CURDATE() ORDER BY T_WC_T2S_MOVIE.REVENUE DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-30T03:53:21",
+  "assertion_refresh_last": "2026-08-31T04:49:57",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

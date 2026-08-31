@@ -10,7 +10,7 @@
     "query_result": "ID_SERIE IN (60694, 45, 67557, 1554, 290931, 32415, 4573, 1220)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_SERIE.ID_SERIE FROM T_WC_T2S_SERIE JOIN T_WC_T2S_SERIE_GENRE ON T_WC_T2S_SERIE.ID_SERIE = T_WC_T2S_SERIE_GENRE.ID_SERIE WHERE T_WC_T2S_SERIE_GENRE.ID_GENRE = 10767 ORDER BY T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-30T03:53:09",
+  "assertion_refresh_last": "2026-08-31T04:49:37",
   "comment": "Talk Show, a two-word canonical written with and without a hyphen.",
   "keywords": null,
   "keywords_auto": null,
