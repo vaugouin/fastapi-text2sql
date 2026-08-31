@@ -261,7 +261,7 @@
         "languages": {
           "*": "COLLECTION_NAME"
         },
-        "min_fuzz_ratio": 72
+        "min_fuzz_ratio": 73.5
       },
       {
         "search_mode": "embeddings",
@@ -270,7 +270,7 @@
         "collection": "collections",
         "default_field": "COLLECTION_NAME",
         "order_by": null,
-        "min_fuzz_ratio": 72,
+        "min_fuzz_ratio": 73.5,
         "languages": {
           "en": "COLLECTION_NAME",
           "fr": "COLLECTION_NAME_FR",

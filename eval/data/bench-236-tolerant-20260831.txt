@@ -1,0 +1,68 @@
+Démarrage de l'API
+Total Memory: 30.62 GB
+Available Memory: 16.35 GB
+Used Memory: 14.27 GB
+Free Memory: 1.04 GB
+Memory Usage: 46.6%
+[data-watcher] Registered 'text_to_sql.md' for hot-reload
+[data-watcher] Started watching '/app/data' every 5s
+[data-watcher] Registered 'complex_question.md' for hot-reload
+LLM API keys loaded:
+- OPENAI_API_KEY: found
+- ANTHROPIC_API_KEY: found
+- GOOGLE_API_KEY: found
+- OPENROUTER_API_KEY: found
+[data-watcher] Registered 'closed_vocabularies.json' for hot-reload
+[data-watcher] Registered 'entity_extraction.md' for hot-reload
+[data-watcher] Registered 'entity_resolution.json' for hot-reload
+[startup] 2026-08-31 16:52:19
+[startup] Booting Text2SQL API version 1.1.18...
+[startup] MCP bearer authentication ENABLED on /mcp.
+[startup] Loading OpenAI API key from environment...
+[startup] OpenAI API key loaded.
+[startup] Connecting to ChromaDB at localhost:8100...
+[startup] ChromaDB connected in 0.36s.
+[startup] OpenAI embedding function initialized (text-embedding-3-large).
+[startup] Creating/loading 15 ChromaDB entity collections...
+[startup] ChromaDB entity collections ready (15) in 0.08s.
+[startup] Creating/loading anonymizedqueries cache collection...
+[startup] anonymizedqueries collection ready in 0.00s.
+[startup] Connecting to MariaDB vaugouindb at localhost:3306...
+[startup] MariaDB connected in 0.13s.
+[startup] Loading closed-vocabulary canonicals from DB (Status_name, Serie_type, Department_name, Movie_genre, Serie_genre, Technical_format)...
+[closed_vocab] Loaded canonical maps: Status_name=9, Serie_type=7, Department_name=12, Movie_genre=19, Movie_genre_db_aliases=19, Serie_genre=16, Serie_genre_db_aliases=8, Technical_format=73
+[startup] Closed-vocabulary canonicals loaded in 2.24s.
+[startup] Starting RapidFuzz BK-tree warm-up in the background (API available immediately; first RapidFuzz query may lazy-build)...
+[startup] Startup tasks complete in 2.82s. Handing off to uvicorn.
+[entity] BK-tree warm-up order (shortest first): T_WC_T2S_COLLECTION(~4595), T_WC_T2S_PERSON(~362489), T_WC_TMDB_PERSON_ALSO_KNOWN_AS(~5752261)
+[entity] BK-tree ready for T_WC_T2S_COLLECTION.COLLECTION_NAME_NORM: 4893 entries in 0.3s
+Catalogue : Collection_name=40
+[entity] BK-tree ready for T_WC_T2S_PERSON.PERSON_NAME_NORM: 330219 entries in 31.2s
+Corpus : negative-cross=40, negative-invent=10, observed-unscored=40, observed-unscored-typo=34, positive-catalogue=40, positive-catalogue-typo=38
+Valeurs tirees du cache d'archives : 3404
+Suspects a trier a la main (jamais score 1) : 0
+Types completes depuis le vivier NON score, verite de terrain plus faible : Collection_name
+   100/202 cas resolus
+   200/202 cas resolus
+
+### Collection_name   78 positifs, 48 negatifs (2 croisements ecartes, candidat legitime)
+   fuzz_ratio  positifs n=78 med=100.0 min=33.3 | negatifs n=48 med=50.0 max=72.0
+               seuil propose >= 73.50  (legitimes refuses 6, intrus acceptes 0)
+               tout seuil de 72.00 a 75.00 donne le meme resultat ; le milieu
+               est retenu comme le plus eloigne des deux distributions
+   distance    positifs n=13 med=0.7 min=0.5 | negatifs n=28 med=1.3 max=1.5
+               AUCUNE recommandation : 13 positifs sur 78 seulement portent
+               ce champ, et ce sont ceux que l'autre voie a rates,
+               donc un echantillon petit ET biaise
+   observe    n=74 med=97.6, dont 12 sous 50 : autant de resolutions
+              deja servies en production et probablement fausses
+                r= 26.7  Noriok Trilogy             -> The Murmuring Trilogy
+                r= 27.8  trois couleurs bleu blanc  -> Trois
+                r= 27.8  trois coulerus bleu blanc  -> Trois
+                r= 28.6  Roai Movie Trilogy         -> The War Trilogy
+                r= 32.3  trilogie de l'Imagintaion  -> Trilogy of Mil Mascaras
+   croisements ecartes, le candidat contient la valeur injectee :
+                r=100.0  Star Wars universe         -> Star Wars Collection
+                r=100.0  Greenland                  -> Greenland Collection
+
+Ecrit dans /app/eval/data/bench-entity-resolution.json
