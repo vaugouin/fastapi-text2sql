@@ -35,7 +35,7 @@ except ImportError:
 
 import pymysql
 from rapidfuzz import process, fuzz
-from rapidfuzz.distance import Levenshtein
+from rapidfuzz.distance import Levenshtein, DamerauLevenshtein
 
 def levenshtein_distance(a: str, b: str) -> int:
     return int(Levenshtein.distance(a or "", b or ""))
@@ -131,6 +131,7 @@ def to_key(s: str) -> str:
 # column is extended for production. Decided with Philippe (2026-07-12): Tier 1
 # + series + n-logies; abbreviations (MCU, DCEU) and articles deliberately excluded.
 import unicodedata as _unicodedata
+from functools import lru_cache as _lru_cache
 
 _FRANCHISE_STOPWORD_WORDS = (
     # English
@@ -153,6 +154,59 @@ def _fold_ascii(s: str) -> str:
 
 _FRANCHISE_STOPWORDS = frozenset(_fold_ascii(w) for w in _FRANCHISE_STOPWORD_WORDS)
 
+# ---- Retrait TOLERANT AUX FAUTES DE FRAPPE (FASTAPI-TEXT2SQL-236, 2026-08-31) --------
+#
+# POURQUOI. Le retrait par egalite exacte est ASYMETRIQUE des que le descripteur porte
+# une faute, et l'asymetrie joue toujours dans le mauvais sens : le cote STOCKE est
+# propre par construction et se fait neutraliser, le cote TAPE garde son « collecion ».
+# On compare alors « cube collecion » a « cube ». Mesure du banc du 2026-08-31 : les
+# VINGT-ET-UN positifs refuses par la garde etaient tous de cette famille, quinze avec le
+# bon candidat en face. « Cube Collecion » notait 44,4 et « John Wick Cllection » 64,3.
+#
+# LE REGLAGE, et chacun de ses trois termes a ete mesure, pas devine.
+#
+# DAMERAU plutot que Levenshtein : la transposition est la faute la plus frequente, et
+# elle coute 2 en Levenshtein contre 1 en Damerau. « colelction », « collectoin »,
+# « trilgoy » sont a distance 1 en Damerau et seraient manques autrement. Sur les 31
+# fautes observees, Damerau en attrape 30, Levenshtein 21.
+#
+# DISTANCE 1 et pas 2, et c'est la que se joue la casse collaterale. A distance 2,
+# « connection » tombe a portee de « collection » : « The French Connection » perdrait
+# son mot. A distance 1 il est hors d'atteinte.
+#
+# LONGUEUR MINIMALE 6, des deux cotes. Elle protege les mots courts, « cube » ne peut
+# pas etre avale, et elle exclut du rapprochement flou les descripteurs courts, « la »
+# ne peut pas manger « le ». Seuls les descripteurs longs (collection, trilogy,
+# franchise...) sont approches.
+#
+# LE FAUX RETRAIT QUI SUBSISTE, nomme plutot que masque : « francoise » est a distance 1
+# de « franchise ». Un prenom serait donc neutralise. Le degat reste faible parce que le
+# retrait s'applique aux DEUX cotes : un « Francoise » present des deux cotes disparait
+# des deux cotes et la comparaison n'en souffre pas. Il ne coute que la ou un seul cote
+# le porte. Un seul token sur les 400 observes.
+_FUZZY_STOPWORD_MIN_LEN = 6
+_FUZZY_STOPWORD_MAX_DISTANCE = 1
+
+
+@_lru_cache(maxsize=8192)
+def _is_near_stopword(token: str, vocabulary: frozenset) -> bool:
+    """Le token est-il une faute de frappe d'un descripteur de ce vocabulaire ?
+
+    Mis en cache : `rank_candidates` neutralise CHAQUE candidat du vivier, donc le meme
+    token revient des milliers de fois par requete. Le pre-filtre sur la difference de
+    longueur ecarte la quasi-totalite des comparaisons avant de payer une distance.
+    """
+    if len(token) < _FUZZY_STOPWORD_MIN_LEN:
+        return False
+    for word in vocabulary:
+        if len(word) < _FUZZY_STOPWORD_MIN_LEN:
+            continue
+        if abs(len(token) - len(word)) > _FUZZY_STOPWORD_MAX_DISTANCE:
+            continue
+        if DamerauLevenshtein.distance(token, word) <= _FUZZY_STOPWORD_MAX_DISTANCE:
+            return True
+    return False
+
 
 def strip_franchise_words(norm: str, words=None) -> str:
     """Remove generic franchise/collection words from an ALREADY-normalized string.
@@ -170,7 +224,16 @@ def strip_franchise_words(norm: str, words=None) -> str:
     vocabulary = _FRANCHISE_STOPWORDS if words is None else frozenset(_fold_ascii(w) for w in words)
     if not vocabulary:
         return norm
-    kept = [tok for tok in norm.split() if _fold_ascii(tok) not in vocabulary]
+    kept = []
+    for tok in norm.split():
+        folded = _fold_ascii(tok)
+        if folded in vocabulary:
+            continue
+        # -236 : la meme neutralisation, tolerante a UNE faute de frappe. Voir la note
+        # posee sur _is_near_stopword pour le choix de la distance et de la longueur.
+        if _is_near_stopword(folded, vocabulary):
+            continue
+        kept.append(tok)
     stripped = " ".join(kept)
     return stripped if stripped else norm
 
