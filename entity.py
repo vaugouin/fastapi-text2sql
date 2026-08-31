@@ -1018,6 +1018,7 @@ def plan_entity_resolutions(
                         # (rapidfuzz_query.py, -236), et le garde empty_query teste cette meme
                         # forme, si bien qu'une valeur faite uniquement de descripteurs garde
                         # ses canaux au lieu de ne rien rendre.
+                        best = (rapidfuzz_result or {}).get("best")
                         if not isinstance(best, dict):
                             planned.note(f"Entity resolution: {placeholder} -> no RapidFuzz candidate at all in {strtablename} for '{raw_value}'; falling through to the next strategy")
                             continue
