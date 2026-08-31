@@ -166,6 +166,33 @@
           "fr": "LIST_NAME_FR",
           "*": "LIST_NAME"
         },
+        "score_metric": "token_subset",
+        "score_stopwords": [
+          "list",
+          "lists",
+          "liste",
+          "listes",
+          "the",
+          "a",
+          "an",
+          "and",
+          "of",
+          "all",
+          "et",
+          "le",
+          "la",
+          "les",
+          "des",
+          "du",
+          "greatest",
+          "best",
+          "meilleurs",
+          "time",
+          "edition",
+          "version",
+          "poll",
+          "sondage"
+        ],
         "min_fuzz_ratio": 67.1
       }
     ]
