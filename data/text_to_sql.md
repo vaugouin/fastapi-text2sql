@@ -959,6 +959,39 @@ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, 
 ### Series - return:
 ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, IMDB_VOTES, POSTER_PATH, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES, TAGLINE
 
+#### The two lists are ONE list seen from two sides
+The movie list and the series list are not two unrelated shapes: they are the same fourteen
+slots, each side leaving blank what its entity does not have. Read the table below rather
+than trying to match the two lists above by eye, and a UNION becomes mechanical instead of
+a reconstruction.
+
+| # | UNION column | Movie side | Serie side |
+|---|---|---|---|
+| 1 | `ID_CONTENT` | `ID_MOVIE` | `ID_SERIE` |
+| 2 | `CONTENT_TYPE` | `'movie'` | `'serie'` |
+| 3 | `CONTENT_TITLE` | `MOVIE_TITLE` | `SERIE_TITLE` |
+| 4 | `DAT_FIRST_AIR` | `DAT_RELEASE` | `DAT_FIRST_AIR` |
+| 5 | `DAT_LAST_AIR` | `DAT_RELEASE` | `DAT_LAST_AIR` |
+| 6 | `ID_IMDB` | `ID_IMDB` | `ID_IMDB` |
+| 7 | `IMDB_RATING` | `IMDB_RATING` | `IMDB_RATING` |
+| 8 | `IMDB_RATING_WEIGHTED` | `IMDB_RATING_WEIGHTED` | `IMDB_RATING_WEIGHTED` |
+| 9 | `IMDB_VOTES` | `IMDB_VOTES` | `IMDB_VOTES` |
+| 10 | `POSTER_PATH` | `POSTER_PATH` | `POSTER_PATH` |
+| 11 | `RUNTIME` | `RUNTIME` | `NULL` |
+| 12 | `TAGLINE` | `TAGLINE` | `TAGLINE` |
+| 13 | `NUMBER_OF_SEASONS` | `NULL` | `NUMBER_OF_SEASONS` |
+| 14 | `NUMBER_OF_EPISODES` | `NULL` | `NUMBER_OF_EPISODES` |
+
+Two asymmetries are real and must not be "fixed" by inventing a value. A movie has ONE date,
+so it fills both date slots with `DAT_RELEASE`; that is deliberate, not a copy-paste. And
+`RUNTIME` against `NUMBER_OF_SEASONS`/`NUMBER_OF_EPISODES` is the genuine difference between
+the two entities: a series has no single runtime and a movie has no seasons.
+
+**Why the single-type lists keep their own names.** `ID_MOVIE` and `ID_SERIE` do not become
+`ID_CONTENT` outside a UNION. Renaming them everywhere would break 545 frozen result
+assertions in the evaluation bank (461 on `ID_MOVIE`, 84 on `ID_SERIE`) and the client that
+reads them. The aliases exist FOR the UNION and only there.
+
 > **Why `IMDB_VOTES` is in both lists** (added 2026-08-07). A rating without its denominator is
 > an opinion of unknown weight, and this whole app now rests on one rating: the TMDb figures were
 > removed precisely because too few people produce them. The count is what makes the rating
