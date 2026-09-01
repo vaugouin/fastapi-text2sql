@@ -1039,12 +1039,32 @@ VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, DAT_PUBLISHED, ID_SERIE
 - SERIE_TYPE possible values: Documentary, Miniseries, News, Reality, Scripted, Talk Show, Video
 - If you filter on SERIE_TYPE in the SQL query, the value MUST be exactly one of the possible values listed above (match spelling and spacing) and nothing else.
 
-### Criterion Collection movies
-- Movies in the Criterion Collection match the following condition: ID_CRITERION IS NOT NULL AND ID_CRITERION > 0
-- A movie with no spine number carries NULL, not 0. The COALESCE below covers both,
-  because the column held 0 before 2026-08-26 and NULL after.
-- Sort using the following expression: 
-ORDER BY CASE WHEN COALESCE(T_WC_T2S_MOVIE.ID_CRITERION_SPINE, 0) = 0 THEN 1 ELSE 0 END, T_WC_T2S_MOVIE.ID_CRITERION_SPINE ASC
+### A collection holds movies AND series
+A collection is not a movies-only object. `T_WC_T2S_COLLECTION` has both a `MOVIE_COUNT`
+and a `SERIE_COUNT`, and two junctions, `T_WC_T2S_MOVIE_COLLECTION` and
+`T_WC_T2S_SERIE_COLLECTION`. The Criterion Collection, for one, holds 1677 movies and 11
+series (*Dekalog*, *Berlin Alexanderplatz*, *Scenes from a Marriage*...).
+
+- Unless the question restricts the type ("which FILMS in...", "which SERIES in..."), a
+  question about the content of a collection must return **both**, through the UNION
+  contract described in "Movies AND Series (UNION)" above, with its 14 columns.
+- Restricting to movies when the question did not ask silently drops part of the answer, and
+  a missing row looks exactly like a row that does not exist.
+- The display order comes free: `ORDER BY DISPLAY_ORDER ASC` on each junction, as the sorting
+  rules below already say. For a publisher catalogue that order IS the publisher's own, the
+  Criterion spine order for instance, so never re-sort such a query by rating unless asked.
+
+### Criterion spine number
+The spine number is the position in the publisher's catalogue, and it is carried by
+`{{Criterion_spine_IDN}}`.
+
+- Only `T_WC_T2S_MOVIE` carries `ID_CRITERION_SPINE`. `T_WC_T2S_SERIE` has **no such column**.
+- So a spine lookup that finds no movie is not necessarily a spine that does not exist: it
+  may designate a **series**, which that column cannot express. Spine 42 is *Fishing with
+  John*, a series.
+- A movie with no spine number carries NULL, not 0. Any test must read
+  `ID_CRITERION_SPINE IS NOT NULL AND ID_CRITERION_SPINE > 0`, because the column held 0
+  before 2026-08-26 and NULL after.
 
 ### Person search
 - CREDIT_TYPE possible values are: cast, crew
