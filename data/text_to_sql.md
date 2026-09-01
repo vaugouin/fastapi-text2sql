@@ -1003,8 +1003,24 @@ reads them. The aliases exist FOR the UNION and only there.
 
 ### Movies AND Series (UNION) - return for a movie and for a serie:
 CRITICAL: both SELECT sides of the UNION must have exactly the same number of columns (14). Use NULL placeholders for columns that do not exist on one side. Never use the Movies-only or Series-only column lists above for a UNION query.
-Movie side: ID_MOVIE AS ID_CONTENT, 'movie' AS CONTENT_TYPE, MOVIE_TITLE AS CONTENT_TITLE, DAT_RELEASE AS DAT_FIRST_AIR, DAT_RELEASE AS DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, IMDB_VOTES, POSTER_PATH, RUNTIME, TAGLINE, NULL AS NUMBER_OF_SEASONS, NULL AS NUMBER_OF_EPISODES
-Serie side: ID_SERIE AS ID_CONTENT, 'serie' AS CONTENT_TYPE, SERIE_TITLE AS CONTENT_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, IMDB_VOTES, POSTER_PATH, NULL AS RUNTIME, TAGLINE, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES
+
+**QUALIFY EVERY COLUMN WITH ITS TABLE.** This is not a style preference, it is the difference
+between a query that runs and one that does not. A UNION side almost always JOINs a junction
+table, and `T_WC_T2S_MOVIE_COLLECTION` also carries a column named `ID_MOVIE`, exactly as
+`T_WC_T2S_SERIE_COLLECTION` carries `ID_SERIE`, and the same holds for the `_LIST`,
+`_MOVEMENT` and `_TOPIC` junctions. An unqualified `ID_MOVIE` in the field list then fails
+with `ERROR 1052: Column 'ID_MOVIE' in field list is ambiguous`. Measured on 2026-09-01 with
+"Films et séries dans la Collection Criterion".
+
+Movie side: T_WC_T2S_MOVIE.ID_MOVIE AS ID_CONTENT, 'movie' AS CONTENT_TYPE, T_WC_T2S_MOVIE.MOVIE_TITLE AS CONTENT_TITLE, T_WC_T2S_MOVIE.DAT_RELEASE AS DAT_FIRST_AIR, T_WC_T2S_MOVIE.DAT_RELEASE AS DAT_LAST_AIR, T_WC_T2S_MOVIE.ID_IMDB, T_WC_T2S_MOVIE.IMDB_RATING, T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED, T_WC_T2S_MOVIE.IMDB_VOTES, T_WC_T2S_MOVIE.POSTER_PATH, T_WC_T2S_MOVIE.RUNTIME, T_WC_T2S_MOVIE.TAGLINE, NULL AS NUMBER_OF_SEASONS, NULL AS NUMBER_OF_EPISODES
+Serie side: T_WC_T2S_SERIE.ID_SERIE AS ID_CONTENT, 'serie' AS CONTENT_TYPE, T_WC_T2S_SERIE.SERIE_TITLE AS CONTENT_TITLE, T_WC_T2S_SERIE.DAT_FIRST_AIR, T_WC_T2S_SERIE.DAT_LAST_AIR, T_WC_T2S_SERIE.ID_IMDB, T_WC_T2S_SERIE.IMDB_RATING, T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED, T_WC_T2S_SERIE.IMDB_VOTES, T_WC_T2S_SERIE.POSTER_PATH, NULL AS RUNTIME, T_WC_T2S_SERIE.TAGLINE, T_WC_T2S_SERIE.NUMBER_OF_SEASONS, T_WC_T2S_SERIE.NUMBER_OF_EPISODES
+
+**Sorting a UNION.** `DISPLAY_ORDER` is NOT available here, and forcing it is a mistake. It
+belongs to the junction, it is absent from the fourteen projected columns, and each junction
+counts from 1 on its own side, so movie 1 and serie 1 would interleave meaninglessly. A
+UNION therefore sorts on a column it actually projects, `ORDER BY IMDB_RATING_WEIGHTED DESC`
+by default. The `DISPLAY_ORDER` rule stated in the sorting section applies to SINGLE-TYPE
+queries, where the junction is in scope and its counter is the publisher's own order.
 
 #### Topics – return:
 ID_TOPIC, TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG, ID_RECORD, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING
@@ -1083,9 +1099,13 @@ series (*Dekalog*, *Berlin Alexanderplatz*, *Scenes from a Marriage*...).
   contract described in "Movies AND Series (UNION)" above, with its 14 columns.
 - Restricting to movies when the question did not ask silently drops part of the answer, and
   a missing row looks exactly like a row that does not exist.
-- The display order comes free: `ORDER BY DISPLAY_ORDER ASC` on each junction, as the sorting
-  rules below already say. For a publisher catalogue that order IS the publisher's own, the
-  Criterion spine order for instance, so never re-sort such a query by rating unless asked.
+- For a SINGLE-TYPE query the display order comes free: `ORDER BY DISPLAY_ORDER ASC` on the
+  junction, as the sorting rules below already say. For a publisher catalogue that order IS
+  the publisher's own, the Criterion spine order for instance, so never re-sort such a query
+  by rating unless asked.
+- For a UNION of both types, `DISPLAY_ORDER` is out of reach and rating takes over. See
+  "Sorting a UNION" above: this is a real limit of the shape, not an oversight, and asking
+  for both types is therefore asking to lose the publisher's order.
 
 ### Criterion spine number
 The spine number is the position in the publisher's catalogue, and it is carried by
