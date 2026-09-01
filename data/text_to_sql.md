@@ -600,12 +600,24 @@ If a question is about a narrative location, ID_PROPERTY must be equal to 'P840'
 Filming locations apply to movies and series.
 If a question is about a filming location, ID_PROPERTY must be equal to 'P915' and the filming location can be found in the ITEM_LABEL column.
 
-CREATE TABLE T_WC_WIKIDATA_ITEM_PROPERTY (
-  ID_ROW INT NOT NULL,
+CREATE VIEW V_WIKIDATA_ITEM_PROPERTY (
+  ID_ROW BIGINT NOT NULL,
   ID_WIKIDATA VARCHAR(50) NOT NULL,
   ID_PROPERTY VARCHAR(50) NOT NULL,
-  ID_ITEM VARCHAR(50) DEFAULT NULL
+  ID_ITEM VARCHAR(50) DEFAULT NULL,
+  DISPLAY_ORDER INT DEFAULT NULL,
+  TIM_UPDATED DATETIME DEFAULT NULL
 );
+
+- Use V_WIKIDATA_ITEM_PROPERTY, never T_WC_WIKIDATA_ITEM_PROPERTY. The latter is a
+  legacy table that FLATTENS a statement's main value together with the values of all
+  its qualifiers under the same ID_PROPERTY. Under P166 (award received) it therefore
+  mixes, as if they were all prizes: the award itself, the ceremony that handed it out,
+  the work it was given for, and the CO-RECIPIENTS. Measured on 2026-08-29: 26,815 of
+  27,449 items under P166 were qualifier values, 6,290 of them co-recipients. The view
+  returns the main value only, and drops deprecated ranks.
+- DISPLAY_ORDER is always NULL and must never be used in an ORDER BY. Sort on ID_ROW
+  where order matters; it follows the order of the claims in the Wikidata dump.
 
 CREATE TABLE T_WC_T2S_ITEM (
   ID_WIKIDATA VARCHAR(50) NOT NULL,
@@ -748,7 +760,7 @@ CREATE TABLE T_WC_T2S_SERIE_RECOMMENDATION (
 
 ### General
 - When a field is included in the SELECT clause, it must be specified with the table name, for instance T_WC_T2S_MOVIE.ID_IMDB
-- Always use the DISTINCT keyword in the SELECT statement to remove duplicate rows from the result set. This applies even when the SELECT projects columns from only one side of a join: a join to a one-row-per-reference table (for example T_WC_WIKIDATA_ITEM_PROPERTY, which holds one row per movie/series referencing a location, or any T_WC_T2S_*_* junction table) fans out and would otherwise return the same entity repeated, so DISTINCT is required there too.
+- Always use the DISTINCT keyword in the SELECT statement to remove duplicate rows from the result set. This applies even when the SELECT projects columns from only one side of a join: a join to a one-row-per-reference table (for example V_WIKIDATA_ITEM_PROPERTY, which holds one row per movie/series referencing a location, or any T_WC_T2S_*_* junction table) fans out and would otherwise return the same entity repeated, so DISTINCT is required there too.
 - Use exact equality comparisons (=) for name, title, character, and ID matching — never use LIKE
 - MOVIE_TITLE is the main title of the movie. Always use this field to search for a movie by its title 
 - SERIE_TITLE is the main title of the tv serie. Always use this field to search for a serie by its title 
@@ -1306,10 +1318,10 @@ Time-of-day / "watch now" qualifiers — "tonight", "right now", "this evening",
 - T_WC_T2S_SERIE_IMAGE.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE
 - T_WC_T2S_MOVIE_VIDEO.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE
 - T_WC_T2S_SERIE_VIDEO.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE
-- T_WC_T2S_MOVIE.ID_WIKIDATA = T_WC_WIKIDATA_ITEM_PROPERTY.ID_WIKIDATA
-- T_WC_T2S_SERIE.ID_WIKIDATA = T_WC_WIKIDATA_ITEM_PROPERTY.ID_WIKIDATA
-- T_WC_T2S_PERSON.ID_WIKIDATA = T_WC_WIKIDATA_ITEM_PROPERTY.ID_WIKIDATA
-- T_WC_WIKIDATA_ITEM_PROPERTY.ID_ITEM = T_WC_T2S_ITEM.ID_WIKIDATA
+- T_WC_T2S_MOVIE.ID_WIKIDATA = V_WIKIDATA_ITEM_PROPERTY.ID_WIKIDATA
+- T_WC_T2S_SERIE.ID_WIKIDATA = V_WIKIDATA_ITEM_PROPERTY.ID_WIKIDATA
+- T_WC_T2S_PERSON.ID_WIKIDATA = V_WIKIDATA_ITEM_PROPERTY.ID_WIKIDATA
+- V_WIKIDATA_ITEM_PROPERTY.ID_ITEM = T_WC_T2S_ITEM.ID_WIKIDATA
 
 ---
 

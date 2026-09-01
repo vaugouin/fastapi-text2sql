@@ -6501,7 +6501,7 @@ async def get_location(wikidata_id: str, ui_language: Optional[str] = "en", coll
             "movies": ("""
                 SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED,
                        m.POSTER_PATH, wp.ID_PROPERTY, COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_WIKIDATA_ITEM_PROPERTY wp
+                FROM V_WIKIDATA_ITEM_PROPERTY wp
                 JOIN T_WC_T2S_MOVIE m ON wp.ID_WIKIDATA = m.ID_WIKIDATA
                 WHERE wp.ID_ITEM = %s AND wp.ID_PROPERTY IN ('P840', 'P915')
                 ORDER BY m.IMDB_RATING_WEIGHTED DESC, m.ID_MOVIE ASC
@@ -6509,7 +6509,7 @@ async def get_location(wikidata_id: str, ui_language: Optional[str] = "en", coll
             "series": ("""
                 SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED,
                        s.POSTER_PATH, wp.ID_PROPERTY, COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_WIKIDATA_ITEM_PROPERTY wp
+                FROM V_WIKIDATA_ITEM_PROPERTY wp
                 JOIN T_WC_T2S_SERIE s ON wp.ID_WIKIDATA = s.ID_WIKIDATA
                 WHERE wp.ID_ITEM = %s AND wp.ID_PROPERTY IN ('P840', 'P915')
                 ORDER BY s.IMDB_RATING_WEIGHTED DESC, s.ID_SERIE ASC
@@ -7546,7 +7546,7 @@ async def _mcp_database_scope() -> str:
     - Lists: T_WC_T2S_MOVIE_LIST \u2192 T_WC_T2S_LIST (DISPLAY_ORDER)
     - Awards: T_WC_T2S_MOVIE_AWARD \u2192 T_WC_T2S_AWARD (DISPLAY_ORDER)
     - Nominations: T_WC_T2S_MOVIE_NOMINATION \u2192 T_WC_T2S_NOMINATION (DISPLAY_ORDER)
-    - Locations: MOVIE.ID_WIKIDATA \u2192 T_WC_WIKIDATA_ITEM_PROPERTY
+    - Locations: MOVIE.ID_WIKIDATA \u2192 V_WIKIDATA_ITEM_PROPERTY
         ID_PROPERTY = 'P840' (narrative location) or 'P915' (filming location)
         \u2192 T_WC_T2S_ITEM (ID_WIKIDATA, ITEM_LABEL, DESCRIPTION)
 
