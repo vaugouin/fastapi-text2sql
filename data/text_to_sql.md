@@ -134,6 +134,8 @@ CREATE TABLE T_WC_T2S_SERIE (
   WIKIDATA_TITLE VARCHAR(250),
   ALIASES MEDIUMTEXT,
   PLEX_MEDIA_KEY VARCHAR(50),
+  ID_CRITERION INT,
+  ID_CRITERION_SPINE INT,
   INSTANCE_OF VARCHAR(50)
 );
 
@@ -966,13 +968,13 @@ Example, the shape to follow:
 ID_PERSON, PERSON_NAME, POPULARITY, KNOWN_FOR_DEPARTMENT, BIRTH_YEAR, DEATH_YEAR, PROFILE_PATH
 
 #### Movies – return:
-ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, IMDB_VOTES, POSTER_PATH, RUNTIME, TAGLINE
+ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, IMDB_VOTES, POSTER_PATH, RUNTIME, TAGLINE, ID_CRITERION_SPINE
 
 ### Series - return:
-ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, IMDB_VOTES, POSTER_PATH, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES, TAGLINE
+ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, IMDB_VOTES, POSTER_PATH, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES, TAGLINE, ID_CRITERION_SPINE
 
 #### The two lists are ONE list seen from two sides
-The movie list and the series list are not two unrelated shapes: they are the same fourteen
+The movie list and the series list are not two unrelated shapes: they are the same fifteen
 slots, each side leaving blank what its entity does not have. Read the table below rather
 than trying to match the two lists above by eye, and a UNION becomes mechanical instead of
 a reconstruction.
@@ -993,6 +995,13 @@ a reconstruction.
 | 12 | `TAGLINE` | `TAGLINE` | `TAGLINE` |
 | 13 | `NUMBER_OF_SEASONS` | `NULL` | `NUMBER_OF_SEASONS` |
 | 14 | `NUMBER_OF_EPISODES` | `NULL` | `NUMBER_OF_EPISODES` |
+| 15 | `ID_CRITERION_SPINE` | `ID_CRITERION_SPINE` | `ID_CRITERION_SPINE` |
+
+Slot 15 is the same column on both sides, added 2026-09-01 with the series columns. It is
+NULL for the vast majority of rows, and that is fine: it is the only way a spine-ordered
+answer can show the number it is ordered by, which is the defect FASTAPI-TEXT2SQL-191
+already documented for `IMDB_VOTES`. It sits in BOTH single-type lists too, because the two
+sides must stay identical for a UNION to remain possible.
 
 Two asymmetries are real and must not be "fixed" by inventing a value. A movie has ONE date,
 so it fills both date slots with `DAT_RELEASE`; that is deliberate, not a copy-paste. And
@@ -1014,7 +1023,7 @@ reads them. The aliases exist FOR the UNION and only there.
 > already documented**: the rows came back ordered by a number the viewer could not see.
 
 ### Movies AND Series (UNION) - return for a movie and for a serie:
-CRITICAL: both SELECT sides of the UNION must have exactly the same number of columns (14). Use NULL placeholders for columns that do not exist on one side. Never use the Movies-only or Series-only column lists above for a UNION query.
+CRITICAL: both SELECT sides of the UNION must have exactly the same number of columns (15). Use NULL placeholders for columns that do not exist on one side. Never use the Movies-only or Series-only column lists above for a UNION query.
 
 **QUALIFY EVERY COLUMN WITH ITS TABLE.** This is not a style preference, it is the difference
 between a query that runs and one that does not. A UNION side almost always JOINs a junction
@@ -1024,8 +1033,8 @@ table, and `T_WC_T2S_MOVIE_COLLECTION` also carries a column named `ID_MOVIE`, e
 with `ERROR 1052: Column 'ID_MOVIE' in field list is ambiguous`. Measured on 2026-09-01 with
 "Films et séries dans la Collection Criterion".
 
-Movie side: T_WC_T2S_MOVIE.ID_MOVIE AS ID_CONTENT, 'movie' AS CONTENT_TYPE, T_WC_T2S_MOVIE.MOVIE_TITLE AS CONTENT_TITLE, T_WC_T2S_MOVIE.DAT_RELEASE AS DAT_FIRST_AIR, T_WC_T2S_MOVIE.DAT_RELEASE AS DAT_LAST_AIR, T_WC_T2S_MOVIE.ID_IMDB, T_WC_T2S_MOVIE.IMDB_RATING, T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED, T_WC_T2S_MOVIE.IMDB_VOTES, T_WC_T2S_MOVIE.POSTER_PATH, T_WC_T2S_MOVIE.RUNTIME, T_WC_T2S_MOVIE.TAGLINE, NULL AS NUMBER_OF_SEASONS, NULL AS NUMBER_OF_EPISODES
-Serie side: T_WC_T2S_SERIE.ID_SERIE AS ID_CONTENT, 'serie' AS CONTENT_TYPE, T_WC_T2S_SERIE.SERIE_TITLE AS CONTENT_TITLE, T_WC_T2S_SERIE.DAT_FIRST_AIR, T_WC_T2S_SERIE.DAT_LAST_AIR, T_WC_T2S_SERIE.ID_IMDB, T_WC_T2S_SERIE.IMDB_RATING, T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED, T_WC_T2S_SERIE.IMDB_VOTES, T_WC_T2S_SERIE.POSTER_PATH, NULL AS RUNTIME, T_WC_T2S_SERIE.TAGLINE, T_WC_T2S_SERIE.NUMBER_OF_SEASONS, T_WC_T2S_SERIE.NUMBER_OF_EPISODES
+Movie side: T_WC_T2S_MOVIE.ID_MOVIE AS ID_CONTENT, 'movie' AS CONTENT_TYPE, T_WC_T2S_MOVIE.MOVIE_TITLE AS CONTENT_TITLE, T_WC_T2S_MOVIE.DAT_RELEASE AS DAT_FIRST_AIR, T_WC_T2S_MOVIE.DAT_RELEASE AS DAT_LAST_AIR, T_WC_T2S_MOVIE.ID_IMDB, T_WC_T2S_MOVIE.IMDB_RATING, T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED, T_WC_T2S_MOVIE.IMDB_VOTES, T_WC_T2S_MOVIE.POSTER_PATH, T_WC_T2S_MOVIE.RUNTIME, T_WC_T2S_MOVIE.TAGLINE, NULL AS NUMBER_OF_SEASONS, NULL AS NUMBER_OF_EPISODES, T_WC_T2S_MOVIE.ID_CRITERION_SPINE
+Serie side: T_WC_T2S_SERIE.ID_SERIE AS ID_CONTENT, 'serie' AS CONTENT_TYPE, T_WC_T2S_SERIE.SERIE_TITLE AS CONTENT_TITLE, T_WC_T2S_SERIE.DAT_FIRST_AIR, T_WC_T2S_SERIE.DAT_LAST_AIR, T_WC_T2S_SERIE.ID_IMDB, T_WC_T2S_SERIE.IMDB_RATING, T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED, T_WC_T2S_SERIE.IMDB_VOTES, T_WC_T2S_SERIE.POSTER_PATH, NULL AS RUNTIME, T_WC_T2S_SERIE.TAGLINE, T_WC_T2S_SERIE.NUMBER_OF_SEASONS, T_WC_T2S_SERIE.NUMBER_OF_EPISODES, T_WC_T2S_SERIE.ID_CRITERION_SPINE
 
 **Sorting a UNION.** `DISPLAY_ORDER` is NOT available here, and forcing it is a mistake. It
 belongs to the junction, it is absent from the fourteen projected columns, and each junction
@@ -1123,11 +1132,20 @@ series (*Dekalog*, *Berlin Alexanderplatz*, *Scenes from a Marriage*...).
 The spine number is the position in the publisher's catalogue, and it is carried by
 `{{Criterion_spine_IDN}}`.
 
-- Only `T_WC_T2S_MOVIE` carries `ID_CRITERION_SPINE`. `T_WC_T2S_SERIE` has **no such column**.
-- So a spine lookup that finds no movie is not necessarily a spine that does not exist: it
-  may designate a **series**, which that column cannot express. Spine 42 is *Fishing with
-  John*, a series.
-- A movie with no spine number carries NULL, not 0. Any test must read
+- **Both tables carry `ID_CRITERION_SPINE`**, `T_WC_T2S_MOVIE` and `T_WC_T2S_SERIE` alike
+  (series columns added 2026-09-01). A spine question must therefore look at BOTH, through
+  the UNION contract, unless the question restricts the type. Spine 42 is *Fishing with
+  John*, a **series**; spine 100 is a movie. Querying movies only silently loses the answer.
+- **The publisher numbers ONE sequence across formats**, so a number designates a single
+  work. Verified 2026-09-01: no number is carried by both a movie and a series, even though
+  the ranges overlap (movies 1 to 1337, series 42 to 1223). No disambiguation is needed.
+- **Look the number up on the COLUMN, never through the collection.** Spine number and
+  collection membership do NOT cover the same set. *Small Axe* carries spine 1177 while not
+  being a member of the Criterion collection, and returning it is CORRECT, since it IS spine
+  1177 at the publisher. Membership comes from a different Wikidata property than the spine
+  does, so 1227 movies carry a number against 1677 members. Routing a spine question through
+  `T_WC_T2S_MOVIE_COLLECTION` would drop the works the collection has not caught.
+- An entity with no spine number carries NULL, not 0. Any test must read
   `ID_CRITERION_SPINE IS NOT NULL AND ID_CRITERION_SPINE > 0`, because the column held 0
   before 2026-08-26 and NULL after.
 
