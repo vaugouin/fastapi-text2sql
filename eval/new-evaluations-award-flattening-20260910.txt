@@ -1,0 +1,49 @@
+-- new-evaluations-award-flattening.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-09-10 09:30:18
+--
++-------------------------+
+| SECTION                 |
++-------------------------+
+| 0. Etat avant insertion |
++-------------------------+
++----------------------------------------------+
+| SECTION                                      |
++----------------------------------------------+
+| 1. Recompenses en base pour les deux temoins |
++----------------------------------------------+
++----------------+-----------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------+-------------+
+| PERSON_NAME    | AWARD_NAME                                                                                    | AWARD_NAME_FR                                                                                | OCCURRENCES |
++----------------+-----------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------+-------------+
+| Cord Jefferson | Academy Award for Best Writing, Adapted Screenplay                                            | Oscar du meilleur scénario adapté                                                            |           1 |
+| John Williams  | Academy Award for Best Original Dramatic Score                                                | Oscar de la meilleure partition originale pour un film dramatique                            |           1 |
+| John Williams  | Academy Award for Best Original Score                                                         | Oscar de la meilleure musique de film                                                        |           1 |
+| John Williams  | Academy Award for Best Original Song Score                                                    | Oscar de la meilleure chanson originale                                                      |           1 |
+| John Williams  | AFI Life Achievement Award                                                                    | AFI Life Achievement Award                                                                   |           1 |
+| John Williams  | Classic Brit Awards                                                                           | Classic BRIT Awards                                                                          |           1 |
+| John Williams  | Disney Legends                                                                                | Disney Legend                                                                                |           1 |
+| John Williams  | Donaldson Awards                                                                              | Prix Donaldson                                                                               |           1 |
+| John Williams  | Golden Globe Awards                                                                           | Golden Globes                                                                                |           1 |
+| John Williams  | Grammy Award for Best Instrumental Composition                                                | Grammy Award de la meilleure composition instrumentale                                       |           1 |
+| John Williams  | Grammy Award for Best Score Soundtrack for Visual Media                                       | Grammy Award for Best Score Soundtrack for Visual Media                                      |           1 |
+| John Williams  | Guggenheim Fellowship                                                                         | bourse Guggenheim                                                                            |           1 |
+| John Williams  | Kennedy Center Honors                                                                         | prix Kennedy                                                                                 |           1 |
+| John Williams  | National Book Award                                                                           | National Book Award                                                                          |           1 |
+| John Williams  | National Medal of Arts                                                                        | National Medal of Arts                                                                       |           1 |
+| John Williams  | Primetime Emmy Award for Outstanding Music Composition for a Miniseries, Movie, or a Special  | Primetime Emmy Award for Outstanding Music Composition for a Miniseries, Movie, or a Special |           1 |
+| John Williams  | Primetime Emmy Award for Outstanding Music Composition for a Series (Original Dramatic Score) | Primetime Emmy Award for Outstanding Music Composition for a Series                          |           1 |
+| John Williams  | Primetime Emmy Award for Outstanding Original Main Title Theme Music                          | Primetime Emmy Award for Outstanding Original Main Title Theme Music                         |           1 |
+| John Williams  | Princess of Asturias Award for the Arts                                                       | prix Princesse des Asturies pour les arts                                                    |           1 |
+| John Williams  | Saturn Award for Best Music                                                                   | Saturn Award de la meilleure musique                                                         |           1 |
+| John Williams  | Tony Award for Best Featured Actor in a Play                                                  | Tony award du meilleur acteur dans un second rôle dans une pièce                             |           1 |
++----------------+-----------------------------------------------------------------------------------------------+----------------------------------------------------------------------------------------------+-------------+
++-------------------------+
+| SECTION                 |
++-------------------------+
+| 4. Etat apres insertion |
++-------------------------+
++-------------------+----------------------------+------------------------------------------+--------------------------------------------------------------------------------+-----------------------+
+| ID_T2S_EVALUATION | ID_T2S_EVALUATION_CATEGORY | QUESTION                                 | ASSERTIONS_QUERY_RESULT                                                        | ASSERTION_REFRESH_SQL |
++-------------------+----------------------------+------------------------------------------+--------------------------------------------------------------------------------+-----------------------+
+|              2486 |                         27 | Which awards did Cord Jefferson receive? | COUNT(*) > 0 AND AWARD_NAME NOT IN ('96th Academy Awards', 'American Fiction') | NULL                  |
+|              2487 |                         27 | Which awards did John Williams receive?  | COUNT(*) > 0 AND AWARD_NAME NOT IN ('John Williams', 'Steven Spielberg')       | NULL                  |
++-------------------+----------------------------+------------------------------------------+--------------------------------------------------------------------------------+-----------------------+
