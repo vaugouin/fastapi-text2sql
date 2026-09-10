@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (1612018, 440249, 1616131, 1173476, 426889, 1087040, 78192, 453205)"
+    "query_result": "ID_MOVIE IN (440249, 1612018, 426889, 1087040, 78192, 1616131, 1741201, 1752159)"
   },
   "assertion_refresh_sql": "SELECT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.IS_DOCUMENTARY = 1 ORDER BY T_WC_T2S_MOVIE.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-08-31T04:50:18",
+  "assertion_refresh_last": "2026-09-08T02:33:38",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

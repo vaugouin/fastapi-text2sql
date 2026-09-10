@@ -1573,6 +1573,19 @@ class Text2SQLResponse(BaseModel):
     # True when extraction returned no entity at all, so the question was never anonymized
     # and no placeholder existed to fall back (FASTAPI-TEXT2SQL-156).
     no_entity_extracted: bool = False
+    # FASTAPI-TEXT2SQL-241. What the FIRST pass did before the stronger model took over, on a
+    # retried request only; all four stay empty otherwise. Until now the retry returned the
+    # INNER response, so the SQL that failed and the reason it failed survived nowhere: not in
+    # the response, not in a log file (the outer request returned before the log write). The
+    # 2026-09-08 "Pour le plaisir" trace had to be reconstructed from prompt token counts.
+    # first_pass_failure_code is closed: text2sql_error, sql_guard_rejected,
+    # entity_fallback_unmatchable, sql_execution_error, or no_results:<signal>[+<signal>] where
+    # signal is one of unresolved_placeholder, raw_fallback, no_entity_extracted,
+    # person_role_collapse (the four signals of the no-results guard, in that order).
+    first_pass_sql_query: str = ""
+    first_pass_failure_code: str = ""
+    first_pass_failure_reason: str = ""
+    complex_retry_question: str = ""
     query_execution_time: float
     total_processing_time: float
     page: Optional[int] = None
@@ -1798,6 +1811,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     # anything (cache hit) cannot accidentally look like a resolution failure.
     entity_raw_fallback_count = 0
     no_entity_extracted = False
+    # FASTAPI-TEXT2SQL-241: why the execution block failed, when it did, so the retry that
+    # follows can record it. Set by the except branches of the execution block.
+    sql_execution_failure_code = ""
+    sql_execution_failure_reason = ""
     complex_question_processing_time = 0.0
     entity_match_scores = []
     entity_match_worst_distance = None
@@ -2583,13 +2600,31 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         text=f"Parallel entity resolution failed ({str(parallel_resolution_error)}); falling back to resolving after SQL generation."
                     ))
                     position_counter += 1
-    async def _retry_with_resolved_complex_question(*, start_message: str, success_message: str, empty_question_message: str, error_message: str):
-        """Retry the full pipeline using a stronger-model simplification of the original question."""
+    async def _retry_with_resolved_complex_question(*, start_message: str, success_message: str, empty_question_message: str, error_message: str, first_pass_sql: str = "", first_pass_failure_code: str = "", first_pass_failure_reason: str = ""):
+        """Retry the full pipeline using a stronger-model simplification of the original question.
+
+        ``first_pass_sql`` / ``first_pass_failure_code`` / ``first_pass_failure_reason`` describe
+        what the pass being abandoned did and why it failed (FASTAPI-TEXT2SQL-241). They are
+        written to the messages here, and onto the returned response once the inner pass has
+        produced it, so the record survives in the response and in the log file.
+        """
         nonlocal position_counter, complex_model_used, complex_question_processing_time
         complex_model_used = True
         messages.append(TextMessage(
             position=position_counter,
             text=start_message
+        ))
+        position_counter += 1
+        # FASTAPI-TEXT2SQL-241: say what is being abandoned, and why, BEFORE the stronger model
+        # speaks. Without these two lines the inner pass overwrites every trace of the first one.
+        messages.append(TextMessage(
+            position=position_counter,
+            text=f"First-pass SQL query (before the stronger-model retry): {first_pass_sql if first_pass_sql else '(none: SQL generation failed)'}"
+        ))
+        position_counter += 1
+        messages.append(TextMessage(
+            position=position_counter,
+            text=f"First-pass failure reason [{first_pass_failure_code or 'unknown'}]: {first_pass_failure_reason or 'not recorded'}"
         ))
         position_counter += 1
 
@@ -2637,6 +2672,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     text=success_message
                 ))
                 position_counter += 1
+                # FASTAPI-TEXT2SQL-241: the rewrite is the decision that shapes everything after
+                # it (a year the user never typed, a title turned into a person...), so it gets
+                # its own line next to the original wording, not only inside the JSON above.
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Stronger model rewrote the question as: '{retry_question}' (original question: '{original_question}')."
+                ))
+                position_counter += 1
 
                 try:
                     connection.close()
@@ -2649,6 +2692,20 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 retry_request.complex_question_already_resolved = True
 
                 retry_response = await search_text2sql(retry_request, api_key)
+
+                # FASTAPI-TEXT2SQL-241: the INNER response is what gets returned and logged for
+                # the original question, so the first-pass record has to be carried onto it.
+                try:
+                    retry_response.first_pass_sql_query = first_pass_sql or ""
+                    retry_response.first_pass_failure_code = first_pass_failure_code or ""
+                    retry_response.first_pass_failure_reason = first_pass_failure_reason or ""
+                    retry_response.complex_retry_question = retry_question
+                except Exception as _fp_exc:
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=f"Complex retry: could not attach the first-pass record ({type(_fp_exc).__name__}: {_fp_exc}); it survives only in these messages."
+                    ))
+                    position_counter += 1
 
                 reasoning_justification = str(retry_payload.get("justification") or "").strip()
                 if reasoning_justification != "":
@@ -2775,6 +2832,20 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 except Exception:
                     pass
 
+                # FASTAPI-TEXT2SQL-241: log the request the USER made. The inner pass wrote its
+                # own file (there, request.question is the rewritten question and
+                # complex_question_already_resolved is true); this early return used to skip
+                # the log write at the end of the function, so the file for the original
+                # question, with the merged messages and the first-pass record, never existed.
+                try:
+                    logs.log_usage(
+                        "text2sql_post",
+                        {"request": request.model_dump(), "response": retry_response.model_dump()},
+                        strapiversion,
+                    )
+                except Exception as _log_exc:
+                    print(f"Failed to log the retried request: {str(_log_exc)}")
+
                 return retry_response
 
             messages.append(TextMessage(
@@ -2831,7 +2902,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 start_message=f"Attempting to simplify the original question using the stronger model '{strcomplexquestionmodel}' (one-time retry).",
                 success_message=f"Text2SQL error detected; attempting one-time retry with simplified question from stronger model '{strcomplexquestionmodel}'.",
                 empty_question_message="Complex question resolution did not return a simplified question; skipping retry.",
-                error_message="Complex question resolution returned an error; skipping retry."
+                error_message="Complex question resolution returned an error; skipping retry.",
+                first_pass_sql=sql_query or "",
+                first_pass_failure_code="text2sql_error",
+                first_pass_failure_reason=f"SQL generation returned an error: {error_text2sql}",
             )
             if retry_response is not None:
                 return retry_response
@@ -3040,6 +3114,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 # is the flag can_retry_sql_execution_error already reads.
                 print(f"Entity fallback unmatchable, execution skipped: {e}")
                 sql_execution_failed = True
+                sql_execution_failure_code = "entity_fallback_unmatchable"
+                sql_execution_failure_reason = f"execution skipped: {e} entity value(s) fell back to raw non-Latin words that cannot match a canonical name column"
                 messages.append(TextMessage(
                     position=position_counter,
                     text=(
@@ -3055,6 +3131,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 # nothing new. See FASTAPI-TEXT2SQL-223.
                 print(f"SQL guard rejected the generated query: {e}")
                 sql_execution_failed = True
+                sql_execution_failure_code = "sql_guard_rejected"
+                sql_execution_failure_reason = f"rejected before execution, leading-wildcard LIKE: ...{e}..."
                 messages.append(TextMessage(
                     position=position_counter,
                     text=(
@@ -3068,6 +3146,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             except Exception as e:
                 print(f"Database operation failed: {e}")
                 sql_execution_failed = True
+                sql_execution_failure_code = "sql_execution_error"
+                sql_execution_failure_reason = f"database error: {str(e)}"
                 messages.append(TextMessage(
                     position=position_counter, 
                     text=f"Database query execution failed: {str(e)}"
@@ -3109,7 +3189,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 start_message=f"SQL query execution failed; attempting to simplify the original question using the stronger model '{strcomplexquestionmodel}' (one-time retry).",
                 success_message=f"SQL execution error detected; attempting one-time retry with simplified question from stronger model '{strcomplexquestionmodel}'.",
                 empty_question_message="Complex question resolution did not return a simplified question; skipping SQL-execution-error retry.",
-                error_message="Complex question resolution returned an error; skipping SQL-execution-error retry."
+                error_message="Complex question resolution returned an error; skipping SQL-execution-error retry.",
+                first_pass_sql=sql_query or "",
+                first_pass_failure_code=sql_execution_failure_code or "sql_execution_error",
+                first_pass_failure_reason=sql_execution_failure_reason or "execution failed (reason not recorded)",
             )
             if retry_response is not None:
                 return retry_response
@@ -3348,11 +3431,30 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 text="0 rows and the SQL constrains the person being listed to be the person named in the question (person-role collapse); the empty result is a query defect, not an answer."
             ))
             position_counter += 1
+        # FASTAPI-TEXT2SQL-241: name the signal(s) that opened this retry, in the order the guard
+        # lists them, so the log says which failure of the first pass is being repaired.
+        _no_results_codes = []
+        _no_results_reasons = []
+        if ambiguous_question_for_text2sql:
+            _no_results_codes.append("unresolved_placeholder")
+            _no_results_reasons.append("a placeholder survived in the SQL, so the query was never executed")
+        if entity_raw_fallback_count > 0:
+            _no_results_codes.append("raw_fallback")
+            _no_results_reasons.append(f"{entity_raw_fallback_count} entity value(s) fell back to the raw question words because no resolver matched")
+        if no_entity_extracted:
+            _no_results_codes.append("no_entity_extracted")
+            _no_results_reasons.append("extraction returned no entity, so the question was never anonymized: no ChromaDB resolution and no language-specific title/name expansion were applied, the raw words were compared to the canonical column only")
+        if person_role_collapse:
+            _no_results_codes.append("person_role_collapse")
+            _no_results_reasons.append("the SQL pins the person listed to the person named, a shape that can only return that one person")
         retry_response = await _retry_with_resolved_complex_question(
             start_message=f"SQL query returned 0 rows; attempting to simplify the original question using the stronger model '{strcomplexquestionmodel}' (one-time retry).",
             success_message=f"No-results detected; attempting one-time retry with simplified question from stronger model '{strcomplexquestionmodel}'.",
             empty_question_message="Complex question resolution did not return a simplified question; skipping no-results retry.",
-            error_message="Complex question resolution returned an error; skipping no-results retry."
+            error_message="Complex question resolution returned an error; skipping no-results retry.",
+            first_pass_sql=sql_query or "",
+            first_pass_failure_code="no_results:" + ("+".join(_no_results_codes) if _no_results_codes else "unknown"),
+            first_pass_failure_reason="0 rows on page 1; " + ("; ".join(_no_results_reasons) if _no_results_reasons else "no guard signal recorded"),
         )
         if retry_response is not None:
             return retry_response

@@ -828,6 +828,46 @@ When delegating to `entity.resolve_entities()` or `_retry_with_resolved_complex_
 
 ---
 
+## The first pass of a retried request is recorded (FASTAPI-TEXT2SQL-241)
+
+When one of the three complex-retry paths fires (text2sql error, execution failure, 0 rows on
+page 1), `_retry_with_resolved_complex_question` reruns the whole pipeline on the stronger
+model's rewrite and returns the INNER response, with the outer messages merged in front. Before
+-241 the SQL that failed and the reason it failed survived nowhere: that early return skipped
+the `logs.log_usage` call at the end of `search_text2sql`, so the only file on disk was the
+inner pass's, whose `request.question` is the rewritten question. The 2026-09-08 "Pour le
+plaisir" trace had to be reconstructed from the prompt-cache token counts leaked into that
+file (8989 for extraction and 23437 for text2sql fit only the raw, unanonymized phrase), then
+confirmed in the container stdout. Now:
+
+- **Four response fields**, empty unless a retry happened: `first_pass_sql_query`,
+  `first_pass_failure_code`, `first_pass_failure_reason`, `complex_retry_question`. They are set
+  on the inner response right after it is produced, so the returned object and the outer log
+  file carry them; the inner log file, written before that, does not.
+- **Three messages**, written by the retry helper BEFORE the stronger model is called:
+  `First-pass SQL query (before the stronger-model retry): ...`, `First-pass failure reason
+  [<code>]: ...`, and once the rewrite is known, `Stronger model rewrote the question as: '...'
+  (original question: '...').` The wording of the pre-existing retry messages is untouched:
+  `analyze-complex-retry-logs.py` keys on `SQL query returned 0 rows; attempting to simplify`.
+- **The outer request is logged too**, from the helper's return, so a retried question now
+  produces TWO files: the inner one (`request.complex_question_already_resolved` true, rewritten
+  question, no first-pass fields) and the outer one (the user's own wording, merged messages,
+  first-pass fields). Anything that counts questions from the log folder must skip the inner
+  file (FASTAPI-TEXT2SQL-246).
+- **`first_pass_failure_code` is a closed vocabulary**: `text2sql_error`, `sql_guard_rejected`,
+  `entity_fallback_unmatchable`, `sql_execution_error`, or `no_results:<signal>[+<signal>]`
+  where the signals are those of the no-results guard, in the guard's own order:
+  `unresolved_placeholder`, `raw_fallback`, `no_entity_extracted`, `person_role_collapse`. The
+  execution branch records its code in `sql_execution_failure_code` / `_reason`, set by the
+  three `except` clauses of the execution block; extend that pair when you add an `except`.
+
+What the "Pour le plaisir" trace taught, and why it is worth reading a first pass: extraction
+returned no entity for the bare French phrase, so no ChromaDB resolution ran and no
+language-specific expansion (`MOVIE_TITLE_FR` / `ORIGINAL_TITLE`, added by the resolver for
+`lang=fr`) was applied. The generated `MOVIE_TITLE = 'Pour le plaisir'` compared the French
+title to the English column and found nothing. `_localize_search_rows` then displays the French
+title in `MOVIE_TITLE` for a `fr` UI, which hides the mismatch from anyone reading results.
+
 ## Cache API-version filtering
 
 All cache reads and writes must pass `strapiversionformatted` (`XXX.YYY.ZZZ`), never the raw `strapiversion`. The `sql_cache` helpers already take the formatted version as a parameter — pass it through, do not recompute.
@@ -906,6 +946,12 @@ A query returning **0 rows on page 1** is written to no cache tier: not the exac
 
 ### Gotcha #8c : Signal (d) of the no-results guard reads the SQL, not the resolution (FASTAPI-TEXT2SQL-211)
 The three original signals of **-156** all watch **entity resolution**, so an empty result whose entities all resolved was declared authoritative. Signal (d) is the first one to look at the query itself, via `sql_shapes.detect_person_role_collapse`. It is a **suspicion, not a proof**, and that is deliberate: firing wrongly costs one stronger-model call on a result that was **already empty**, while missing it hands the user a silent "no results" on an answerable question. Keep that asymmetry in mind before tightening it. Before widening it, run `analyze-complex-retry-logs.py`, whose `person-role collapse` column reports how many blocked empties, and how many **authoritative** ones, the signal moves. Local corpus on 2026-08-26: 4 fires out of 438 logs, all 4 the same defect, 2 of them previously classified AUTHORITATIVE.
+
+### Gotcha #8d : A retried request writes two log files (FASTAPI-TEXT2SQL-241)
+The inner pass logs itself (`request.question` is the stronger model's rewrite,
+`complex_question_already_resolved` true), and since -241 the outer request logs the merged
+response too. Counting questions from `logs/` without skipping the inner file counts a retried
+question twice. The outer file is the complete record: it alone carries the `first_pass_*` fields.
 
 ### Gotcha #9 — Closed-Vocabulary Resolution
 `Movie_genre`, `Serie_genre`, `Technical_format`, `Status_name`, `Serie_type`, and `Department_name` are resolved via [closed_vocab.py](closed_vocab.py): canonicals from the database at startup, aliases from [data/closed_vocabularies.json](data/closed_vocabularies.json) (hot-reloaded). Typo tolerance is uniform via RapidFuzz with `score_cutoff=85` and `margin=5`. Genre placeholders and `Technical_format` substitute integers (no quotes); `Status_name`, `Serie_type`, and `Department_name` substitute single-quoted canonical strings. `Movie_genre` and `Serie_genre` draw from the same `T_WC_TMDB_GENRE` table but each loader query filters by the `APPLIES_TO_MOVIE` / `APPLIES_TO_SERIE` flag, so a question filtering movies cannot resolve to a TV-only genre (e.g. `Reality`, `Sci-Fi & Fantasy`) and vice versa.
