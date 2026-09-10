@@ -1586,6 +1586,17 @@ class Text2SQLResponse(BaseModel):
     first_pass_failure_code: str = ""
     first_pass_failure_reason: str = ""
     complex_retry_question: str = ""
+    # FASTAPI-TEXT2SQL-242. What became of the cache row for the ORIGINAL question after a
+    # retry: "stored", "skipped:empty_result" (the -212 rule), or "skipped:added_constraint
+    # (...)" when the stronger model's rewrite carries a year the user never typed. Empty
+    # without a retry.
+    complex_retry_cache_policy: str = ""
+    # FASTAPI-TEXT2SQL-244. Outcome of the deterministic rescue that runs when the first pass
+    # returns 0 rows with no entity extracted: "" (not attempted), "no_literal" (nothing in the
+    # SQL to resolve), "resolver_found_nothing" (raw fallback, first-pass SQL stands),
+    # "rescued" (re-executed with the resolved value and rows came back), "still_empty"
+    # (re-executed, still 0 rows, stronger model next) or "error".
+    no_entity_rescue_outcome: str = ""
     query_execution_time: float
     total_processing_time: float
     page: Optional[int] = None
@@ -1815,6 +1826,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     # follows can record it. Set by the except branches of the execution block.
     sql_execution_failure_code = ""
     sql_execution_failure_reason = ""
+    # FASTAPI-TEXT2SQL-244: outcome of the no-entity rescue, "" until it is attempted.
+    no_entity_rescue_outcome = ""
     complex_question_processing_time = 0.0
     entity_match_scores = []
     entity_match_worst_distance = None
@@ -2765,15 +2778,55 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 # becomes the permanent answer to the question that triggered it.
                 retry_rows = getattr(retry_response, "result", None)
                 retry_returned_nothing = isinstance(retry_rows, list) and len(retry_rows) == 0
-                retry_store_allowed = bool(request.store_to_cache) and not (
-                    retry_returned_nothing and not CACHE_EMPTY_RESULTS
+
+                # FASTAPI-TEXT2SQL-242. The retry exists to repair a resolution, not to add a
+                # constraint. A rewrite that carries a year the user never typed ("Pour le
+                # plaisir" -> "Movie Pour le plaisir (2004)", from the model's memory, on
+                # 2026-09-08) must not be frozen under the original wording: the row would
+                # answer a narrower question than the one asked, for everyone, until the
+                # version bumps. The inner pass has already cached the rewritten question under
+                # its own wording, so nothing is lost. Two belts: the years written in the retry
+                # question, and the year placeholders the inner extraction produced.
+                _year_re = re.compile(r"\b(?:1[89]\d{2}|20\d{2})\b")
+                _original_years = set(_year_re.findall(original_question or ""))
+                _retry_years = set(_year_re.findall(retry_question or ""))
+                _added_years = sorted(_retry_years - _original_years)
+                _inner_extraction = getattr(retry_response, "entity_extraction", None)
+                _added_year_keys = []
+                if isinstance(_inner_extraction, dict) and not _original_years:
+                    _added_year_keys = sorted(
+                        str(k) for k in _inner_extraction if re.match(r"(?:Release|Birth|Death)_year", str(k))
+                    )
+                _rewrite_added_constraint = ""
+                if _added_years:
+                    _rewrite_added_constraint = "year " + ", ".join(_added_years)
+                elif _added_year_keys:
+                    _rewrite_added_constraint = "year placeholder " + ", ".join(_added_year_keys)
+
+                retry_store_allowed = (
+                    bool(request.store_to_cache)
+                    and not (retry_returned_nothing and not CACHE_EMPTY_RESULTS)
+                    and not _rewrite_added_constraint
                 )
-                if request.store_to_cache and not retry_store_allowed:
+                _retry_cache_policy = "stored" if retry_store_allowed else "skipped:not_requested"
+                if request.store_to_cache and retry_returned_nothing and not CACHE_EMPTY_RESULTS:
+                    _retry_cache_policy = "skipped:empty_result"
                     messages.append(TextMessage(
                         position=position_counter,
                         text="Stronger-model retry also returned 0 rows; not caching it under the original question (set CACHE_EMPTY_RESULTS=1 to restore caching)."
                     ))
                     position_counter += 1
+                elif request.store_to_cache and _rewrite_added_constraint:
+                    _retry_cache_policy = f"skipped:added_constraint ({_rewrite_added_constraint})"
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=f"Not cached under the original question (FASTAPI-TEXT2SQL-242): the stronger model's rewrite added a constraint the user did not state ({_rewrite_added_constraint}). The rewritten question '{retry_question}' is cached under its own wording; the original question will be processed again next time."
+                    ))
+                    position_counter += 1
+                try:
+                    retry_response.complex_retry_cache_policy = _retry_cache_policy
+                except Exception:
+                    pass
                 if retry_store_allowed:
                     try:
                         retry_connection = get_db_connection()
@@ -3162,6 +3215,144 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             text=f"Executed SQL query with pagination: page={lngpage}, limit={limit}, offset={offset}."
         ))
         position_counter += 1
+
+        # FASTAPI-TEXT2SQL-244: deterministic rescue BEFORE the stronger model. When extraction
+        # returned nothing, the generator still wrote the user's words as a literal equality on
+        # a canonical column, and no resolver ever looked at that literal: the planner iterates
+        # over extracted keys, of which there were none. Put the literal back into placeholder
+        # form and run the ordinary resolver on it (ChromaDB shortlist, fuzz gate, canonical
+        # value, language-aware OR expansion), then re-execute. Zero LLM call. Measured on
+        # "Pour le plaisir" (fr): the first pass compared the French title to the English
+        # MOVIE_TITLE column and found nothing; the resolver finds the exact document at rank 1
+        # and rewrites the equality across MOVIE_TITLE / MOVIE_TITLE_FR / ORIGINAL_TITLE.
+        # Gated on the empty result on purpose: a first pass that already returns rows is left
+        # alone, whatever column it used.
+        if (
+            not sql_execution_failed
+            and lngpage == 1
+            and isinstance(query_results, list)
+            and len(query_results) == 0
+            and no_entity_extracted
+            and not cached_exact_question
+        ):
+            try:
+                _rescue_literals = entity.find_literal_equalities(sql_query)
+            except Exception as _rescue_scan_exc:
+                _rescue_literals = []
+                no_entity_rescue_outcome = "error"
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"No-entity rescue: scanning the SQL for literal equalities raised {type(_rescue_scan_exc).__name__}: {_rescue_scan_exc}; the first-pass result stands."
+                ))
+                position_counter += 1
+            if no_entity_rescue_outcome == "":
+                if not _rescue_literals:
+                    no_entity_rescue_outcome = "no_literal"
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text="No-entity rescue (FASTAPI-TEXT2SQL-244): 0 rows and no entity was extracted, but the SQL carries no literal equality on a resolvable column; nothing to resolve before the stronger model."
+                    ))
+                    position_counter += 1
+                else:
+                    _rescue_extraction = {"question": input_text_anonymized or input_text}
+                    for _item in _rescue_literals:
+                        _rescue_extraction[_item["placeholder"].strip("{}")] = _item["value"]
+                    _rescue_pairs = ", ".join(
+                        f"{_item['column']} = '{_item['value']}' -> {_item['placeholder']}" for _item in _rescue_literals
+                    )
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=f"No-entity rescue (FASTAPI-TEXT2SQL-244): 0 rows and no entity was extracted; {len(_rescue_literals)} literal value(s) found in the SQL ({_rescue_pairs}) are sent through the entity resolver before the stronger model."
+                    ))
+                    position_counter += 1
+                    try:
+                        _rescue_sql_exec = entity.placeholderize_literals(sql_query, _rescue_literals)
+                        _rescue_sql_base = entity.placeholderize_literals(sql_query_processed_base, _rescue_literals)
+                        _rescue_plan = await asyncio.to_thread(
+                            entity.plan_entity_resolutions,
+                            connection=connection,
+                            entity_extraction=_rescue_extraction,
+                            chromadb_collections_by_name=CHROMADB_COLLECTIONS_BY_NAME,
+                        )
+                        _rescue_applied = entity.apply_entity_resolutions(
+                            plan=_rescue_plan,
+                            sql_query=_rescue_sql_exec,
+                            justification=justification,
+                            answer=answer or "",
+                            position_counter=position_counter,
+                            text_message_cls=TextMessage,
+                            messages=messages,
+                        )
+                        position_counter = _rescue_applied["position_counter"]
+                        _rescued_sql_exec = _rescue_applied["sql_query"]
+                        # The rescue's candidates join the request's calibration material
+                        # (FASTAPI-TEXT2SQL-206), and the two "worst" scalars are recomputed on
+                        # the accepted ones, exactly as the fork-join does.
+                        entity_match_scores = list(entity_match_scores or []) + list(_rescue_plan.get("match_scores") or [])
+                        _accepted = [s for s in entity_match_scores if not s.get("rejected")]
+                        _dists = [s["distance"] for s in _accepted if isinstance(s.get("distance"), (int, float))]
+                        _ratios = [s["fuzz_ratio"] for s in _accepted if isinstance(s.get("fuzz_ratio"), (int, float))]
+                        entity_match_worst_distance = max(_dists) if _dists else None
+                        entity_match_worst_fuzz_ratio = min(_ratios) if _ratios else None
+                        if (
+                            _rescue_applied.get("ambiguous_question_for_text2sql")
+                            or (_rescue_applied.get("raw_fallback_count") or 0) > 0
+                            or _rescued_sql_exec == sql_query
+                        ):
+                            no_entity_rescue_outcome = "resolver_found_nothing"
+                            messages.append(TextMessage(
+                                position=position_counter,
+                                text="No-entity rescue: the resolver found no better value than the user's words (raw fallback or unresolved placeholder); the first-pass SQL stands and the stronger model takes over."
+                            ))
+                            position_counter += 1
+                        else:
+                            _rescue_start_time = time.time()
+                            _rescue_rows = []
+                            with connection.cursor() as _rescue_cursor:
+                                _rescue_cursor.execute(_rescued_sql_exec)
+                                for _index, _record in enumerate(_rescue_cursor.fetchall()):
+                                    _rescue_rows.append({
+                                        "index": _index,
+                                        "data": {k: html.unescape(v) if isinstance(v, str) else v for k, v in _record.items()}
+                                    })
+                            query_execution_time += time.time() - _rescue_start_time
+                            # Adopt the rescued SQL whatever the row count: it is the
+                            # language-aware form of the same question, so it is what the
+                            # cache should hold and what a retry should report as the first
+                            # pass. The base (unpaginated) copy feeds the cache writes below;
+                            # the anonymized copy follows it because, with nothing extracted,
+                            # the anonymized question IS the raw question and its row must not
+                            # keep serving the equality that just failed.
+                            _rescued_base = entity.apply_entity_resolutions(
+                                plan=_rescue_plan,
+                                sql_query=_rescue_sql_base,
+                                justification=justification,
+                                answer=answer or "",
+                                position_counter=0,
+                                text_message_cls=TextMessage,
+                                messages=[],
+                            )
+                            sql_query = _rescued_sql_exec
+                            sql_query_processed_base = _rescued_base["sql_query"]
+                            sql_query_anonymized = sql_query_processed_base
+                            sql_query_anonymized_base = sql_query_processed_base
+                            justification = _rescued_base["justification"]
+                            answer = _rescued_base["answer"]
+                            query_results = _rescue_rows
+                            no_entity_rescue_outcome = "rescued" if _rescue_rows else "still_empty"
+                            messages.append(TextMessage(
+                                position=position_counter,
+                                text=f"No-entity rescue: re-executed with the resolved value(s), {len(_rescue_rows)} row(s): {_rescued_sql_exec}"
+                            ))
+                            position_counter += 1
+                    except Exception as _rescue_exc:
+                        no_entity_rescue_outcome = "error"
+                        print(f"No-entity rescue failed: {_rescue_exc}")
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"No-entity rescue failed ({type(_rescue_exc).__name__}: {_rescue_exc}); the first-pass result stands and the usual retry rules apply."
+                        ))
+                        position_counter += 1
 
         # One-time retry: if SQL execution failed (e.g., MariaDB error), try simplifying the
         # initial/original question using the stronger model and rerun the whole pipeline.
@@ -3767,6 +3958,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         entity_match_worst_fuzz_ratio=entity_match_worst_fuzz_ratio,
         entity_raw_fallback_count=entity_raw_fallback_count,
         no_entity_extracted=no_entity_extracted,
+        no_entity_rescue_outcome=no_entity_rescue_outcome,
         complex_question_processing_time=complex_question_processing_time,
         answer_single_value_processing_time=answer_single_value_processing_time,
         embeddings_processing_time=embeddings_processing_time,

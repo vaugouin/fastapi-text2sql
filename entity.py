@@ -342,6 +342,100 @@ def _iter_entity_searches(cfg: dict):
     return [search for search in searches if isinstance(search, dict)]
 
 
+# ---- Literal-equality rescue (FASTAPI-TEXT2SQL-244) --------------------------------------
+#
+# When extraction returns no entity, the text-to-SQL prompt still writes the user's words as
+# a literal equality on a canonical column ("MOVIE_TITLE = 'Pour le plaisir'"), and nothing
+# downstream ever looks at that literal: the planner iterates over extracted keys, of which
+# there are none, so no ChromaDB lookup runs and the language-aware OR expansion of
+# _substitute_entity_row never fires. On 2026-09-09 that compared a French title to the
+# English column, returned 0 rows, and sent the question to the stronger model, which then
+# added a release year from memory. The three helpers below let main.py put the literal back
+# into placeholder form and run the ordinary resolver on it, so the rescue costs no LLM call
+# and reuses every strategy, threshold and language rule already configured.
+
+
+def rescue_columns() -> dict[str, str]:
+    """Map a canonical column name to the placeholder prefix whose resolver targets it.
+
+    Derived from the FIRST strategy of every resolver: its ``default_field`` is the column
+    the text-to-SQL prompt compares a title or a name against. A column claimed by two
+    different prefixes is dropped as ambiguous rather than guessed.
+    """
+    mapping: dict[str, str] = {}
+    ambiguous: set = set()
+    for cfg in ENTITY_RESOLUTION_CONFIG:
+        prefix = cfg.get("placeholder_prefix")
+        searches = _iter_entity_searches(cfg)
+        if not prefix or not searches:
+            continue
+        column = str(searches[0].get("default_field") or "").strip().upper()
+        if not column:
+            continue
+        if column in mapping and mapping[column] != prefix:
+            ambiguous.add(column)
+            continue
+        mapping[column] = prefix
+    for column in ambiguous:
+        mapping.pop(column, None)
+    return mapping
+
+
+def find_literal_equalities(sql_query: str) -> list:
+    """List the literal equalities on resolvable columns found in a SQL without placeholders.
+
+    One dict per distinct (column, value), in SQL order: ``column``, ``value_sql`` (as
+    written, quotes doubled), ``value`` (unescaped), ``prefix`` and ``placeholder``
+    (``{{Prefix1}}``, numbered per prefix). A value that is itself a placeholder, or empty,
+    is ignored.
+    """
+    columns = rescue_columns()
+    if not columns or not sql_query:
+        return []
+    pattern = re.compile(
+        r"\b(?P<col>" + "|".join(re.escape(c) for c in sorted(columns, key=len, reverse=True)) + r")\s*=\s*'(?P<val>(?:[^']|'')*)'",
+        re.IGNORECASE,
+    )
+    found: list = []
+    counters: dict[str, int] = {}
+    seen: set = set()
+    for match in pattern.finditer(sql_query):
+        column = match.group("col").upper()
+        value_sql = match.group("val")
+        if value_sql.strip() == "" or value_sql.lstrip().startswith("{{"):
+            continue
+        key = (column, value_sql)
+        if key in seen:
+            continue
+        seen.add(key)
+        prefix = columns[column]
+        counters[prefix] = counters.get(prefix, 0) + 1
+        found.append({
+            "column": column,
+            "value_sql": value_sql,
+            "value": value_sql.replace("''", "'"),
+            "prefix": prefix,
+            "placeholder": "{{" + f"{prefix}{counters[prefix]}" + "}}",
+        })
+    return found
+
+
+def placeholderize_literals(sql_query: str, literals: list) -> str:
+    """Put each literal back into placeholder form, so the resolver can substitute it.
+
+    ``MOVIE_TITLE = 'Pour le plaisir'`` becomes ``MOVIE_TITLE = '{{Movie_title1}}'``, the
+    exact shape _substitute_entity_row expects (the optional table qualifier is left alone).
+    """
+    out = sql_query or ""
+    for item in literals or []:
+        pattern = re.compile(
+            r"(\b" + re.escape(item["column"]) + r"\s*=\s*)'" + re.escape(item["value_sql"]) + "'",
+            re.IGNORECASE,
+        )
+        out = pattern.sub(lambda m, ph=item["placeholder"]: m.group(1) + "'" + ph + "'", out)
+    return out
+
+
 
 def _sql_escape_literal(v: str) -> str:
     """Escape a string literal for safe inlined SQL replacement."""

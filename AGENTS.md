@@ -868,6 +868,57 @@ language-specific expansion (`MOVIE_TITLE_FR` / `ORIGINAL_TITLE`, added by the r
 title to the English column and found nothing. `_localize_search_rows` then displays the French
 title in `MOVIE_TITLE` for a `fr` UI, which hides the mismatch from anyone reading results.
 
+## The no-entity rescue runs before the stronger model (FASTAPI-TEXT2SQL-244)
+
+When extraction returns no entity, the text-to-SQL prompt still writes the user's words as a
+literal equality on a canonical column (`MOVIE_TITLE = 'Pour le plaisir'`), and nothing looks at
+that literal: `plan_entity_resolutions` iterates over extracted keys, of which there are none,
+so no ChromaDB lookup runs and the language-aware OR expansion of `_substitute_entity_row` never
+fires. On a French title that means comparing it to the English column, 0 rows, and a trip to
+the stronger model, which then adds a year from memory (-243). Since -244, right after the
+execution block and before any retry, when page 1 returned 0 rows with `no_entity_extracted`
+true and no exact-cache hit:
+
+1. `entity.find_literal_equalities(sql)` lists the literal equalities on resolvable columns.
+   The column set is derived from `data/entity_resolution.json`: the `default_field` of each
+   resolver's first strategy (`MOVIE_TITLE`, `SERIE_TITLE`, `PERSON_NAME`, ...); a column
+   claimed by two prefixes is dropped as ambiguous.
+2. `entity.placeholderize_literals` puts each literal back into placeholder form
+   (`MOVIE_TITLE = '{{Movie_title1}}'`) and main.py builds the matching synthetic extraction.
+3. The ORDINARY resolver runs on it (`plan_entity_resolutions` in a thread, then
+   `apply_entity_resolutions`): ChromaDB shortlist, fuzz gate, canonical value, language OR
+   expansion, and its messages land in the response like any resolution.
+4. If the resolver found nothing better than the raw words (raw fallback, unresolved
+   placeholder, or an unchanged SQL), the first-pass SQL stands and the usual retry rules
+   apply. Otherwise the rescued SQL is re-executed and **adopted whatever the row count**: it
+   replaces `sql_query`, `sql_query_processed_base` and the anonymized copies, so the cache
+   holds the language-aware form and a retry reports it as the first pass. With nothing
+   extracted, the anonymized question IS the raw question, which is why the anonymized copy
+   must follow: otherwise its row would keep serving the equality that just failed.
+
+Zero LLM call. The outcome is in `no_entity_rescue_outcome` (`rescued`, `still_empty`,
+`resolver_found_nothing`, `no_literal`, `error`), the rescue's candidates join
+`entity_match_scores`, and the re-execution time is added to `query_execution_time`. The
+rescue is gated on the EMPTY result on purpose: a first pass that returns rows is left alone,
+whatever column it compared. Not covered: a raw fallback (the resolver's own thresholds decide),
+and a literal that is not an equality (`LIKE`, `IN`).
+
+## The retry never caches a narrowed rewrite under the original question (FASTAPI-TEXT2SQL-242)
+
+After a successful stronger-model retry, the helper writes the retry's SQL to `T_WC_T2S_CACHE`
+under the ORIGINAL wording, so the next identical question costs 60 ms instead of seven LLM
+calls. That row is legitimate when the rewrite repaired a resolution (`Marion Morrison` ->
+`John Wayne`) and poison when it added information: on 2026-09-08 "Pour le plaisir" was
+rewritten "Movie Pour le plaisir (2004)" from the model's memory, and the year-filtered SQL
+served every following "Pour le plaisir" for two days, hiding the 2026 film. Since -242 the
+write is skipped when the rewrite carries a four-digit year absent from the original question,
+or (second belt) when the inner extraction produced a `Release_year` / `Birth_year` /
+`Death_year` placeholder while the original question holds no year. The decision is written
+to the messages and to `complex_retry_cache_policy` (`stored`, `skipped:empty_result` from
+-212, `skipped:added_constraint (...)`). The rewritten question stays cached under its own
+wording by the inner pass, so nothing is lost. Not done: marking retry-derived rows, which
+would need a column in `T_WC_T2S_CACHE`.
+
 ## Cache API-version filtering
 
 All cache reads and writes must pass `strapiversionformatted` (`XXX.YYY.ZZZ`), never the raw `strapiversion`. The `sql_cache` helpers already take the formatted version as a parameter — pass it through, do not recompute.

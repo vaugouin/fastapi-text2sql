@@ -489,6 +489,8 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "first_pass_failure_code": "",
   "first_pass_failure_reason": "",
   "complex_retry_question": "",
+  "complex_retry_cache_policy": "",
+  "no_entity_rescue_outcome": "",
   "complex_question_processing_time": 0.0,
   "answer_single_value_processing_time": 0.0,
   "entity_match_worst_distance": 0.41,
@@ -582,6 +584,8 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `first_pass_failure_code` (string): Why that first pass was abandoned, closed vocabulary: `text2sql_error`, `sql_guard_rejected`, `entity_fallback_unmatchable`, `sql_execution_error`, or `no_results:<signal>[+<signal>]` with the signals of the no-results guard in its own order, `unresolved_placeholder`, `raw_fallback`, `no_entity_extracted`, `person_role_collapse`
 - `first_pass_failure_reason` (string): The same in words, with the database error text or the guard signals spelled out
 - `complex_retry_question` (string): The question the stronger model rewrote, which the second pass answered. Compare it with `question` to see what the rewrite added or changed (a release year the user never typed, a title turned into a person, ...)
+- `complex_retry_cache_policy` (string): What became of the cache row for the original question after a retry (FASTAPI-TEXT2SQL-242): `stored`, `skipped:empty_result`, or `skipped:added_constraint (year 2004)` when the rewrite carries a year absent from the question. A rewrite that narrows the question is never frozen under the user's own wording; the rewritten question stays cached under its own. Empty without a retry
+- `no_entity_rescue_outcome` (string): When the first pass returned 0 rows with no entity extracted, the API puts the literal values of the SQL (`MOVIE_TITLE = 'Pour le plaisir'`) back through the entity resolver before calling the stronger model (FASTAPI-TEXT2SQL-244): `rescued` (re-executed with the resolved value, rows came back), `still_empty` (re-executed, still nothing), `resolver_found_nothing` (raw fallback, first-pass SQL stands), `no_literal` (nothing resolvable in the SQL), `error`. Empty when the rescue was not attempted
 - `entity_match_worst_distance` (float or null): Embeddings distance of the **weakest accepted** match of the request. A dissimilarity, so larger is further and a threshold reads `<= max_distance`. `null` when no entity went through a scored resolver (closed-vocabulary and regex placeholders produce no score)
 - `entity_match_worst_fuzz_ratio` (float or null): `fuzz.ratio` of the weakest accepted match, on 100. A similarity, so larger is closer and a threshold reads `>= min_fuzz_ratio`. The two "worst" therefore run in opposite directions
 - `entity_match_scores` (list): One entry per candidate weighed by an embeddings or rapidfuzz strategy, accepted or not, with what was sought, what was found and how far apart they sat. `fuzz_ratio` is the score the gate actually used, after the entity's own descriptor words were neutralised on both sides; `fuzz_ratio_raw` is what it would have been without that, kept so the effect stays auditable. Measured 2026-08-24: "wagonlit collection" against "life collection" scores 76.5 raw and 33.3 stripped, and the threshold sits at 72. This is the calibration material for FASTAPI-TEXT2SQL-206: twelve of the fourteen resolvers currently have no threshold and accept their nearest neighbour however far it sits. Not summed across a retry, like the counts: it describes the resolution that produced the returned result
@@ -1671,6 +1675,8 @@ All successful text2sql requests return a comprehensive response with:
 - `entity_raw_fallback_count`: Entities left unresolved and substituted raw (count)
 - `no_entity_extracted`: Extraction returned nothing at all (bool)
 - `first_pass_sql_query` / `first_pass_failure_code` / `first_pass_failure_reason` / `complex_retry_question`: On a retried request, what the first pass ran, why it was abandoned, and the stronger model's rewrite (strings, empty without a retry, FASTAPI-TEXT2SQL-241)
+- `complex_retry_cache_policy`: Whether the retry's SQL was cached under the original question, and if not why (string, FASTAPI-TEXT2SQL-242)
+- `no_entity_rescue_outcome`: Outcome of the resolver rescue of an unextracted literal before the stronger model (string, FASTAPI-TEXT2SQL-244)
 - `complex_question_processing_time`: The stronger-model simplification call (seconds, 0.0 without a retry)
 - `answer_single_value_processing_time`: The direct scalar answer when SQL returned a single cell worth 0 (seconds, 0.0 when the branch did not fire)
 - `entity_match_worst_distance` / `entity_match_worst_fuzz_ratio`: How far the weakest accepted entity match sat from the value sought (dissimilarity and similarity respectively, so the two run in opposite directions)
