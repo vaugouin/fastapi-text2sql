@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_PERSON IN (1245, 138, 16483, 85, 488, 955, 5064, 4135)"
+    "query_result": "ID_PERSON IN (1245, 16483, 138, 85, 488, 955, 5064, 1269)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT p.ID_PERSON FROM T_WC_T2S_PERSON p JOIN T_WC_T2S_PERSON_AWARD pa ON pa.ID_PERSON = p.ID_PERSON JOIN T_WC_T2S_AWARD a ON a.ID_AWARD = pa.ID_AWARD WHERE a.AWARD_NAME = &#039;Honorary César&#039; ORDER BY pa.DISPLAY_ORDER ASC LIMIT 8",
-  "assertion_refresh_last": "2026-09-08T02:33:27",
+  "assertion_refresh_last": "2026-09-11T04:56:12",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

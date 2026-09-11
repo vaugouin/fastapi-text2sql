@@ -1,0 +1,27 @@
+{
+  "evaluation_id": 2486,
+  "evaluation_category_id": 49,
+  "question_en": "Which awards did Cord Jefferson receive?",
+  "question_fr": "Quelles récompenses Cord Jefferson a-t-il reçues ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "COUNT(*) == 1 AND AWARD_NAME NOT IN ('96th Academy Awards', 'American Fiction')"
+  },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
+  "comment": "Le témoin de la migration Wikidata V1 vers V2. La table V1 aplatissait sous P166 la récompense, la cérémonie (96th Academy Awards) et l&#039;oeuvre (American Fiction), toutes trois rendues comme des prix. La réponse ne doit contenir que des catégories de prix. Mesure du 2026-09-10 : la base rend exactement une recompense pour lui, \"Academy Award for Best Writing, Adapted Screenplay\". Le plancher COUNT(*) > 0 est donc remplace par une egalite a 1, qui est la frontiere exacte entre l'aplatissement de V1, trois lignes, et sa correction, une seule.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-09-10",
+  "tim_updated": "2026-09-10T10:13:36",
+  "is_showcase": 0,
+  "deleted": 0,
+  "id_creator": null,
+  "id_owner": null,
+  "id_user_updated": 1
+}

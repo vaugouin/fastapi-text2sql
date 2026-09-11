@@ -10,7 +10,7 @@
     "query_result": "ID_T2S_LIST IN (46, 58, 53, 57, 52, 47, 55, 63)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT ID_T2S_LIST FROM T_WC_T2S_LIST ORDER BY IMDB_RATING DESC LIMIT 8",
-  "assertion_refresh_last": "2026-09-08T02:33:36",
+  "assertion_refresh_last": "2026-09-11T04:56:45",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
