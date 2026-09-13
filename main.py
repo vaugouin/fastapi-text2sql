@@ -7793,6 +7793,9 @@ async def _mcp_database_scope() -> str:
     TAGLINE, POSTER_PATH, BACKDROP_PATH, VIDEO (1 if video release),
     IS_MOVIE (1/0), IS_DOCUMENTARY (1/0), IS_SHORT_FILM (1/0),
     IS_COLOR (1/0), IS_BLACK_AND_WHITE (1/0), IS_SILENT (1/0),
+    COLOR_SOURCE ('format_line' when the two colour flags come from the French
+    Wikipedia Format line, 'wikidata' when they come from Wikidata P462, NULL when
+    no source says; informational, returned by /movies/{id}, never a filter),
     ID_IMDB (tt...), ID_WIKIDATA (Q...), ID_CRITERION, ID_CRITERION_SPINE,
     ALIASES
     (Aspect ratios are not filtered on the movie row; they live as rows in
