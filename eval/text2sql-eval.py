@@ -340,6 +340,10 @@ try:
             # when process 20 is not in arrprocessscope.
             dblcumulatedscore = 0
             dblevalcount = 0
+            # Taux d'escalade par mode declare (FASTAPI-TEXT2SQL-257). "standard" doit tendre
+            # vers 0 %, "complex" vers 100 %, et l'ecart est le seul chiffre qui dise si le
+            # chemin normal se degrade sans que le score global bouge.
+            arrresolutionmodestats = {}
             dbl_entity_extraction_processing_time_sum = 0.0
             lng_entity_extraction_processing_time_count = 0
             dbl_text2sql_processing_time_sum = 0.0
@@ -414,7 +418,10 @@ try:
                     strlangdesc = {"en": "English", "fr": "French", "*": "all-language"}
                     strcurrentprocess = f"{intindex}: running {strlangdesc.get(strlanguage, strlanguage)} evaluations on the FastAPI text2SQL API "
                     strsql = ""
-                    strsql += "SELECT ID_T2S_EVALUATION AS id, QUESTION, QUESTION_FR "
+                    # RESOLUTION_MODE : le chemin qui DOIT resoudre la question
+                    # (FASTAPI-TEXT2SQL-257). NULL sur les lignes jamais qualifiees, ce qui
+                    # vaut "any" au moment du verdict mais reste distinguable en base.
+                    strsql += "SELECT ID_T2S_EVALUATION AS id, QUESTION, QUESTION_FR, RESOLUTION_MODE "
                     strsql += "FROM T_WC_T2S_EVALUATION "
                     strsql += "WHERE IS_EVAL = 1 "
                     strsql += "AND DELETED = 0 "
@@ -978,6 +985,50 @@ try:
                             arrevalexeccouples["COMPLEX_QUESTION_PROCESSING_TIME"] = _safe_float(
                                 (response_json or {}).get("complex_question_processing_time")
                             )
+                            # FASTAPI-TEXT2SQL-257. Le booleen, parce que le chronometre
+                            # ci-dessus rate un quart des escalades : mesure du 2026-09-14 sur
+                            # la campagne 001.001.018, complex_model_used vrai sur 46 lignes,
+                            # COMPLEX_QUESTION_PROCESSING_TIME positif sur 34 seulement. Les 12
+                            # manquantes passent par la reponse scalaire directe, qui encaisse
+                            # dans son propre chronometre, desormais persiste lui aussi.
+                            _complex_used = (response_json or {}).get("complex_model_used")
+                            arrevalexeccouples["COMPLEX_MODEL_USED"] = (
+                                None if _complex_used is None else (1 if _complex_used else 0)
+                            )
+                            arrevalexeccouples["ANSWER_SINGLE_VALUE_PROCESSING_TIME"] = _safe_float(
+                                (response_json or {}).get("answer_single_value_processing_time")
+                            )
+                            # Le mode declare est copie sur l'execution, pas seulement lu :
+                            # requalifier une evaluation plus tard ne doit pas reecrire le sens
+                            # des campagnes deja jouees.
+                            _declared_mode = (row.get("RESOLUTION_MODE") or "").strip().lower()
+                            arrevalexeccouples["RESOLUTION_MODE"] = _declared_mode or None
+                            # Respecte ou non. Volontairement HORS de ASSERTIONS_TOTAL_SCORE :
+                            # ce score sert a comparer une campagne a la precedente, et y
+                            # injecter un nouveau motif d'echec rendrait 1.1.19 incomparable
+                            # a 1.1.18. Deux mesures, deux lectures, aucune contamination.
+                            _escalated = bool(_complex_used)
+                            if _declared_mode == "standard":
+                                _mode_ok = 0 if _escalated else 1
+                            elif _declared_mode == "complex":
+                                _mode_ok = 1 if _escalated else 0
+                            else:
+                                _mode_ok = None
+                            arrevalexeccouples["RESOLUTION_MODE_RESPECTED"] = _mode_ok
+                            _mode_key = _declared_mode or "any (non declare)"
+                            _bucket = arrresolutionmodestats.setdefault(
+                                _mode_key, {"lignes": 0, "escalades": 0, "manques": 0}
+                            )
+                            _bucket["lignes"] += 1
+                            _bucket["escalades"] += 1 if _escalated else 0
+                            _bucket["manques"] += 1 if _mode_ok == 0 else 0
+                            if _mode_ok == 0:
+                                if _declared_mode == "standard":
+                                    print(f"  MODE: evaluation {lngid} declaree standard mais resolue par l escalade "
+                                          f"(regression du chemin normal, score assertions inchange)")
+                                else:
+                                    print(f"  MODE: evaluation {lngid} declaree complex mais resolue sans escalade "
+                                          f"(assertion trop molle, ou question plus facile que prevu)")
                             # How far the weakest ACCEPTED match sat from the value sought
                             # (FASTAPI-TEXT2SQL-206). Distance is a dissimilarity, ratio a
                             # similarity on 100, so the two "worst" run in opposite directions.
@@ -1214,6 +1265,10 @@ try:
                                         # (FASTAPI-TEXT2SQL-204), whose other timings then cover BOTH
                                         # passes rather than the second one alone.
                                         "complex_question_processing_time": row.get('COMPLEX_QUESTION_PROCESSING_TIME'),
+                                        "complex_model_used": row.get('COMPLEX_MODEL_USED'),
+                                        "answer_single_value_processing_time": row.get('ANSWER_SINGLE_VALUE_PROCESSING_TIME'),
+                                        "resolution_mode": row.get('RESOLUTION_MODE'),
+                                        "resolution_mode_respected": row.get('RESOLUTION_MODE_RESPECTED'),
                                         # The last two are not durations. They sit here because the
                                         # block is the structured mirror of the dedicated columns, and
                                         # splitting it would break every reader. NO_ENTITY_EXTRACTED is
@@ -1274,6 +1329,15 @@ try:
                 print(f"Language: {strlanguage}")
                 print(f"Store to cache: {blnstoretocache}")
                 print(f"Complex question processing (escalation allowed): {blncomplexquestionprocessing}")
+                if arrresolutionmodestats:
+                    print("Escalation by declared resolution mode (FASTAPI-TEXT2SQL-257):")
+                    for _mode in sorted(arrresolutionmodestats, key=lambda m: -arrresolutionmodestats[m]["lignes"]):
+                        _b = arrresolutionmodestats[_mode]
+                        _rate = 100.0 * _b["escalades"] / _b["lignes"] if _b["lignes"] else 0.0
+                        _tail = f", {_b['manques']} mode(s) not respected" if _b["manques"] else ""
+                        print(f"  {_mode:22s} {_b['lignes']:5d} rows, {_b['escalades']:4d} escalated ({_rate:5.1f} %){_tail}")
+                    print("  standard should tend to 0 %, complex to 100 %. A mode not respected does NOT")
+                    print("  lower the assertion score: it is reported on its own so campaigns stay comparable.")
                 print(f"Global score: {dblcumulatedscore}/{dblevalcount} = {dblglobalscore:.2%}")
                 if lng_entity_extraction_processing_time_count > 0:
                     str_entity_extraction_processing_time_sum_duration = cp.convert_seconds_to_duration(

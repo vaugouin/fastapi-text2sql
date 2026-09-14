@@ -534,6 +534,49 @@ is checked out. `bench-entity-extraction.py` reads the bank from MariaDB and the
 runs where the database is reachable, which is not a developer laptop. Plan the entity work
 on the VPS or behind a tunnel.
 
+## An evaluation declares the path that must resolve it (FASTAPI-TEXT2SQL-257)
+
+`complex_model_used` was an **observation**: it described what happened and could never
+fail. Since -257 the bank declares, per question, which path *must* resolve it, in
+`T_WC_T2S_EVALUATION.RESOLUTION_MODE`.
+
+| value | meaning | verdict |
+|---|---|---|
+| `standard` | must resolve without escalation | escalation fired = **regression of the normal path**, even when the final answer is right |
+| `complex` | cannot resolve without escalation | resolved without it = the assertion is too loose, or the question is easier than thought |
+| `any` or NULL | no expectation | never judged |
+
+**NULL is not `any` in disguise.** Both are judged the same way, which is not at all, but
+only NULL lets you find what is still unqualified. Do not backfill the 1445 existing rows
+for tidiness: NULL says "this question was never examined under this angle".
+
+**The verdict stays out of `ASSERTIONS_TOTAL_SCORE`, and that is the important design
+decision.** That score is the one thing that makes a campaign comparable to the previous
+one. Folding a new failure reason into it would make 1.1.19 incomparable with 1.1.18,
+which is precisely the mistake this whole line of work exists to avoid. The mode verdict
+lives in its own column, `RESOLUTION_MODE_RESPECTED`, and the end-of-run recap prints the
+escalation rate per declared mode beside the assertion score. Two measures, two readings.
+
+**A `complex` evaluation tests the model, not the database.** *Groundhog Day* is not found
+by a join; it is named by the LLM from its parametric memory and then looked up. So its
+assertion must bear on the resolved title or id, never on a row set that depends on the
+read-model, and it is inherently unstable across a model swap. That is a feature for the
+GPT-5.6 comparison: descriptive questions are the most discriminating ground available,
+where gpt-4o already plateaus above 96 % on factual ones.
+
+**Why two extra columns shipped with it.** The verdict is computed on what the campaign
+records, and the recording was a quarter short. Measured 2026-09-14 on `001.001.018`:
+`complex_model_used` true on **46** executions, `COMPLEX_QUESTION_PROCESSING_TIME` positive
+on **34**. The missing 12 go through the direct scalar answer, which banks into
+`answer_single_value_processing_time`. Both are now persisted columns, so a campaign is
+sliced in SQL and never by reopening `JSON_RESULT`.
+
+**The schema change is not applied here.** `maintenance/eval-mode-de-resolution.sql` holds
+the five `ADD COLUMN`, its rollback and its verification queries. The database is not
+reachable from a developer workstation, so that file has been validated syntactically and
+never run. Apply it on the VPS before the next campaign, or the evaluator writes columns
+that do not exist.
+
 ## Reasoning models reject `temperature` (FASTAPI-TEXT2SQL-231)
 
 **The trap, and it is a hard failure, not a degradation.** Every one of the five tasks passes
