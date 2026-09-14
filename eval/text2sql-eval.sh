@@ -28,7 +28,8 @@
 #
 # BLUE OR GREEN IS DECIDED BY THE VERSION
 # An even patch targets BLUE, an odd one GREEN, in main.py for the MCP and in
-# text2sql-eval.py:563 for this run. 1.1.18 is even, so deploy on BLUE before launching.
+# text2sql-eval.py:563 for this run. 1.1.19 is ODD, so this run targets GREEN, which is where
+# the 1.1.19 build already serves (verified 2026-09-14: Blue answers 1.1.18, Green 1.1.19).
 #
 # LANGUAGE
 # "*" runs English and French in the same pass, one row per evaluation and per language.
@@ -43,12 +44,23 @@
 #
 # Everything can be overridden from the environment without editing this file:
 #   LANGUAGE=fr ./text2sql-eval.sh
-#   API_VERSION=1.1.18 LANGUAGE='*' ./text2sql-eval.sh
-#   TEXT2SQL_MODEL=gpt-5.6-terra API_VERSION=1.1.19 ./text2sql-eval.sh
+#   API_VERSION=1.1.19 LANGUAGE='*' ./text2sql-eval.sh
+#   TEXT2SQL_MODEL=gpt-5.6-terra API_VERSION=1.1.19 ./text2sql-eval.sh   # AFTER the baseline
+#
+# THE DEFAULTS ARE THE BASELINE RUN, AND THAT IS DELIBERATE
+# Five times gpt-4o on 1.1.19, launched with no variable at all: `./text2sql-eval.sh`.
+# It is owed for two reasons at once. The prompts moved a lot since the 001.001.018
+# reference (data/text_to_sql.md +10.5 % over 6 commits, data/entity_extraction.md +18.9 %
+# over 2, the last on 2026-09-14), so the 78.5 % / 82.0 % pass rates describe a pipeline
+# that no longer exists, and the work of -230, -237, -238, -239, -249 and -255 has never
+# been scored end to end. Until this run exists, a model comparison has nothing to be read
+# against: moving a model now would move the prompt and the model at once, and a bad result
+# could not be attributed to either. gpt-4o is the right side of the comparison precisely
+# because it carries the long history on all five tasks.
 
 set -u
 
-API_VERSION=${API_VERSION:-1.1.18}
+API_VERSION=${API_VERSION:-1.1.19}
 LANGUAGE=${LANGUAGE:-*}
 ENTITY_EXTRACTION_MODEL=${ENTITY_EXTRACTION_MODEL:-gpt-4o}
 TEXT2SQL_MODEL=${TEXT2SQL_MODEL:-gpt-4o}
