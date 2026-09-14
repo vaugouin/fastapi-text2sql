@@ -36,6 +36,13 @@
 # "en" or "fr" restricts it. The bank holds ~1444 evaluations, so "*" is roughly 2900 API
 # calls at about 28k prompt tokens each: budget the wall-clock and the spend accordingly.
 #
+# THE STRONGER-MODEL ESCALATION IS ON, AND IT ALWAYS WAS
+# COMPLEX_QUESTION_PROCESSING allows the API to retry once with the stronger model when the
+# primary pipeline fails. It fired on 46 of 1784 executions (2.6 %) in campaign 001.001.018.
+# Keep it on for any campaign meant to reflect production, and for the descriptive questions
+# that cannot be answered any other way (a film recalled by its plot, with no title and no
+# entity to extract). Turn it off only to measure the primary pipeline alone.
+#
 # CACHE
 # The evaluator always sends retrieve_from_cache=false (hardcoded, text2sql-eval.py:580), so
 # a run always measures the prompt and never the cache. STORE_TO_CACHE below only decides
@@ -70,7 +77,11 @@ COMPLEX_MODEL=${COMPLEX_MODEL:-gpt-4o}
 RESULT_ENTITY_MODEL=${RESULT_ENTITY_MODEL:-gpt-4o}
 ANSWER_SINGLE_VALUE_MODEL=${ANSWER_SINGLE_VALUE_MODEL:-gpt-4o}
 STORE_TO_CACHE=${STORE_TO_CACHE:---store-to-cache}
-COMPLEX_MODEL_USED=${COMPLEX_MODEL_USED:---no-complex-model-used}
+# FASTAPI-TEXT2SQL-256. True, because that is what the run has always done: the evaluator
+# hard-coded complex_question_processing=True while the old flag sent a field the API does
+# not declare, so the default said "no" and the run said "yes". The flag now drives the real
+# switch. The former variable name still works if it is set.
+COMPLEX_QUESTION_PROCESSING=${COMPLEX_QUESTION_PROCESSING:-${COMPLEX_MODEL_USED:---complex-question-processing}}
 
 EVAL_HOME=${EVAL_HOME:-$HOME/docker/text2sql-eval}
 SHARED_DIR=${SHARED_DIR:-$HOME/docker/shared_data/text2sql-eval}
@@ -87,6 +98,7 @@ echo "Language    : $LANGUAGE"
 echo "Models      : $ENTITY_EXTRACTION_MODEL / $TEXT2SQL_MODEL / $COMPLEX_MODEL"
 echo "              result_entity=$RESULT_ENTITY_MODEL answer_single_value=$ANSWER_SINGLE_VALUE_MODEL"
 echo "Cache       : $STORE_TO_CACHE"
+echo "Escalation  : $COMPLEX_QUESTION_PROCESSING (stronger-model retry, fired on 2.6 % of 001.001.018)"
 echo
 
 if [ "$RESULT_ENTITY_MODEL" != "gpt-4o" ] || [ "$ANSWER_SINGLE_VALUE_MODEL" != "gpt-4o" ]; then
@@ -122,6 +134,6 @@ docker run -d --rm --network="host" \
     --api-version "$API_VERSION" \
     --language "$LANGUAGE" \
     "$STORE_TO_CACHE" \
-    "$COMPLEX_MODEL_USED"
+    "$COMPLEX_QUESTION_PROCESSING"
 
 docker logs -f text2sql-eval

@@ -274,12 +274,21 @@ _parser.add_argument("--store-to-cache", dest="store_to_cache", action="store_tr
                      help="Store evaluation API results in cache (default: true)")
 _parser.add_argument("--no-store-to-cache", dest="store_to_cache", action="store_false",
                      help="Do not store evaluation API results in cache")
-_parser.add_argument("--complex-model-used", dest="complex_model_used", action="store_true",
-                     help="Set API input complex_model_used=true for the evaluation run")
-_parser.add_argument("--no-complex-model-used", dest="complex_model_used", action="store_false",
-                     help="Set API input complex_model_used=false for the evaluation run (default)")
+# FASTAPI-TEXT2SQL-256. These used to send `complex_model_used` in the request body, a field
+# `Text2SQLRequest` does not declare, so Pydantic dropped it and the flag changed nothing at
+# all while `complex_question_processing` sat hard-coded at True next to it. The run therefore
+# always allowed the stronger-model escalation, and the default flag said the opposite. They
+# now drive `complex_question_processing`, which is the switch the API actually honours.
+# `--complex-question-processing` is the accurate name; the two older spellings are kept as
+# aliases so existing invocations keep working, and they mean what they always claimed to.
+_parser.add_argument("--complex-question-processing", "--complex-model-used",
+                     dest="complex_question_processing", action="store_true",
+                     help="Allow the stronger-model escalation during the run (default: true)")
+_parser.add_argument("--no-complex-question-processing", "--no-complex-model-used",
+                     dest="complex_question_processing", action="store_false",
+                     help="Forbid the escalation: the API returns the raw error or empty result")
 _parser.set_defaults(store_to_cache=True)
-_parser.set_defaults(complex_model_used=False)
+_parser.set_defaults(complex_question_processing=True)
 _cli_args = _parser.parse_args()
 
 datnow = datetime.now(cp.paris_tz)
@@ -319,7 +328,7 @@ try:
             strapiversioneval = _cli_args.api_version
             strlanguage = _cli_args.language
             blnstoretocache = _cli_args.store_to_cache
-            blncomplexmodelused = _cli_args.complex_model_used
+            blncomplexquestionprocessing = _cli_args.complex_question_processing
 
             #arrprocessscope = {11: 'run evals'}
             #arrprocessscope = {20: 'process evals'}
@@ -631,8 +640,7 @@ try:
                                     "llm_model_complex": strcomplexmodeleval,
                                     "llm_model_result_entity": strresultentitymodeleval,
                                     "llm_model_answer_single_value": stranswersinglevaluemodeleval,
-                                    "complex_model_used": blncomplexmodelused,
-                                    "complex_question_processing": True,
+                                    "complex_question_processing": blncomplexquestionprocessing,
                                     "complex_question_already_resolved": False,
                                     "ui_language": strevallang,
                                 }
@@ -1265,7 +1273,7 @@ try:
                 print(f"Complex model: {strcomplexmodeleval}")
                 print(f"Language: {strlanguage}")
                 print(f"Store to cache: {blnstoretocache}")
-                print(f"Complex model used input: {blncomplexmodelused}")
+                print(f"Complex question processing (escalation allowed): {blncomplexquestionprocessing}")
                 print(f"Global score: {dblcumulatedscore}/{dblevalcount} = {dblglobalscore:.2%}")
                 if lng_entity_extraction_processing_time_count > 0:
                     str_entity_extraction_processing_time_sum_duration = cp.convert_seconds_to_duration(
