@@ -6,7 +6,7 @@
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Location_name1&quot;]) AND matches($.Location_name1, /^Naples$/i)",
-    "sql_query": "(?is)(?=.*\\bID_PROPERTY\\s*=\\s*[&#039;&quot;]P840[&#039;&quot;])(?=.*\\b(?:ID_ITEM\\s*=\\s*[&#039;&quot;]Q2634[&#039;&quot;]|ITEM_LABEL\\s*=\\s*[&#039;&quot;‘&#039;]Naples[&#039;&quot;‘&#039;]))",
+    "sql_query": "(?is)(?=.*\\bLOCATION_ROLE\\s*=\\s*[&#039;&quot;]narrative[&#039;&quot;])(?=.*\\b(?:ID_LOCATION\\s*=\\s*\\d+|LOCATION_NAME\\s*=\\s*[&#039;&quot;‘&#039;]Naples[&#039;&quot;‘&#039;]))",
     "query_result": null
   },
   "assertion_refresh_sql": null,

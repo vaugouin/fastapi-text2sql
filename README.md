@@ -135,7 +135,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Movement names** (`{{Movement_nameN}}`): embeddings on `movements` collection, `T_WC_T2S_MOVEMENT.MOVEMENT_NAME` / `MOVEMENT_NAME_FR`.
      - **Group names** (`{{Group_nameN}}`): embeddings on `groups` collection, `T_WC_T2S_GROUP.GROUP_NAME` / `GROUP_NAME_FR`.
      - **Death names** (`{{Death_nameN}}`): embeddings on `deaths` collection, `T_WC_T2S_DEATH.DEATH_NAME` / `DEATH_NAME_FR`.
-     - **Location names** (`{{Location_nameN}}`): embeddings on `locations` collection, `T_WC_T2S_ITEM.ITEM_LABEL` / `ITEM_LABEL_FR` (Wikidata-backed; locations are linked to movies/series via `T_WC_WIKIDATA_ITEM_PROPERTY` with `ID_PROPERTY IN ('P840', 'P915')`).
+     - **Location names** (`{{Location_nameN}}`): embeddings on `t2slocations` collection, `T_WC_T2S_LOCATION.LOCATION_NAME` / `LOCATION_NAME_FR` (locations are linked to movies/series via `T_WC_T2S_MOVIE_LOCATION` / `T_WC_T2S_SERIE_LOCATION`, whose `LOCATION_ROLE` is `'narrative'` or `'filming'`).
      - **Character names** (`{{Character_nameN}}`): currently extracted by the LLM but **not yet wired in `entity_resolution.json`** — the value falls through to the SQL-escaped raw fallback. The `characters` ChromaDB collection is provisioned in [main.py:135](main.py#L135) for upcoming use.
      - **Movie genres** (`{{Movie_genreN}}`) and **Series genres** (`{{Serie_genreN}}`): closed-vocabulary lookup mapping name → integer `ID_GENRE`. Canonicals from `T_WC_TMDB_GENRE`, with each loader filtered by `APPLIES_TO_MOVIE = 1` or `APPLIES_TO_SERIE = 1` so the movie placeholder cannot resolve to a TV-only genre (`Reality`, `Sci-Fi & Fantasy`, `Talk`, …) and the series placeholder cannot resolve to a movie-only genre (`Action`, `Thriller`, `TV Movie`, …); 8 IDs overlap on both sides (Animation, Comedy, Crime, Documentary, Drama, Family, Mystery, Western). Multilingual aliases from `T_WC_TMDB_GENRE_LANG` (currently French; auto-extends to any LANG inserted) joined against the same flag, layered with JSON aliases keyed under `Movie_genre` / `Serie_genre`.
      - **Technical formats** (`{{Technical_formatN}}`): closed-vocabulary lookup mapping name → integer `ID_TECHNICAL`. Canonicals from `T_WC_T2S_TECHNICAL` (sound systems, color/film/sound technologies, film formats, movie classifications, aspect ratios — grouped by `TECHNICAL_TYPE`); aliases from `data/closed_vocabularies.json` only (no `_LANG` companion table yet). Aspect-ratio surface forms (`Academy`, `widescreen`, `flat`, `fullscreen`, `4:3`, `16:9`, `2.35:1`, `2,35` with French comma decimal, dot-decimals like `1.85`) all resolve through this placeholder to the matching aspect-ratio `ID_TECHNICAL`.
@@ -659,7 +659,7 @@ The language-tagged image arrays themselves (`posters`, `portraits`, …) are al
     "pagination": { "movie_cast": { "total": 1287, "page": 2, "rows_per_page": 50, "returned": 50 } }
   }
   ```
-  (For composite-key endpoints the identifier echo uses the path keys, e.g. `id_serie`/`season_number` for `/seasons`, `wikidata_id` for `/locations`.) An unknown `collection` name for that endpoint returns `400` listing the valid names. `page` defaults to `1`, `rows_per_page` to `50` (clamped to `1..200`). Targeted mode does not re-validate the parent entity's existence — an unmatched id simply yields an empty list with `total: 0`.
+  (For composite-key endpoints the identifier echo uses the path keys, e.g. `id_serie`/`season_number` for `/seasons`.) An unknown `collection` name for that endpoint returns `400` listing the valid names. `page` defaults to `1`, `rows_per_page` to `50` (clamped to `1..200`). Targeted mode does not re-validate the parent entity's existence — an unmatched id simply yields an empty list with `total: 0`.
 
 Pagination covers only the related-entity lists. Image arrays (`posters`, `backdrops`, `portraits`, `stills`), `videos`, `wikipedia_images`, `wikipedia_content`, and scalar lists (`genres`, `production_countries`, `spoken_languages`) are always returned in full. Each endpoint's paginatable `collection` names are exactly the related-list field names documented in the per-endpoint tables below.
 
@@ -696,7 +696,7 @@ Pagination covers only the related-entity lists. Image arrays (`posters`, `backd
 - **It is the same page row that `data_freshness` dates**, which is the point: `wikipedia_page.lang` always equals `data_freshness.wikipedia_lang`. The two must never diverge, or the response would date one language's content while crediting another language's article. Note the subtlety this guards against: a page row can exist for a language that carries **no sections**, so resolving on page-row availability instead of on the served content would put an `fr` credit over English prose.
 - **The key is absent, not `null`**, when the entity has no Wikipedia page (or when the page row carries no title or no URL). A null-filled object would invite a client to render an empty credit; a missing key says plainly there is nothing to attribute. It is therefore always absent on `/companies`, `/networks` and `/genres`, whose base tables have no `ID_WIKIDATA`, and almost always absent on `/episodes`.
 - **Detail responses only.** It is never added to `/search/text2sql` results or to related-entity list rows, and, like `data_freshness`, it is omitted from a targeted `?collection=<name>` page.
-- Carried by the 15 detail endpoints that can serve `wikipedia_content`: `/movies/{id}`, `/series/{id}`, `/seasons/{id_serie}/{season_number}`, `/episodes/{id_serie}/{season_number}/{episode_number}`, `/persons/{id}`, `/collections/{id}`, `/topics/{id}`, `/lists/{id}`, `/movements/{id}`, `/technicals/{id}`, `/groups/{id}`, `/deaths/{id}`, `/awards/{id}`, `/nominations/{id}`, `/locations/{wikidata_id}`. The 13 of those with an MCP `get_*` tool expose it there too (`/seasons` and `/episodes` have no MCP wrapper).
+- Carried by the 15 detail endpoints that can serve `wikipedia_content`: `/movies/{id}`, `/series/{id}`, `/seasons/{id_serie}/{season_number}`, `/episodes/{id_serie}/{season_number}/{episode_number}`, `/persons/{id}`, `/collections/{id}`, `/topics/{id}`, `/lists/{id}`, `/movements/{id}`, `/technicals/{id}`, `/groups/{id}`, `/deaths/{id}`, `/awards/{id}`, `/nominations/{id}`, `/locations/{id}`. The 13 of those with an MCP `get_*` tool expose it there too (`/seasons` and `/episodes` have no MCP wrapper).
 
 | Method | Endpoint | Identifier | Primary table | Purpose |
 |---|---|---|---|---|
@@ -717,7 +717,7 @@ Pagination covers only the related-entity lists. Image arrays (`posters`, `backd
 | `GET` | `/deaths/{id}` | `ID_DEATH` | `T_WC_T2S_DEATH` | Cause or circumstance of death detail |
 | `GET` | `/awards/{id}` | `ID_AWARD` | `T_WC_T2S_AWARD` | Award detail |
 | `GET` | `/nominations/{id}` | `ID_NOMINATION` | `T_WC_T2S_NOMINATION` | Award nomination detail |
-| `GET` | `/locations/{wikidata_id}` | `ID_WIKIDATA`, e.g. `Q90` | `T_WC_T2S_ITEM` | Location detail |
+| `GET` | `/locations/{id}` | `ID_LOCATION` | `T_WC_T2S_LOCATION` | Location detail |
 
 ##### `GET /movies/{id}`
 
@@ -931,13 +931,13 @@ These endpoints return all fields from their primary entity table, plus associat
 
 Both endpoints also return `wikipedia_images` and `wikipedia_content` arrays — see the `/movies/{id}` table for their full row shapes.
 
-##### `GET /locations/{wikidata_id}`
+##### `GET /locations/{id}`
 
-Returns all `T_WC_T2S_ITEM` fields for the location `ID_WIKIDATA`, for example `Q90`, plus movies and series where the location is linked through Wikidata property `P840` (narrative location) or `P915` (filming location).
+Returns all `T_WC_T2S_LOCATION` fields for the location `ID_LOCATION`, plus the movies and series linked to it. Each related row carries `LOCATION_ROLE`, `'narrative'` (the story happens there) or `'filming'` (it was shot there). Until 1.1.18 this route took a Wikidata Q-id and the role travelled as the raw property code `P840` / `P915`.
 
 | Field | Shape |
 |---|---|
-| `movies` | Array of `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH, ID_PROPERTY }`, ordered by `IMDB_RATING_WEIGHTED DESC` |
+| `movies` | Array of `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH, LOCATION_ROLE }`, ordered by `IMDB_RATING_WEIGHTED DESC` |
 | `series` | Array of `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH, ID_PROPERTY }`, ordered by `IMDB_RATING_WEIGHTED DESC` |
 | `wikipedia_images` | Array of `{ ID_ROW, LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE, FILE_NAME, COMMONS_TITLE, CAPTION, ALT_TEXT, IS_MAIN_IMAGE, DISPLAY_ORDER }` from `T_WC_WIKIPEDIA_PAGE_LANG_IMAGE` joined on `ID_WIKIDATA` (the route parameter), filtered to `LANG IN ('en','fr')`, `DELETED = 0`, and `HTTP_STATUS = 200 OR HTTP_STATUS IS NULL`. Ordered by `IS_MAIN_IMAGE DESC, LANG ASC, DISPLAY_ORDER ASC` |
 | `wikipedia_content` | Array of `{ title, content }` from `T_WC_WIKIPEDIA_PAGE_LANG_SECTION` joined on `ID_WIKIDATA` (the route parameter), filtered to the requested `ui_language` (English fallback when that language has no sections) and `DELETED = 0`, ordered by `DISPLAY_ORDER ASC`. Each element exposes the section `TITLE` and `CONTENT` |
@@ -982,7 +982,7 @@ Each **category node** has the shape:
   - `entity_type` — for `entity_rows`: `movie` / `person` / `serie` / `topic` / `company` / `network` / `list` / `location` / `content`;
   - `expected_count`, `count_operator` — present when a `COUNT(...)` clause is in the assertion;
 - `simulated_result` — a renderable simulation whose **row shape matches `/search/text2sql`** (`result` is a list of `{ index, data }`), or `null` when nothing is materializable:
-  - **`entity_rows`** — the assertion IDs hydrated into display rows from the matching `T_WC_T2S_*` table (title/date/rating + poster or logo path, localized). `total_count` is the number of rows found (missing/deleted IDs are skipped). `location` IDs are Wikidata Q-IDs resolved against `T_WC_T2S_ITEM.ID_WIKIDATA`; `content` is a movie+series union resolved movie-first then series, with a `MEDIA_TYPE` tag per row.
+  - **`entity_rows`** — the assertion IDs hydrated into display rows from the matching `T_WC_T2S_*` table (title/date/rating + poster or logo path, localized). `total_count` is the number of rows found (missing/deleted IDs are skipped). `location` IDs are `ID_LOCATION` resolved against `T_WC_T2S_LOCATION`; `content` is a movie+series union resolved movie-first then series, with a `MEDIA_TYPE` tag per row.
   - **`scalar`** — a single `{ index: 0, data: { <COLUMN>: <value> } }` (or `{ "VALUE": <v> }` for a `CELL(0,0)` assertion).
   - **`count` / `bound`** — `result: []` plus an `expectation` object (`{ aggregate|column|cell, operator, value }`); no rows are invented.
 
@@ -1232,7 +1232,7 @@ fastapi-text2sql/
 ```
 
 **Key Architecture Components:**
-- **ChromaDB Integration**: Vector database for entity matching and similarity search with 15 entity collections (`persons`, `movies`, `series`, `companies`, `networks`, `topics`, `locations`, `groups`, `characters`, `lists`, `collections`, `deaths`, `awards`, `nominations`, `movements`) plus a separate `anonymizedqueries` cache collection
+- **ChromaDB Integration**: Vector database for entity matching and similarity search with 15 entity collections (`persons`, `movies`, `series`, `companies`, `networks`, `topics`, `t2slocations`, `groups`, `characters`, `lists`, `collections`, `deaths`, `awards`, `nominations`, `movements`) plus a separate `anonymizedqueries` cache collection. `t2slocations` is opened with `get_collection`, never `get_or_create_collection`: its HNSW configuration is fixed at creation by `embedding-update`, and whoever creates the collection first decides it for every reader
 - **Multi-Level Caching**: SQL cache + embeddings cache for performance optimization with automatic cleanup
 - **Entity Extraction**: `entity.py` handles GPT-powered entity recognition and anonymization for supported entity types
 - **Fork-Join Scheduling**: entity resolution runs in a worker thread while the text-to-SQL call is in flight (`ENTITY_RESOLUTION_PARALLEL`), since it depends only on the extraction output
@@ -1272,7 +1272,7 @@ The current prompt template is specifically designed for a **movie and TV series
 - **Movements** (`T_WC_T2S_MOVEMENT`): Film movements and stylistic schools (Film Noir, French New Wave, etc.)
 - **Groups** (`T_WC_T2S_GROUP`): Organizations, publications, and musical/comedy groups associated with persons
 - **Deaths** (`T_WC_T2S_DEATH`): Causes and circumstances of persons' deaths
-- **Locations** (`T_WC_T2S_ITEM` joined via `T_WC_WIKIDATA_ITEM_PROPERTY` with `ID_PROPERTY IN ('P840', 'P915')`): Wikidata-backed narrative or filming locations
+- **Locations** (`T_WC_T2S_LOCATION` joined via `T_WC_T2S_MOVIE_LOCATION` / `T_WC_T2S_SERIE_LOCATION`, `LOCATION_ROLE` `'narrative'` or `'filming'`): places a movie or series is linked to
 - **Ratings**: IMDB ratings integration (raw and weighted)
 - **Genres** (`T_WC_TMDB_GENRE` + `T_WC_TMDB_GENRE_LANG`): closed-vocabulary reference table; 27 canonical English names plus multilingual aliases (currently French, extensible to any LANG); used by both `T_WC_T2S_MOVIE_GENRE` and `T_WC_T2S_SERIE_GENRE` join tables (shared ID space)
 - **Technical formats** (`T_WC_T2S_TECHNICAL`): closed-vocabulary reference table grouping 56 active rows by `TECHNICAL_TYPE` (sound systems, color/film/sound technologies, film formats — e.g. IMAX, Technicolor, CinemaScope, 35 mm, Dolby); joined to movies via `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL`
@@ -1385,7 +1385,7 @@ The system intelligently extracts and replaces entities in natural language ques
 | `Movement_name` | Film movements / stylistic schools | Embeddings — `movements` collection |
 | `Group_name` | Organizations / publications / musical groups | Embeddings — `groups` collection |
 | `Death_name` | Cause or circumstance of death | Embeddings — `deaths` collection |
-| `Location_name` | Narrative / filming locations (Wikidata) | Embeddings — `locations` collection |
+| `Location_name` | Places a movie or series is linked to | Embeddings — `t2slocations` collection |
 | `Character_name` | Movie / series character names | *(extracted but currently unresolved — raw fallback)* |
 
 **Closed vocabulary ([closed_vocab.py](closed_vocab.py); DB-driven canonicals + JSON aliases hot-reloaded from [data/closed_vocabularies.json](data/closed_vocabularies.json); RapidFuzz typo tolerance, `score_cutoff = 85`):**

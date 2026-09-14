@@ -234,7 +234,10 @@ _collection_names = [
     "companies",
     "networks",
     "topics",
-    "locations",
+    # "locations" (keyed on the Wikidata QID) was dropped from this list in 1.1.19: the
+    # locations read-model reads t2slocations, opened below. Leaving the name here would
+    # not merely be dead weight, it would RECREATE an empty collection after
+    # EMBEDDING-UPDATE-010 deletes the old one, since this list uses get_or_create.
     "groups",
     "characters",
     "lists",
@@ -250,6 +253,21 @@ CHROMADB_COLLECTIONS_BY_NAME = {
     name: chroma_client.get_or_create_collection(name=name, embedding_function=embedding_function)
     for name in _collection_names
 }
+
+# ⚠ t2slocations is opened with get_collection, NEVER get_or_create_collection. Its HNSW
+# configuration (space l2, ef_search 100) is written at creation by process 216 of
+# embedding-update and cannot be changed afterwards, so the first program to create the
+# collection decides it for every reader. A get_or_create here would silently recreate it
+# with the server defaults on the day it is missing, and nothing would report the drift:
+# there is no error at query time, only worse ranking. The collections above keep
+# get_or_create because that is how they were created (FASTAPI-TEXT2SQL-247).
+try:
+    CHROMADB_COLLECTIONS_BY_NAME["t2slocations"] = chroma_client.get_collection(
+        name="t2slocations", embedding_function=embedding_function
+    )
+except Exception as _exc:
+    print(f"[startup] ChromaDB collection 't2slocations' unavailable ({_exc}); "
+          "location entity resolution will be skipped until process 216 of embedding-update has built it.", flush=True)
 print(f"[startup] ChromaDB entity collections ready ({len(CHROMADB_COLLECTIONS_BY_NAME)}) in {time.perf_counter() - _t0:.2f}s.", flush=True)
 
 #Anonymized queries collection
@@ -559,7 +577,12 @@ _RESULT_ENTITY_SOURCES = {
     "nomination": ("ID_NOMINATION", "T_WC_T2S_NOMINATION"),
     "company": ("ID_COMPANY", "T_WC_T2S_COMPANY"),
     "network": ("ID_NETWORK", "T_WC_T2S_NETWORK"),
-    "location": ("ID_WIKIDATA", "T_WC_T2S_ITEM"),
+    # Locations moved to their own read-model in 1.1.19 (FASTAPI-TEXT2SQL-247). The old
+    # pair was ("ID_WIKIDATA", "T_WC_T2S_ITEM"), and ID_WIKIDATA is carried by thirteen
+    # other tables: a movie query projecting T_WC_T2S_MOVIE.ID_WIKIDATA passed the
+    # location guard, and a location query projecting only ITEM_LABEL failed it. An
+    # ID_<ENTITY> token is unambiguous, which is what the guard assumes everywhere else.
+    "location": ("ID_LOCATION", "T_WC_T2S_LOCATION"),
     # Genres are a closed-vocabulary reference (T_WC_TMDB_GENRE, legacy lowercase
     # PK `id`). They are listable in their own right ("what are the movie genres?")
     # but are ALSO the most common filter word ("Sci-Fi movies"); the classifier
@@ -919,9 +942,6 @@ def hydrate_name_ambiguity_candidates(cursor, name_ambiguity):
 # section of data/text_to_sql.md. At runtime the live (hot-reloaded) prompt is the
 # source of truth — see _fast_path_columns() — and this dict is only the safety net
 # used when the prompt can't be parsed or a parsed column list fails to execute.
-# `location` uses the base T_WC_T2S_ITEM columns because the prompt's Locations list
-# includes ID_PROPERTY, which lives on the join table, not on the item table reached
-# by a direct ID_WIKIDATA lookup.
 _FAST_PATH_SELECT_COLUMNS_FALLBACK = {
     "movie": "ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH, RUNTIME, TAGLINE",
     "serie": "ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH, NUMBER_OF_SEASONS, NUMBER_OF_EPISODES, TAGLINE",
@@ -935,7 +955,7 @@ _FAST_PATH_SELECT_COLUMNS_FALLBACK = {
     "death": "ID_DEATH, DEATH_NAME, DEATH_SOURCE, DEATH_TYPE, PROFILE_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, PERSON_COUNT, POPULARITY",
     "award": "ID_AWARD, AWARD_NAME, AWARD_SOURCE, AWARD_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT, IMDB_RATING",
     "nomination": "ID_NOMINATION, NOMINATION_NAME, NOMINATION_SOURCE, NOMINATION_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT, IMDB_RATING",
-    "location": "ID_WIKIDATA, ITEM_LABEL, DESCRIPTION, INSTANCE_OF, WIKIPEDIA_IMAGE_PATH",
+    "location": "ID_LOCATION, LOCATION_NAME, LOCATION_TYPE, LOCATION_SOURCE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING",
     "genre": "id AS ID_GENRE, name AS GENRE_NAME, APPLIES_TO_MOVIE, APPLIES_TO_SERIE",
     "person_image": "ID_ROW, ID_PERSON, TYPE_IMAGE, LANG, IMAGE_PATH AS POSTER_PATH, VOTE_AVERAGE",
     "movie_image": "ID_ROW, ID_MOVIE, TYPE_IMAGE, LANG, IMAGE_PATH AS POSTER_PATH, VOTE_AVERAGE",
@@ -1005,12 +1025,13 @@ def _fast_path_columns(entity):
     """Return the SELECT column list for ``entity``, preferring the live prompt.
 
     Single source of truth = the hot-reloaded text_to_sql.md "Result Columns"
-    section; falls back to _FAST_PATH_SELECT_COLUMNS_FALLBACK per entity. ``location``
-    is always taken from the fallback (base T_WC_T2S_ITEM columns) because the
-    prompt's Locations list includes the join-only ID_PROPERTY column.
+    section; falls back to _FAST_PATH_SELECT_COLUMNS_FALLBACK per entity.
+
+    ``location`` used to bypass the prompt entirely: its Result Columns list carried
+    ID_PROPERTY, a column of the Wikidata join view that a direct lookup on the item
+    table could not project. The read-model owns its columns (FASTAPI-TEXT2SQL-247), so
+    the exception is gone and locations follow the general case like every other entity.
     """
-    if entity == "location":
-        return _FAST_PATH_SELECT_COLUMNS_FALLBACK["location"]
     tmpl = getattr(t2s, "text2sql_prompt_template", "") or ""
     if _fast_path_columns_cache["template"] is not tmpl:
         _fast_path_columns_cache["template"] = tmpl
@@ -6874,11 +6895,15 @@ async def get_nomination(id: int, ui_language: Optional[str] = "en", collection:
         conn.close()
 
 
-@app.get("/locations/{wikidata_id}", summary="Location full detail")
-async def get_location(wikidata_id: str, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
-    """Return all fields for a location identified by its Wikidata ID (e.g. Q90 for Paris)
-    plus movies and series linked as narrative location (ID_PROPERTY=P840) or filming
-    location (ID_PROPERTY=P915), ordered by adjusted IMDb rating.
+@app.get("/locations/{id}", summary="Location full detail")
+async def get_location(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+    """Return all fields for a location plus movies and series linked to it, ordered by
+    adjusted IMDb rating. The id is ID_LOCATION.
+
+    Each related row carries LOCATION_ROLE, 'narrative' (the story happens there) or
+    'filming' (it was shot there). Until 1.1.18 this route took a Wikidata Q-id and the
+    role travelled as the raw property code P840 / P915; both were replaced in 1.1.19
+    (FASTAPI-TEXT2SQL-247). ID_WIKIDATA is still on the payload as the business key.
 
     The location itself includes WIKIPEDIA_IMAGE_PATH. Each nested list element carries
     POSTER_PATH for the related movie or TV series.
@@ -6917,40 +6942,43 @@ async def get_location(wikidata_id: str, ui_language: Optional[str] = "en", coll
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM T_WC_T2S_ITEM WHERE ID_WIKIDATA = %s", (wikidata_id,))
+            # DELETED = 0: the read-model keeps a place that left the Wikidata perimeter as
+            # a tombstone so its ID_LOCATION is never handed to another place
+            # (TMDB-MOVIE-PREPROCESS-014). A tombstone must not answer as a location.
+            cursor.execute("SELECT * FROM T_WC_T2S_LOCATION WHERE ID_LOCATION = %s AND DELETED = 0", (id,))
             location = cursor.fetchone()
         if not location:
-            raise HTTPException(status_code=404, detail=f"Location {wikidata_id} not found")
+            raise HTTPException(status_code=404, detail=f"Location {id} not found")
         pcollections = {
             "movies": ("""
                 SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED,
-                       m.POSTER_PATH, wp.ID_PROPERTY, COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM V_WIKIDATA_ITEM_PROPERTY wp
-                JOIN T_WC_T2S_MOVIE m ON wp.ID_WIKIDATA = m.ID_WIKIDATA
-                WHERE wp.ID_ITEM = %s AND wp.ID_PROPERTY IN ('P840', 'P915')
+                       m.POSTER_PATH, ml.LOCATION_ROLE, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_MOVIE_LOCATION ml
+                JOIN T_WC_T2S_MOVIE m ON ml.ID_MOVIE = m.ID_MOVIE
+                WHERE ml.ID_LOCATION = %s
                 ORDER BY m.IMDB_RATING_WEIGHTED DESC, m.ID_MOVIE ASC
-            """, (wikidata_id,), "movie"),
+            """, (id,), "movie"),
             "series": ("""
                 SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED,
-                       s.POSTER_PATH, wp.ID_PROPERTY, COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM V_WIKIDATA_ITEM_PROPERTY wp
-                JOIN T_WC_T2S_SERIE s ON wp.ID_WIKIDATA = s.ID_WIKIDATA
-                WHERE wp.ID_ITEM = %s AND wp.ID_PROPERTY IN ('P840', 'P915')
+                       s.POSTER_PATH, sl.LOCATION_ROLE, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_SERIE_LOCATION sl
+                JOIN T_WC_T2S_SERIE s ON sl.ID_SERIE = s.ID_SERIE
+                WHERE sl.ID_LOCATION = %s
                 ORDER BY s.IMDB_RATING_WEIGHTED DESC, s.ID_SERIE ASC
-            """, (wikidata_id,), "serie"),
+            """, (id,), "serie"),
         }
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
             if collection is None:
-                wikipedia_images = _fetch_wikipedia_images(cursor, wikidata_id, ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, wikidata_id, ui_language)
-                wikipedia_page = _fetch_wikipedia_page(cursor, wikidata_id, ui_language)
+                wikipedia_images = _fetch_wikipedia_images(cursor, location.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, location.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, location.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, location, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
-            return _targeted_collection_response(conn, {"wikidata_id": wikidata_id}, collection, data, pagination, kinds, ui_language)
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**location, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         _attach_wikipedia_page(result, wikipedia_page)
-        logs.log_usage("locations", {"wikidata_id": wikidata_id, "response": result}, strapiversion)
+        logs.log_usage("locations", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
         return result
@@ -6975,7 +7003,7 @@ SAMPLE_HYDRATION = {
     "network": ("T_WC_T2S_NETWORK", "ID_NETWORK",  ["ID_NETWORK", "NETWORK_NAME", "LOGO_PATH", "SERIE_COUNT"]),
     "list":    ("T_WC_T2S_LIST",    "ID_T2S_LIST", ["ID_T2S_LIST", "LIST_NAME", "LIST_NAME_FR", "POSTER_PATH", "WIKIPEDIA_IMAGE_PATH", "IMDB_RATING_WEIGHTED", "POPULARITY"]),
     "collection": ("T_WC_T2S_COLLECTION", "ID_T2S_COLLECTION", ["ID_T2S_COLLECTION", "COLLECTION_NAME", "COLLECTION_NAME_FR", "POSTER_PATH", "WIKIPEDIA_IMAGE_PATH", "MOVIE_COUNT", "SERIE_COUNT", "IMDB_RATING_WEIGHTED"]),
-    "location": ("T_WC_T2S_ITEM",   "ID_WIKIDATA", ["ID_WIKIDATA", "ITEM_LABEL", "ITEM_LABEL_FR", "WIKIPEDIA_IMAGE_PATH"]),
+    "location": ("T_WC_T2S_LOCATION", "ID_LOCATION", ["ID_LOCATION", "LOCATION_NAME", "LOCATION_NAME_FR", "POSTER_PATH", "WIKIPEDIA_IMAGE_PATH"]),
     # Secondary entities. group/death store their image in PROFILE_PATH, aliased to
     # POSTER_PATH so the front-end card picks it up (it reads POSTER_PATH ||
     # WIKIPEDIA_IMAGE_PATH); technical's label is DESCRIPTION. These carry a real image
@@ -7405,7 +7433,7 @@ async def _mcp_sql_search(
     Nomination IDs → https://myapp.com/nominations/{ID_NOMINATION}
     Company IDs    → https://myapp.com/companies/{ID_COMPANY}
     Network IDs    → https://myapp.com/networks/{ID_NETWORK}
-    Location IDs   → https://myapp.com/locations/{ID_WIKIDATA} (Wikidata ID, e.g. Q90)
+    Location IDs   → https://myapp.com/locations/{ID_LOCATION}
     """
     try:
         async with httpx.AsyncClient(timeout=60) as client:
@@ -7869,9 +7897,11 @@ async def _mcp_get_network(id: int, ui_language: str = "en", collection: Optiona
 
 
 @mcp.tool(name="get_location")
-async def _mcp_get_location(wikidata_id: str, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
-    """Get all fields for a location by Wikidata ID (e.g. 'Q90' for Paris) plus movies
-    and series where it is a narrative location (P840) or filming location (P915).
+async def _mcp_get_location(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+    """Get all fields for a location by ID_LOCATION plus the movies and series linked to
+    it, each carrying LOCATION_ROLE, 'narrative' (the story happens there) or 'filming'
+    (it was shot there). The id is the integer ID_LOCATION, not the Wikidata Q-id, which
+    this tool took until 1.1.18.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
     T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off the route's Wikidata ID.
@@ -7889,7 +7919,7 @@ async def _mcp_get_location(wikidata_id: str, ui_language: str = "en", collectio
     title, which is not the entity's title and differs per language) and url. The key is
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
     requires CC BY-SA attribution pointing at this url."""
-    return await _mcp_get(f"/locations/{wikidata_id}", ui_language, collection, page, rows_per_page)
+    return await _mcp_get(f"/locations/{id}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="list_samples")
@@ -7973,9 +8003,8 @@ async def _mcp_database_scope() -> str:
     - Lists: T_WC_T2S_MOVIE_LIST \u2192 T_WC_T2S_LIST (DISPLAY_ORDER)
     - Awards: T_WC_T2S_MOVIE_AWARD \u2192 T_WC_T2S_AWARD (DISPLAY_ORDER)
     - Nominations: T_WC_T2S_MOVIE_NOMINATION \u2192 T_WC_T2S_NOMINATION (DISPLAY_ORDER)
-    - Locations: MOVIE.ID_WIKIDATA \u2192 V_WIKIDATA_ITEM_PROPERTY
-        ID_PROPERTY = 'P840' (narrative location) or 'P915' (filming location)
-        \u2192 T_WC_T2S_ITEM (ID_WIKIDATA, ITEM_LABEL, DESCRIPTION)
+    - Locations: T_WC_T2S_MOVIE_LOCATION \u2192 T_WC_T2S_LOCATION
+        LOCATION_ROLE = 'narrative' (the story happens there) or 'filming' (shot there)
 
     ## Relationships \u2014 TV Series
     Same structure as movies with T_WC_T2S_SERIE_* equivalents for all join tables.
@@ -8018,7 +8047,8 @@ async def _mcp_database_scope() -> str:
     - T_WC_T2S_COMPANY: COMPANY_NAME, HEADQUARTERS, ORIGIN_COUNTRY, LOGO_PATH,
         MOVIE_COUNT, SERIE_COUNT, IMDB_RATING_WEIGHTED, POPULARITY
     - T_WC_T2S_NETWORK: NETWORK_NAME, ORIGIN_COUNTRY, LOGO_PATH
-    - T_WC_T2S_ITEM: ID_WIKIDATA, ITEM_LABEL, DESCRIPTION, INSTANCE_OF
+    - T_WC_T2S_LOCATION: ID_LOCATION, LOCATION_NAME, LOCATION_TYPE, OVERVIEW,
+        MOVIE_COUNT, SERIE_COUNT, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, POPULARITY
 
     ## Useful value ranges
     - VOTE_AVERAGE: 0 to 10, meaningful above VOTE_COUNT > 200

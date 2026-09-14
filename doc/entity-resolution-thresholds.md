@@ -85,11 +85,17 @@ share reading at about 35 files per second. It lifted `Topic_name` from 48 to 23
 name. The scarcity is in the usage, not in the sampling, which is why thin types are fed from the
 catalogue instead.
 
-**The catalogue is the collection, never the SQL table.** `Location_name` looks its rows up in
-`T_WC_T2S_ITEM`, the whole Wikidata referential, while the `locations` collection is a subset
+**The catalogue is the collection, never the SQL table.** `Location_name` used to look its rows up
+in `T_WC_T2S_ITEM`, the whole Wikidata referential, while the `locations` collection was a subset
 filtered elsewhere. Drawing from the table produced "-M- discography" and "...And Now Miguel" as
 locations, none of which resolved, and made the resolver look broken when the bench was: its
 catalogue positives sat at a median ratio of 38.3, against 100.0 once corrected.
+
+The divergence itself is gone since 1.1.19 (FASTAPI-TEXT2SQL-247): `T_WC_T2S_LOCATION` and the
+`t2slocations` collection hold the same population, built from each other, so the table would now be
+a legitimate catalogue for locations. The rule stands all the same, because it is not about
+locations: a collection is what the resolver actually searches, and any table that merely resembles
+it is a different population until something guarantees otherwise.
 
 ## 4bis. A threshold belongs to a strategy, and so does a class
 

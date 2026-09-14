@@ -207,13 +207,15 @@ def sample_from_collection(collections_by_name, strategy, per_type, rng):
     """Draw values from the ChromaDB collection itself, which IS what the resolver searches.
 
     Corrects a wrong assumption (2026-08-25). The SQL table is not always the catalogue of the
-    type: `Location_name` looks rows up in `T_WC_T2S_ITEM`, the whole Wikidata item referential,
-    while the `locations` collection is a subset filtered elsewhere. Drawing "positives" from the
-    table produced "-M- discography" and "...And Now Miguel" as locations, none of which resolved,
-    and made the resolver look broken when the bench was.
+    type: `Location_name` used to look rows up in `T_WC_T2S_ITEM`, the whole Wikidata item
+    referential, while the `locations` collection was a subset filtered elsewhere. Drawing
+    "positives" from the table produced "-M- discography" and "...And Now Miguel" as locations,
+    none of which resolved, and made the resolver look broken when the bench was.
 
-    The collection has no such ambiguity: whatever it holds is what a query can match, so a
-    document taken from it must resolve to itself.
+    That particular divergence closed in 1.1.19 (FASTAPI-TEXT2SQL-247), `T_WC_T2S_LOCATION` and
+    the `t2slocations` collection being built from each other. The rule stands regardless, and not
+    as a precaution: the collection has no such ambiguity in the first place, since whatever it
+    holds is what a query can match, so a document taken from it must resolve to itself.
     """
     name = strategy.get("collection")
     collection = (collections_by_name or {}).get(name)

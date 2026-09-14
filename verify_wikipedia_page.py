@@ -28,7 +28,8 @@ series), to that series and its seasons and episodes, and finally to neighbour f
 for each entity type as soon as one id is found. Widening matters: a recent release carries no
 award and no collection, and a living actor no cause-of-death entry, so a single seed silently
 under-covers. What is still missing is reported as SKIPPED, never counted as a pass.
-`/locations` is reachable only by a Wikidata Q-number, so pass one with `--location-id`.
+Locations are probed like the other low-id vocabularies since 1.1.19, when the route moved
+from a Wikidata Q-number to the integer ID_LOCATION; `--location-id` still forces a given one.
 """
 import argparse
 import os
@@ -269,8 +270,8 @@ def main():
     parser.add_argument("--api-key", default=(os.getenv("API_KEYS") or "").split(",")[0].strip())
     parser.add_argument("--movie-id", type=int, default=DEFAULT_MOVIE_ID,
                         help="seed movie: every other entity id is discovered from its relations")
-    parser.add_argument("--location-id", default=None,
-                        help="a Wikidata Q-number; /locations is reachable no other way")
+    parser.add_argument("--location-id", type=int, default=None,
+                        help="force a given ID_LOCATION instead of the one the probe finds")
     args = parser.parse_args()
 
     if not args.api_key:
@@ -287,7 +288,7 @@ def main():
         else:
             checker.skip(name, "no live id found by walking the seed movie, its cast, its "
                                "series and its neighbours, nor by probing low ids"
-                               + (" (reachable only by Q-number: pass --location-id)"
+                               + (" (pass --location-id to force one)"
                                   if name == "locations" else
                                   " (try another --movie-id)"))
 

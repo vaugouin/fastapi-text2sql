@@ -608,37 +608,58 @@ CREATE TABLE T_WC_T2S_PERSON_NOMINATION (
 );
 
 ### Locations
-Narrative locations apply to movies and series.
-If a question is about a narrative location, ID_PROPERTY must be equal to 'P840' and the narrative location can be found in the ITEM_LABEL column.
-Filming locations apply to movies and series.
-If a question is about a filming location, ID_PROPERTY must be equal to 'P915' and the filming location can be found in the ITEM_LABEL column.
+Places linked to movies and series are stored in `T_WC_T2S_LOCATION`.
+When the user asks about a specific place, use the `LOCATION_NAME` field and the `{{Location_nameN}}` placeholder when present.
 
-CREATE VIEW V_WIKIDATA_ITEM_PROPERTY (
-  ID_ROW BIGINT NOT NULL,
-  ID_WIKIDATA VARCHAR(50) NOT NULL,
-  ID_PROPERTY VARCHAR(50) NOT NULL,
-  ID_ITEM VARCHAR(50) DEFAULT NULL,
-  DISPLAY_ORDER INT DEFAULT NULL,
-  TIM_UPDATED DATETIME DEFAULT NULL
+The role is a column of the junction table, `LOCATION_ROLE`, and it takes exactly two values:
+- 'narrative' when the story takes place there ("movies happening in Paris", "where does the action of Pulp Fiction take place");
+- 'filming' when it was shot there ("movies shot in Namibia", "where was 2001 filmed").
+A question that does not say which one it means takes both roles, without filtering on LOCATION_ROLE.
+
+CREATE TABLE T_WC_T2S_LOCATION (
+  ID_LOCATION INT NOT NULL,
+  ID_WIKIDATA VARCHAR(20),
+  LOCATION_NAME VARCHAR(250),
+  LOCATION_NAME_FR VARCHAR(250),
+  OVERVIEW MEDIUMTEXT,
+  LOCATION_SOURCE VARCHAR(20),
+  LOCATION_TYPE VARCHAR(20),
+  DELETED INT,
+  MOVIE_COUNT INT,
+  SERIE_COUNT INT,
+  POSTER_PATH VARCHAR(200),
+  WIKIPEDIA_IMAGE_PATH VARCHAR(500),
+  IMDB_RATING DOUBLE,
+  IMDB_RATING_WEIGHTED DOUBLE,
+  POPULARITY DOUBLE
 );
 
-- Use V_WIKIDATA_ITEM_PROPERTY, never T_WC_WIKIDATA_ITEM_PROPERTY. The latter is a
-  legacy table that FLATTENS a statement's main value together with the values of all
-  its qualifiers under the same ID_PROPERTY. Under P166 (award received) it therefore
-  mixes, as if they were all prizes: the award itself, the ceremony that handed it out,
-  the work it was given for, and the CO-RECIPIENTS. Measured on 2026-08-29: 26,815 of
-  27,449 items under P166 were qualifier values, 6,290 of them co-recipients. The view
-  returns the main value only, and drops deprecated ranks.
-- DISPLAY_ORDER is always NULL and must never be used in an ORDER BY. Sort on ID_ROW
-  where order matters; it follows the order of the claims in the Wikidata dump.
-
-CREATE TABLE T_WC_T2S_ITEM (
-  ID_WIKIDATA VARCHAR(50) NOT NULL,
-  ITEM_LABEL VARCHAR(250) DEFAULT NULL,
-  DESCRIPTION MEDIUMTEXT DEFAULT NULL,
-  INSTANCE_OF VARCHAR(50) DEFAULT NULL,
-  WIKIPEDIA_IMAGE_PATH VARCHAR(200) DEFAULT NULL
+CREATE TABLE T_WC_T2S_MOVIE_LOCATION (
+  ID_ROW INT NOT NULL,
+  ID_MOVIE INT NOT NULL,
+  ID_LOCATION INT NOT NULL,
+  LOCATION_ROLE VARCHAR(20) NOT NULL,
+  DISPLAY_ORDER INT
 );
+
+CREATE TABLE T_WC_T2S_SERIE_LOCATION (
+  ID_ROW INT NOT NULL,
+  ID_SERIE INT NOT NULL,
+  ID_LOCATION INT NOT NULL,
+  LOCATION_ROLE VARCHAR(20) NOT NULL,
+  DISPLAY_ORDER INT
+);
+
+- Always filter T_WC_T2S_LOCATION on DELETED = 0. The table keeps a row for a place that
+  is no longer linked to anything, so that its ID_LOCATION is never given to another
+  place; such a row is not a location the user can ask about.
+- LOCATION_TYPE says what kind of place it is: 'city', 'country', 'region', 'island',
+  'structure', 'nature', 'fiction'. Filter on it when the question names a kind, for
+  instance "which cities" or "which countries".
+- A location does NOT carry the place that contains it. "Movies shot in France" returns
+  the movies recorded against France itself, not those recorded against Paris. Do not
+  try to widen a place to its region or its country: the containment is not in the
+  database.
 
 ### Images about entities
 
@@ -773,12 +794,12 @@ CREATE TABLE T_WC_T2S_SERIE_RECOMMENDATION (
 
 ### General
 - When a field is included in the SELECT clause, it must be specified with the table name, for instance T_WC_T2S_MOVIE.ID_IMDB
-- Always use the DISTINCT keyword in the SELECT statement to remove duplicate rows from the result set. This applies even when the SELECT projects columns from only one side of a join: a join to a one-row-per-reference table (for example V_WIKIDATA_ITEM_PROPERTY, which holds one row per movie/series referencing a location, or any T_WC_T2S_*_* junction table) fans out and would otherwise return the same entity repeated, so DISTINCT is required there too.
+- Always use the DISTINCT keyword in the SELECT statement to remove duplicate rows from the result set. This applies even when the SELECT projects columns from only one side of a join: a join to a one-row-per-reference table (for example T_WC_T2S_MOVIE_LOCATION, which holds one row per movie/location/role, or any T_WC_T2S_*_* junction table) fans out and would otherwise return the same entity repeated, so DISTINCT is required there too.
 - Use exact equality comparisons (=) for name, title, character, and ID matching — never use LIKE
 - MOVIE_TITLE is the main title of the movie. Always use this field to search for a movie by its title 
 - SERIE_TITLE is the main title of the tv serie. Always use this field to search for a serie by its title 
 - PERSON_NAME is the name of the person. Always use this field to search for a person by her/his name
-- ITEM_LABEL is the name of the item, for instance a location. Always use this field to search for an item by its name
+- LOCATION_NAME is the name of a place. Always use this field to search for a location by its name
 - LIST_NAME is the main name of a notable curated film list or TV series list. Always use this field to search for a list by its name
 - COLLECTION_NAME is the main name of a trilogy or named series of works. Always use this field to search for a collection by its name
 - MOVEMENT_NAME is the main name of a film movement or style. Always use this field to search for a movement by its name
@@ -1093,7 +1114,7 @@ T_WC_TMDB_GENRE.id AS ID_GENRE, T_WC_TMDB_GENRE.name AS GENRE_NAME, T_WC_TMDB_GE
 - `APPLIES_TO_MOVIE = 1` marks a genre valid for movies; `APPLIES_TO_SERIE = 1` marks it valid for TV series (8 genres apply to both). For "movie genres" filter `WHERE APPLIES_TO_MOVIE = 1`; for "TV/series genres" filter `WHERE APPLIES_TO_SERIE = 1`; for "all genres" omit the flag filter. Default `ORDER BY name ASC`.
 
 #### Locations – return:
-ID_WIKIDATA, ID_PROPERTY, ITEM_LABEL, WIKIPEDIA_IMAGE_PATH
+ID_LOCATION, LOCATION_NAME, LOCATION_TYPE, LOCATION_SOURCE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING
 
 #### Movie images - return:
 ID_ROW, ID_MOVIE, TYPE_IMAGE, LANG, IMAGE_PATH AS POSTER_PATH, VOTE_AVERAGE
@@ -1274,6 +1295,7 @@ Time-of-day / "watch now" qualifiers — "tonight", "right now", "this evening",
 - Deaths → POPULARITY DESC
 - Awards → IMDB_RATING_WEIGHTED DESC
 - Nominations → IMDB_RATING_WEIGHTED DESC
+- Locations → MOVIE_COUNT DESC
 - When display movies for a given location (narrative or filming), ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC
 - When display series for a given location (narrative or filming), ORDER BY T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED DESC
 - Movie images → ORDER BY VOTE_AVERAGE DESC
@@ -1347,10 +1369,10 @@ Time-of-day / "watch now" qualifiers — "tonight", "right now", "this evening",
 - T_WC_T2S_SERIE_IMAGE.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE
 - T_WC_T2S_MOVIE_VIDEO.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE
 - T_WC_T2S_SERIE_VIDEO.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE
-- T_WC_T2S_MOVIE.ID_WIKIDATA = V_WIKIDATA_ITEM_PROPERTY.ID_WIKIDATA
-- T_WC_T2S_SERIE.ID_WIKIDATA = V_WIKIDATA_ITEM_PROPERTY.ID_WIKIDATA
-- T_WC_T2S_PERSON.ID_WIKIDATA = V_WIKIDATA_ITEM_PROPERTY.ID_WIKIDATA
-- V_WIKIDATA_ITEM_PROPERTY.ID_ITEM = T_WC_T2S_ITEM.ID_WIKIDATA
+- T_WC_T2S_MOVIE_LOCATION.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE
+- T_WC_T2S_MOVIE_LOCATION.ID_LOCATION = T_WC_T2S_LOCATION.ID_LOCATION
+- T_WC_T2S_SERIE_LOCATION.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE
+- T_WC_T2S_SERIE_LOCATION.ID_LOCATION = T_WC_T2S_LOCATION.ID_LOCATION
 
 ---
 

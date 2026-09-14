@@ -100,7 +100,7 @@ async def _mcp_sql_search(
     Nomination IDs → https://myapp.com/nominations/{ID_NOMINATION}
     Company IDs    → https://myapp.com/companies/{ID_COMPANY}
     Network IDs    → https://myapp.com/networks/{ID_NETWORK}
-    Location IDs   → https://myapp.com/locations/{ID_WIKIDATA} (Wikidata ID, e.g. Q90)
+    Location IDs   → https://myapp.com/locations/{ID_LOCATION}
     """
     try:
         async with httpx.AsyncClient(timeout=60) as client:
@@ -347,13 +347,13 @@ async def _mcp_get_network(id: int) -> str:
         return json.dumps({"error": str(e)})
 
 @mcp.tool(name="get_location")
-async def _mcp_get_location(wikidata_id: str) -> str:
-    """Get all fields for a location by Wikidata ID (e.g. 'Q90' for Paris) plus movies
-    and series where it is a narrative location (P840) or filming location (P915)."""
+async def _mcp_get_location(id: int) -> str:
+    """Get all fields for a location by ID_LOCATION plus the movies and series linked to
+    it, each carrying LOCATION_ROLE, 'narrative' or 'filming'."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
-                f"{MCP_INTERNAL_BASE_URL}/locations/{wikidata_id}",
+                f"{MCP_INTERNAL_BASE_URL}/locations/{id}",
                 headers={"X-API-Key": MCP_INTERNAL_API_KEY},
             )
             r.raise_for_status()
@@ -420,7 +420,7 @@ Each entity endpoint returns all properties for a given entity ID, including emb
 | `GET /nominations/{id}` | Nomination fields + associated movies, series, and persons |
 | `GET /companies/{id}` | Company fields + associated movies and series |
 | `GET /networks/{id}` | Network fields + associated TV series |
-| `GET /locations/{wikidata_id}` | Item fields + movies and series by narrative (P840) or filming (P915) location |
+| `GET /locations/{id}` | Location fields + movies and series, each tagged with LOCATION_ROLE ('narrative' / 'filming') |
 
 The guiding principle: **one tool call should answer one user intent**. If Claude needs two tool calls to answer a simple question, the entity design is too granular.
 
@@ -662,9 +662,8 @@ async def _mcp_database_scope() -> str:
     - Lists: T_WC_T2S_MOVIE_LIST → T_WC_T2S_LIST (DISPLAY_ORDER)
     - Awards: T_WC_T2S_MOVIE_AWARD → T_WC_T2S_AWARD (DISPLAY_ORDER)
     - Nominations: T_WC_T2S_MOVIE_NOMINATION → T_WC_T2S_NOMINATION (DISPLAY_ORDER)
-    - Locations: MOVIE.ID_WIKIDATA → T_WC_WIKIDATA_ITEM_PROPERTY
-        ID_PROPERTY = 'P840' (narrative location) or 'P915' (filming location)
-        → T_WC_T2S_ITEM (ID_WIKIDATA, ITEM_LABEL, DESCRIPTION)
+    - Locations: T_WC_T2S_MOVIE_LOCATION → T_WC_T2S_LOCATION
+        LOCATION_ROLE = 'narrative' (the story happens there) or 'filming' (shot there)
 
     ## Relationships — TV Series
     Same structure as movies with T_WC_T2S_SERIE_* equivalents for all join tables.
@@ -700,7 +699,8 @@ async def _mcp_database_scope() -> str:
         PERSON_COUNT, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
     - T_WC_T2S_COMPANY: COMPANY_NAME, HEADQUARTERS, ORIGIN_COUNTRY, LOGO_PATH
     - T_WC_T2S_NETWORK: NETWORK_NAME, ORIGIN_COUNTRY, LOGO_PATH
-    - T_WC_T2S_ITEM: ID_WIKIDATA, ITEM_LABEL, DESCRIPTION, INSTANCE_OF
+    - T_WC_T2S_LOCATION: ID_LOCATION, LOCATION_NAME, LOCATION_TYPE, OVERVIEW,
+        MOVIE_COUNT, SERIE_COUNT, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, POPULARITY
 
     ## Useful value ranges
     - VOTE_AVERAGE: 0 to 10, meaningful above VOTE_COUNT > 200

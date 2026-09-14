@@ -20,9 +20,14 @@ entity ids into display rows) lives in the API layer, which holds the DB handle.
 import html
 import re
 
-# Assertion id-columns that denote a concrete entity kind. ``ID_ITEM`` carries
-# Wikidata Q-ids (strings) resolved against T_WC_T2S_ITEM.ID_WIKIDATA; ``ID_CONTENT``
-# is a movie+series union with no single table. Everything else is an int PK.
+# Assertion id-columns that denote a concrete entity kind. ``ID_CONTENT`` is a
+# movie+series union with no single table. Everything else is an int PK.
+#
+# ``ID_ITEM`` (Wikidata Q-ids against T_WC_T2S_ITEM.ID_WIKIDATA) denoted locations until
+# 1.1.18 and is deliberately NOT kept here (FASTAPI-TEXT2SQL-247). Mapping it to
+# "location" would now send Q-id strings to a hydration keyed on the integer ID_LOCATION,
+# which returns nothing while looking like a lookup that ran. An assertion still written
+# that way is better left unrecognised: it hydrates nothing and says so.
 ID_COLUMN_ENTITY = {
     "ID_MOVIE": "movie",
     "ID_PERSON": "person",
@@ -32,7 +37,7 @@ ID_COLUMN_ENTITY = {
     "ID_NETWORK": "network",
     "ID_T2S_LIST": "list",
     "ID_T2S_COLLECTION": "collection",
-    "ID_ITEM": "location",
+    "ID_LOCATION": "location",
     "ID_CONTENT": "content",
     # Secondary entities: hydrate-able for the showcase (SAMPLE_HYDRATION in main.py).
     # Whether they actually get a showcase sample depends on their image coverage.

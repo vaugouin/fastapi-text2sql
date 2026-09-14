@@ -372,16 +372,17 @@
     "search_list": [
       {
         "search_mode": "embeddings",
-        "strtablename": "T_WC_T2S_ITEM",
-        "strtableid": "ID_WIKIDATA",
-        "collection": "locations",
-        "default_field": "ITEM_LABEL",
+        "strtablename": "T_WC_T2S_LOCATION",
+        "strtableid": "ID_LOCATION",
+        "collection": "t2slocations",
+        "default_field": "LOCATION_NAME",
         "order_by": null,
         "languages": {
-          "en": "ITEM_LABEL",
-          "fr": "ITEM_LABEL_FR",
-          "*": "ITEM_LABEL"
+          "en": "LOCATION_NAME",
+          "fr": "LOCATION_NAME_FR",
+          "*": "LOCATION_NAME"
         },
+        "document_name_separator": ": ",
         "min_fuzz_ratio": 71.8
       }
     ]
