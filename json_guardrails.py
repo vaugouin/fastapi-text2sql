@@ -30,8 +30,18 @@ from typing import Any, Tuple
 # Unlisted keys are allowed (e.g. dynamic entity-extraction placeholder keys).
 _SCHEMAS = {
     # f_entity_extraction -> {"question": "...anonymized...", "<Placeholder>": "...", ...}
+    #
+    # FASTAPI-TEXT2SQL-255. `query_mode` is deliberately NOT required. Its absence is not a
+    # malformed shape, it is a lost optimisation: the value only routes
+    # `descriptive_identification` to complex resolution at main.py, and everything
+    # downstream reads the extraction through `question` plus the placeholder keys. Requiring
+    # it made a usable extraction fail the gate, which sent the pipeline down the fallback
+    # branch and handed Text2SQL the raw, non-anonymized question. That costs more than the
+    # routing it was meant to buy, and it misfired hardest on descriptive questions, exactly
+    # the ones `query_mode` exists to catch. A wrong value stays rejected by `allowed_values`:
+    # a mode outside the vocabulary is a real contract breach, a missing one is not.
     "entity_extraction": {
-        "required": {"question": str, "query_mode": str},
+        "required": {"question": str},
         "types": {"question": str, "query_mode": str, "error": str, "raw_content": str},
         "allowed_values": {
             "query_mode": {

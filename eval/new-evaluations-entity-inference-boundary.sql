@@ -7,14 +7,14 @@ INSERT INTO T_WC_T2S_EVALUATION
   (ID_T2S_EVALUATION, QUESTION, QUESTION_FR, IS_EVAL, IS_SAMPLE,
    ID_T2S_EVALUATION_CATEGORY, DELETED, DAT_CREAT, TIM_UPDATED,
    ASSERTIONS_QUERY_RESULT, LONG_DESC)
-SELECT 2489,
+SELECT 2491,
        'a surveillance expert records a couple and fears they will be killed',
        'un expert en surveillance enregistre un couple et craint qu''ils ne soient tués',
        1, 0, 29, 0, CURDATE(), NOW(),
        'COUNT(*) &gt; 0 AND ID_MOVIE IN (592)',
        'FASTAPI-TEXT2SQL-250 à -254. La première passe ne doit jamais déduire The Conversation de mémoire. La résolution complexe doit identifier le film de 1974.'
 FROM DUAL WHERE NOT EXISTS (
-  SELECT 1 FROM T_WC_T2S_EVALUATION WHERE ID_T2S_EVALUATION = 2489
+  SELECT 1 FROM T_WC_T2S_EVALUATION WHERE ID_T2S_EVALUATION = 2491
 );
 
 INSERT INTO T_WC_T2S_EVALUATION

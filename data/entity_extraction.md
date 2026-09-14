@@ -38,6 +38,14 @@ Classify the user's request before extracting entities:
 - `descriptive_identification`: the user is trying to identify one specific unnamed real-world entity from remembered clues such as a plot, biography, roles, relationships, or events. Do not infer or add the missing name. Keep the clues verbatim in `question` and extract only entities that the user actually named.
 - `ordinary_filter_query`: the question asks for a set, count, ranking, property, or ordinary database filter and is not trying to recover the identity of one unnamed entity.
 
+The three modes are exclusive, so apply them in this order:
+
+1. Is the user trying to recover the identity of one unnamed entity from remembered clues? Then `descriptive_identification`, whatever else the question contains.
+2. Otherwise, does the question name a specific real-world entity (a person, a movie or series, a collection or franchise, a company, a network, a group, an award or nomination, a curated list, a movement, a named event or character) or carry an explicit identifier? Then `named_entity_query`, even when the question also asks for a set or applies filters.
+3. Otherwise `ordinary_filter_query`. Closed-vocabulary descriptors are filters, not named entities: genre, serie type, department, status, technical format, spoken language, cause of death, and years all fall here.
+
+`query_mode` is always present, in every answer, including when no entity is extracted.
+
 Examples:
 
 - `a surveillance expert records a couple and fears they will be killed` -> `{"question":"a surveillance expert records a couple and fears they will be killed","query_mode":"descriptive_identification"}`
@@ -363,6 +371,7 @@ Input: `List all movies with Humphrey Bogart`
 Output:
 {
   "question": "List all movies with {{Person_name1}}",
+  "query_mode": "named_entity_query",
   "Person_name1": "Humphrey Bogart"
 }
 
@@ -370,6 +379,7 @@ Input: `Vietnam war movies`
 Output:
 {
   "question": "{{Topic_name1}} movies",
+  "query_mode": "named_entity_query",
   "Topic_name1": "Vietnam war"
 }
 
@@ -377,6 +387,7 @@ Input: `List war movies`
 Output:
 {
   "question": "List {{Movie_genre1}} movies",
+  "query_mode": "ordinary_filter_query",
   "Movie_genre1": "war"
 }
 
@@ -384,6 +395,7 @@ Input: `Show me Sci-Fi & Fantasy series`
 Output:
 {
   "question": "Show me {{Serie_genre1}} series",
+  "query_mode": "ordinary_filter_query",
   "Serie_genre1": "Sci-Fi & Fantasy"
 }
 
@@ -391,6 +403,7 @@ Input: `Comedy movies directed by Woody Allen`
 Output:
 {
   "question": "{{Movie_genre1}} movies directed by {{Person_name1}}",
+  "query_mode": "named_entity_query",
   "Movie_genre1": "Comedy",
   "Person_name1": "Woody Allen"
 }
@@ -399,6 +412,7 @@ Input: `Star Wars movies`
 Output:
 {
   "question": "{{Collection_name1}} movies",
+  "query_mode": "named_entity_query",
   "Collection_name1": "Star Wars"
 }
 
@@ -406,6 +420,7 @@ Input: `Marvel Cinematic Universe movies`
 Output:
 {
   "question": "{{Collection_name1}} movies",
+  "query_mode": "named_entity_query",
   "Collection_name1": "Marvel Cinematic Universe"
 }
 
@@ -413,6 +428,7 @@ Input: `Middle-Earth movies`
 Output:
 {
   "question": "{{Collection_name1}} movies",
+  "query_mode": "named_entity_query",
   "Collection_name1": "Middle-Earth"
 }
 
@@ -420,6 +436,7 @@ Input: `Harry Potter movies`
 Output:
 {
   "question": "{{Collection_name1}} movies",
+  "query_mode": "named_entity_query",
   "Collection_name1": "Harry Potter movies"
 }
 
@@ -427,6 +444,7 @@ Input: `Films récompensés aux oscars`
 Output:
 {
   "question": "Films récompensés aux {{Award_name1}}",
+  "query_mode": "named_entity_query",
   "Award_name1": "oscars"
 }
 
@@ -434,6 +452,7 @@ Input: `French New Wave films directed by François Truffaut`
 Output:
 {
   "question": "{{Movement_name1}} films directed by {{Person_name1}}",
+  "query_mode": "named_entity_query",
   "Movement_name1": "French New Wave",
   "Person_name1": "François Truffaut"
 }
@@ -442,6 +461,7 @@ Input: `Movies having a Philip Marlowe character`
 Output:
 {
   "question": "Movies having a {{Topic_name1}} character",
+  "query_mode": "named_entity_query",
   "Topic_name1": "Philip Marlowe"
 }
 
@@ -449,6 +469,7 @@ Input: `Sergio Leone movies with Clint Eastwood`
 Output:
 {
   "question": "{{Person_name1}} movies with {{Person_name2}}",
+  "query_mode": "named_entity_query",
   "Person_name1": "Sergio Leone",
   "Person_name2": "Clint Eastwood"
 }
@@ -457,6 +478,7 @@ Input: `Show me all World War II movies directed by John Ford`
 Output:
 {
   "question": "Show me all {{Topic_name1}} movies directed by {{Person_name1}}",
+  "query_mode": "named_entity_query",
   "Topic_name1": "World War II",
   "Person_name1": "John Ford"
 }
@@ -465,6 +487,7 @@ Input: `Show me the Sight and Sound greatest films of all time`
 Output:
 {
   "question": "Show me the {{List_name1}}",
+  "query_mode": "named_entity_query",
   "List_name1": "Sight and Sound greatest films of all time"
 }
 
@@ -472,6 +495,7 @@ Input: `What TV series are in the IMDb top 250 tv shows?`
 Output:
 {
   "question": "What TV series are in the {{List_name1}}?",
+  "query_mode": "named_entity_query",
   "List_name1": "IMDb top 250 tv shows"
 }
 
@@ -479,6 +503,7 @@ Input: `Which movies won the Palme d'Or?`
 Output:
 {
   "question": "Which movies won the {{Award_name1}}?",
+  "query_mode": "named_entity_query",
   "Award_name1": "Palme d'Or"
 }
 
@@ -486,6 +511,7 @@ Input: `Which people received the Primetime Emmy Award?`
 Output:
 {
   "question": "Which people received the {{Award_name1}}?",
+  "query_mode": "named_entity_query",
   "Award_name1": "Primetime Emmy Award"
 }
 
@@ -493,6 +519,7 @@ Input: `Which movies were nominated for the Palme d'Or?`
 Output:
 {
   "question": "Which movies were nominated for the {{Nomination_name1}}?",
+  "query_mode": "named_entity_query",
   "Nomination_name1": "Palme d'Or"
 }
 
@@ -500,6 +527,7 @@ Input: `Which people were nominated for the Primetime Emmy Award?`
 Output:
 {
   "question": "Which people were nominated for the {{Nomination_name1}}?",
+  "query_mode": "named_entity_query",
   "Nomination_name1": "Primetime Emmy Award"
 }
 
@@ -507,6 +535,7 @@ Input: `Which movies are in the Dollars Trilogy?`
 Output:
 {
   "question": "Which movies are in the {{Collection_name1}}?",
+  "query_mode": "named_entity_query",
   "Collection_name1": "Dollars Trilogy"
 }
 
@@ -514,6 +543,7 @@ Input: `Show me the James Bond Collection`
 Output:
 {
   "question": "Show me the {{Collection_name1}}",
+  "query_mode": "named_entity_query",
   "Collection_name1": "James Bond Collection"
 }
 
@@ -521,6 +551,7 @@ Input: `French New Wave films directed by François Truffaut`
 Output:
 {
   "question": "{{Movement_name1}} films directed by {{Person_name1}}",
+  "query_mode": "named_entity_query",
   "Movement_name1": "French New Wave",
   "Person_name1": "François Truffaut"
 }
@@ -529,6 +560,7 @@ Input: `Show me Film Noir movies`
 Output:
 {
   "question": "Show me {{Movement_name1}} movies",
+  "query_mode": "named_entity_query",
   "Movement_name1": "Film Noir"
 }
 
@@ -536,6 +568,7 @@ Input: `Which people were members of The Beatles?`
 Output:
 {
   "question": "Which people were members of {{Group_name1}}?",
+  "query_mode": "named_entity_query",
   "Group_name1": "The Beatles"
 }
 
@@ -543,6 +576,7 @@ Input: `Show me people who worked for Les Cahiers du Cinéma`
 Output:
 {
   "question": "Show me people who worked for {{Group_name1}}",
+  "query_mode": "named_entity_query",
   "Group_name1": "Les Cahiers du Cinéma"
 }
 
@@ -550,6 +584,7 @@ Input: `Which people died from liver cirrhosis?`
 Output:
 {
   "question": "Which people died from {{Death_name1}}?",
+  "query_mode": "ordinary_filter_query",
   "Death_name1": "liver cirrhosis"
 }
 
@@ -557,6 +592,7 @@ Input: `Show me people whose death was caused by a car collision`
 Output:
 {
   "question": "Show me people whose death was caused by {{Death_name1}}",
+  "query_mode": "ordinary_filter_query",
   "Death_name1": "car collision"
 }
 
@@ -564,6 +600,7 @@ Input: `Which people died by homicide?`
 Output:
 {
   "question": "Which people died by {{Death_name1}}?",
+  "query_mode": "ordinary_filter_query",
   "Death_name1": "homicide"
 }
 
@@ -571,6 +608,7 @@ Input: `The Exorcist (1973)`
 Output:
 {
   "question": "{{Movie_title1}} ({{Release_year1}})",
+  "query_mode": "named_entity_query",
   "Movie_title1": "The Exorcist",
   "Release_year1": "1973"
 }
@@ -579,6 +617,7 @@ Input: `What movies used the Technicolor technology?`
 Output:
 {
   "question": "What movies used the {{Technical_format1}} technology?",
+  "query_mode": "ordinary_filter_query",
   "Technical_format1": "Technicolor"
 }
 
@@ -586,6 +625,7 @@ Input: `Films shot in IMAX`
 Output:
 {
   "question": "Films shot in {{Technical_format1}}",
+  "query_mode": "ordinary_filter_query",
   "Technical_format1": "IMAX"
 }
 
@@ -593,6 +633,7 @@ Input: `Movies released in 35mm and 70mm`
 Output:
 {
   "question": "Movies released in {{Technical_format1}} and {{Technical_format2}}",
+  "query_mode": "ordinary_filter_query",
   "Technical_format1": "35mm",
   "Technical_format2": "70mm"
 }
@@ -601,6 +642,7 @@ Input: `Les films tournés en franscope`
 Output:
 {
   "question": "Les films tournés en {{Technical_format1}}",
+  "query_mode": "ordinary_filter_query",
   "Technical_format1": "franscope"
 }
 
@@ -608,6 +650,7 @@ Input: `Dolby surround movies`
 Output:
 {
   "question": "{{Technical_format1}} movies",
+  "query_mode": "ordinary_filter_query",
   "Technical_format1": "Dolby surround"
 }
 
@@ -615,6 +658,7 @@ Input: `Movies shot in 2.35:1`
 Output:
 {
   "question": "Movies shot in {{Technical_format1}}",
+  "query_mode": "ordinary_filter_query",
   "Technical_format1": "2.35:1"
 }
 
@@ -622,6 +666,7 @@ Input: `Academy ratio films`
 Output:
 {
   "question": "{{Technical_format1}} films",
+  "query_mode": "ordinary_filter_query",
   "Technical_format1": "Academy ratio"
 }
 
@@ -629,6 +674,7 @@ Input: `Widescreen movies`
 Output:
 {
   "question": "{{Technical_format1}} movies",
+  "query_mode": "ordinary_filter_query",
   "Technical_format1": "Widescreen"
 }
 
@@ -636,6 +682,7 @@ Input: `Films in 16:9`
 Output:
 {
   "question": "Films in {{Technical_format1}}",
+  "query_mode": "ordinary_filter_query",
   "Technical_format1": "16:9"
 }
 
@@ -643,6 +690,7 @@ Input: `Anamorphic movies directed by Steven Spielberg`
 Output:
 {
   "question": "{{Technical_format1}} movies directed by {{Person_name1}}",
+  "query_mode": "named_entity_query",
   "Technical_format1": "Anamorphic",
   "Person_name1": "Steven Spielberg"
 }
@@ -650,13 +698,15 @@ Output:
 Input: `What are Japanese speaking movies?`
 Output:
 {
-  "question": "What are Japanese speaking movies?"
+  "question": "What are Japanese speaking movies?",
+  "query_mode": "ordinary_filter_query"
 }
 
 Input: `List released movies`
 Output:
 {
   "question": "List {{Status_name1}} movies",
+  "query_mode": "ordinary_filter_query",
   "Status_name1": "Released"
 }
 
@@ -664,6 +714,7 @@ Input: `Show me canceled series`
 Output:
 {
   "question": "Show me {{Status_name1}} series",
+  "query_mode": "ordinary_filter_query",
   "Status_name1": "Canceled"
 }
 
@@ -671,6 +722,7 @@ Input: `Movies still in production`
 Output:
 {
   "question": "Movies still in {{Status_name1}}",
+  "query_mode": "ordinary_filter_query",
   "Status_name1": "In Production"
 }
 
@@ -678,6 +730,7 @@ Input: `Best documentary series of all time`
 Output:
 {
   "question": "Best {{Serie_genre1}} series of all time",
+  "query_mode": "ordinary_filter_query",
   "Serie_genre1": "Documentary"
 }
 
@@ -685,6 +738,7 @@ Input: `What miniseries did HBO produce?`
 Output:
 {
   "question": "What {{Serie_type1}} did {{Network_name1}} produce?",
+  "query_mode": "named_entity_query",
   "Serie_type1": "Miniseries",
   "Network_name1": "HBO"
 }
@@ -693,19 +747,22 @@ Input: `List directors`
 Output:
 {
   "question": "List {{Department_name1}}",
+  "query_mode": "ordinary_filter_query",
   "Department_name1": "Directing"
 }
 
 Input: `List actors`
 Output:
 {
-  "question": "List actors"
+  "question": "List actors",
+  "query_mode": "ordinary_filter_query"
 }
 
 Input: `Actresses in The Big Lebowski`
 Output:
 {
   "question": "Actresses in {{Movie_title1}}",
+  "query_mode": "named_entity_query",
   "Movie_title1": "The Big Lebowski"
 }
 
@@ -713,6 +770,7 @@ Input: `Show me cinematographers`
 Output:
 {
   "question": "Show me {{Department_name1}}",
+  "query_mode": "ordinary_filter_query",
   "Department_name1": "cinematographers"
 }
 
@@ -720,6 +778,7 @@ Input: `People known for Visual Effects`
 Output:
 {
   "question": "People known for {{Department_name1}}",
+  "query_mode": "ordinary_filter_query",
   "Department_name1": "Visual Effects"
 }
 
@@ -727,6 +786,7 @@ Input: `Films with crew in the Sound department`
 Output:
 {
   "question": "Films with crew in the {{Department_name1}} department",
+  "query_mode": "ordinary_filter_query",
   "Department_name1": "Sound"
 }
 
@@ -734,6 +794,7 @@ Input: `Réalisateurs nés en 1962`
 Output:
 {
   "question": "{{Department_name1}} nés en {{Birth_year1}}",
+  "query_mode": "ordinary_filter_query",
   "Department_name1": "Réalisateurs",
   "Birth_year1": "1962"
 }
@@ -742,6 +803,7 @@ Input: `Actors born in 1962`
 Output:
 {
   "question": "Actors born in {{Birth_year1}}",
+  "query_mode": "ordinary_filter_query",
   "Birth_year1": "1962"
 }
 
@@ -749,6 +811,7 @@ Input: `Directors who died in 1980`
 Output:
 {
   "question": "{{Department_name1}} who died in {{Death_year1}}",
+  "query_mode": "ordinary_filter_query",
   "Department_name1": "Directors",
   "Death_year1": "1980"
 }
@@ -757,6 +820,7 @@ Input: `What is the movie with IMDb ID tt0038355?`
 Output:
 {
   "question": "What is the movie with IMDb ID {{IMDb_ID1}}?",
+  "query_mode": "named_entity_query",
   "IMDb_ID1": "tt0038355"
 }
 
@@ -764,6 +828,7 @@ Input: `Show me the person with IMDb ID nm0000007`
 Output:
 {
   "question": "Show me the person with IMDb ID {{IMDb_person_ID1}}",
+  "query_mode": "named_entity_query",
   "IMDb_person_ID1": "nm0000007"
 }
 
@@ -771,6 +836,7 @@ Input: `What is Wikidata item Q28385?`
 Output:
 {
   "question": "What is Wikidata item {{Wikidata_ID1}}?",
+  "query_mode": "named_entity_query",
   "Wikidata_ID1": "Q28385"
 }
 
@@ -778,6 +844,7 @@ Input: `Movies tagged with Wikidata property P136`
 Output:
 {
   "question": "Movies tagged with Wikidata property {{Wikidata_property_ID1}}",
+  "query_mode": "named_entity_query",
   "Wikidata_property_ID1": "P136"
 }
 
@@ -785,6 +852,7 @@ Input: `What is the TMDb movie 550?`
 Output:
 {
   "question": "What is the TMDb movie {{TMDb_ID1}}?",
+  "query_mode": "named_entity_query",
   "TMDb_ID1": "550"
 }
 
@@ -792,7 +860,29 @@ Input: `What is Criterion spine number 1?`
 Output:
 {
   "question": "What is Criterion spine number {{Criterion_spine_ID1}}?",
+  "query_mode": "named_entity_query",
   "Criterion_spine_ID1": "1"
+}
+
+Input: `I remember a photographer taking pictures in a park and then thinking one of the photos showed a murder`
+Output:
+{
+  "question": "I remember a photographer taking pictures in a park and then thinking one of the photos showed a murder",
+  "query_mode": "descriptive_identification"
+}
+
+Input: `the film where a lawyer defends a black man accused of assaulting a white woman in a southern town`
+Output:
+{
+  "question": "the film where a lawyer defends a black man accused of assaulting a white woman in a southern town",
+  "query_mode": "descriptive_identification"
+}
+
+Input: `a series about a chemistry teacher who starts cooking drugs after a cancer diagnosis`
+Output:
+{
+  "question": "a series about a chemistry teacher who starts cooking drugs after a cancer diagnosis",
+  "query_mode": "descriptive_identification"
 }
 
 <!--CACHE_BOUNDARY-->

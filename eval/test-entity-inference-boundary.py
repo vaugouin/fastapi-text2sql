@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline regression checks for FASTAPI-TEXT2SQL-250 through -254."""
+"""Offline regression checks for FASTAPI-TEXT2SQL-250 through -255."""
 from pathlib import Path
 import sys
 
@@ -25,6 +25,21 @@ def main() -> None:
     ok, error = json_guardrails.validate_llm_json(
         {"question": "clues", "query_mode": "invented_mode"},
         "entity_extraction",
+    )
+    assert not ok and "query_mode" in error
+
+    # FASTAPI-TEXT2SQL-255. A missing query_mode costs the descriptive routing, not the
+    # extraction: the payload stays usable and must pass. Rejecting it sent the pipeline
+    # down the fallback branch with the raw, non-anonymized question.
+    ok, error = json_guardrails.validate_llm_json(
+        {"question": "tell me about {{Movie_title1}}", "Movie_title1": "Blow-Up"},
+        "entity_extraction",
+    )
+    assert ok, error
+
+    # A present-but-wrong query_mode is still a contract breach, by value and by type.
+    ok, error = json_guardrails.validate_llm_json(
+        {"question": "clues", "query_mode": 3}, "entity_extraction",
     )
     assert not ok and "query_mode" in error
 

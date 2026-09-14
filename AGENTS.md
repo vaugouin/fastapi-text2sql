@@ -1094,6 +1094,8 @@ Prefer parameterized SQL for application-owned queries. Placeholder de-anonymiza
 
 Text2SQL owns relational structure, never the identification of an unnamed real-world entity from remembered clues. `data/entity_extraction.md` classifies each request with `query_mode`; `descriptive_identification` routes to the stronger model before Text2SQL. Text2SQL may also emit `requires_complex_resolution: true`. Independently of both prompts, `entity.find_unbacked_entity_literals()` rejects resolvable entity equalities whose value occurs in neither the original question nor extracted entities. Keep this guard before SQL execution and cache writes. A literal explicitly present in the original question remains grounded even when extraction missed it, which preserves the `Pour le plaisir` rescue path.
 
+`query_mode` is a soft field (FASTAPI-TEXT2SQL-255): [json_guardrails.py](json_guardrails.py) validates its value against the closed vocabulary but does not require its presence. A missing mode costs the descriptive routing only, while rejecting the payload discarded a usable extraction and handed Text2SQL the raw, non-anonymized question. The lesson for any prompt-and-guardrail pair: a rule stated once in the spec loses to the shape demonstrated by the examples. When adding a required key to a prompt contract, update every example in that prompt in the same commit, or the model will keep answering in the shape it was shown.
+
 ---
 
 ## Encoding
