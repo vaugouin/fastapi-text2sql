@@ -72,6 +72,10 @@ strentityextractionmodeldefault = "gpt-4o"
 # automatically whenever the underlying files change on disk.
 entity_extraction_prompt_template: str = ""
 ENTITY_RESOLUTION_CONFIG: list[dict] = []
+ENTITY_EXTRACTION_METADATA_KEYS = frozenset({"question", "query_mode", "error", "raw_content"})
+QUERY_MODES = frozenset({
+    "named_entity_query", "descriptive_identification", "ordinary_filter_query",
+})
 
 BKTREE_ENABLED = os.getenv("BKTREE_ENABLED", "1").strip().lower() in {"1", "true", "yes", "on"}
 _BKTREE_CACHE: dict[tuple[str, str, str], rapidfuzz_query.BKTreeIndex] = {}
@@ -325,6 +329,17 @@ def f_entity_extraction(user_question: str, strentityextractionmodel: str = "def
     return _run_extraction_prompt(entity_extraction_prompt_template, user_question, model_to_use, "entity_extraction")
 
 
+def extracted_entity_items(entity_extraction) -> list[tuple[str, Any]]:
+    """Return only placeholder/value pairs, excluding extraction metadata."""
+    if not isinstance(entity_extraction, dict):
+        return []
+    return [
+        (str(key), value)
+        for key, value in entity_extraction.items()
+        if key not in ENTITY_EXTRACTION_METADATA_KEYS
+    ]
+
+
 def _find_entity_config(placeholder_key: str):
     """Return the first resolution config whose placeholder prefix matches the key."""
     for cfg in ENTITY_RESOLUTION_CONFIG:
@@ -418,6 +433,38 @@ def find_literal_equalities(sql_query: str) -> list:
             "placeholder": "{{" + f"{prefix}{counters[prefix]}" + "}}",
         })
     return found
+
+
+def find_unbacked_entity_literals(
+    sql_query: str,
+    original_question: str,
+    entity_extraction,
+) -> list:
+    """Return entity literals that came from neither the user nor extraction.
+
+    A literal is grounded when its normalized value occurs as a complete phrase in
+    the original question or equals an extracted entity value. This deliberately
+    preserves a raw title such as ``Pour le plaisir`` when extraction missed it,
+    while rejecting a recalled title such as ``The Conversation`` inferred from a
+    plot description.
+    """
+    def normalize(value) -> str:
+        return " ".join(str(value or "").casefold().split())
+
+    question = normalize(original_question)
+    extracted_values = {
+        normalize(value) for _, value in extracted_entity_items(entity_extraction)
+        if normalize(value)
+    }
+    unbacked = []
+    for item in find_literal_equalities(sql_query):
+        value = normalize(item.get("value"))
+        if not value:
+            continue
+        appears_in_question = bool(re.search(r"(?<!\w)" + re.escape(value) + r"(?!\w)", question))
+        if not appears_in_question and value not in extracted_values:
+            unbacked.append(item)
+    return unbacked
 
 
 def placeholderize_literals(sql_query: str, literals: list) -> str:
@@ -869,9 +916,7 @@ def plan_entity_resolutions(
 
     if isinstance(entity_extraction, dict):
         with connection.cursor() as cursor:
-            for key, value in entity_extraction.items():
-                if key == "question":
-                    continue
+            for key, value in extracted_entity_items(entity_extraction):
 
                 placeholder = "{{" + str(key) + "}}"
                 planned = _PlannedEntity(str(key), placeholder)

@@ -11,6 +11,7 @@ Convert the provided natural language question into the following json structure
   "justification": "**brief explanation**",
   "answer": "**user-oriented answer**",
   "dropped_clause": "**the part of the question the SQL does not implement, empty when it implements all of it**",
+  "requires_complex_resolution": false,
   "error": "**request clarification**"
 }
 
@@ -19,7 +20,8 @@ Convert the provided natural language question into the following json structure
  **brief explanation** must retain all entity extraction elements, for instance "{{PERSON_NAME}}".
  **user-oriented answer** is a friendly, slightly warm assistant sentence describing what the query returns, written in **{ui_language}**. It must NOT mention any table name, column name, or technical SQL detail. It must retain all entity extraction placeholders exactly as in the justification (e.g. "{{Person_name1}}"). Think of it as the short intro line displayed to the end user above the query results. Use natural phrasing such as "Here you go...", "Sure...", or "Here are..." but stay concise (ideally 1 sentence).
  **error** must be empty.
-- If the question is ambiguous, do NOT return an error. Instead, make your best interpretation of the user's intent and return a valid SQL query. Use common sense to decide the most likely meaning (e.g., a single word referring to a profession or role implies a person search). Only return an error if the question is completely unrelated to the database schema and truly cannot produce any meaningful SQL query.
+- Infer SQL structure, joins, filters, sorting, and result type. Never infer the identity of a real movie, series, person, company, place, collection, or other named entity from remembered clues or from your own knowledge.
+- If the question is ambiguous only about SQL intent, make your best structural interpretation and return a valid SQL query. If it asks you to identify a specific unnamed entity from a plot, biography, roles, relationships, or other clues, return an empty `sql_query`, set `requires_complex_resolution` to `true`, and leave `error` empty. Only return an error if the question is completely unrelated to the database schema.
 Never include a semicolon at the end of the SQL query.
 
 ---
@@ -35,8 +37,17 @@ Rules:
 - When comparing against a placeholder in SQL, treat it as a string literal, for example: T_WC_T2S_MOVIE.MOVIE_TITLE = '{{Movie_title1}}'
 - The placeholders will be substituted with real values AFTER you generate the SQL.
 - **Use ONLY placeholders that appear verbatim in the question you were given.** The list above is a glossary of every placeholder the system knows, NOT a menu to pick from. A placeholder you write that was not in the input will never be substituted, because no value was ever produced for it: the query becomes unexecutable and is discarded, so the user gets NOTHING instead of a narrower answer.
-- **If a filter would need a placeholder that is absent, drop that filter**, along with any join that existed only to serve it. Do NOT replace it with a value recalled from memory, and do NOT replace it with a numeric id: the prohibition stated below for genres and technical formats is not lifted here. An answer narrower than the question but which runs is worth more than an exact query that cannot run. This is the "make your best interpretation" rule above, applied to a missing placeholder.
+- **If a structural filter would need a placeholder that is absent, drop that filter**, along with any join that existed only to serve it. Do NOT replace it with a value recalled from memory, and do NOT replace it with a numeric id: the prohibition stated below for genres and technical formats is not lifted here. If the missing placeholder is the identity the user is asking you to discover, do not drop it and return a broad query: emit `requires_complex_resolution: true` with no SQL.
 - **Declare what you dropped** in `dropped_clause`: a short phrase naming the part of the question the SQL does not implement, for example `genre filter: science-fiction`. Leave it empty when the SQL implements the whole question. The `answer` element must then not claim a filter the SQL does not apply.
+
+Negative examples, where the title may be familiar but is not present in the input:
+
+- Input: `a surveillance expert records a couple and fears they will be killed`. Wrong: `MOVIE_TITLE = 'The Conversation'`. Correct: `{"sql_query":"","requires_complex_resolution":true,"error":""}`.
+- Input: `a man lends his flat to his boss for his affairs and his boss dates the woman he has a crush on`. Wrong: `MOVIE_TITLE = 'The Apartment'`. Correct: `{"sql_query":"","requires_complex_resolution":true,"error":""}`.
+
+Grounded counterexample:
+
+- Input: `tell me about {{Movie_title1}}`. The title was supplied upstream and must remain the placeholder in SQL, for example `MOVIE_TITLE = '{{Movie_title1}}'`; set `requires_complex_resolution` to `false`.
 
 Genre and Technical_format placeholder special case (integer-ID columns):
 - `{{Movie_genreN}}` represents a movie genre name (TMDb /genre/movie/list). Do NOT convert it yourself into the numeric ID. Use it ONLY against the movie genre junction.

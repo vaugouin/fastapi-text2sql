@@ -1,0 +1,27 @@
+{
+  "evaluation_id": 2489,
+  "evaluation_category_id": 29,
+  "question_en": "a surveillance expert records a couple and fears they will be killed",
+  "question_fr": "un expert en surveillance enregistre un couple et craint qu'ils ne soient tués",
+  "translation_note": "The English wording is the original production incident from 2026-09-13. The French wording is its evaluation counterpart.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "COUNT(*) > 0 AND ID_MOVIE IN (592)"
+  },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
+  "comment": "Regression for FASTAPI-TEXT2SQL-250 through -254. Text2SQL must not infer The Conversation from memory; complex resolution must identify the 1974 film.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2026-09-14",
+  "tim_updated": "2026-09-14T00:00:00",
+  "is_showcase": 0,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
+}

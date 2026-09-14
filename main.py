@@ -1579,7 +1579,8 @@ class Text2SQLResponse(BaseModel):
     # the response, not in a log file (the outer request returned before the log write). The
     # 2026-09-08 "Pour le plaisir" trace had to be reconstructed from prompt token counts.
     # first_pass_failure_code is closed: text2sql_error, sql_guard_rejected,
-    # entity_fallback_unmatchable, sql_execution_error, or no_results:<signal>[+<signal>] where
+    # requires_complex_resolution, unbacked_entity_literal, entity_fallback_unmatchable,
+    # sql_execution_error, or no_results:<signal>[+<signal>] where
     # signal is one of unresolved_placeholder, raw_fallback, no_entity_extracted,
     # person_role_collapse (the four signals of the no-results guard, in that order).
     first_pass_sql_query: str = ""
@@ -1617,6 +1618,9 @@ class Text2SQLResponse(BaseModel):
     llm_model_result_entity: str = ""
     llm_model_answer_single_value: str = ""
     complex_model_used: bool = False
+    # True when the original question required identity resolution by the stronger
+    # model, whether signalled by extraction, Text2SQL, or the deterministic SQL guard.
+    requires_complex_resolution: bool = False
     ui_language: str = "en"
     api_version: str
     messages: List[TextMessage] = []
@@ -1822,6 +1826,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     # anything (cache hit) cannot accidentally look like a resolution failure.
     entity_raw_fallback_count = 0
     no_entity_extracted = False
+    # FASTAPI-TEXT2SQL-253/-254. A normal routing decision, distinct from an LLM error.
+    requires_complex_resolution = False
+    complex_resolution_reason = ""
     # FASTAPI-TEXT2SQL-241: why the execution block failed, when it did, so the retry that
     # follows can record it. Set by the except branches of the execution block.
     sql_execution_failure_code = ""
@@ -2199,9 +2206,17 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             ))
             position_counter += 1
             input_text_anonymized = entity_extraction['question']
+            if entity_extraction.get("query_mode") == "descriptive_identification":
+                requires_complex_resolution = True
+                complex_resolution_reason = "entity extraction classified the question as descriptive_identification"
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text="Entity extraction classified the request as descriptive identification; routing it to complex resolution before Text2SQL."
+                ))
+                position_counter += 1
         cache_result_anonymized = None
 
-        if request.retrieve_from_cache:
+        if request.retrieve_from_cache and not requires_complex_resolution:
             messages.append(TextMessage(
                 position=position_counter, 
                 text="Searching cache for anonymized question."
@@ -2262,7 +2277,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         entity_variables = []
                         if isinstance(entity_extraction, dict) and 'error' not in entity_extraction:
                             # Extract all entity variable names (e.g., Person_name1, Person_name2)
-                            entity_variables = [key for key in entity_extraction.keys() if key != 'question']
+                            entity_variables = [key for key, _ in entity.extracted_entity_items(entity_extraction)]
                             print(f"Entity variables to match: {entity_variables}")
 
                         print(f"Searching questions embeddings cache for: {input_text_anonymized}")
@@ -2378,7 +2393,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # If no SQL/embeddings cache hit produced a sql_query, call Text2SQL on the anonymized question.
         # Runs regardless of request.retrieve_from_cache: when caching is disabled, both flags stay False
         # so Text2SQL is always invoked; when caching is enabled and a hit occurred, this is skipped.
-        if not cached_anonymized_question and not cached_anonymized_question_embedding:
+        if not cached_anonymized_question and not cached_anonymized_question_embedding and not requires_complex_resolution:
             text2sql_start_time = time.time()
 
             # --- Fork: resolve the entities while the SQL is being written ---------
@@ -2417,7 +2432,25 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 json_content = {"error": str(json_content)}
 
             print("JSON content:", json_content)
-            if 'sql_query' not in json_content:
+            if bool(json_content.get("requires_complex_resolution")):
+                requires_complex_resolution = True
+                complex_resolution_reason = "Text2SQL returned requires_complex_resolution"
+                ambiguous_question_for_text2sql = 1
+                sql_query = ""
+                sql_query_anonymized = ""
+                result_entity = ""
+                justification = json_content.get('justification') or ""
+                justification_anonymized = justification
+                answer = json_content.get('answer') or ""
+                answer_anonymized = answer
+                dropped_clause = (json_content.get('dropped_clause') or "").strip()
+                error_text2sql = ""
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text="Text2SQL declined entity identification and requested complex resolution."
+                ))
+                position_counter += 1
+            elif 'sql_query' not in json_content:
                 ambiguous_question_for_text2sql = 1
                 sql_query = ""
                 sql_query_anonymized = ""
@@ -2713,6 +2746,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     retry_response.first_pass_failure_code = first_pass_failure_code or ""
                     retry_response.first_pass_failure_reason = first_pass_failure_reason or ""
                     retry_response.complex_retry_question = retry_question
+                    retry_response.requires_complex_resolution = True
                 except Exception as _fp_exc:
                     messages.append(TextMessage(
                         position=position_counter,
@@ -2915,7 +2949,86 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         position_counter += 1
         return None
 
+    # FASTAPI-TEXT2SQL-252. Prompts reduce model mistakes but cannot enforce provenance.
+    # Reject entity literals that appear in neither the user's wording nor the extraction,
+    # before entity substitution, SQL execution, or any cache write. A raw user title such
+    # as "Pour le plaisir" remains grounded even when extraction missed it.
+    unbacked_entity_literals = []
+    if sql_query and not requires_complex_resolution:
+        unbacked_entity_literals = entity.find_unbacked_entity_literals(
+            sql_query,
+            original_question if isinstance(original_question, str) else "",
+            entity_extraction,
+        )
+        if unbacked_entity_literals:
+            requires_complex_resolution = True
+            _unbacked_summary = ", ".join(
+                f"{item['column']}='{item['value']}'" for item in unbacked_entity_literals
+            )
+            complex_resolution_reason = f"unbacked entity literal(s): {_unbacked_summary}"
+            messages.append(TextMessage(
+                position=position_counter,
+                text=(
+                    "SQL provenance guard rejected entity literals that were supplied by neither "
+                    f"the user nor entity extraction: {_unbacked_summary}."
+                )
+            ))
+            position_counter += 1
+
     sql_query_llm = sql_query
+
+    # FASTAPI-TEXT2SQL-253/-254. This is a first-class routing decision, not a Text2SQL
+    # failure. It runs before the generic error path and before all SQL execution/cache paths.
+    if requires_complex_resolution:
+        sql_query = sql_query or ""
+        sql_query_anonymized = sql_query_anonymized or ""
+        justification = justification or ""
+        justification_anonymized = justification_anonymized or ""
+        answer = answer or ""
+        answer_anonymized = answer_anonymized or ""
+        try:
+            can_retry_complex_resolution = (
+                request.complex_question_processing
+                and bool(request.question)
+                and not getattr(request, "complex_question_already_resolved", False)
+                and "original_question" in locals()
+                and isinstance(original_question, str)
+                and original_question.strip() != ""
+            )
+        except Exception as _guard_exc:
+            can_retry_complex_resolution = False
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Complex-resolution routing guard failed ({type(_guard_exc).__name__}: {_guard_exc})."
+            ))
+            position_counter += 1
+
+        if can_retry_complex_resolution:
+            _failure_code = (
+                "unbacked_entity_literal" if unbacked_entity_literals
+                else "requires_complex_resolution"
+            )
+            retry_response = await _retry_with_resolved_complex_question(
+                start_message=f"Routing the original question to the stronger model '{strcomplexquestionmodel}' for entity identification.",
+                success_message=f"Complex entity identification completed; retrying the pipeline with model '{strcomplexquestionmodel}'.",
+                empty_question_message="Complex entity identification did not return a queryable question; skipping retry.",
+                error_message="Complex entity identification returned an error; skipping retry.",
+                first_pass_sql=sql_query or "",
+                first_pass_failure_code=_failure_code,
+                first_pass_failure_reason=complex_resolution_reason or "complex entity identification required",
+            )
+            if retry_response is not None:
+                return retry_response
+        else:
+            messages.append(TextMessage(
+                position=position_counter,
+                text="Complex entity resolution is required but its retry conditions are not met."
+            ))
+            position_counter += 1
+
+        ambiguous_question_for_text2sql = 1
+        error_text2sql = error_text2sql or "Complex entity resolution is required before SQL generation"
+
     # if the error element is found in json content
     if error_text2sql!="" and error_text2sql!=None:
         print("Problem detected so the Text-to-SQL cannot produce a SQL query")
@@ -2928,6 +3041,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         try:
             can_retry = (
                 request.complex_question_processing
+                and not requires_complex_resolution
                 and bool(request.question)
                 and not getattr(request, "complex_question_already_resolved", False)
                 and not retryable_quota_error_text2sql
@@ -3033,7 +3147,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         no_entity_extracted = (
             isinstance(entity_extraction, dict)
             and "error" not in entity_extraction
-            and not [k for k in entity_extraction if k != "question"]
+            and not entity.extracted_entity_items(entity_extraction)
         )
     embeddings_end_time = time.time()
     # Keep this metric meaning "how long entity resolution cost", so it stays comparable
@@ -3807,7 +3921,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 # Extract entity variables for metadata
                 entity_vars_for_metadata = []
                 if isinstance(entity_extraction, dict) and 'error' not in entity_extraction:
-                    entity_vars_for_metadata = [key for key in entity_extraction.keys() if key != 'question']
+                    entity_vars_for_metadata = [key for key, _ in entity.extracted_entity_items(entity_extraction)]
                 
                 anonymizedqueries.add(
                     ids=[strdocid],
@@ -3981,6 +4095,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         llm_model_result_entity=strresultentitymodel,
         llm_model_answer_single_value=stranswersinglevaluemodel,
         complex_model_used=complex_model_used,
+        requires_complex_resolution=requires_complex_resolution,
         ui_language=request.ui_language,
         api_version=strapiversion,
         result=query_results,

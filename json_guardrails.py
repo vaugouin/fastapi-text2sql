@@ -26,12 +26,18 @@ from typing import Any, Tuple
 # - required:        keys that must be present, mapped to their required type
 # - any_of_required: at least one of these keys must be present and non-empty
 # - types:           type checks applied only to these keys when present
+# - allowed_values:  closed values for keys whose vocabulary is part of the contract
 # Unlisted keys are allowed (e.g. dynamic entity-extraction placeholder keys).
 _SCHEMAS = {
     # f_entity_extraction -> {"question": "...anonymized...", "<Placeholder>": "...", ...}
     "entity_extraction": {
-        "required": {"question": str},
-        "types": {"question": str, "error": str, "raw_content": str},
+        "required": {"question": str, "query_mode": str},
+        "types": {"question": str, "query_mode": str, "error": str, "raw_content": str},
+        "allowed_values": {
+            "query_mode": {
+                "named_entity_query", "descriptive_identification", "ordinary_filter_query",
+            },
+        },
     },
     # f_text2sql -> {"result_entity"?, "sql_query"|"error", "justification"?, "answer"?,
     #                "dropped_clause"?}
@@ -40,10 +46,11 @@ _SCHEMAS = {
     # because it is advisory prose; unlisted keys are allowed, so an older model that omits it
     # stays valid.
     "text2sql": {
-        "any_of_required": ["sql_query", "error"],
+        "any_of_required": ["sql_query", "error", "requires_complex_resolution"],
         "types": {
             "result_entity": str, "sql_query": str, "justification": str,
             "answer": str, "dropped_clause": str, "error": str, "raw_content": str,
+            "requires_complex_resolution": bool,
         },
     },
     # f_resolve_complex_question ->
@@ -111,5 +118,9 @@ def validate_llm_json(payload: Any, step: str) -> Tuple[bool, str]:
     for key, expected in types.items():
         if key in payload and payload[key] is not None and not isinstance(payload[key], expected):
             return False, f"{step}: key '{key}' must be {expected.__name__}, got {type(payload[key]).__name__}"
+
+    for key, allowed in schema.get("allowed_values", {}).items():
+        if key in payload and payload[key] not in allowed:
+            return False, f"{step}: key '{key}' must be one of {sorted(allowed)}, got {payload[key]!r}"
 
     return True, ""

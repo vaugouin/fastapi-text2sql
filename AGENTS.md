@@ -1090,6 +1090,10 @@ The text-to-SQL prompt should generate read-only SELECT queries. Do not add writ
 
 Prefer parameterized SQL for application-owned queries. Placeholder de-anonymization is a special pipeline step; when inlining placeholder values, use `entity._sql_escape_literal()` and SQL doubled single quotes.
 
+### Entity identity boundary
+
+Text2SQL owns relational structure, never the identification of an unnamed real-world entity from remembered clues. `data/entity_extraction.md` classifies each request with `query_mode`; `descriptive_identification` routes to the stronger model before Text2SQL. Text2SQL may also emit `requires_complex_resolution: true`. Independently of both prompts, `entity.find_unbacked_entity_literals()` rejects resolvable entity equalities whose value occurs in neither the original question nor extracted entities. Keep this guard before SQL execution and cache writes. A literal explicitly present in the original question remains grounded even when extraction missed it, which preserves the `Pour le plaisir` rescue path.
+
 ---
 
 ## Encoding

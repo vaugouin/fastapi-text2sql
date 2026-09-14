@@ -17,6 +17,7 @@ Return exactly one JSON object.
 
 The JSON object must contain:
 - `question`: the anonymized question with placeholders
+- `query_mode`: exactly one of `named_entity_query`, `descriptive_identification`, or `ordinary_filter_query`
 - one key per extracted entity placeholder
 
 Rules:
@@ -28,6 +29,21 @@ Rules:
 - For every placeholder used in `question`, include the corresponding key and value
 - Do not include entity keys that are not used in `question`
 - Preserve the original surface form of the extracted value unless a rule below says otherwise
+
+## Query Mode
+
+Classify the user's request before extracting entities:
+
+- `named_entity_query`: the question explicitly contains at least one named real-world entity or identifier, including an approximate, misspelled, translated, or bare title.
+- `descriptive_identification`: the user is trying to identify one specific unnamed real-world entity from remembered clues such as a plot, biography, roles, relationships, or events. Do not infer or add the missing name. Keep the clues verbatim in `question` and extract only entities that the user actually named.
+- `ordinary_filter_query`: the question asks for a set, count, ranking, property, or ordinary database filter and is not trying to recover the identity of one unnamed entity.
+
+Examples:
+
+- `a surveillance expert records a couple and fears they will be killed` -> `{"question":"a surveillance expert records a couple and fears they will be killed","query_mode":"descriptive_identification"}`
+- `a man lends his flat to his boss for his affairs and his boss dates the woman he has a crush on` -> `{"question":"a man lends his flat to his boss for his affairs and his boss dates the woman he has a crush on","query_mode":"descriptive_identification"}`
+- `popular movies released in 1973` -> `{"question":"popular movies released in 1973","query_mode":"ordinary_filter_query"}`
+- `tell me about The Conversasion` -> `{"question":"tell me about {{Movie_title1}}","query_mode":"named_entity_query","Movie_title1":"The Conversasion"}`
 
 ## Surface Form Tolerance
 

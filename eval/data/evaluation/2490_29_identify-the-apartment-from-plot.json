@@ -1,0 +1,27 @@
+{
+  "evaluation_id": 2490,
+  "evaluation_category_id": 29,
+  "question_en": "a man lends his flat to his boss for his affairs and his boss dates the woman he has a crush on",
+  "question_fr": "un homme prête son appartement à son patron pour ses aventures et son patron fréquente la femme dont il est amoureux",
+  "translation_note": "The English wording is the original production incident from 2026-09-13. The French wording is its evaluation counterpart.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "COUNT(*) > 0 AND ID_MOVIE IN (284)"
+  },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
+  "comment": "Regression for FASTAPI-TEXT2SQL-250 through -254. Text2SQL must not infer The Apartment from memory; complex resolution must identify Billy Wilder's 1960 film.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2026-09-14",
+  "tim_updated": "2026-09-14T00:00:00",
+  "is_showcase": 0,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
+}

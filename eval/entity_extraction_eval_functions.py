@@ -36,7 +36,7 @@ def ee_eval_two_layer(
         return False
 
     ph = _placeholders(q)  # list of placeholder names in question
-    ek = _entity_keys(ee)  # list of entity keys (excluding "question")
+    ek = _entity_keys(ee)  # list of entity keys (excluding extraction metadata)
 
     # Hard gate: placeholders <-> entity keys must match exactly (order-insensitive)
     if sorted(ph) != sorted(ek):
@@ -69,8 +69,8 @@ def _placeholders(question: str) -> List[str]:
     return _PLACEHOLDER_RE.findall(question or "")
 
 def _entity_keys(ee: Dict[str, Any]) -> List[str]:
-    """Return all extracted entity keys except the anonymized-question field."""
-    return [k for k in ee.keys() if k != "question"]
+    """Return placeholder keys, excluding the extractor's structured metadata."""
+    return [k for k in ee.keys() if k not in {"question", "query_mode", "error", "raw_content"}]
 
 def _keys_root(ee: Dict[str, Any]) -> List[str]:
     """Return all top-level keys present in an entity extraction payload."""
