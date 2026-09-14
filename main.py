@@ -133,7 +133,7 @@ SQL_GUARD_LEADING_WILDCARD_LIKE = re.compile(r"\bLIKE\s+'%", re.IGNORECASE)
 
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.18"
+strapiversion = "1.1.19"
 # Convert API version to XXX.YYY.ZZZ format
 strapiversionformatted = format_api_version(strapiversion)
 
