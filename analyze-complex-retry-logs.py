@@ -79,6 +79,15 @@ import sql_shapes
 UNRESOLVED_MARK = "Unresolved placeholders remain in SQL after entity resolution:"
 PLACEHOLDER_RE = re.compile(r"\{\{([^}]+)\}\}")
 
+# FASTAPI-TEXT2SQL-256. Extraction metadata, not extracted entities. Mirrors
+# entity.ENTITY_EXTRACTION_METADATA_KEYS, copied rather than imported because importing
+# entity.py starts the data watcher and reads the environment, which a log reader must not do.
+# Until 1.1.19 only "question" was excluded here, and the omission was invisible because the
+# prompt's examples never demonstrated query_mode so the model rarely emitted it. Now that it
+# is emitted on every call, counting it as an extracted entity would make NOTHING_EXTRACTED
+# unreachable and silently empty a whole bucket of this report.
+METADATA_KEYS = frozenset({"question", "query_mode", "error", "raw_content"})
+
 GUARD_MESSAGE = "treating the empty result as authoritative"
 RETRY_MESSAGE = "SQL query returned 0 rows; attempting to simplify"
 RAW_FALLBACK_MARK = "(raw fallback)"
@@ -131,14 +140,14 @@ def undeclared_placeholders(response: dict):
     if not survivors:
         return [], []
     extraction = response.get("entity_extraction")
-    keys = {k for k in (extraction or {}) if k != "question"} if isinstance(extraction, dict) else set()
+    keys = {k for k in (extraction or {}) if k not in METADATA_KEYS} if isinstance(extraction, dict) else set()
     return survivors, [p for p in survivors if p not in keys]
 
 
 def classify(response: dict) -> str:
     """Return the bucket a blocked empty result belongs to."""
     extraction = response.get("entity_extraction")
-    keys = [k for k in (extraction or {}) if k != "question"] if isinstance(extraction, dict) else []
+    keys = [k for k in (extraction or {}) if k not in METADATA_KEYS] if isinstance(extraction, dict) else []
     if not keys:
         return "NOTHING_EXTRACTED"
     for message in response.get("messages") or []:

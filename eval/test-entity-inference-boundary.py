@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline regression checks for FASTAPI-TEXT2SQL-250 through -255."""
+"""Offline regression checks for FASTAPI-TEXT2SQL-250 through -256."""
 from pathlib import Path
 import sys
 
@@ -7,9 +7,21 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "eval"))
 
+import importlib.util  # noqa: E402
+
 import entity  # noqa: E402
 import json_guardrails  # noqa: E402
 from entity_extraction_eval_functions import ee_eval_two_layer  # noqa: E402
+
+
+def _load_retry_analyzer():
+    """Import analyze-complex-retry-logs.py, whose hyphenated name blocks a plain import."""
+    spec = importlib.util.spec_from_file_location(
+        "analyze_complex_retry_logs", ROOT / "analyze-complex-retry-logs.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 MOVIE_SQL = "SELECT ID_MOVIE FROM T_WC_T2S_MOVIE WHERE MOVIE_TITLE = '{}'"
@@ -82,6 +94,21 @@ def main() -> None:
         extraction,
         'eq($.query_mode, "ordinary_filter_query") AND seteq(entity_keys($), [])',
     )
+
+    # FASTAPI-TEXT2SQL-256. query_mode is extraction metadata, not an extracted entity.
+    # Counting it as one makes the NOTHING_EXTRACTED bucket of the retry report unreachable,
+    # which is invisible in the output: the bucket just reads zero forever.
+    analyzer = _load_retry_analyzer()
+    assert analyzer.classify(
+        {"entity_extraction": {"question": "clues", "query_mode": "descriptive_identification"}}
+    ) == "NOTHING_EXTRACTED"
+    assert analyzer.classify(
+        {"entity_extraction": {
+            "question": "tell me about {{Movie_title1}}",
+            "query_mode": "named_entity_query",
+            "Movie_title1": "The Conversasion",
+        }}
+    ) != "NOTHING_EXTRACTED"
 
     print("entity inference boundary: all checks passed")
 

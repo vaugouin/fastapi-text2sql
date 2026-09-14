@@ -1587,6 +1587,15 @@ class Text2SQLResponse(BaseModel):
     first_pass_failure_code: str = ""
     first_pass_failure_reason: str = ""
     complex_retry_question: str = ""
+    # FASTAPI-TEXT2SQL-256. The extraction the FIRST pass produced, on a retried request only.
+    # `entity_extraction` describes the pass that produced the returned rows, so on a retry it
+    # holds the INNER extraction of the rewritten question ("Serie Twin Peaks"), or None when
+    # that inner pass hit the exact-question cache and never extracted anything. Either way the
+    # classification that caused the routing was lost: `query_mode` read
+    # `descriptive_identification` in the first pass and nothing downstream could say so. The
+    # two fields answer different questions and both are worth keeping, so this one is added
+    # rather than the other one being overwritten. Empty without a retry.
+    first_pass_entity_extraction: Optional[dict] = None
     # FASTAPI-TEXT2SQL-242. What became of the cache row for the ORIGINAL question after a
     # retry: "stored", "skipped:empty_result" (the -212 rule), or "skipped:added_constraint
     # (...)" when the stronger model's rewrite carries a year the user never typed. Empty
@@ -2746,6 +2755,12 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     retry_response.first_pass_failure_code = first_pass_failure_code or ""
                     retry_response.first_pass_failure_reason = first_pass_failure_reason or ""
                     retry_response.complex_retry_question = retry_question
+                    # FASTAPI-TEXT2SQL-256. Read from the enclosing scope, so all three call
+                    # sites carry it without a new argument. dict(...) because the value
+                    # returned here outlives this request in the logs.
+                    retry_response.first_pass_entity_extraction = (
+                        dict(entity_extraction) if isinstance(entity_extraction, dict) else None
+                    )
                     retry_response.requires_complex_resolution = True
                 except Exception as _fp_exc:
                     messages.append(TextMessage(

@@ -840,10 +840,18 @@ plaisir" trace had to be reconstructed from the prompt-cache token counts leaked
 file (8989 for extraction and 23437 for text2sql fit only the raw, unanonymized phrase), then
 confirmed in the container stdout. Now:
 
-- **Four response fields**, empty unless a retry happened: `first_pass_sql_query`,
-  `first_pass_failure_code`, `first_pass_failure_reason`, `complex_retry_question`. They are set
+- **Five response fields**, empty unless a retry happened: `first_pass_sql_query`,
+  `first_pass_failure_code`, `first_pass_failure_reason`, `complex_retry_question`, and
+  `first_pass_entity_extraction` (FASTAPI-TEXT2SQL-256). They are set
   on the inner response right after it is produced, so the returned object and the outer log
   file carry them; the inner log file, written before that, does not.
+- **`entity_extraction` and `first_pass_entity_extraction` answer different questions.** The
+  first describes the pass that produced the returned rows, so on a retry it holds the INNER
+  extraction of the rewritten question (`Serie Twin Peaks`), and it is `null` when that inner
+  pass hit the exact-question cache and never extracted anything. The second holds what the
+  user's own wording produced, which is where `query_mode` reads `descriptive_identification`
+  and explains why the retry fired at all. Read the second one when asking why a question was
+  routed; read the first when asking how the answer was built.
 - **Three messages**, written by the retry helper BEFORE the stronger model is called:
   `First-pass SQL query (before the stronger-model retry): ...`, `First-pass failure reason
   [<code>]: ...`, and once the rewrite is known, `Stronger model rewrote the question as: '...'
