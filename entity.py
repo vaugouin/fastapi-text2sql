@@ -1465,7 +1465,15 @@ def plan_entity_resolutions(
                                 _filtered = current_collection.query(
                                     query_texts=[raw_value],
                                     n_results=10,
-                                    where={"year": {"$gte": _year_ctx - 1, "$lte": _year_ctx + 1}},
+                                    # FASTAPI-TEXT2SQL-245: two bounds on one field MUST be
+                                    # wrapped in $and. ChromaDB refuses a single operator dict
+                                    # carrying both ("Expected operator expression to have exactly
+                                    # one operator"), so until 2026-09-15 this filter raised on
+                                    # every dated question and the search silently ran unfiltered.
+                                    where={"$and": [
+                                        {"year": {"$gte": _year_ctx - 1}},
+                                        {"year": {"$lte": _year_ctx + 1}},
+                                    ]},
                                 )
                                 if (_filtered.get("documents", [[]]) or [[]])[0] or []:
                                     results = _filtered

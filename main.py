@@ -1622,12 +1622,26 @@ class Text2SQLResponse(BaseModel):
     # (...)" when the stronger model's rewrite carries a year the user never typed. Empty
     # without a retry.
     complex_retry_cache_policy: str = ""
+    # FASTAPI-TEXT2SQL-263. True when the stronger model's rewrite REPLACED the question
+    # instead of repairing it: the original asked about a relation ("in which city does the
+    # action of Pulp Fiction take place?") and the rewrite came back as a bare entity card
+    # ("Movie Pulp Fiction (1994)"), so the rows returned answer a question nobody asked.
+    # `complex_retry_question` is set on EVERY retry, including the legitimate ones (an alias
+    # corrected to its credited name), which is why that field cannot carry this signal.
+    # False without a retry, and false on a retry that kept the intention.
+    complex_retry_intent_dropped: bool = False
     # FASTAPI-TEXT2SQL-244. Outcome of the deterministic rescue that runs when the first pass
     # returns 0 rows with no entity extracted: "" (not attempted), "no_literal" (nothing in the
     # SQL to resolve), "resolver_found_nothing" (raw fallback, first-pass SQL stands),
     # "rescued" (re-executed with the resolved value and rows came back), "still_empty"
     # (re-executed, still 0 rows, stronger model next) or "error".
     no_entity_rescue_outcome: str = ""
+    # FASTAPI-TEXT2SQL-262. Outcome of the targeted SQL regeneration that runs when the query
+    # was refused by the engine or by the guard, BEFORE any question rewrite: "" (not
+    # attempted), "no_sql" / "unchanged" (the model gave nothing usable), "guard_rejected"
+    # (the new query is refused too), "regenerated" (it executed and returned rows),
+    # "regenerated_empty" (it executed and returned none) or "error".
+    sql_regeneration_outcome: str = ""
     query_execution_time: float
     total_processing_time: float
     page: Optional[int] = None
@@ -1785,6 +1799,19 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             - llm_model_entity_extraction, llm_model_text2sql, llm_model_complex,
               llm_model_result_entity, llm_model_answer_single_value: the model that
               actually served each of the five LLM tasks, resolved (never "default").
+            - sql_regeneration_outcome: When the query was refused by the engine (an
+              unknown column) or by the SQL guard, the API regenerates the SQL ONCE for
+              the SAME question, handing the model its own error back, before any
+              question rewrite: regenerated, regenerated_empty, unchanged, no_sql,
+              guard_rejected, unbacked_entity_literal, error. Empty when not attempted.
+              A broken SQL is a generator defect, not a question defect.
+              FASTAPI-TEXT2SQL-262.
+            - complex_retry_intent_dropped: True when the stronger model's rewrite
+              REPLACED the question instead of repairing it (a relation question came
+              back as a bare entity card, with a different answer entity). The rows
+              identify that entity; they do NOT answer what was asked, and nothing is
+              cached under the original question. False on a retry that kept the
+              intention. FASTAPI-TEXT2SQL-263.
             - api_version: Running API version string.
 
     Raises:
@@ -1865,6 +1892,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     sql_execution_failure_reason = ""
     # FASTAPI-TEXT2SQL-244: outcome of the no-entity rescue, "" until it is attempted.
     no_entity_rescue_outcome = ""
+    sql_regeneration_outcome = ""
     complex_question_processing_time = 0.0
     entity_match_scores = []
     entity_match_worst_distance = None
@@ -2873,10 +2901,41 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 elif _added_year_keys:
                     _rewrite_added_constraint = "year placeholder " + ", ".join(_added_year_keys)
 
+                # FASTAPI-TEXT2SQL-263. The other way a rewrite betrays the question: not by
+                # narrowing it, but by dropping what it asked. Same cache consequence as -242,
+                # and worse for the client, which receives a complete, plausible answer to a
+                # question it never sent. The flag is carried onto the response below.
+                # Both classifications come from work already done: the expected answer entity
+                # was derived from the ORIGINAL question by the answer-entity guard on the first
+                # pass, and the returned one is on the retry response. `locals()` because the
+                # first pass computes the expectation inside a conditional block, exactly as the
+                # retry guard below tests for `original_question`.
+                _expected_entity_for_intent = ""
+                if "expected_result_entity" in locals() and isinstance(expected_result_entity, str):
+                    _expected_entity_for_intent = expected_result_entity
+                _retry_intent_dropped = t2s.f_retry_question_drops_intent(
+                    original_question,
+                    retry_question,
+                    expected_result_entity=_expected_entity_for_intent,
+                    retry_result_entity=str(getattr(retry_response, "result_entity", "") or ""),
+                )
+                if _retry_intent_dropped:
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=(
+                            "Intent dropped (FASTAPI-TEXT2SQL-263): the original question asked about a "
+                            f"relation ('{original_question}') and the stronger model returned a bare entity "
+                            f"card ('{retry_question}'). The rows below identify that entity; they do NOT "
+                            "answer what was asked."
+                        )
+                    ))
+                    position_counter += 1
+
                 retry_store_allowed = (
                     bool(request.store_to_cache)
                     and not (retry_returned_nothing and not CACHE_EMPTY_RESULTS)
                     and not _rewrite_added_constraint
+                    and not _retry_intent_dropped
                 )
                 _retry_cache_policy = "stored" if retry_store_allowed else "skipped:not_requested"
                 if request.store_to_cache and retry_returned_nothing and not CACHE_EMPTY_RESULTS:
@@ -2884,6 +2943,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     messages.append(TextMessage(
                         position=position_counter,
                         text="Stronger-model retry also returned 0 rows; not caching it under the original question (set CACHE_EMPTY_RESULTS=1 to restore caching)."
+                    ))
+                    position_counter += 1
+                elif request.store_to_cache and _retry_intent_dropped:
+                    _retry_cache_policy = "skipped:intent_dropped"
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=f"Not cached under the original question (FASTAPI-TEXT2SQL-263): the rewrite '{retry_question}' dropped what the question asked. Freezing it would make the off-target answer permanent."
                     ))
                     position_counter += 1
                 elif request.store_to_cache and _rewrite_added_constraint:
@@ -2895,6 +2961,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     position_counter += 1
                 try:
                     retry_response.complex_retry_cache_policy = _retry_cache_policy
+                except Exception:
+                    pass
+                try:
+                    retry_response.complex_retry_intent_dropped = bool(_retry_intent_dropped)
                 except Exception:
                     pass
                 if retry_store_allowed:
@@ -3513,6 +3583,175 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         ))
                         position_counter += 1
 
+        # FASTAPI-TEXT2SQL-262: repair the SQL, not the question. A `sql_execution_error` or a
+        # `sql_guard_rejected` says the GENERATOR was wrong (a column that does not exist, a
+        # LIKE the guard refuses); it says nothing about the question, which may be perfectly
+        # formed and whose entities may already be resolved to an exact document. Until now
+        # both codes were routed straight into the stronger-model rewrite, whose only job is to
+        # rewrite the QUESTION, and whose prompt admits a closed list of entity-card patterns:
+        # "In which city the action of movie Pulp Fiction takes place?" came back as "Movie
+        # Pulp Fiction (1994)" and the API answered with the movie (log 20260915-061252).
+        # So: one targeted regeneration first, the question untouched, the engine's own error
+        # handed back to the model. Same move as the answer-entity guard above (-117/-136),
+        # same `correction_hint` parameter. The already-computed resolution plan is re-applied
+        # to the new SQL, so this costs one cached-prompt LLM call and no new ChromaDB search.
+        # Exactly once: a loop here would turn a prompt defect into unbounded spend.
+        _regen_codes = ("sql_execution_error", "sql_guard_rejected")
+        if (
+            sql_execution_failed
+            and sql_execution_failure_code in _regen_codes
+            and lngpage == 1
+            and not cached_exact_question
+            and isinstance(input_text_anonymized, str)
+            and input_text_anonymized.strip() != ""
+        ):
+            try:
+                _regen_hint = (
+                    "CORRECTION: the SQL you produced was refused before returning any row.\n"
+                    # The ANONYMIZED form, to match the anonymized question the model is asked
+                    # to regenerate from: handing it a query full of resolved database values
+                    # invites it to answer with literals, which the -252 provenance guard below
+                    # would then reject.
+                    f"Refused SQL: {sql_query_anonymized_base}\n"
+                    f"Reason: {sql_execution_failure_reason}\n"
+                    "Regenerate the SQL for the SAME question. Do not simplify the question, do not "
+                    "drop what it asks for. Fix only the offending clause, and check every column "
+                    "against the table you qualify it with: a column of a junction table is not a "
+                    "column of the entity table it joins."
+                )
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"SQL regeneration (FASTAPI-TEXT2SQL-262): the query was refused [{sql_execution_failure_code}]; regenerating the SQL once for the same question, before any question rewrite."
+                ))
+                position_counter += 1
+                _regen_json = await asyncio.to_thread(
+                    t2s.f_text2sql,
+                    input_text_anonymized, strtext2sqlmodel,
+                    ui_language=request.ui_language, correction_hint=_regen_hint,
+                )
+                _regen_sql = ""
+                if isinstance(_regen_json, dict):
+                    _regen_sql = (_regen_json.get("sql_query") or "").strip()
+                if _regen_sql.endswith(";"):
+                    _regen_sql = _regen_sql[:-1].strip()
+                if not _regen_sql:
+                    sql_regeneration_outcome = "no_sql"
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text="SQL regeneration: the model returned no SQL; the stronger-model question rewrite takes over."
+                    ))
+                    position_counter += 1
+                elif _regen_sql == sql_query_anonymized_base:
+                    sql_regeneration_outcome = "unchanged"
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text="SQL regeneration: the model returned the same SQL that was just refused; the stronger-model question rewrite takes over."
+                    ))
+                    position_counter += 1
+                elif entity.find_unbacked_entity_literals(
+                    _regen_sql,
+                    original_question if isinstance(original_question, str) else "",
+                    entity_extraction,
+                ):
+                    # FASTAPI-TEXT2SQL-252 applies to this SQL too. The guard runs upstream,
+                    # before substitution and execution, so a query generated here would slip
+                    # past it: a model correcting a column name is exactly as free to invent an
+                    # entity literal as one generating from scratch. Same call, same arguments,
+                    # on the placeholder form the guard expects. The exact-cache path the -259
+                    # fix carved out is already excluded by the gate above.
+                    sql_regeneration_outcome = "unbacked_entity_literal"
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text="SQL regeneration: the regenerated query carries entity literal(s) grounded in neither the question nor the extraction (FASTAPI-TEXT2SQL-252); refused, and the stronger-model question rewrite takes over."
+                    ))
+                    position_counter += 1
+                else:
+                    # Re-apply the resolution already decided for this question. The plan is the
+                    # same (same entities, same canonical values); only the query changed. When
+                    # the fork-join did not leave one behind, plan once rather than resolve
+                    # again, so the language-aware OR expansion is not lost.
+                    _regen_plan = entity_resolution_plan
+                    if _regen_plan is None and entity.extracted_entity_items(entity_extraction or {}):
+                        _regen_plan = await asyncio.to_thread(
+                            entity.plan_entity_resolutions,
+                            connection=connection,
+                            entity_extraction=entity_extraction,
+                            chromadb_collections_by_name=CHROMADB_COLLECTIONS_BY_NAME,
+                        )
+                    _regen_justification = (_regen_json.get("justification") or justification) or ""
+                    _regen_answer = (_regen_json.get("answer") or answer) or ""
+                    _regen_base = _regen_sql
+                    if _regen_plan is not None:
+                        _regen_applied = entity.apply_entity_resolutions(
+                            plan=_regen_plan,
+                            sql_query=_regen_sql,
+                            justification=_regen_justification,
+                            answer=_regen_answer,
+                            position_counter=position_counter,
+                            text_message_cls=TextMessage,
+                            messages=messages,
+                        )
+                        position_counter = _regen_applied["position_counter"]
+                        _regen_base = _regen_applied["sql_query"]
+                        _regen_justification = _regen_applied["justification"]
+                        _regen_answer = _regen_applied["answer"]
+                    # Page 1 only (gated above), so the offset is 0 and the pagination is the
+                    # simple form; any LIMIT the model wrote is replaced, as on the first pass.
+                    _regen_exec = re.sub(r"\blimit\b\s+\d+\s+\boffset\b\s+\d+", "", _regen_base, flags=re.IGNORECASE)
+                    _regen_exec = re.sub(r"\blimit\b\s+\d+\s*,\s*\d+", "", _regen_exec, flags=re.IGNORECASE)
+                    _regen_exec = re.sub(r"\blimit\b\s+\d+", "", _regen_exec, flags=re.IGNORECASE).strip()
+                    _regen_exec = f"{_regen_exec} LIMIT {limit}"
+                    _regen_guard = SQL_GUARD_LEADING_WILDCARD_LIKE.search(_regen_exec)
+                    if _regen_guard:
+                        sql_regeneration_outcome = "guard_rejected"
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text="SQL regeneration: the regenerated query still carries a leading-wildcard LIKE and was refused; the stronger-model question rewrite takes over."
+                        ))
+                        position_counter += 1
+                    else:
+                        _regen_rows = []
+                        _regen_start = time.time()
+                        with connection.cursor() as _regen_cursor:
+                            _regen_cursor.execute(_regen_exec)
+                            for _index, _record in enumerate(_regen_cursor.fetchall()):
+                                _regen_rows.append({
+                                    "index": _index,
+                                    "data": {k: html.unescape(v) if isinstance(v, str) else v for k, v in _record.items()}
+                                })
+                        query_execution_time += time.time() - _regen_start
+                        # It executed, so it is the query this question deserves, rows or not:
+                        # it answers what was asked, where the refused one answered nothing.
+                        sql_query = _regen_exec
+                        sql_query_processed_base = _regen_base
+                        sql_query_anonymized = _regen_sql
+                        sql_query_anonymized_base = _regen_sql
+                        justification = _regen_justification
+                        justification_anonymized = _regen_justification
+                        answer = _regen_answer
+                        answer_anonymized = _regen_answer
+                        dropped_clause = (_regen_json.get("dropped_clause") or "").strip()
+                        result_entity = (_regen_json.get("result_entity") or result_entity or "").strip().lower()
+                        query_results = _regen_rows
+                        offset = 0
+                        sql_execution_failed = False
+                        sql_execution_failure_code = ""
+                        sql_execution_failure_reason = ""
+                        sql_regeneration_outcome = "regenerated" if _regen_rows else "regenerated_empty"
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"SQL regeneration: the regenerated query executed and returned {len(_regen_rows)} row(s), the question untouched: {_regen_exec}"
+                        ))
+                        position_counter += 1
+            except Exception as _regen_exc:
+                sql_regeneration_outcome = "error"
+                print(f"SQL regeneration failed: {_regen_exc}")
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"SQL regeneration failed ({type(_regen_exc).__name__}: {_regen_exc}); the refused query stands and the usual retry rules apply."
+                ))
+                position_counter += 1
+
         # One-time retry: if SQL execution failed (e.g., MariaDB error), try simplifying the
         # initial/original question using the stronger model and rerun the whole pipeline.
         try:
@@ -4118,6 +4357,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         entity_raw_fallback_count=entity_raw_fallback_count,
         no_entity_extracted=no_entity_extracted,
         no_entity_rescue_outcome=no_entity_rescue_outcome,
+        sql_regeneration_outcome=sql_regeneration_outcome,
         complex_question_processing_time=complex_question_processing_time,
         answer_single_value_processing_time=answer_single_value_processing_time,
         embeddings_processing_time=embeddings_processing_time,

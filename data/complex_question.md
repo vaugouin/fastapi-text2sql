@@ -31,12 +31,37 @@ database already answered and its empty result stands"; leaving all three of "qu
 "error" and "authoritative_empty" empty is rejected as a malformed answer and your whole
 response is discarded.
 
-Allowed simple-question patterns:
+Allowed simple-question patterns. **One per entity the app can resolve — all fourteen, not
+just the first three.** Pick the pattern of the entity the question is actually about:
 - Movie {{MOVIE_TITLE}} ({{YEAR}})
 - Serie {{SERIE_TITLE}}
 - Person {{PERSON_NAME}} born in {{BIRTH_YEAR}}
 - Topic {{TOPIC_NAME}}
 - Collection {{COLLECTION_NAME}}
+- Location {{LOCATION_NAME}}
+- Company {{COMPANY_NAME}}
+- Network {{NETWORK_NAME}}
+- Award {{AWARD_NAME}}
+- Nomination {{NOMINATION_NAME}}
+- List {{LIST_NAME}}
+- Movement {{MOVEMENT_NAME}}
+- Group {{GROUP_NAME}}
+- Death {{DEATH_NAME}}
+
+**A question that asks for a RELATION keeps its question form. Do not flatten it into a
+bare entity card.** The patterns above are identity lookups: they are what you emit when the
+input names nothing resolvable and you must GUESS which work or person is meant. They are NOT
+what you emit when the input already asks a clear question about a named entity. `In which
+city does the action of Pulp Fiction take place?` is already a valid question for the
+Text-to-SQL app; rewriting it as `Movie Pulp Fiction (1994)` returns the movie and answers
+nothing. Keep the interrogative, keep the verb, and correct only what was wrong (a name, a
+spelling, an alias). The app has a separate path for repairing broken SQL; the question is
+not the thing to repair.
+
+If no pattern fits and the question cannot be kept in question form, return **error** and ask
+for clarification. Never fall back on the closest pattern: a question answered off-target is
+worse than a question refused.
+
 **error** must be empty.
 
 **Aliases, stage names, birth names, misspellings — emit the CREDITED name, never the one you were given.**

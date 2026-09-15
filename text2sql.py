@@ -814,6 +814,94 @@ def f_build_retry_question_from_reasoning(resolved: dict) -> str:
             return ""
 
 
+# FASTAPI-TEXT2SQL-263. The entity-card patterns the stronger model is allowed to emit
+# (`data/complex_question.md`). A rewrite that collapses to one of these has stopped asking
+# anything: it identifies a thing. Kept in sync with the prompt's pattern list.
+_RETRY_ENTITY_CARD_PREFIXES = (
+    "movie", "movies", "serie", "series", "person", "persons", "people",
+    "topic", "topics", "collection", "collections", "location", "locations",
+    "company", "companies", "network", "networks", "award", "awards",
+    "nomination", "nominations", "movement", "movements",
+    "group", "groups", "death", "deaths", "items",
+)
+# "List"/"Lists" are deliberately absent. `List Criterion Collection` (the entity card) and
+# `list movies happening in Paris` (a request) are the same first word, and no test of form
+# separates them. Missing a genuine `List X` rewrite is the cheaper error: this signal can
+# drive a warning or a refusal, so a false alarm costs more than a silence.
+
+# Interrogative markers, English and French. A question carrying one of these asks about a
+# RELATION of the entity, not about the entity's identity.
+_RETRY_INTERROGATIVE_WORDS = (
+    "who", "what", "which", "where", "when", "why", "how", "whose", "whom",
+    "qui", "que", "quoi", "quel", "quelle", "quels", "quelles", "ou", "où",
+    "quand", "pourquoi", "comment", "combien", "list", "give", "show", "name",
+    "find", "liste", "donne", "montre", "cite", "trouve",
+)
+
+
+def f_retry_question_drops_intent(
+    original_question: str,
+    retry_question: str,
+    expected_result_entity: str = "",
+    retry_result_entity: str = "",
+) -> bool:
+    """True when the stronger model's rewrite replaced the question instead of repairing it.
+
+    FASTAPI-TEXT2SQL-263. Not every rewrite is a loss. `Marion Morrison` -> `Person John
+    Wayne` keeps the intention and serves it better, and `guess the movie with a rosebud` ->
+    `Movie Citizen Kane (1941)` IS the answer, in entity-card form, which is exactly what the
+    complex-question prompt exists to produce. But `In which city the action of movie Pulp
+    Fiction takes place?` -> `Movie Pulp Fiction (1994)` REPLACES the question, and the API
+    then answers something nobody asked, with no error and no signal. That is the one failure
+    mode `data/complex_question.md` tells the model never to produce, applied to questions
+    rather than to names.
+
+    TWO conditions, both required, because neither carries it alone:
+
+    1. **Form.** The original asks about a relation (an interrogative marker, or a question
+       mark) and the rewrite has collapsed into a bare entity card. Alone, this flags the
+       legitimate `which movie has a rosebud?` -> `Movie Citizen Kane`.
+    2. **Type.** The answer entity the ORIGINAL question calls for is not the one the retry
+       returned: asked for a city, given a movie. This is the discriminator, and it is free:
+       `expected_result_entity` is already classified from the original question by the
+       answer-entity guard (-117/-136), and `retry_result_entity` is on the retry response.
+
+    Both classifications are required. When either is missing the function returns False:
+    a silence is cheaper than a wrong alarm on a signal that may drive a refusal.
+    """
+    try:
+        _orig = str(original_question or "").strip().lower()
+        _retry = str(retry_question or "").strip().lower()
+        _expected = str(expected_result_entity or "").strip().lower()
+        _returned = str(retry_result_entity or "").strip().lower()
+        if _orig == "" or _retry == "":
+            return False
+        # Condition 2 first: it is the cheap, decisive one.
+        if _expected == "" or _returned == "" or _expected == _returned:
+            return False
+
+        def _words(text: str) -> list:
+            return re.findall(r"[a-zà-ÿ]+", text)
+
+        _orig_words = _words(_orig)
+        _retry_words = _words(_retry)
+        if not _orig_words or not _retry_words:
+            return False
+
+        original_asks = ("?" in _orig) or any(w in _RETRY_INTERROGATIVE_WORDS for w in _orig_words)
+        if not original_asks:
+            return False
+
+        retry_asks = ("?" in _retry) or any(w in _RETRY_INTERROGATIVE_WORDS for w in _retry_words)
+        if retry_asks:
+            return False
+
+        return _retry_words[0] in _RETRY_ENTITY_CARD_PREFIXES
+    except Exception:
+        # A guard that raises must not break the retry it is only meant to describe.
+        return False
+
+
 def f_answer_single_value(user_question: str, strcomplexquestionmodel: str = "default"):
     """Ask the stronger model to directly answer a question with a single scalar value.
 

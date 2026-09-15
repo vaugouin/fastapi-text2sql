@@ -611,10 +611,12 @@ CREATE TABLE T_WC_T2S_PERSON_NOMINATION (
 Places linked to movies and series are stored in `T_WC_T2S_LOCATION`.
 When the user asks about a specific place, use the `LOCATION_NAME` field and the `{{Location_nameN}}` placeholder when present.
 
-The role is a column of the junction table, `LOCATION_ROLE`, and it takes exactly two values:
+The role is a column of the JUNCTION tables, `T_WC_T2S_MOVIE_LOCATION.LOCATION_ROLE` and
+`T_WC_T2S_SERIE_LOCATION.LOCATION_ROLE`, and it takes exactly two values:
 - 'narrative' when the story takes place there ("movies happening in Paris", "where does the action of Pulp Fiction take place");
 - 'filming' when it was shot there ("movies shot in Namibia", "where was 2001 filmed").
-A question that does not say which one it means takes both roles, without filtering on LOCATION_ROLE.
+A question that does not say which one it means takes both roles, without filtering on
+`T_WC_T2S_MOVIE_LOCATION.LOCATION_ROLE` / `T_WC_T2S_SERIE_LOCATION.LOCATION_ROLE`.
 
 CREATE TABLE T_WC_T2S_LOCATION (
   ID_LOCATION INT NOT NULL,
@@ -650,6 +652,11 @@ CREATE TABLE T_WC_T2S_SERIE_LOCATION (
   DISPLAY_ORDER INT
 );
 
+- T_WC_T2S_LOCATION carries NO notion of role. `LOCATION_ROLE` does not exist on it, and
+  `T_WC_T2S_LOCATION.LOCATION_ROLE` is a fatal error (MariaDB 1054). The role describes the
+  LINK between a work and a place, not the place, so it lives only on
+  T_WC_T2S_MOVIE_LOCATION and T_WC_T2S_SERIE_LOCATION. Filter it on the junction table you
+  joined, never on the location table.
 - Always filter T_WC_T2S_LOCATION on DELETED = 0. The table keeps a row for a place that
   is no longer linked to anything, so that its ID_LOCATION is never given to another
   place; such a row is not a location the user can ask about.
