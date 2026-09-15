@@ -447,9 +447,24 @@ def find_unbacked_entity_literals(
     preserves a raw title such as ``Pour le plaisir`` when extraction missed it,
     while rejecting a recalled title such as ``The Conversation`` inferred from a
     plot description.
+
+    The comparison is deliberately loose on surface form (case, diacritics,
+    punctuation) and strict on words: folding ``2001: A Space Odyssey`` onto
+    ``2001 A space odyssey`` costs nothing, since a title recalled from a plot
+    description shares no words with the question at all (FASTAPI-TEXT2SQL-259).
     """
     def normalize(value) -> str:
-        return " ".join(str(value or "").casefold().split())
+        """Casefold, drop diacritics, and turn punctuation into a word separator.
+
+        FASTAPI-TEXT2SQL-259. Comparing raw casefolded strings let a single colon
+        separate the canonical title from the user's own wording, so a literal the
+        user had plainly supplied was declared unbacked. Punctuation becomes a space
+        rather than nothing, so ``Blow-Up`` and ``Blow Up`` both fold to ``blow up``
+        instead of to ``blowup``.
+        """
+        folded = unicodedata.normalize("NFKD", str(value or "").casefold())
+        folded = "".join(c for c in folded if not unicodedata.combining(c))
+        return " ".join(re.sub(r"[^\w\s]", " ", folded).split())
 
     question = normalize(original_question)
     extracted_values = {

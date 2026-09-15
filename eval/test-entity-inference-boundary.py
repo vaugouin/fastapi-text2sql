@@ -85,6 +85,49 @@ def main() -> None:
         },
     )
 
+    # FASTAPI-TEXT2SQL-259. Surface form must not decide provenance. The canonical title
+    # carries a colon the user never typed; on an exact-question cache hit the SQL comes back
+    # already resolved to that canonical value, with no extraction to fall back on, and the
+    # guard was rejecting the pipeline's own stored SQL.
+    assert not entity.find_unbacked_entity_literals(
+        MOVIE_SQL.format("2001: A Space Odyssey"),
+        "What are the narrative locations of the movie 2001 A space odyssey?",
+        None,
+    )
+    assert not entity.find_unbacked_entity_literals(
+        MOVIE_SQL.format("Amelie"),
+        "tell me about Amélie",
+        None,
+    )
+    assert not entity.find_unbacked_entity_literals(
+        MOVIE_SQL.format("Blow-Up"),
+        "who directed Blow Up",
+        None,
+    )
+    # Folding punctuation must not fold words: an inferred title still shares none.
+    assert entity.find_unbacked_entity_literals(
+        MOVIE_SQL.format("2001: A Space Odyssey"),
+        "a computer kills the crew of a mission to Jupiter",
+        None,
+    )
+
+    # The routing decision itself lives inside the request handler, which needs a database and
+    # cannot run offline. Assert the gate at the source level instead: without it the guard
+    # runs on cache-hit SQL, where no extraction exists to ground a canonical literal.
+    main_source = (ROOT / "main.py").read_text(encoding="utf-8")
+    assert "entity.find_unbacked_entity_literals(" in main_source, (
+        "the provenance guard call disappeared from main.py"
+    )
+    guard_condition = next(
+        (line for line in main_source.splitlines()
+         if line.strip().startswith("if sql_query and not requires_complex_resolution")),
+        None,
+    )
+    assert guard_condition is not None, "the provenance guard condition disappeared from main.py"
+    assert "not cached_exact_question" in guard_condition, (
+        "the provenance guard must skip exact-question cache hits (FASTAPI-TEXT2SQL-259)"
+    )
+
     extraction = {
         "question": "popular movies released in 1973",
         "query_mode": "ordinary_filter_query",

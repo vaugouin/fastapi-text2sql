@@ -2989,8 +2989,17 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     # Reject entity literals that appear in neither the user's wording nor the extraction,
     # before entity substitution, SQL execution, or any cache write. A raw user title such
     # as "Pour le plaisir" remains grounded even when extraction missed it.
+    #
+    # FASTAPI-TEXT2SQL-259. The guard applies to SQL generated in THIS request, never to an
+    # exact-question cache hit. Two facts make it unsatisfiable there: the cache hands back
+    # SQL_PROCESSED, already entity-resolved, so its literal is the canonical database value
+    # ("2001: A Space Odyssey") rather than the user's wording; and entity extraction is
+    # skipped on that path, so entity_extraction is None and there is nothing left to ground
+    # against. The guard was then rejecting SQL the pipeline itself had resolved and stored,
+    # and paying two stronger-model calls to do it. The anonymized and embeddings cache paths
+    # keep the guard: extraction does run there, and their SQL still carries placeholders.
     unbacked_entity_literals = []
-    if sql_query and not requires_complex_resolution:
+    if sql_query and not requires_complex_resolution and not cached_exact_question:
         unbacked_entity_literals = entity.find_unbacked_entity_literals(
             sql_query,
             original_question if isinstance(original_question, str) else "",
