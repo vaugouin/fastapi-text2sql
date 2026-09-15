@@ -418,10 +418,7 @@ try:
                     strlangdesc = {"en": "English", "fr": "French", "*": "all-language"}
                     strcurrentprocess = f"{intindex}: running {strlangdesc.get(strlanguage, strlanguage)} evaluations on the FastAPI text2SQL API "
                     strsql = ""
-                    # RESOLUTION_MODE : le chemin qui DOIT resoudre la question
-                    # (FASTAPI-TEXT2SQL-257). NULL sur les lignes jamais qualifiees, ce qui
-                    # vaut "any" au moment du verdict mais reste distinguable en base.
-                    strsql += "SELECT ID_T2S_EVALUATION AS id, QUESTION, QUESTION_FR, RESOLUTION_MODE "
+                    strsql += "SELECT ID_T2S_EVALUATION AS id, QUESTION, QUESTION_FR "
                     strsql += "FROM T_WC_T2S_EVALUATION "
                     strsql += "WHERE IS_EVAL = 1 "
                     strsql += "AND DELETED = 0 "
@@ -469,7 +466,10 @@ try:
                     # Processing evaluations results to compute the scoring
                     strcurrentprocess = f"{intindex}: processing evaluations to compute the results "
                     strsql = ""
-                    strsql += "SELECT T_WC_T2S_EVALUATION_EXECUTION.ID_ROW AS id, T_WC_T2S_EVALUATION_EXECUTION.JSON_RESULT, T_WC_T2S_EVALUATION.ASSERTIONS_QUERY_RESULT, T_WC_T2S_EVALUATION.ASSERTIONS_ENTITY_EXTRACTION, T_WC_T2S_EVALUATION.ASSERTIONS_SQL_QUERY "
+                    # RESOLUTION_MODE est relu ICI, dans la phase de calcul, et non dans la phase de
+                    # passage : c'est ce qui rend une requalification rejouable sans rappeler
+                    # l'API, exactement comme une assertion modifiee (FASTAPI-TEXT2SQL-257).
+                    strsql += "SELECT T_WC_T2S_EVALUATION_EXECUTION.ID_ROW AS id, T_WC_T2S_EVALUATION_EXECUTION.JSON_RESULT, T_WC_T2S_EVALUATION.ASSERTIONS_QUERY_RESULT, T_WC_T2S_EVALUATION.ASSERTIONS_ENTITY_EXTRACTION, T_WC_T2S_EVALUATION.ASSERTIONS_SQL_QUERY, T_WC_T2S_EVALUATION.RESOLUTION_MODE "
                     strsql += "FROM T_WC_T2S_EVALUATION_EXECUTION "
                     strsql += "INNER JOIN T_WC_T2S_EVALUATION ON T_WC_T2S_EVALUATION.ID_T2S_EVALUATION = T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION "
                     strsql += "WHERE T_WC_T2S_EVALUATION.DELETED = 0 "
@@ -518,14 +518,17 @@ try:
                     # so successive evaluations across versions/models/languages stay separated.
                     strcurrentprocess = f"{intindex}: exporting evaluation executions to {EXPORT_BASE_DIR}/evaluation_execution/<run-subfolder> "
                     strsql = ""
-                    strsql += "SELECT EE.ID_ROW AS id, EE.ID_T2S_EVALUATION, EE.LANG, EE.API_VERSION, "
-                    strsql += "EE.ENTITY_EXTRACTION_MODEL, EE.TEXT2SQL_MODEL, EE.COMPLEX_MODEL, "
-                    strsql += "EE.JSON_RESULT, EE.TIM_EXECUTION, EE.DAT_CREAT, EE.TIM_UPDATED, "
-                    strsql += "EE.ENTITY_EXTRACTION_PROCESSING_TIME, EE.TEXT2SQL_PROCESSING_TIME, "
-                    strsql += "EE.EMBEDDINGS_PROCESSING_TIME, EE.QUERY_EXECUTION_TIME, EE.TOTAL_PROCESSING_TIME, "
-                    strsql += "EE.ASSERTIONS_ENTITY_EXTRACTION_SCORE, EE.ASSERTIONS_SQL_QUERY_SCORE, "
-                    strsql += "EE.ASSERTIONS_RESULT_SCORE, EE.ASSERTIONS_TOTAL_SCORE, "
-                    strsql += "EE.ASSERTIONS_RESULT_DETAILED "
+                    # SELECT * on purpose, comme les phases 30 et 31 (FASTAPI-TEXT2SQL-258).
+                    # La liste de colonnes ecrite a la main qui tenait ici avait pris huit
+                    # colonnes de retard : RESULT_ENTITY_PROCESSING_TIME, EMBEDDINGS_CACHE_SEARCH_TIME,
+                    # ENTITY_RESOLUTION_PLANNING_TIME, COMPLEX_QUESTION_PROCESSING_TIME,
+                    # ENTITY_RAW_FALLBACK_COUNT, NO_ENTITY_EXTRACTED et les deux ENTITY_MATCH_WORST_*
+                    # etaient nommees dans le dictionnaire d'export mais absentes du SELECT, donc
+                    # `row.get()` rendait None et le bloc "timings" sortait a moitie vide, en
+                    # silence. Verifie sur un fichier reel de la campagne 001.001.018 : huit cles
+                    # sur treize a null alors que la base porte la valeur. Les quatre colonnes de
+                    # -257 seraient tombees dans le meme trou.
+                    strsql += "SELECT EE.*, EE.ID_ROW AS id "
                     strsql += "FROM T_WC_T2S_EVALUATION_EXECUTION EE "
                     strsql += "WHERE EE.DELETED = 0 "
                     strsql += f"AND EE.API_VERSION = '{strapiversionevalformatted}' "
@@ -1269,11 +1272,13 @@ try:
                                         "answer_single_value_processing_time": row.get('ANSWER_SINGLE_VALUE_PROCESSING_TIME'),
                                         "resolution_mode": row.get('RESOLUTION_MODE'),
                                         "resolution_mode_respected": row.get('RESOLUTION_MODE_RESPECTED'),
-                                        # The last two are not durations. They sit here because the
-                                        # block is the structured mirror of the dedicated columns, and
-                                        # splitting it would break every reader. NO_ENTITY_EXTRACTED is
-                                        # stored as 1/0, so it exports as 1/0; api_output carries the
-                                        # real boolean.
+                                        # Several keys here are not durations: complex_model_used,
+                                        # resolution_mode, resolution_mode_respected above, and the
+                                        # four below. They sit in this block because it is the
+                                        # structured mirror of the DEDICATED COLUMNS, not a list of
+                                        # timings, and splitting it would break every reader. The
+                                        # 1/0 ones are stored as 1/0 and export as 1/0; api_output
+                                        # carries the real booleans.
                                         "entity_raw_fallback_count": row.get('ENTITY_RAW_FALLBACK_COUNT'),
                                         "no_entity_extracted": row.get('NO_ENTITY_EXTRACTED'),
                                         "entity_match_worst_distance": row.get('ENTITY_MATCH_WORST_DISTANCE'),
