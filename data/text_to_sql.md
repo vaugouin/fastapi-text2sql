@@ -1082,6 +1082,20 @@ UNION therefore sorts on a column it actually projects, `ORDER BY IMDB_RATING_WE
 by default. The `DISPLAY_ORDER` rule stated in the sorting section applies to SINGLE-TYPE
 queries, where the junction is in scope and its counter is the publisher's own order.
 
+**The ONE exception, because it IS projected: the Criterion spine.** `ID_CRITERION_SPINE` sits in
+the fifteen columns (slot 15), on both sides, so a UNION over the Criterion Collection CAN keep the
+publisher's order instead of falling back to rating. When the question is about the Criterion
+Collection and asks for no other order, sort on it, and push the empty ones to the end:
+
+```
+ORDER BY CASE WHEN ID_CRITERION_SPINE IS NULL THEN 1 ELSE 0 END, ID_CRITERION_SPINE ASC
+```
+
+Without that first term the NULLs sort FIRST under MariaDB, and the ~450 members carrying no number
+flood the head of the page. That is not hypothetical: it shipped once, on 2026-08-27, through an
+expression written against the old `0` sentinel. No other collection carries a projected order
+column, so for every other one the rating fallback above stands.
+
 #### Topics – return:
 ID_TOPIC, TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG, ID_RECORD, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING
 
