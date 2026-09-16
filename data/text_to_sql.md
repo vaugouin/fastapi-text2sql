@@ -1076,7 +1076,7 @@ Movie side: T_WC_T2S_MOVIE.ID_MOVIE AS ID_CONTENT, 'movie' AS CONTENT_TYPE, T_WC
 Serie side: T_WC_T2S_SERIE.ID_SERIE AS ID_CONTENT, 'serie' AS CONTENT_TYPE, T_WC_T2S_SERIE.SERIE_TITLE AS CONTENT_TITLE, T_WC_T2S_SERIE.DAT_FIRST_AIR, T_WC_T2S_SERIE.DAT_LAST_AIR, T_WC_T2S_SERIE.ID_IMDB, T_WC_T2S_SERIE.IMDB_RATING, T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED, T_WC_T2S_SERIE.IMDB_VOTES, T_WC_T2S_SERIE.POSTER_PATH, NULL AS RUNTIME, T_WC_T2S_SERIE.TAGLINE, T_WC_T2S_SERIE.NUMBER_OF_SEASONS, T_WC_T2S_SERIE.NUMBER_OF_EPISODES, T_WC_T2S_SERIE.ID_CRITERION_SPINE
 
 **Sorting a UNION.** `DISPLAY_ORDER` is NOT available here, and forcing it is a mistake. It
-belongs to the junction, it is absent from the fourteen projected columns, and each junction
+belongs to the junction, it is absent from the fifteen projected columns, and each junction
 counts from 1 on its own side, so movie 1 and serie 1 would interleave meaninglessly. A
 UNION therefore sorts on a column it actually projects, `ORDER BY IMDB_RATING_WEIGHTED DESC`
 by default. The `DISPLAY_ORDER` rule stated in the sorting section applies to SINGLE-TYPE
@@ -1156,7 +1156,7 @@ series (*Dekalog*, *Berlin Alexanderplatz*, *Scenes from a Marriage*...).
 
 - Unless the question restricts the type ("which FILMS in...", "which SERIES in..."), a
   question about the content of a collection must return **both**, through the UNION
-  contract described in "Movies AND Series (UNION)" above, with its 14 columns.
+  contract described in "Movies AND Series (UNION)" above, with its 15 columns.
 - Restricting to movies when the question did not ask silently drops part of the answer, and
   a missing row looks exactly like a row that does not exist.
 - For a SINGLE-TYPE query the display order comes free: `ORDER BY DISPLAY_ORDER ASC` on the
