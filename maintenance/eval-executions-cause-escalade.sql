@@ -63,11 +63,14 @@
 -- directe, quand le SQL a rendu une cellule unique valant 0. Elle se lit comme une cause a part
 -- entiere, et ANSWER_SINGLE_VALUE_PROCESSING_TIME la confirme.
 --
--- NON VERIFIE
--- Rien ici n'a ete execute : la base n'est pas joignable depuis le poste de developpement.
--- Valide syntaxiquement, pas par un passage reel. Les DDL de reference
--- doc/sql/T2S_EVALUATION-tables.sql et doc/sql/T2S-tables.sql ont ete mis a jour en meme temps ;
--- les trois doivent rester d'accord.
+-- CE QUI A TOURNE, ET CE QUI N'A PAS TOURNE
+-- Section 2 executee le 2026-09-18 : les deux colonnes existent en production. Le reste du
+-- fichier n'a pas ete joue. Les sections 1 et 4 sont de la lecture, la section 3 est le
+-- rattrapage facultatif des campagnes anterieures, encore ouvert.
+-- La base n'est pas joignable depuis le poste de developpement, donc rien ici n'a ete verifie
+-- depuis le depot : la section 2 est passee entre les mains de Philippe, pas entre les miennes.
+-- Les DDL de reference doc/sql/T2S_EVALUATION-tables.sql et doc/sql/T2S-tables.sql ont ete mis a
+-- jour en meme temps ; les trois doivent rester d'accord.
 
 
 -- ===== 1. Constat, a lire avant d'ecrire =====

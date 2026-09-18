@@ -124,8 +124,9 @@ they address the table directly.
   pass and understate their cost.
 - `eval-executions-cause-escalade.sql` : adds `FIRST_PASS_FAILURE_CODE` and `QUERY_MODE`,
   the escalation **cause** where FASTAPI-TEXT2SQL-257 had recorded only its existence
-  (FASTAPI-TEXT2SQL-271). Not run, like every file here. Two things in its header are worth
-  reading before using the columns. The column alone would have been useless: `main.py` filed
+  (FASTAPI-TEXT2SQL-271). **Section 2 run 2026-09-18**, so the two columns exist in production;
+  section 3, the optional backfill of earlier campaigns, is still open. Two things in its header
+  are worth reading before using the columns. The column alone would have been useless: `main.py` filed
   `descriptive_identification` and Text2SQL's own `requires_complex_resolution` under the same
   value until the same commit, so rows written earlier carry the mixed label and its section 3
   offers to split them from `first_pass_failure_reason`. And `QUERY_MODE` must be read from
