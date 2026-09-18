@@ -1600,8 +1600,8 @@ class Text2SQLResponse(BaseModel):
     # the response, not in a log file (the outer request returned before the log write). The
     # 2026-09-08 "Pour le plaisir" trace had to be reconstructed from prompt token counts.
     # first_pass_failure_code is closed: text2sql_error, sql_guard_rejected,
-    # requires_complex_resolution, unbacked_entity_literal, entity_fallback_unmatchable,
-    # sql_execution_error, or no_results:<signal>[+<signal>] where
+    # descriptive_identification, requires_complex_resolution, unbacked_entity_literal,
+    # entity_fallback_unmatchable, sql_execution_error, or no_results:<signal>[+<signal>] where
     # signal is one of unresolved_placeholder, raw_fallback, no_entity_extracted,
     # person_role_collapse (the four signals of the no-results guard, in that order).
     first_pass_sql_query: str = ""
@@ -1886,6 +1886,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     # FASTAPI-TEXT2SQL-253/-254. A normal routing decision, distinct from an LLM error.
     requires_complex_resolution = False
     complex_resolution_reason = ""
+    # FASTAPI-TEXT2SQL-271. The same routing decision, as a CLOSED value rather than the prose
+    # above. Three different causes raise `requires_complex_resolution`, and until now two of
+    # them reached `first_pass_failure_code` under the single label "requires_complex_resolution":
+    # the extraction classifying the question as `descriptive_identification`, and Text2SQL
+    # declaring itself unable. Only the free-text reason told them apart, which no campaign can
+    # group by. Set wherever the flag is raised, read once by the routing block below.
+    complex_resolution_code = ""
     # FASTAPI-TEXT2SQL-241: why the execution block failed, when it did, so the retry that
     # follows can record it. Set by the except branches of the execution block.
     sql_execution_failure_code = ""
@@ -2266,6 +2273,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             input_text_anonymized = entity_extraction['question']
             if entity_extraction.get("query_mode") == "descriptive_identification":
                 requires_complex_resolution = True
+                complex_resolution_code = "descriptive_identification"
                 complex_resolution_reason = "entity extraction classified the question as descriptive_identification"
                 messages.append(TextMessage(
                     position=position_counter,
@@ -2492,6 +2500,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             print("JSON content:", json_content)
             if bool(json_content.get("requires_complex_resolution")):
                 requires_complex_resolution = True
+                complex_resolution_code = "requires_complex_resolution"
                 complex_resolution_reason = "Text2SQL returned requires_complex_resolution"
                 ambiguous_question_for_text2sql = 1
                 sql_query = ""
@@ -3080,6 +3089,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             _unbacked_summary = ", ".join(
                 f"{item['column']}='{item['value']}'" for item in unbacked_entity_literals
             )
+            complex_resolution_code = "unbacked_entity_literal"
             complex_resolution_reason = f"unbacked entity literal(s): {_unbacked_summary}"
             messages.append(TextMessage(
                 position=position_counter,
@@ -3119,9 +3129,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             position_counter += 1
 
         if can_retry_complex_resolution:
+            # FASTAPI-TEXT2SQL-271. The literal guard keeps its precedence, unchanged: when it
+            # fires it is the last thing that happened and the most specific thing to say. Below
+            # it, the code set at the point of decision replaces the former catch-all, so
+            # `descriptive_identification` stops being filed as `requires_complex_resolution`.
             _failure_code = (
                 "unbacked_entity_literal" if unbacked_entity_literals
-                else "requires_complex_resolution"
+                else (complex_resolution_code or "requires_complex_resolution")
             )
             retry_response = await _retry_with_resolved_complex_question(
                 start_message=f"Routing the original question to the stronger model '{strcomplexquestionmodel}' for entity identification.",

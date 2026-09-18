@@ -577,6 +577,38 @@ reachable from a developer workstation, so that file has been validated syntacti
 never run. Apply it on the VPS before the next campaign, or the evaluator writes columns
 that do not exist.
 
+### The cause of the escalation, not only its existence (FASTAPI-TEXT2SQL-271)
+
+-257 answers *did this row escalate, and was it allowed to*. It cannot answer *why*, and the
+three causes that raise `requires_complex_resolution` do not carry the same verdict at all:
+`descriptive_identification` is the dispositif doing its job, `requires_complex_resolution` is
+Text2SQL admitting defeat, `unbacked_entity_literal` is a hallucination being caught. Two of
+them used to reach `first_pass_failure_code` under the **same** label, distinguishable only by
+the free-text `first_pass_failure_reason`, which no campaign can group by. `main.py` now sets
+`complex_resolution_code` at each point of decision, and `descriptive_identification` is a value
+of the closed vocabulary in its own right. Rows written before that carry the mixed label, and
+it was not a harmless one: measured 2026-09-17 on the 505 local logs, **35** retries filed under
+`requires_complex_resolution` and all 35 were descriptive routings, none from Text2SQL. The
+shared label carried the name of the case never observed, which does not look like an error, it
+looks like a statistic.
+
+Two columns follow, `FIRST_PASS_FAILURE_CODE` and `QUERY_MODE`, in
+`maintenance/eval-executions-cause-escalade.sql`, not applied either.
+
+**`QUERY_MODE` must be read from `first_pass_entity_extraction`, never from
+`entity_extraction`.** On a retried row the second describes the inner pass over the *rewritten*
+question, so it reads `named_entity_query`: measured 2026-09-17 on the 505 local logs, 30 rows
+classified `descriptive_identification` in the first pass, of which 27 show `named_entity_query`
+in `entity_extraction` and 3 show nothing. Reading the convenient field would have made the
+campaign report almost no descriptive questions at all, which is the failure mode this whole
+column exists to prevent.
+
+**`FIRST_PASS_FAILURE_CODE` NULL with `COMPLEX_MODEL_USED = 1` is a cause, not a gap.** It is
+the signature of the direct scalar answer, the only path that escalates without going through
+the retry helper. And `QUERY_MODE` is the only denominator available, since the failure code
+exists on retried rows alone: a rate of "descriptive questions that escalated" needs a
+classification on every row, escalated or not.
+
 ## Reasoning models reject `temperature` (FASTAPI-TEXT2SQL-231)
 
 **The trap, and it is a hard failure, not a degradation.** Every one of the five tasks passes
@@ -1143,7 +1175,7 @@ Prefer parameterized SQL for application-owned queries. Placeholder de-anonymiza
 
 ### Entity identity boundary
 
-Text2SQL owns relational structure, never the identification of an unnamed real-world entity from remembered clues. `data/entity_extraction.md` classifies each request with `query_mode`; `descriptive_identification` routes to the stronger model before Text2SQL. Text2SQL may also emit `requires_complex_resolution: true`. Independently of both prompts, `entity.find_unbacked_entity_literals()` rejects resolvable entity equalities whose value occurs in neither the original question nor extracted entities. Keep this guard before SQL execution and cache writes. A literal explicitly present in the original question remains grounded even when extraction missed it, which preserves the `Pour le plaisir` rescue path.
+Text2SQL owns relational structure, never the identification of an unnamed real-world entity from remembered clues. `data/entity_extraction.md` classifies each request with `query_mode`; `descriptive_identification` routes to the stronger model before Text2SQL. Text2SQL may also emit `requires_complex_resolution: true`. The two reach `first_pass_failure_code` as distinct values since FASTAPI-TEXT2SQL-271, so a campaign can tell a deliberate routing from an admission of defeat. Independently of both prompts, `entity.find_unbacked_entity_literals()` rejects resolvable entity equalities whose value occurs in neither the original question nor extracted entities. Keep this guard before SQL execution and cache writes. A literal explicitly present in the original question remains grounded even when extraction missed it, which preserves the `Pour le plaisir` rescue path.
 
 **The guard judges SQL generated in the current request, never an exact-question cache hit (FASTAPI-TEXT2SQL-259).** Two facts make it unsatisfiable on that path, and both are properties of the cache rather than accidents: `sql_cache` returns `SQL_PROCESSED`, the already entity-resolved SQL whose literal is the canonical database value, and entity extraction is skipped on a cache hit, so `entity_extraction` is `None`. Left ungated, the guard rejected SQL the pipeline itself had resolved and stored, for every cached question whose title needed any normalization at all: a colon, an accent, a leading article, a French title resolved onto the English column. Grounding also folds case, diacritics and punctuation before comparing, so `2001: A Space Odyssey` matches a user who typed `2001 A space odyssey`; it folds surface form only, never words, so a title recalled from a plot description still shares nothing with the question. The anonymized and embeddings cache paths keep the guard: extraction runs there, and their SQL still carries placeholders, which `find_literal_equalities` skips.
 

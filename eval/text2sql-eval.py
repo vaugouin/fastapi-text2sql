@@ -1047,6 +1047,39 @@ try:
                             arrevalexeccouples["NO_ENTITY_EXTRACTED"] = (
                                 (1 if _nothing_extracted else 0) if _nothing_extracted is not None else None
                             )
+                            # FASTAPI-TEXT2SQL-271. La cause de l'escalade, pas seulement son
+                            # existence. COMPLEX_MODEL_USED dit qu'une ligne a bascule sur le
+                            # modele fort ; ces deux colonnes disent pourquoi, sans rouvrir
+                            # JSON_RESULT. Trancher une campagne sur la cause etait jusqu'ici
+                            # impossible en SQL : les trois motifs de -253/-254 arrivaient melanges.
+                            #
+                            # FIRST_PASS_FAILURE_CODE est le miroir exact du champ de reponse,
+                            # sans calcul : vide sans reprise, et vide AVEC COMPLEX_MODEL_USED = 1
+                            # sur le seul chemin qui escalade sans passer par la reprise, la
+                            # reponse scalaire directe (main.py, branche can_answer_zero_count).
+                            # Cette combinaison se lit donc comme une cause a part entiere.
+                            _first_pass_failure_code = (response_json or {}).get("first_pass_failure_code")
+                            arrevalexeccouples["FIRST_PASS_FAILURE_CODE"] = (
+                                _first_pass_failure_code.strip() or None
+                                if isinstance(_first_pass_failure_code, str) else None
+                            )
+                            # QUERY_MODE vient de la PREMIERE passe quand elle existe
+                            # (FASTAPI-TEXT2SQL-256) : sur une reprise, `entity_extraction` porte
+                            # l'extraction INTERNE de la question reecrite, qui lit presque
+                            # toujours named_entity_query et masque donc le classement qui a
+                            # provoque le routage. Mesure du 2026-09-17 sur les 505 logs locaux :
+                            # 30 reprises classees descriptive_identification en premiere passe,
+                            # dont 27 affichent named_entity_query dans `entity_extraction` et 3
+                            # rien du tout. Lire le mauvais champ inverserait la conclusion.
+                            _first_pass_ee = (response_json or {}).get("first_pass_entity_extraction")
+                            _current_ee = (response_json or {}).get("entity_extraction")
+                            _query_mode = None
+                            for _candidate in (_first_pass_ee, _current_ee):
+                                if isinstance(_candidate, dict) and isinstance(_candidate.get("query_mode"), str):
+                                    _query_mode = _candidate["query_mode"].strip() or None
+                                    if _query_mode is not None:
+                                        break
+                            arrevalexeccouples["QUERY_MODE"] = _query_mode
 
                             if arrevalexeccouples["ENTITY_EXTRACTION_PROCESSING_TIME"] is not None:
                                 dbl_entity_extraction_processing_time_sum += arrevalexeccouples["ENTITY_EXTRACTION_PROCESSING_TIME"]

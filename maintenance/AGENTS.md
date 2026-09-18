@@ -122,6 +122,15 @@ they address the table directly.
   replayable on its own. Read its header before comparing durations across
   versions: on a retried row, rows written before the fix carry only the second
   pass and understate their cost.
+- `eval-executions-cause-escalade.sql` : adds `FIRST_PASS_FAILURE_CODE` and `QUERY_MODE`,
+  the escalation **cause** where FASTAPI-TEXT2SQL-257 had recorded only its existence
+  (FASTAPI-TEXT2SQL-271). Not run, like every file here. Two things in its header are worth
+  reading before using the columns. The column alone would have been useless: `main.py` filed
+  `descriptive_identification` and Text2SQL's own `requires_complex_resolution` under the same
+  value until the same commit, so rows written earlier carry the mixed label and its section 3
+  offers to split them from `first_pass_failure_reason`. And `QUERY_MODE` must be read from
+  `first_pass_entity_extraction`, not from `entity_extraction`, which on a retried row describes
+  the rewritten question and reads `named_entity_query` in 27 of 30 measured cases.
 - `eval-executions-retirer-1-1-17.sql` : retires the 1.1.17 execution rows so the
   evaluation suite actually re-runs. Not housekeeping: `text2sql-eval.py` skips
   any evaluation that already has a live execution row for the same version,

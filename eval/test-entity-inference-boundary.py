@@ -128,6 +128,37 @@ def main() -> None:
         "the provenance guard must skip exact-question cache hits (FASTAPI-TEXT2SQL-259)"
     )
 
+    # FASTAPI-TEXT2SQL-271. The three causes that raise requires_complex_resolution must reach
+    # first_pass_failure_code as three DISTINCT values. Two of them used to share the single
+    # label "requires_complex_resolution", which made the escalation uncountable by cause: a
+    # descriptive question routed on purpose was filed next to a Text2SQL that gave up. Source
+    # level again, since the routing needs a database and cannot run offline.
+    assert main_source.count('complex_resolution_code = "descriptive_identification"') == 1, (
+        "the descriptive routing must set its own escalation code (FASTAPI-TEXT2SQL-271)"
+    )
+    for _expected_code in (
+        'complex_resolution_code = "requires_complex_resolution"',
+        'complex_resolution_code = "unbacked_entity_literal"',
+    ):
+        assert _expected_code in main_source, f"missing escalation code: {_expected_code}"
+    assert "complex_resolution_code or \"requires_complex_resolution\"" in main_source, (
+        "the routing block must read complex_resolution_code (FASTAPI-TEXT2SQL-271)"
+    )
+
+    # The harness must fill both columns from the response, and read query_mode from the FIRST
+    # pass: on a retry, entity_extraction holds the inner extraction of the rewritten question
+    # and reads named_entity_query, which would count every descriptive routing as a named one.
+    harness_source = (ROOT / "eval" / "text2sql-eval.py").read_text(encoding="utf-8")
+    assert 'arrevalexeccouples["FIRST_PASS_FAILURE_CODE"]' in harness_source, (
+        "the escalation cause column is no longer written by the eval harness"
+    )
+    assert 'arrevalexeccouples["QUERY_MODE"]' in harness_source, (
+        "the query_mode column is no longer written by the eval harness"
+    )
+    assert harness_source.index("first_pass_entity_extraction") < harness_source.index(
+        'arrevalexeccouples["QUERY_MODE"]'
+    ), "QUERY_MODE must prefer the first-pass extraction (FASTAPI-TEXT2SQL-256)"
+
     extraction = {
         "question": "popular movies released in 1973",
         "query_mode": "ordinary_filter_query",

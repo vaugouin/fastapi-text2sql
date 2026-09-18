@@ -125,7 +125,7 @@ WHERE COLLECTION_NAME = 'The Criterion Collection';
 
 UPDATE T_WC_T2S_EVALUATION
 SET ASSERTIONS_QUERY_RESULT = 'ID_T2S_COLLECTION IN (5035) OR ID_MOVIE IN (777, 346, 940, 7857, 147, 648, 10971, 10835, 11782, 36040, 490, 11031, 274, 31372, 31374, 31378, 5336, 26031, 25504, 14924)',
-    COMMENT = CONCAT(
+    LONG_DESC = CONCAT(
       '2026-09-16. DEUX REPONSES SONT JUSTES et l''assertion les accepte toutes les deux, ',
       'par un OR. La question est un nom de collection NU : elle peut demander la FICHE de la ',
       'collection (ID_T2S_COLLECTION 5035, qui porte MOVIE_COUNT et SERIE_COUNT) ou son CONTENU ',
