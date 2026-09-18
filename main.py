@@ -7320,16 +7320,24 @@ def _attach_sample_simulation(node, parsed, summary, pending, image_source=None)
     clauses = parsed["clauses"]
 
     if kind == "entity_rows":
-        id_clause = next(c for c in clauses if c["type"] == "id_set")
-        entity_type = id_clause["entity"]
+        # A typed assertion carries one id_set clause per entity kind
+        # (`ID_MOVIE IN (..) AND ID_SERIE IN (..)`). Every clause feeds the SAME
+        # simulation, so the preview shows both halves of a movie+series answer instead
+        # of silently dropping everything after the first clause.
+        id_clauses = [c for c in clauses if c["type"] == "id_set"]
+        entity_types = list(dict.fromkeys(c["entity"] for c in id_clauses if c["entity"]))
+        entity_type = entity_types[0] if len(entity_types) == 1 else ("content" if entity_types else None)
         sim = {"result_kind": "entity_rows", "entity_type": entity_type, "total_count": 0, "result": []}
         node["simulated_result"] = sim
-        if entity_type:  # unknown id-columns stay empty (no table to hydrate from)
+        for id_clause in id_clauses:
+            clause_entity = id_clause["entity"]
+            if not clause_entity:  # unknown id-columns stay empty (no table to hydrate from)
+                continue
             # image_source only applies when it matches the assertion's entity kind.
-            effective_image_source = image_source if image_source == entity_type else None
+            effective_image_source = image_source if image_source == clause_entity else None
             if effective_image_source:
                 sim["image_gallery"] = True  # signals the front to show the full image set
-            pending.append((sim, entity_type, list(dict.fromkeys(id_clause["ids"])), effective_image_source))
+            pending.append((sim, clause_entity, list(dict.fromkeys(id_clause["ids"])), effective_image_source))
         return
 
     if kind == "scalar":
@@ -7362,6 +7370,12 @@ def _hydrate_sample_rows(conn, pending):
     are skipped, and ``total_count`` reflects rows actually found). The "content" kind
     is a movie+series union resolved movie-first, then series for the remainder, with a
     MEDIA_TYPE tag on each row.
+
+    A typed assertion (``ID_MOVIE IN (..) AND ID_SERIE IN (..)``) produces one pending
+    entry per clause pointing at the SAME simulation, so rows are accumulated rather than
+    overwritten and then re-sorted chronologically, the split by entity kind having
+    scattered the order the refresh SQL asked for. Such an assertion says outright which
+    ids are movies and which are series, so it never goes through the "content" guess.
 
     Image-query samples (``image_source`` set — see ``SAMPLE_IMAGE_CATEGORIES``) expand
     each id's hydrated row into one row per image from the entity's ``*_IMAGE`` table
@@ -7410,6 +7424,11 @@ def _hydrate_sample_rows(conn, pending):
                 cursor, image_source, list(dict.fromkeys(ids))
             )
 
+    # A simulation can be fed by several pending entries (one per id_set clause of a typed
+    # assertion), so rows ACCUMULATE per simulation instead of overwriting it. Keyed on
+    # id(sim) because a simulation is an unhashable dict; the simulations live for the
+    # duration of this call, so the identity is stable.
+    rows_by_sim = {}
     for sim, entity_type, ids, image_source in pending:
         row_map = row_maps.get(entity_type, {})
         rows = []
@@ -7423,16 +7442,46 @@ def _hydrate_sample_rows(conn, pending):
                 paths = images.get(id_value) or []
                 if paths:
                     for path in paths:
-                        rows.append({"index": len(rows), "data": {**base, path_field: path}})
+                        rows.append({**base, path_field: path})
                 else:  # no image rows: fall back to the entity's own single card
-                    rows.append({"index": len(rows), "data": base})
+                    rows.append(base)
         else:
             for id_value in ids:
                 data = row_map.get(id_value)
                 if data is not None:
-                    rows.append({"index": len(rows), "data": data})
-        sim["result"] = rows
-        sim["total_count"] = len(rows)
+                    rows.append(data)
+        entry = rows_by_sim.setdefault(id(sim), {"sim": sim, "rows": [], "clauses": 0})
+        entry["rows"].extend(rows)
+        entry["clauses"] += 1
+
+    for entry in rows_by_sim.values():
+        rows = entry["rows"]
+        # One clause: the assertion's own id order is deliberate (and for an image gallery
+        # it is DISPLAY_ORDER), so it is left alone. Several clauses: the rows arrive
+        # grouped by entity kind, movies then series, which loses the ordering the refresh
+        # SQL expressed. Re-sort on the row's own date so "oldest first" survives the split.
+        if entry["clauses"] > 1:
+            rows.sort(key=_sample_row_sort_key)
+        # The per-clause cap above bounds what the DB is asked for; this one bounds what a
+        # single sample previews, so a two-clause assertion does not return twice the rows
+        # of a one-clause one.
+        rows = rows[:MAX_SAMPLE_ENTITY_IDS]
+        entry["sim"]["result"] = [{"index": index, "data": data} for index, data in enumerate(rows)]
+        entry["sim"]["total_count"] = len(rows)
+
+
+def _sample_row_sort_key(data):
+    """Chronological sort key for a hydrated sample row, undated rows last.
+
+    Movies carry ``DAT_RELEASE`` and series ``DAT_FIRST_AIR``; persons and the secondary
+    entities carry neither, and keep their arrival order behind the dated rows. Dates come
+    back as ``date``/``datetime`` or as strings depending on the column, so both are
+    normalized to an ISO-ish string, which sorts correctly either way.
+    """
+    value = data.get("DAT_RELEASE") or data.get("DAT_FIRST_AIR")
+    if value is None or value == "":
+        return (1, "")
+    return (0, value.isoformat() if hasattr(value, "isoformat") else str(value))
 
 
 def _hydrate_content_rows(cursor, ids):
@@ -7523,11 +7572,16 @@ async def get_samples(ui_language: Optional[str] = "en", set: Optional[str] = "s
       - ``assertion``: the parsed ground-truth spec from ASSERTIONS_QUERY_RESULT
         (``raw``, ``result_kind`` of entity_rows|scalar|count|bound|unknown,
         ``entity_type``, ``expected_count``, ``count_operator``); null when the sample
-        has no assertion;
+        has no assertion. A typed assertion carrying one id-set clause per entity kind
+        (``ID_MOVIE IN (..) AND ID_SERIE IN (..)``) reports ``entity_type`` as
+        ``content`` and lists the kinds in ``entity_types``;
       - ``simulated_result``: a renderable simulation of the expected answer whose row
         shape matches /search/text2sql (``result`` is a list of ``{index, data}``).
         For ``entity_rows`` the assertion ids are hydrated into display rows from the
-        matching T_WC_T2S_* table; ``scalar`` carries the single known cell value;
+        matching T_WC_T2S_* table, every id-set clause into the same ``result`` (rows
+        from a typed assertion are then re-sorted by release / first-air date, so a
+        movie+series preview stays chronological); ``scalar`` carries the single known
+        cell value;
         ``count`` / ``bound`` carry an ``expectation`` block and no rows. Null when
         nothing is materializable. For the image-query categories
         (``SAMPLE_IMAGE_CATEGORIES``: 13 movies posters, 24 series posters, 23 persons

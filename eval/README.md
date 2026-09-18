@@ -324,6 +324,8 @@ Behavioural notes:
 - Non-matching rows become NaN, which `IN` / `NOT IN` evaluators treat as not-in-list, so a mixed movie+serie result correctly satisfies `ID_MOVIE IN (...)` for only the movie rows.
 - When `CONTENT_TYPE` is absent (or `ID_CONTENT` is absent), the bridge does not fire and column resolution falls back to the strict exact-match path — `ID_MOVIE IN (...)` against a DataFrame without `ID_MOVIE` fails with the usual `Column 'ID_MOVIE' does not exist in DataFrame` message.
 
+This bridge is also what makes a **typed** assertion work. The assertion-refresh job writes `ID_MOVIE IN (...) AND ID_SERIE IN (...)` whenever its refresh SQL returns `CONTENT_TYPE` alongside the id (section 4.6): each clause is scored against its own synthesized column, so a movie+series answer is checked half by half instead of through an ambiguous `ID_CONTENT` list. Prefer that shape over `ID_CONTENT IN (...)` for any question spanning both kinds.
+
 Regression coverage: [test-unified-schema-bridge.py](test-unified-schema-bridge.py) (movies-only, mixed movies+series, ID_PERSON, mixed-case `Movie`, no-op when `ID_MOVIE` already exists, no-op when `CONTENT_TYPE` is absent, `NOT IN` semantics).
 
 ### 4.4 Aggregated score
@@ -366,11 +368,31 @@ SELECT DISTINCT T_WC_T2S_SERIE.ID_SERIE
 **Guardrails applied by the process.** A query failing any of them is skipped and logged, never run:
 
 - a single read-only `SELECT`, no interior semicolon, no `INTO OUTFILE` / `INTO DUMPFILE`
-- **exactly one** returned column, whose name starts with `ID_`
-- at least one usable integer id, and **at most 50** (the cap that catches a missing `LIMIT`)
+- **one** returned column whose name starts with `ID_`, optionally accompanied by a `CONTENT_TYPE` column (see below), and nothing else
+- at least one usable integer id, and **at most 50** across all kinds (the cap that catches a missing `LIMIT`)
 - `max_statement_time = 15` seconds
 
 HTML entities are unescaped before execution, so a value stored by the admin form with `&gt;` still runs.
+
+**A movie+series refresh SQL must return `CONTENT_TYPE`.** `ID_CONTENT` is a union of two id spaces that overlap, so a bare list of integers cannot say whether `4194` means the movie *A Matter of Resistance* or the series *Star Wars: The Clone Wars*. Scoring survives that ambiguity, the `/samples` preview does not: hydration resolves an id against movies first and falls back to series, so an ambiguous id renders in the showcase with the wrong poster and the wrong title. On the Star Wars universe eval, five of twenty-six cards were wrong this way.
+
+Return the discriminator and the process splits the ids per kind, writing one clause per kind:
+
+```sql
+SELECT t.ID_CONTENT, t.CONTENT_TYPE FROM (
+  SELECT m.ID_MOVIE AS ID_CONTENT, 'movie' AS CONTENT_TYPE, m.DAT_RELEASE AS DAT_FIRST_AIR
+  FROM T_WC_T2S_MOVIE m ...
+  UNION
+  SELECT s.ID_SERIE AS ID_CONTENT, 'serie' AS CONTENT_TYPE, s.DAT_FIRST_AIR
+  FROM T_WC_T2S_SERIE s ...
+) AS t
+ORDER BY t.DAT_FIRST_AIR ASC
+LIMIT 50
+```
+
+becomes `ID_MOVIE IN (...) AND ID_SERIE IN (...)`. That is ordinary DSL, section 4.3, scored through the unified-schema column bridge: each clause matches its own half of the result and the `AND` requires both halves. Accepted `CONTENT_TYPE` values are `movie`, `serie`, `person`; anything else skips the eval rather than guessing.
+
+Note that the outer `SELECT` is what keeps the column count legal while the `ORDER BY` still reads a date: a `UNION` can only sort on columns in its own select list, so the ordering column rides inside the derived table and is dropped on the way out.
 
 Write the query cheap (it runs every preprocess), bounded (`LIMIT 5` to `LIMIT 10`, well under the cap), aimed at the top of the ranking where membership moves least, and with table-qualified columns.
 

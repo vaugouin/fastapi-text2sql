@@ -6,6 +6,7 @@ Text2SQL pipeline. The assertion is a tiny expression language; across the live
 samples it reduces to five shapes:
 
   * ``<ID_COL> IN (..)`` / ``<ID_COL> == n``      -> an expected set of entity rows
+  * ``ID_MOVIE IN (..) AND ID_SERIE IN (..)``     -> the same, one clause per entity kind
   * ``COUNT(*) <op> n`` / ``COUNT(<COL>) <op> n`` -> a cardinality expectation
   * ``CELL(0, 0) <op> v``                         -> a single scalar cell value
   * ``<COL> <op> v``                              -> a column value / bound
@@ -21,7 +22,11 @@ import html
 import re
 
 # Assertion id-columns that denote a concrete entity kind. ``ID_CONTENT`` is a
-# movie+series union with no single table. Everything else is an int PK.
+# movie+series union with no single table, and its integers are ambiguous (the movie and
+# series id spaces overlap), so hydration can only guess at the kind; an assertion split
+# per kind -- ``ID_MOVIE IN (..) AND ID_SERIE IN (..)`` -- carries the answer instead of
+# guessing, and is what the assertion-refresh job writes for a typed refresh SQL.
+# Everything else is an int PK.
 #
 # ``ID_ITEM`` (Wikidata Q-ids against T_WC_T2S_ITEM.ID_WIKIDATA) denoted locations until
 # 1.1.18 and is deliberately NOT kept here (FASTAPI-TEXT2SQL-247). Mapping it to
@@ -185,22 +190,32 @@ def summarize(parsed, raw):
       * ``bound``       - only an inequality/bound (no exact value)
       * ``unknown``     - none of the above (unparsed / raw)
     ``entity_type``, ``expected_count`` and ``count_operator`` are filled when known.
+
+    A typed assertion carries one id_set clause per entity kind
+    (``ID_MOVIE IN (..) AND ID_SERIE IN (..)``, written by the assertion-refresh job from
+    a query returning ID_CONTENT + CONTENT_TYPE). Every clause counts toward
+    ``expected_count``; ``entity_type`` then reports the union kind ``content`` and the
+    per-clause kinds are listed in ``entity_types``.
     """
     if not parsed:
         return None
 
-    id_clause = _first(parsed, "id_set")
+    id_clauses = [c for c in parsed["clauses"] if c["type"] == "id_set"]
     count_clause = _first(parsed, "count")
     summary = {"raw": html.unescape(str(raw)).strip()}
 
-    if id_clause:
+    if id_clauses:
         summary["result_kind"] = "entity_rows"
-        summary["entity_type"] = id_clause["entity"]
+        entity_types = list(dict.fromkeys(c["entity"] for c in id_clauses if c["entity"]))
+        summary["entity_type"] = entity_types[0] if len(entity_types) == 1 else ("content" if entity_types else None)
+        if len(entity_types) > 1:
+            summary["entity_types"] = entity_types
         if count_clause is not None:
             summary["expected_count"] = count_clause["value"]
             summary["count_operator"] = count_clause["op"]
         else:
-            summary["expected_count"] = len(id_clause["ids"])
+            # Summed, not merged: the same integer under two kinds is two entities.
+            summary["expected_count"] = sum(len(c["ids"]) for c in id_clauses)
         return summary
 
     # A known literal value: `COL == 'X'` / `COL == 5` / `CELL(0,0) == 40`.
