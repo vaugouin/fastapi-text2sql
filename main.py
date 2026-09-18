@@ -7257,10 +7257,14 @@ SAMPLES_ROOT_PARENT_ID = 1
 # arrays of the detail endpoints (id + localizable label + date/rating + image path);
 # the trailing _FR columns are collapsed by localize_response at the end. "content"
 # (a movie+series union) is handled specially in _hydrate_sample_rows.
+# DAT_LAST_AIR rides along on every serie row (here and in _hydrate_content_rows below):
+# the showcase card prints an air-year RANGE, so without the end date a finished show reads
+# "2008-", which is the shape reserved for a series still running. Every other serie SELECT
+# in this file already carries it; the sample preview was the one that did not.
 SAMPLE_HYDRATION = {
     "movie":   ("T_WC_T2S_MOVIE",   "ID_MOVIE",    ["ID_MOVIE", "MOVIE_TITLE", "MOVIE_TITLE_FR", "DAT_RELEASE", "IMDB_RATING_WEIGHTED", "POSTER_PATH"]),
     "person":  ("T_WC_T2S_PERSON",  "ID_PERSON",   ["ID_PERSON", "PERSON_NAME", "PROFILE_PATH", "POPULARITY", "KNOWN_FOR_DEPARTMENT"]),
-    "serie":   ("T_WC_T2S_SERIE",   "ID_SERIE",    ["ID_SERIE", "SERIE_TITLE", "SERIE_TITLE_FR", "DAT_FIRST_AIR", "IMDB_RATING_WEIGHTED", "POSTER_PATH"]),
+    "serie":   ("T_WC_T2S_SERIE",   "ID_SERIE",    ["ID_SERIE", "SERIE_TITLE", "SERIE_TITLE_FR", "DAT_FIRST_AIR", "DAT_LAST_AIR", "IMDB_RATING_WEIGHTED", "POSTER_PATH"]),
     "topic":   ("T_WC_T2S_TOPIC",   "ID_TOPIC",    ["ID_TOPIC", "TOPIC_NAME", "TOPIC_NAME_FR", "POSTER_PATH", "WIKIPEDIA_IMAGE_PATH", "IMDB_RATING_WEIGHTED", "POPULARITY"]),
     "company": ("T_WC_T2S_COMPANY", "ID_COMPANY",  ["ID_COMPANY", "COMPANY_NAME", "LOGO_PATH", "MOVIE_COUNT", "SERIE_COUNT", "POPULARITY"]),
     "network": ("T_WC_T2S_NETWORK", "ID_NETWORK",  ["ID_NETWORK", "NETWORK_NAME", "LOGO_PATH", "SERIE_COUNT"]),
@@ -7519,7 +7523,7 @@ def _hydrate_content_rows(cursor, ids):
     if remaining:
         placeholders = ",".join(["%s"] * len(remaining))
         cursor.execute(
-            f"SELECT ID_SERIE, SERIE_TITLE, SERIE_TITLE_FR, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH "
+            f"SELECT ID_SERIE, SERIE_TITLE, SERIE_TITLE_FR, DAT_FIRST_AIR, DAT_LAST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH "
             f"FROM T_WC_T2S_SERIE WHERE ID_SERIE IN ({placeholders}) AND DELETED = 0",
             tuple(remaining),
         )
