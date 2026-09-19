@@ -1178,11 +1178,25 @@ Keep the env file outside the app source tree, e.g. `/home/debian/docker/fastapi
 docker run -d --rm --network="host" \
   --env-file /home/debian/docker/fastapi-text2sql-blue/.env \
   -v $(pwd):/app \
+  -v /home/debian/docker/shared_data/fastapi-text2sql/logs:/app/logs \
   --name fastapi-text2sql-blue \
   fastapi-text2sql-blue-app
 ```
 
 The provided helper scripts ([restart-blue.sh](restart-blue.sh), [restart-green.sh](restart-green.sh)) already use this pattern — the host env files are expected at `/home/debian/docker/fastapi-text2sql-blue/.env` and `/home/debian/docker/fastapi-text2sql-green/.env` respectively.
+
+### The second mount: one log folder for every colour
+
+The first mount carries the code. The second carries the **log corpus**, and it exists because without it there is no corpus, there are three. `LOGS_FOLDER` is the relative `"logs"` ([logs.py](logs.py)), so an unmounted container writes inside its own stack directory: blue into `fastapi-text2sql-blue/logs`, green into `fastapi-text2sql-green/logs`, and the third, colourless deployment into `fastapi-text2sql/logs`. Every analysis over "the logs" was then silently reading a third of them.
+
+`-v /home/debian/docker/shared_data/fastapi-text2sql/logs:/app/logs` puts all three in one place. **No code changed for this** (FASTAPI-TEXT2SQL-276): the path stays relative, the application knows nothing about the mount, and a checkout on a laptop still writes to its own `logs/` exactly as before.
+
+Two operational consequences, neither optional:
+
+- **Create the host directory before the first run.** [restart-blue.sh](restart-blue.sh) / [restart-green.sh](restart-green.sh) do it with `mkdir -p`. Left to Docker, the directory appears **root-owned**, and [archive-logs.sh](archive-logs.sh) can then no longer delete the loose originals it has just archived, which is exactly how a log directory reaches 17 842 files.
+- **The archiver becomes more critical, not less.** One directory now fills at the rate of the three combined, so the monthly cron is what keeps the mirror listing fast. Check that it really runs *after* the switch, not only before.
+
+The one-shot merge of the three historical directories is [migrate-logs-to-shared.sh](migrate-logs-to-shared.sh); see [Archiving old logs](#archiving-old-logs).
 
 ### Why
 
@@ -1212,6 +1226,8 @@ fastapi-text2sql/
 ├── LICENSE                  # Project license file
 ├── restart-blue.sh          # Blue deployment restart script
 ├── restart-green.sh         # Green deployment restart script
+├── archive-logs.sh           # Monthly log archiver (cron): packs past months into logs/archive/
+├── migrate-logs-to-shared.sh # One-shot merge of the three old per-stack log dirs
 ├── data/                    # Hot-reloaded prompt templates and configuration
 │   ├── entity_extraction.md                                          # Entity extraction prompt (hot-reloaded)
 │   ├── text_to_sql.md                                                # Text2SQL prompt (hot-reloaded)
@@ -1233,7 +1249,7 @@ fastapi-text2sql/
 │   ├── closed-vocab-entity-plan.md                                   # Closed-vocabulary entity rollout plan
 │   └── sql/                 # Reference SQL dumps for canonical tables
 │       └── T_WC_T2S_TECHNICAL.sql                                    # 56-row Technical_format canonical table
-├── logs/                    # API usage logs with timing metrics (auto-created)
+├── logs/                    # API usage logs with timing metrics (auto-created; on the VPS a bind mount onto shared_data/fastapi-text2sql/logs, shared by every colour)
 ├── CLAUDE.md                # AI assistant guide for understanding the codebase
 └── README.md                # This file
 ```
@@ -1516,6 +1532,8 @@ API request/response log files include:
 - Full request/response data
 - Processing messages array
 
+On the VPS, `logs/` is a bind mount onto `/home/debian/docker/shared_data/fastapi-text2sql/logs`, shared by **every** deployment (blue, green, and the colourless third one). The application still writes to the relative `logs/` and is unaware of it, so on a local checkout the folder is the one in the repository. A log file therefore says which colour served it by its **version component**, never by its location.
+
 #### Why these logs are kept: a usage & agent-behaviour dataset
 
 The `logs/` folder is **not** transient debug output — it is a permanent,
@@ -1557,6 +1575,29 @@ malformed parameters, and which tools it favours.
 > ⚠️ **Sensitivity:** these files contain full natural-language queries and
 > responses, which may include personal or otherwise sensitive content. Treat the
 > corpus (and its off-box mirror) as private; don't share casually.
+>
+> ⚠️ **The regime belongs to `logs/`, not to its parent.** Now that the corpus
+> sits under `shared_data/fastapi-text2sql/` it has neighbours, and they do not obey
+> the same rules: `logs/` is backed up, mirrored and kept without a time limit, while
+> the vision-mode `uploads/` folder due beside it is neither backed up nor mirrored.
+> A backup or sync rule written on the **parent** is therefore wrong for one of the
+> two whichever way it is written. Write it on each subfolder.
+
+#### Merging the three old log directories (one-shot)
+
+Before FASTAPI-TEXT2SQL-276 each deployment wrote into its own stack directory, so the corpus existed in three copies of three different thirds. [migrate-logs-to-shared.sh](migrate-logs-to-shared.sh) merges them into the shared folder. **The merge is the work, not the mount**, because of one collision that destroys data if it is ignored:
+
+- **The monthly archives share their names.** `archive-logs.sh` writes `logs/archive/<YYYYMM>.tar.gz` in each directory, so blue's `202608.tar.gz` and green's are two different files carrying one name; a plain `mv` or `cp` silently keeps one. The script concatenates their members into a single archive per month and refuses to move on unless the merged member count equals the sum of the sources'.
+- **The loose files could collide, and in practice do not.** Their name is `YYYYMMDD-HHMMSS_<endpoint>_<version>_<md5>.json`, and the colours run different versions, so the version component separates them. A real collision means same second, same version and same payload hash, i.e. the same request logged twice; the script still compares the contents rather than assuming it, keeps one copy, and aborts without writing anything if the two differ.
+
+```bash
+./migrate-logs-to-shared.sh                        # dry run: inventory + collision report
+sudo ./migrate-logs-to-shared.sh --apply           # merge the archives, move the loose files
+sudo ./migrate-logs-to-shared.sh --prune-sources   # drop the source archives, once re-read
+                                                   # out of the merged one
+```
+
+It is idempotent: a month is merged into a temporary file and moved into place only after its member count is verified, so it is either complete or absent, and a second run skips what is done. `--prune-sources` is a separate step on purpose: nothing is deleted before the merged archive has been proved to contain it.
 
 #### Archiving old logs
 
@@ -1569,16 +1610,21 @@ monthly archive is merged with any stragglers, and only files strictly older tha
 the current month are ever touched.
 
 ```bash
-# Archive the deployed log dirs (defaults to the blue / green / plain text2sql dirs):
+# Archive the shared log dir (the single default since FASTAPI-TEXT2SQL-276):
 ./archive-logs.sh
-# Or target specific dirs:
+# Or target specific dirs (the retired stack dirs, if anything is ever found in them):
 ./archive-logs.sh /home/debian/docker/fastapi-text2sql-blue/logs
 
-# Run monthly via cron (1st of the month, 03:30). Run as the user that owns
-# logs/ (or via sudo) so it can delete the loose originals after archiving:
-# 30 3 1 * * /home/debian/docker/fastapi-text2sql-blue/archive-logs.sh \
-#   >> /home/debian/docker/fastapi-text2sql-blue/logs/archive/archive.log 2>&1
+# Run monthly via cron (1st of the month, 03:30). The container logs as root, so the
+# run needs sudo to delete the loose originals after archiving:
+# 30 3 1 * * sudo /home/debian/docker/fastapi-text2sql-blue/archive-logs.sh \
+#   >> /home/debian/docker/shared_data/fastapi-text2sql/logs/archive-run.log 2>&1
 ```
+
+Note the redirect target: `logs/archive-run.log`, **not** `logs/archive/archive.log`. The shell
+opens the redirect before running the command, so a target inside a directory the script has yet
+to create can never work, which is one of the two reasons the archiver had never run once on
+the blue deployment before 2026-08-21 (the other was a missing executable bit).
 
 This is what lets the off-box mirror keep pace: once old logs are compressed into
 a handful of monthly tarballs, the remote directory listing stays fast and the

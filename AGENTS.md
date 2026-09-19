@@ -198,6 +198,7 @@ Edit at the right layer; the architecture is intentionally split.
 **[language_family.py](language_family.py)** — `guess_language_family()` from Unicode code points (Latin / Hangul / Japanese / Chinese / Cyrillic / Arabic / Hebrew / Devanagari / etc.).
 
 **[logs.py](logs.py)** — `log_usage(endpoint, content, strapiversion)` and `log_hot_reload(filename)`. Filenames are `YYYYMMDD-HHMMSS_{endpoint}_{version}_{md5hash}.json`; never overwrite existing files.
+- `LOGS_FOLDER` is the **relative** `"logs"`, and that is load-bearing: on the VPS the three deployments bind-mount `/home/debian/docker/shared_data/fastapi-text2sql/logs` onto `/app/logs` (FASTAPI-TEXT2SQL-276), so they all write to one corpus while the code stays unaware of it and a laptop checkout keeps its own folder. Making this path absolute or configurable would re-split the corpus per colour.
 
 **[data/](data/)** — hot-reloaded prompts and config:
 - `text_to_sql.md` — main Text2SQL prompt (loaded by [text2sql.py](text2sql.py))
@@ -1262,6 +1263,40 @@ The live color is determined by the **parity of the `strapiversion` patch number
 - **Even** patch → **Blue** is live (mnemonic: "Blue" has 4 letters — even). E.g. `1.1.16` / `1.1.18` → Blue.
 
 Restarting a `*.py` change therefore means running the script for the color matching the current version's parity: `restart-green.sh` for an odd patch, `restart-blue.sh` for an even one. This also explains why an explicit `strapiversion` bump flips the parity — the deploy moves to the other color's port.
+
+### `logs/` is shared by every colour (FASTAPI-TEXT2SQL-276)
+
+Until 2026-09-19 the `docker run` lines mounted only the code (`-v $(pwd):/app`), so each
+deployment wrote its logs inside its own stack directory: blue, green, and a third, colourless
+one. The corpus existed in three pieces, and `archive-logs.sh` carried the proof in a
+three-entry `DEFAULT_DIRS`. Both restart scripts now add
+`-v /home/debian/docker/shared_data/fastapi-text2sql/logs:/app/logs`, and `DEFAULT_DIRS` holds
+one path.
+
+**What this changes for an agent reading the logs.** A path no longer says which colour served
+a request; the **version component of the filename** does, and it always did. Anything counting
+questions over `logs/` now sees every colour at once, which is what makes a figure like "35
+retries out of 505 local logs" a statement about the system rather than about one port.
+
+**Three things not to undo.**
+
+1. **The host directory is created by the restart script, not by Docker.** Docker would create
+   it root-owned and `archive-logs.sh`, running as `debian`, could no longer delete the loose
+   files it has just archived. That is precisely how the blue directory reached 17 842 files
+   and 616 MB by 2026-08-21.
+2. **The archiver is now more critical, not less.** One directory fills at the rate of the three
+   combined. Verify the monthly cron **after** a change here, not only before.
+3. **The retention regime is written on `logs/`, never on its parent.** `logs/` is backed up,
+   mirrored and kept without limit (README, *Why these logs are kept*); the vision-mode
+   `uploads/` folder due to land beside it under the same parent is neither backed up nor
+   mirrored. A rule on `shared_data/fastapi-text2sql/` is wrong for one of the two whichever
+   way it is written.
+
+The one-shot merge of the three historical directories is `migrate-logs-to-shared.sh`. Its
+hard part is not the move but the **monthly archives, which share their names across the three
+directories**: `202608.tar.gz` exists three times with different contents, so a `mv` destroys
+two thirds of that month. The script concatenates the members and verifies the count before
+`--prune-sources` removes anything.
 
 ---
 

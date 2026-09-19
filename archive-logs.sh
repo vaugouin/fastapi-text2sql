@@ -10,17 +10,28 @@
 # originals are removed. The CURRENT (and any future) month is left untouched so
 # in-flight logging is never disturbed.
 #
+# ONE directory since FASTAPI-TEXT2SQL-276, where there used to be three. Blue, green
+# and the third, colourless deployment each wrote into their own stack dir, because the
+# docker run line mounted only the code, so the corpus was split in three. They now share
+# /home/debian/docker/shared_data/fastapi-text2sql/logs, bind-mounted on /app/logs by
+# restart-blue.sh and restart-green.sh. That makes this script MORE critical, not less:
+# one directory now fills at the rate of the three combined, and the precedent for letting
+# it run unattended is recorded below.
+#
 # Idempotent / re-runnable: only files strictly older than the current month are
 # touched; an existing monthly archive is merged with any stragglers.
 #
 # Usage:
 #   ./archive-logs.sh [LOGS_DIR ...]
-# With no args it processes the three deployed log dirs on the VPS (below).
+# With no args it processes the single shared log dir on the VPS (below).
 # Run as the user that owns logs/ (or via sudo) so it can remove the originals.
 #
-# Cron (1st of each month, 03:30):
-#   30 3 1 * * /home/debian/docker/fastapi-text2sql-blue/archive-logs.sh \
-#     >> /home/debian/docker/fastapi-text2sql-blue/logs/archive-run.log 2>&1
+# Cron (1st of each month, 03:30). Deleting a log file depends on write permission on the
+# DIRECTORY, not on the file, which is why the restart scripts create the shared dir as
+# debian rather than letting Docker create it root-owned. sudo is kept here as the safe
+# default, for the case where that directory was created the other way:
+#   30 3 1 * * sudo /home/debian/docker/fastapi-text2sql-blue/archive-logs.sh \
+#     >> /home/debian/docker/shared_data/fastapi-text2sql/logs/archive-run.log 2>&1
 #
 # The log of the run sits in logs/, NOT in logs/archive/. The earlier version of this line
 # redirected into logs/archive/archive.log and could never work: the shell opens the redirect
@@ -31,10 +42,10 @@
 
 set -euo pipefail
 
+# One entry since the mutualisation. The loop below still takes a list, so the three
+# retired stack dirs can be passed by hand if anything is ever found left in them.
 DEFAULT_DIRS=(
-  /home/debian/docker/fastapi-text2sql-blue/logs
-  /home/debian/docker/fastapi-text2sql-green/logs
-  /home/debian/docker/fastapi-text2sql/logs
+  /home/debian/docker/shared_data/fastapi-text2sql/logs
 )
 
 dirs=("$@")

@@ -60,7 +60,7 @@ Usage:
   python analyze-complex-retry-logs.py --archives           # include the monthly tarballs
   python analyze-complex-retry-logs.py --by-version         # split the report per API version
   python analyze-complex-retry-logs.py --show 15            # print the blocked questions
-  python analyze-complex-retry-logs.py /home/debian/docker/fastapi-text2sql-blue/logs
+  python analyze-complex-retry-logs.py /home/debian/docker/shared_data/fastapi-text2sql/logs
 """
 import argparse
 import glob

@@ -5,7 +5,8 @@ WHY A SEPARATE SCRIPT (FASTAPI-TEXT2SQL-206)
 The bench needs many real values per entity type, and the thin types are exactly the ones it
 cannot calibrate: the local corpus holds 3 Network_name values against 363 Person_name. Months
 of execution logs sit on the VPS share, 23530 files across the two colours, which is two orders
-of magnitude more matter.
+of magnitude more matter. Since FASTAPI-TEXT2SQL-276 the colours write to one shared folder, so
+the mirror now holds a third directory beside the two historical ones; see DEFAULT_DIRS.
 
 That share reads at about 13 files per second, so a full pass takes half an hour. Harvesting is
 therefore split out and cached: it runs once, in the background, and the bench then reads a local
@@ -39,7 +40,13 @@ import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# Three mirror directories, not one, and the two old ones are not leftovers.
+# FASTAPI-TEXT2SQL-276 moved the live corpus to a single shared folder, but the mirror is
+# additive: what blue and green had already written stays where it was mirrored, and only
+# what came after the move lands under shared_data. Dropping the two colour paths would
+# silently shrink the harvest by everything logged before 2026-09.
 DEFAULT_DIRS = [
+    "T:/prive/dev.ovh/ovh-pv7/home/debian/docker/shared_data/fastapi-text2sql/logs",
     "T:/prive/dev.ovh/ovh-pv7/home/debian/docker/fastapi-text2sql-blue/logs",
     "T:/prive/dev.ovh/ovh-pv7/home/debian/docker/fastapi-text2sql-green/logs",
     os.path.join(REPO, "logs"),
