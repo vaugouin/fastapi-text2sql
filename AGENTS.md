@@ -632,11 +632,13 @@ passing the default explicitly is still rejected on some routes.
 **`reasoning_effort` is the real cost and latency knob, and it dwarfs the choice of tier.**
 The same model spans roughly **1.8 s to first token at `low` and 115 s at `max`**, and
 reasoning tokens are billed at the output rate, so effort multiplies the output bill severalfold
-before the tier's price list is even consulted. `_DEFAULT_REASONING_EFFORT` therefore gives
-`minimal` to the four tasks on the 100 % path, where the p50 is 5.45 s end to end and there is
+before the tier's price list is even consulted. `_DEFAULT_EFFORT_TIER` therefore gives the
+`cheapest` rung to the tasks on the 100 % path, where the p50 is 5.45 s end to end and there is
 no room for a thinking budget, and `medium` only to the complex-question pair that fires on
 ~1 % of requests. Override per call with the `reasoning_effort` argument; `"default"` omits
-the parameter and lets the API decide.
+the parameter and lets the API decide. Note the indirection: the table holds a **tier name**,
+not a provider value, and `_EFFORT_BY_FAMILY` turns it into one, because the families do not
+share a vocabulary (`minimal` was a GPT-5.0-era value and no longer exists anywhere).
 
 **Two things NOT to assume.**
 
@@ -648,6 +650,65 @@ the parameter and lets the API decide.
   `reasoning_effort` are refused for `gpt-5.6-sol` on `/v1/chat/completions`. This pipeline
   uses neither tools nor `response_format`, so it does not bite today. It will the moment
   someone adds structured outputs.
+
+## Adding a reasoning family is not optional (FASTAPI-TEXT2SQL-274)
+
+**The shape of the trap, and it is the opposite of the usual one.** The dispatcher has no
+allowlist: `_call_chat_llm` routes on the prefix, anything starting with `gpt-` goes to OpenAI,
+and the five `llm_model_*` fields of `Text2SQLRequest` are `Optional[str]` with no validator. So
+an unknown reasoning family does **not** bounce with a clear error. It leaves. Before -274,
+`llm_model_text2sql: "gpt-6-astra"` was accepted, sent with `temperature=0` attached, and
+answered 400. Or, on a route that tolerates the parameter, ran at the model's default effort
+with nobody able to read or set it. A family that is not declared here is a family that spends
+silently.
+
+**The four things a new family needs**, all in the same block of `text2sql.py`, and all four or
+none: the prefix in `_REASONING_MODEL_PREFIXES` (or `temperature` stays attached), a row in
+`_EFFORT_BY_FAMILY` (or the effort resolution falls back to the o-series vocabulary), a rung for
+every `cache_label` in `_DEFAULT_EFFORT_TIER`, and a decision on the endpoint via
+`_CHAT_COMPLETIONS_REASONING_PREFIXES`.
+
+**GPT-6 has no `none`, and that one cell decides the bill.** GPT-5.6's cheapest rung is `none`,
+which spends no reasoning tokens at all; GPT-6 declares `low`, `medium`, `high`, `xhigh`, `max`
+and its floor is `low`, like the o-series. Copying the GPT-5 row would 400 on every call;
+"fixing" that to `medium` would quietly buy a thinking budget on the three tasks that fire on
+100 % of requests. Only the two rungs this pipeline selects are declared; the three upper ones
+are documented in the comment rather than in the table, because a rung nobody selects is a rung
+nobody has measured.
+
+**`vision_identification` is in `_DEFAULT_EFFORT_TIER` before the task exists.** It is the sixth
+task, from -114, declared ahead of time at the cheapest rung so the family table is complete the
+day the task lands. -114 says to start at `low` and raise only if recognition weakens on the
+twenty-image bench.
+
+**The endpoint choice was free, so it is written down.** `gpt-6-astra` accepts both
+`responses.create` and `chat.completions`; it takes `chat.completions`, with GPT-5.x. The
+prompt-cache accounting depends on it (the two routes name their usage fields differently), and
+comparing a GPT-6 evaluation campaign against the `gpt-4o` baseline requires both to travel the
+same route.
+
+**A defect found while deciding that branch: the o-series was never getting its effort.**
+`responses.create` takes `reasoning={"effort": "low"}`, not the flat `reasoning_effort="low"`
+that `chat.completions` takes. The flat form was being passed, rejected, and swallowed by the
+`try/except` that falls back to chat.completions, so the o-series reached the fallback on
+**every** call and ran at its default effort. `_as_responses_api_kwargs` now translates.
+Neither GPT-5.x nor GPT-6 uses that path.
+
+**Measured live on 2026-09-19, before any switch.** `gpt-6-astra` caches the static prefix at
+100 % on repeat calls (24 190 of 24 193 tokens) against 99.5 % for `gpt-4o`: no cache penalty.
+Latency at effort `low` is 7.9–11.1 s on the text-to-SQL task alone, against 6.6 s for `gpt-4o`
+with a warm cache. Note the prefix is now **24.2 K tokens, not the 14.8 K** measured in June;
+any cost estimate starting from the old figure is a third too low. Full protocol and figures:
+`%USERPROFILE%/Nestor/projets/t2s-backlog/topics/prompt-caching.md` PROMPT-CACHING-009.
+
+**Offline check:** `uv run eval/verif-274.py` (31 cases, no API and no database). It reads the
+family block out of `text2sql.py` and executes it in isolation, so it runs on a machine without
+the full stack.
+
+**Not done, and deliberately so: no evaluation campaign has been run on `gpt-6-astra`.** The
+family is selectable and its cache behaviour is measured; whether its SQL is as good as
+`gpt-4o`'s is unknown. `T_WC_T2S_EVALUATION_EXECUTION` already carries the model columns, so the
+comparison is mechanical when someone wants to spend the run.
 
 ---
 

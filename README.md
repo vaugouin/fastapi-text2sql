@@ -386,6 +386,8 @@ Content-Type: application/json
     - `gpt-4o`
     - `gpt-4.1`
     - `gpt-4.1-mini`
+    - `gpt-5.6-terra`
+    - `gpt-6-astra`
     - `o1`
     - `o1-mini`
     - `o3`
@@ -433,8 +435,9 @@ Content-Type: application/json
 - `gemma-4-google` is intended for direct Google Gemma 4 access on entity extraction and text-to-SQL.
 - `gemma-4` is available through OpenRouter and is useful if you prefer the OpenRouter route for Gemma 4.
 - For `llm_model_complex`, if the selected stronger model is unavailable and it is not already `gpt-4o`, the application may retry once with `gpt-4o`.
-- **Reasoning models do not take `temperature` at all (FASTAPI-TEXT2SQL-231).** The whole o-series and the entire GPT-5.x family, the 5.6 Sol / Terra / Luna tiers included, answer HTTP 400 on any explicit `temperature`. `_openai_sampling_kwargs` therefore omits the parameter for those families and sends `reasoning_effort` instead; `gpt-4o` and the other 4.x models keep `temperature=0` and behave exactly as before. This applies to all five parameters, not just `llm_model_complex`.
-- **`reasoning_effort` is the cost and latency knob, and it matters more than the tier.** The same model runs about 1.8 s to first token at `low` and about 115 s at `max`, and reasoning tokens are billed at the output rate. Defaults are `minimal` for the three tasks on the 100 % path and `medium` for the two complex-question tasks that fire on roughly 1 % of requests.
+- **Reasoning models do not take `temperature` at all (FASTAPI-TEXT2SQL-231).** The whole o-series, the entire GPT-5.x family (the 5.6 Sol / Terra / Luna tiers included) and the GPT-6 line answer HTTP 400 on any explicit `temperature`. `_openai_sampling_kwargs` therefore omits the parameter for those families and sends `reasoning_effort` instead; `gpt-4o` and the other 4.x models keep `temperature=0` and behave exactly as before. This applies to all five parameters, not just `llm_model_complex`.
+- **`reasoning_effort` is the cost and latency knob, and it matters more than the tier.** The same model runs about 1.8 s to first token at `low` and about 115 s at `max`, and reasoning tokens are billed at the output rate. Defaults are the cheapest rung for the three tasks on the 100 % path and `medium` for the two complex-question tasks that fire on roughly 1 % of requests.
+- **The GPT-6 family is selectable on every task, not only on the vision path (FASTAPI-TEXT2SQL-274).** `gpt-6-astra` is accepted by all five selectors above, exactly like any other model name, and the response echoes it back the same way. Two family details are handled for you and are worth knowing before reading a bill: GPT-6 has **no `none` rung** (its floor is `low`, unlike GPT-5.6), and it is served through `chat.completions` rather than the Responses API, so its prompt-cache figures are directly comparable with the `gpt-4o` baseline. Measured on 2026-09-19: the static prefix caches at **100 %** on repeat calls (24 190 of 24 193 tokens), against 99.5 % for `gpt-4o`, so the switch carries no cache penalty. On latency it is slightly slower at effort `low` (7.9–11.1 s on the text-to-SQL task alone, against 6.6 s for `gpt-4o` with a warm cache).
 - The project now uses Google's current `google-genai` SDK for Google-hosted Gemini and Gemma requests.
 
 **Note:** Either `question` or `question_hashed` must be provided.

@@ -260,26 +260,39 @@ def _build_anthropic_user_content(user_prompt: str):
 
 
 # --- OpenAI reasoning-model sampling rules (FASTAPI-TEXT2SQL-231) -------------------
-# Reasoning models (o-series, GPT-5.x including the 5.6 Sol / Terra / Luna tiers) reject
-# any `temperature` other than the default and answer 400
-# "Unsupported value: 'temperature' does not support 0 with this model". Every task in
-# this pipeline passes temperature=0 on purpose, so before this guard a model swap as
+# Reasoning models (o-series, GPT-5.x including the 5.6 Sol / Terra / Luna tiers, and the
+# GPT-6 line since FASTAPI-TEXT2SQL-274) reject any `temperature` other than the default and
+# answer 400 "Unsupported value: 'temperature' does not support 0 with this model". Every
+# task in this pipeline passes temperature=0 on purpose, so before this guard a model swap as
 # simple as gpt-4o -> gpt-5.6-terra failed on the first request of all five tasks.
 # They take `reasoning_effort` instead, and that parameter is the real cost and latency
 # knob: the same model spans ~1.8 s to first token at "low" and ~115 s at "max", and
 # reasoning tokens are billed at the output rate.
-_REASONING_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+#
+# Adding a family here is NOT cosmetic and NOT optional (FASTAPI-TEXT2SQL-274). The dispatcher
+# in _call_chat_llm is permissive: anything starting with "gpt-" already routes to OpenAI, and
+# the five `llm_model_*` request fields are unvalidated `Optional[str]`. So an unknown
+# reasoning family does not bounce, it leaves, with `temperature` attached and no effort at
+# all, which is the worst of both: a 400 on every call, or silent default-tier spending.
+_REASONING_MODEL_PREFIXES = ("gpt-5", "gpt-6", "o1", "o3", "o4")
 
 # Per-task effort TIER, resolved to a provider value by _resolve_reasoning_effort below.
 # Deliberately conservative: the tasks on the 100 % path get the cheapest setting, because
 # the API's p50 is 5.45 s end to end and there is no room for a thinking budget there. Only
 # the complex-question pair, which fires on ~1 % of requests, is allowed to spend.
+#
+# `vision_identification` is the sixth task (FASTAPI-TEXT2SQL-114). Its tier is declared here
+# ahead of that ticket so the family table below is complete on the day the task lands, and it
+# starts at the cheapest setting on purpose: -114 says to begin at effort "low" and to raise it
+# only if recognition weakens on the twenty-image bench. Its row costing ~4 cents a photo is a
+# reason to measure before spending, not a reason to pre-spend.
 _DEFAULT_EFFORT_TIER = {
     "entity_extraction": "cheapest",
     "text2sql": "cheapest",
     "result_entity": "cheapest",
     "complex_question": "medium",
     "answer_single_value": "medium",
+    "vision_identification": "cheapest",
 }
 
 # The families do not share a vocabulary, and getting this wrong is a 400 on every call,
@@ -288,22 +301,75 @@ _DEFAULT_EFFORT_TIER = {
 # Supported values are: 'none', 'low', 'medium', 'high', and 'xhigh'." `minimal` was a
 # GPT-5.0-era value and it is gone; the cheapest 5.6 setting is `none`, which spends no
 # reasoning tokens at all. The o-series has no `none`, so its floor is `low`.
+#
+# GPT-6 (FASTAPI-TEXT2SQL-274) declares five rungs, `low`, `medium`, `high`, `xhigh`, `max`,
+# and, the difference that matters for the bill, it has NO `none`: its floor is `low`, like
+# the o-series and unlike GPT-5.6. Mapping "cheapest" to `none` here would be a 400, and
+# mapping it to `medium` would quietly buy a thinking budget on the three tasks that fire on
+# 100 % of requests. Only the two rungs this pipeline actually asks for are listed; the three
+# upper ones are documented rather than declared, because a rung nobody selects is a rung
+# nobody has measured.
 _EFFORT_BY_FAMILY = {
     "gpt-5": {"cheapest": "none", "medium": "medium"},
+    "gpt-6": {"cheapest": "low", "medium": "medium"},
     "o":     {"cheapest": "low", "medium": "medium"},
 }
+
+# Longest prefix wins, so a future "gpt-6x" line gets its own row without disturbing this one.
+# Anything not listed falls back to the o-series vocabulary, which is the conservative guess:
+# its floor is `low`, a value every reasoning family here accepts.
+_REASONING_FAMILY_BY_PREFIX = (
+    ("gpt-5", "gpt-5"),
+    ("gpt-6", "gpt-6"),
+)
+
+# Which OpenAI endpoint serves a reasoning model, decided rather than inherited
+# (FASTAPI-TEXT2SQL-274). `gpt-6-astra` accepts both `responses.create` and
+# `chat.completions`, so the choice was free and is made here: chat.completions, the same
+# route as GPT-5.x. Two reasons, and neither is taste. The prompt-cache accounting this
+# pipeline reports is the one measured on chat.completions (the two routes name their usage
+# fields differently, see _log_openai_cache_usage), and the static prefix of
+# data/text_to_sql.md makes that measurement the single most expensive thing to get wrong:
+# 24.2 K tokens measured 2026-09-19, so caching turns $0.242 a call into $0.0242. Comparing a
+# gpt-6 campaign against the gpt-4o baseline also requires that both travel the same route.
+# The o-series keeps the Responses API, which is the only place it was ever exercised.
+_CHAT_COMPLETIONS_REASONING_PREFIXES = ("gpt-5", "gpt-6")
+
+
+def _reasoning_family(model_norm: str) -> str:
+    """Return the effort-vocabulary family of an OpenAI reasoning model."""
+    m = str(model_norm).strip().lower()
+    for prefix, family in _REASONING_FAMILY_BY_PREFIX:
+        if m.startswith(prefix):
+            return family
+    return "o"
 
 
 def _resolve_reasoning_effort(model_norm: str, cache_label: str) -> str:
     """Return the provider-accepted effort value for this model family and task."""
-    family = "gpt-5" if str(model_norm).strip().lower().startswith("gpt-5") else "o"
+    family = _reasoning_family(model_norm)
     tier = _DEFAULT_EFFORT_TIER.get(cache_label, "cheapest")
-    return _EFFORT_BY_FAMILY[family][tier]
+    efforts = _EFFORT_BY_FAMILY[family]
+    # A tier a family does not declare degrades to its cheapest rung rather than raising:
+    # this function runs inside a live request, and a KeyError here would turn a missing
+    # table entry into a 500 on a task that would otherwise have answered.
+    return efforts.get(tier) or efforts["cheapest"]
 
 
 def _is_openai_reasoning_model(model_norm: str) -> bool:
     """True when the model rejects `temperature` and expects `reasoning_effort` instead."""
     return str(model_norm).strip().lower().startswith(_REASONING_MODEL_PREFIXES)
+
+
+def _uses_openai_responses_api(model_norm: str) -> bool:
+    """True when this reasoning model is served through `responses.create`.
+
+    Case-folded on purpose: `_is_openai_reasoning_model` lowercases, and before -274 the
+    family test that followed it did not, so an oddly-cased `GPT-5.6-terra` took the
+    Responses branch while its lowercase twin took chat.completions.
+    """
+    m = str(model_norm).strip().lower()
+    return _is_openai_reasoning_model(m) and not m.startswith(_CHAT_COMPLETIONS_REASONING_PREFIXES)
 
 
 def _openai_sampling_kwargs(model_norm: str, temperature: float, cache_label: str,
@@ -325,6 +391,23 @@ def _openai_sampling_kwargs(model_norm: str, temperature: float, cache_label: st
     if not effort or str(effort).strip().lower() == "default":
         return {}
     return {"reasoning_effort": str(effort).strip().lower()}
+
+
+def _as_responses_api_kwargs(sampling_kwargs: dict) -> dict:
+    """Translate chat.completions sampling kwargs into their Responses API spelling.
+
+    The two routes name the effort knob differently: `reasoning_effort="low"` on
+    `chat.completions.create`, `reasoning={"effort": "low"}` on `responses.create`. Passing
+    the flat form to the Responses API is rejected, and since that call sits inside a
+    `try/except` that falls back to chat.completions, the failure was invisible: the o-series
+    reached the fallback on every call and ran at its default effort. Found while deciding the
+    GPT-6 branch in FASTAPI-TEXT2SQL-274; the GPT-6 and GPT-5.x families do not use this path.
+    """
+    out = dict(sampling_kwargs)
+    effort = out.pop("reasoning_effort", None)
+    if effort:
+        out["reasoning"] = {"effort": effort}
+    return out
 
 
 def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperature: float,
@@ -355,9 +438,10 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
         client = openai.OpenAI(api_key=api_key)
         sampling_kwargs = _openai_sampling_kwargs(model_norm, temperature, cache_label, reasoning_effort)
 
-        if _is_openai_reasoning_model(model_norm) and not model_norm.startswith("gpt-5"):
-            # o-series only. GPT-5.x is served through chat.completions below, where the
-            # prompt-cache accounting this pipeline depends on is the one already measured.
+        if _uses_openai_responses_api(model_norm):
+            # o-series only. GPT-5.x and GPT-6 are served through chat.completions below, where
+            # the prompt-cache accounting this pipeline depends on is the one already measured
+            # (FASTAPI-TEXT2SQL-274 made that an explicit decision rather than a leftover).
             try:
                 response = client.responses.create(
                     model=model_norm,
@@ -365,7 +449,7 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt_plain},
                     ],
-                    **sampling_kwargs,
+                    **_as_responses_api_kwargs(sampling_kwargs),
                 )
                 _log_openai_cache_usage(response, model_norm=model_norm, label=cache_label)
                 out_text = getattr(response, "output_text", None)
