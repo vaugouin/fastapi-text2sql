@@ -31,12 +31,22 @@ never the pixels: a question about the image itself still needs the file, and ge
 `410 Gone` of `uploads.load_vision_image`.
 
 The table was created in production on 2026-09-20 at 12:53:25 by
-`maintenance/vision-recognition-cache.sql`, whose output is kept beside it. The module still
-degrades gracefully when it is absent, which is now the signature of a deployment pointing at
-another database rather than of a migration waiting: on the first "table doesn't exist" the flag
-below flips and every later call is a silent miss, so the vision path keeps working, uncached,
-rather than returning 500. Note that the flag never flips back, so a process that met the missing
-table once stays uncached until it is restarted.
+`maintenance/vision-recognition-cache.sql`, whose output is kept beside it, and the API account
+was granted on it at 15:4x the same day, after eight requests had failed to write.
+
+**Every failure of this module is reported to the caller, and that is a lesson rather than a
+taste.** On 2026-09-20 the table existed and was readable, but `moviematchro` had no
+`INSERT, UPDATE` on it (error 1142), so the eight vision requests of that afternoon each spent
+about 4 cents that a cache hit would have saved, four of them on a photo already read minutes
+earlier. Nothing in the JSON logs said so: the failure only reached the container's stdout, and
+a cache that never writes is indistinguishable there from a cache that is merely cold. Both
+`search_vision_cache` and `write_vision_cache_entry` now return their reason, and `main.py`
+turns it into a response message. Keep it that way.
+
+Two failure modes, deliberately treated differently. A missing table (1146) flips the flag below
+and the module goes quiet for the life of the process, because a migration is not going to appear
+mid-request. **Anything else, a denied privilege first among them, is retried on every request**,
+so the cache starts working the moment a `GRANT` lands, with no restart.
 """
 import json
 from typing import Any, Optional
@@ -131,8 +141,10 @@ def search_vision_cache(connection, image_md5: str, api_version: str) -> dict:
         payload or any read failure is a miss, never an exception.
     """
     global _VISION_CACHE_TABLE_AVAILABLE
+    # `error` is part of the miss, and that is the point: a cache that cannot be read looks
+    # exactly like a cache that is merely cold, and the caller has to be able to tell.
     miss = {"found": False, "identification": {}, "image_ref": "",
-            "vision_model": "", "processing_time": 0.0}
+            "vision_model": "", "processing_time": 0.0, "error": ""}
     if not _VISION_CACHE_TABLE_AVAILABLE or not image_md5:
         return miss
     try:
@@ -144,8 +156,10 @@ def search_vision_cache(connection, image_md5: str, api_version: str) -> dict:
             _VISION_CACHE_TABLE_AVAILABLE = False
             print("[vision-cache] T_WC_T2S_VISION_CACHE is absent; the recognition cache is "
                   "disabled for this process. Run maintenance/vision-recognition-cache.sql.")
+            miss["error"] = "table absent"
             return miss
         print(f"[vision-cache] read failed, treating as a miss: {exc}")
+        miss["error"] = str(exc)
         return miss
 
     if not row:
@@ -159,6 +173,7 @@ def search_vision_cache(connection, image_md5: str, api_version: str) -> dict:
         return miss
     return {
         "found": True,
+        "error": "",
         "identification": identification,
         "image_ref": row.get("IMAGE_REF") or "",
         "vision_model": row.get("VISION_MODEL") or "",

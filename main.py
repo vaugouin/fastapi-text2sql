@@ -2274,6 +2274,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         if request.retrieve_from_cache and not intquestionaboutimage:
             dctvisioncached = vision_cache.search_vision_cache(
                 connection, strimagemd5, strapiversionformatted)
+            if dctvisioncached.get("error"):
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=(f"Vision: the recognition cache could not be read "
+                          f"({dctvisioncached['error']}); this turn pays for the identification "
+                          f"and cannot store it either.")
+                ))
+                position_counter += 1
             if dctvisioncached.get("found"):
                 dctvision = dctvisioncached["identification"]
                 intvisionfromcache = True
@@ -2378,7 +2386,18 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         text=(f"Vision: identification stored in the recognition cache under "
                               f"fingerprint {strimagemd5}; the same image will not be paid twice.")
                     ))
-                    position_counter += 1
+                else:
+                    # Said in the response, not only on stdout. On 2026-09-20 this failure was
+                    # invisible in the JSON logs for eight requests in a row, four of them on the
+                    # same photo, and the cache looked merely cold rather than broken.
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=(f"Vision: the identification could NOT be stored in the recognition "
+                              f"cache ({dctvisionwrite.get('reason') or 'unknown reason'}); the "
+                              f"same image will be read, and paid for, again. Check the "
+                              f"INSERT/UPDATE grant of the API account on T_WC_T2S_VISION_CACHE.")
+                    ))
+                position_counter += 1
 
         # What was read, what it points at, and which candidate the confidence picked.
         dctvisionselection = t2s.select_vision_candidates(dctvision)

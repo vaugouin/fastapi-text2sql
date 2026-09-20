@@ -48,6 +48,36 @@ replaying the migration.
   collation is `utf8mb4_unicode_ci` and would call two questions equal when they
   differ only by case or accent. Acceptable to count, not to delete.
 
+## The API account is read-only, except on the cache tables
+
+`moviematchro`, the account the API connects with, holds **read rights only**, deliberately, so
+that a defect in the application cannot damage the database. Write rights are granted **table by
+table**, and the only tables that carry them are the **cache** tables, which are the only ones
+the API is supposed to fill.
+
+**So a `CREATE TABLE` in this folder is not finished when the table exists.** The creation runs
+as an administrator, through `runsqlvaugouindb.sh` of the `tools` repository, and creating a
+table grants nothing to anybody. A new cache table is therefore born readable and not writable,
+which is the most misleading state possible: every `SELECT` works, every `INSERT` answers
+**error 1142**, and an application that treats a cache failure as non-fatal, as it should,
+carries on as if the cache were merely empty.
+
+Measured on 2026-09-20, and it is the reason this section exists.
+`T_WC_T2S_VISION_CACHE` was created at 12:53 and granted at 15:4x. In between, eight vision
+requests each paid about 4 cents for an identification they could not store, four of them on a
+photo already read minutes earlier, and nothing in the JSON logs said so: the failure reached
+only the container's stdout. The application code now reports the reason in its response
+messages, and this folder now ends every cache-table creation with its grant.
+
+```sql
+GRANT SELECT, INSERT, UPDATE ON vaugouindb.<TABLE> TO 'moviematchro'@'%';
+FLUSH PRIVILEGES;
+```
+
+`DELETE` is deliberately absent: the soft delete of this folder is an `UPDATE` on `DELETED`,
+run by an administrator, never by the API. A table that is **not** a cache gets no grant at all,
+which is the rule rather than an omission.
+
 ## Key facts about the cache
 
 - `T_WC_T2S_CACHE` holds two rows per request, the raw question and the
@@ -140,10 +170,16 @@ they address the table directly.
   the rewritten question and reads `named_entity_query` in 27 of 30 measured cases.
 - `eval-mode-de-resolution.sql` : adds `RESOLUTION_MODE` to `T_WC_T2S_EVALUATION` and four
   columns to `T_WC_T2S_EVALUATION_EXECUTION`, so that a campaign can say which path was
-  SUPPOSED to resolve a question and not only which one did (FASTAPI-TEXT2SQL-257). **Written
-  2026-09-14, never run**, so the columns do not exist in production yet and the evaluator would
-  write into columns that are not there; its section 1 settles that in one query. Three things
-  in its header are worth reading first. The verdict deliberately stays OUT of
+  SUPPOSED to resolve a question and not only which one did (FASTAPI-TEXT2SQL-257). Written
+  2026-09-14, **section 2 run 2026-09-20 at 13:24:33**, output beside it in
+  `eval-mode-de-resolution-20260920.txt`: the five columns exist. Two of them,
+  `RESOLUTION_MODE` on the bank and `COMPLEX_MODEL_USED` on the executions, answered
+  `ERROR 1060 Duplicate column name`, so an earlier run had added them and nobody wrote it down;
+  the run used `--force`, so what followed each error still went through. **Replaying this file
+  now yields five such errors**, harmless with `--force` and a full stop without it. Its section
+  1 also no longer reproduces the figure its own comment announces: 26 escalations seen by the
+  JSON against 15 by the time column on 1704 rows, where 2026-09-14 recorded 46 against 34, so
+  the row population moved. Three more things in its header are worth reading first. The verdict deliberately stays OUT of
   `ASSERTIONS_TOTAL_SCORE`, which is the one measure that makes a campaign comparable to the
   previous one, and lives in `RESOLUTION_MODE_RESPECTED` instead. The mode is copied onto the
   execution as well as declared on the evaluation, so re-qualifying a question later does not

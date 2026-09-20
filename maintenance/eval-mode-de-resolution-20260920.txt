@@ -1,0 +1,24 @@
+-- eval-mode-de-resolution.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-09-20 13:24:33
+--
++-------------------------------+-------------------------------------+-----------+
+| TABLE_NAME                    | COLUMN_NAME                         | DATA_TYPE |
++-------------------------------+-------------------------------------+-----------+
+| T_WC_T2S_EVALUATION           | RESOLUTION_MODE                     | varchar   |
+| T_WC_T2S_EVALUATION_EXECUTION | ANSWER_SINGLE_VALUE_PROCESSING_TIME | double    |
+| T_WC_T2S_EVALUATION_EXECUTION | COMPLEX_MODEL_USED                  | int       |
+| T_WC_T2S_EVALUATION_EXECUTION | RESOLUTION_MODE                     | varchar   |
+| T_WC_T2S_EVALUATION_EXECUTION | RESOLUTION_MODE_RESPECTED           | int       |
++-------------------------------+-------------------------------------+-----------+
++-------------+--------+------------------------------+------------------+
+| API_VERSION | lignes | vues_par_la_colonne_de_temps | vues_par_le_json |
++-------------+--------+------------------------------+------------------+
+| 001.001.018 |   1704 |                           15 |               26 |
++-------------+--------+------------------------------+------------------+
+
+-- ---------------------------------------------------------------------
+-- mariadb stderr. The statements after each error below were still run
+-- (--force), so the results above are complete except for those.
+-- ---------------------------------------------------------------------
+ERROR 1060 (42S21) at line 84: Duplicate column name 'RESOLUTION_MODE'
+ERROR 1060 (42S21) at line 98: Duplicate column name 'COMPLEX_MODEL_USED'

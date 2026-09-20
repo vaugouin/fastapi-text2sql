@@ -627,11 +627,20 @@ on **34**. The missing 12 go through the direct scalar answer, which banks into
 `answer_single_value_processing_time`. Both are now persisted columns, so a campaign is
 sliced in SQL and never by reopening `JSON_RESULT`.
 
-**The schema change is not applied here.** `maintenance/eval-mode-de-resolution.sql` holds
-the five `ADD COLUMN`, its rollback and its verification queries. The database is not
-reachable from a developer workstation, so that file has been validated syntactically and
-never run. Apply it on the VPS before the next campaign, or the evaluator writes columns
-that do not exist.
+**The schema change is applied since 2026-09-20 at 13:24:33**, and the output sits in
+`maintenance/eval-mode-de-resolution-20260920.txt`. All five columns exist. Two of them,
+`T_WC_T2S_EVALUATION.RESOLUTION_MODE` and `T_WC_T2S_EVALUATION_EXECUTION.COMPLEX_MODEL_USED`,
+answered `ERROR 1060 Duplicate column name`, so they had been added by an earlier, unrecorded
+run: this file was never as unapplied as its header claimed. The run used `--force`, so the
+statements after each error still went through.
+
+**And the figure quoted just above no longer reproduces.** Its own verification query, rerun on
+2026-09-20 over the same campaign `001.001.018` with the same `DELETED = 0`, returns **26
+escalations seen by the JSON against 15 seen by the time column**, on 1704 rows, where
+2026-09-14 recorded 46 against 34. The gap the columns exist to close is still there, and wider
+in proportion; the population underneath moved, which points at rows retired or re-executed
+since. Both measurements are kept, dated, because nothing here says which population is the
+right one to quote.
 
 ### The cause of the escalation, not only its existence (FASTAPI-TEXT2SQL-271)
 

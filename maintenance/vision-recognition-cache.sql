@@ -106,6 +106,33 @@ CREATE TABLE IF NOT EXISTS T_WC_T2S_VISION_CACHE (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
+-- ===== 2bis. Droits, sans quoi la table existe et ne sert a rien =====
+
+-- Le compte applicatif, moviematchro, est en LECTURE SEULE sur toute la base, par choix, pour
+-- qu'un defaut de l'application ne puisse pas l'abimer. L'ecriture est accordee table par table,
+-- et seules les tables de cache en recoivent. Creer la table ne donne donc aucun droit dessus :
+-- elle nait lisible et non inscriptible, l'etat le plus trompeur qui soit, puisque tous les
+-- SELECT passent et que chaque INSERT rend l'erreur 1142.
+--
+-- Mesure du 2026-09-20, et c'est la raison de cette section : la table a ete creee a 12:53 et
+-- accordee a 15:4x. Entre les deux, huit requetes vision ont paye chacune environ 4 centimes
+-- une identification qu'elles ne pouvaient pas ranger, dont quatre sur une photo lue quelques
+-- minutes plus tot.
+--
+-- DELETE est volontairement absent : la suppression douce de ce dossier est un UPDATE sur
+-- DELETED, execute par un administrateur, jamais par l'API.
+
+-- Voir d'abord le motif d'hote exact du compte, l'adresse qui figure dans l'erreur 1142 etant
+-- celle de la connexion et non celle du droit.
+SELECT user, host FROM mysql.user WHERE user = 'moviematchro';
+
+GRANT SELECT, INSERT, UPDATE ON vaugouindb.T_WC_T2S_VISION_CACHE TO 'moviematchro'@'%';
+FLUSH PRIVILEGES;
+
+-- Applique le 2026-09-20. Verification : la ligne doit mentionner SELECT, INSERT, UPDATE.
+SHOW GRANTS FOR 'moviematchro'@'%';
+
+
 -- ===== 3. Verification =====
 
 -- Les colonnes attendues, dans l'ordre.

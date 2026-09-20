@@ -224,10 +224,13 @@ def main():
          "what else is in the movie Blade Runner (1982)?", "autre demonstratif"),
         ("qui a realise ce film ?", "fr", "qui a realise le film Blade Runner (1982) ?",
          "en francais, la phrase injectee est francaise"),
-        ("cast", "en", "cast (the image shows the movie Blade Runner (1982))",
+        ("cast", "en", "cast (about the movie Blade Runner (1982))",
          "aucun demonstratif a remplacer : le sujet est nomme a cote, rien n'est retire"),
-        ("casting", "fr", "casting (l'image montre le film Blade Runner (1982))",
+        ("casting", "fr", "casting (concernant le film Blade Runner (1982))",
          "idem en francais"),
+        ("qui a realise ce film ?", "en", "qui a realise le film Blade Runner (1982) ?",
+         "question francaise, ui_language anglais : la langue se lit sur le demonstratif "
+         "remplace, pas sur l'interface (mesure du 2026-09-20)"),
     ]:
         total += 1
         obtenu = compose(payload(BLADE), question, langue)
@@ -241,6 +244,18 @@ def main():
     succes += conforme
     print("%s  une question de relation n'est JAMAIS aplatie en fiche nue"
           % ("OK   " if conforme else "ECHEC"))
+
+    # Le classificateur d'entite lit "images OF a movie" et rend movie_image. Le 2026-09-20,
+    # "Movie?" est ressorti en "Movie? (the image shows ...)" et le client a recu 50 affiches
+    # au lieu de la fiche du film. Aucun mot de cette famille ne doit plus etre fabrique ici.
+    for question, langue in [("Movie?", "en"), ("cast", "en"), ("casting", "fr"),
+                             ("trivia", "en"), ("recompenses", "fr")]:
+        total += 1
+        obtenu = compose(payload(BLADE), question, langue).lower()
+        conforme = "image" not in obtenu and "picture" not in obtenu
+        succes += conforme
+        print("%s  la composition n'invente ni 'image' ni 'picture' : %s"
+              % ("OK   " if conforme else "ECHEC", obtenu[:52]))
 
     print()
     print("-- La composition survit au cache, et c'est ce qui rend la page 2 ordinaire")

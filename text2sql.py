@@ -1173,9 +1173,19 @@ _VISION_TYPE_PHRASE = {
 }
 
 # What is appended when the question carries no demonstrative to replace ("cast", "trivia").
+#
+# **Not a word of "image" or "picture" in here, and that is measured rather than tasteful.**
+# The first wording was "the image shows {phrase}", and on 2026-09-20 the question "Movie?"
+# came out as "Movie? (the image shows the movie The Big Sleep (1946))", which the
+# answer-entity classifier read as a request for pictures OF a movie: it returned
+# `movie_image` and the client got 50 posters instead of the film. The suffix had invented the
+# very word the classifier keys on. "about" says the same thing and says nothing else.
+#
+# The French form avoids "a propos de" and "au sujet de" on purpose: both would have to
+# contract in front of "le film", and the phrase is built elsewhere.
 _VISION_SUBJECT_SUFFIX = {
-    "en": "the image shows {phrase}",
-    "fr": "l'image montre {phrase}",
+    "en": "about {phrase}",
+    "fr": "concernant {phrase}",
 }
 
 # A question that asks about the PIXELS, which no catalogue can answer: the tagline printed on
@@ -1218,6 +1228,26 @@ _VISION_DEMONSTRATIVE_RE = re.compile(
 # a clause: "who directed this?" is a reference to the photo, "this movie" is already covered
 # above, and "it is a comedy" is not a reference at all.
 _VISION_PRONOUN_RE = re.compile(r"\b(this|it|ca|ça)\b(?=\s*[?!.,]|\s*$)", re.IGNORECASE)
+
+
+# Which language the user actually wrote in, read off the demonstrative that matched rather
+# than off `ui_language` (FASTAPI-TEXT2SQL-114). Measured on 2026-09-20: tmdb-front sends
+# `ui_language=en` whatever the typed language, so "De quel film vient cette image ?" came back
+# as "De quel film vient the movie The Shining (1980) ?", a sentence nobody wrote. The
+# demonstrative that was replaced is the one piece of evidence available about the language of
+# the QUESTION, and it costs nothing to read: a French alternative can only have matched French
+# words. `ui_language` stays the fallback, for a question with no demonstrative at all.
+_VISION_FRENCH_MATCH_RE = re.compile(
+    r"^(?:ce|cet|cette|ces|celui|celle|ceux|celles|ça|ca)\b", re.IGNORECASE)
+
+
+def _phrase_language(matched_text: str, ui_language: str) -> str:
+    """Language to phrase the injected entity in: the question's own, else the UI's."""
+    if matched_text and _VISION_FRENCH_MATCH_RE.match(matched_text.strip()):
+        return "fr"
+    if matched_text:
+        return "en"
+    return str(ui_language or "en").strip().lower()
 
 
 def question_targets_the_image(user_question) -> bool:
@@ -1360,19 +1390,21 @@ def compose_vision_question(payload, user_question: str = "", ui_language: str =
         items = [selection["selected"]] if selection["dominant"] else ranked
         return f_build_retry_question_from_reasoning({"question": "", "items": items})
 
-    phrase = vision_entity_phrase(selection["selected"], ui_language)
+    # The demonstrative is located BEFORE the phrase is built, because the language it is
+    # written in decides the language the phrase is written in.
+    match = _VISION_DEMONSTRATIVE_RE.search(question) or _VISION_PRONOUN_RE.search(question)
+    langue = _phrase_language(match.group(0) if match else "", ui_language)
+    phrase = vision_entity_phrase(selection["selected"], langue)
     if phrase == "":
         return question
 
-    substituted, count = _VISION_DEMONSTRATIVE_RE.subn(phrase, question, count=1)
-    if count == 0:
-        substituted, count = _VISION_PRONOUN_RE.subn(phrase, question, count=1)
-    if count == 0:
+    if match:
+        substituted = question[:match.start()] + phrase + question[match.end():]
+    else:
         # No demonstrative to replace ("cast", "trivia", "awards"). Naming the subject beside
         # the question is the honest composition: it adds what the photo carried and removes
         # nothing of what was typed.
-        suffix = _VISION_SUBJECT_SUFFIX.get(str(ui_language or "en").strip().lower(),
-                                            _VISION_SUBJECT_SUFFIX["en"])
+        suffix = _VISION_SUBJECT_SUFFIX.get(langue, _VISION_SUBJECT_SUFFIX["en"])
         substituted = f"{question} ({suffix.format(phrase=phrase)})"
     return substituted.strip()
 

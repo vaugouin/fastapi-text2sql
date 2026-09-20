@@ -40,7 +40,19 @@
 -- execution c'est celle qui avait cours au moment du passage. Requalifier une evaluation plus
 -- tard ne doit pas reecrire le sens des campagnes deja jouees.
 --
--- NON VERIFIE
+-- PASSE EN PRODUCTION LE 2026-09-20 A 13:24:33, et ce qui suit est perime, garde pour la date
+-- Section 2 executee sur vaugouindb (conteneur damp-vaugouin-com-mariadb-1), sortie conservee
+-- dans eval-mode-de-resolution-20260920.txt. Les cinq colonnes existent. Deux d'entre elles,
+-- RESOLUTION_MODE sur la banque et COMPLEX_MODEL_USED sur les executions, ont rendu
+-- ERROR 1060 Duplicate column name : un passage anterieur les avait ajoutees sans que personne
+-- l'ecrive, ce qui rend le bloc NON VERIFIE ci-dessous faux au moment meme ou il a ete redige.
+-- Le passage s'est fait avec --force, donc les instructions suivant chaque erreur ont tourne.
+-- REJOUER CE FICHIER REND DESORMAIS CINQ FOIS L'ERREUR 1060 : sans --force, il s'arrete a la
+-- premiere. Et la requete de la section 1 ne reproduit plus le chiffre annonce dans son propre
+-- commentaire : 26 escalades vues par le JSON contre 15 par la colonne de temps, sur 1704
+-- lignes, la ou le 2026-09-14 comptait 46 contre 34. La population de lignes a bouge.
+--
+-- NON VERIFIE (redige le 2026-09-14, conserve tel quel)
 -- Rien ici n'a ete execute : la base n'est pas joignable depuis le poste de developpement
 -- (connexion refusee sur localhost:3306 le 2026-09-14). Valide syntaxiquement, pas par un
 -- passage reel. Les DDL de reference doc/sql/T2S_EVALUATION-tables.sql et doc/sql/T2S-tables.sql
