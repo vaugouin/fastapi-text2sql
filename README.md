@@ -1033,6 +1033,65 @@ Each **category node** has the shape:
 
 The assertion DSL is parsed by [`samples_assertions.py`](samples_assertions.py); the `eval/data/evaluation*` JSON exports mirror the live tables and can be used to simulate this endpoint's output offline.
 
+#### 5. Vision Image Deposit
+
+```http
+POST /uploads/vision
+GET  /uploads/vision/{image_ref}
+```
+
+The first binary input path of this API (FASTAPI-TEXT2SQL-275). It receives the photo that the
+vision task will read, files it under a name of our own, and gives back the reference that names
+it everywhere afterwards. It identifies nothing by itself: recognition is FASTAPI-TEXT2SQL-114.
+
+**The body is the image itself**, raw bytes, not a multipart form and not base64. A browser sends
+a `File` or a `Blob` as the body and nothing else is needed:
+
+```bash
+curl -X POST -H "X-API-Key: $KEY" --data-binary @poster.jpg      https://www.vaugouin.com/uploads/vision
+```
+
+```json
+{
+  "image_ref": "20260920-084157_vision_1.1.19_c158099afc031554d3bb2133375c6f11.jpg",
+  "bytes": 204,
+  "image_format": "jpg",
+  "deposited_at": "2026-09-20T08:41:57",
+  "purge_after": "2026-10-20T08:41:57",
+  "retention_days": 30,
+  "api_version": "1.1.19"
+}
+```
+
+`image_ref` is the bare filename, and it is the only thing a client ever holds: it goes back with
+the later turns of a conversation, and it is what the JSON log of the turn records. **The image is
+never written into the log**, only its name, which is how a question asked about a photo can be
+replayed from its log file alone.
+
+**What decides what, and what decides nothing.** The format comes from the magic number of the
+payload; the declared `Content-Type` is not read at all, so a GIF announced as `image/jpeg` is
+refused with 415. No filename travels with a raw body, so no filename can decide a path or an
+extension. The name on disk follows the house convention of [logs.py](logs.py), with the hash
+taken over the bytes: `YYYYMMDD-HHMMSS_vision_<version>_<md5>.<ext>`.
+
+| Case | Answer |
+| --- | --- |
+| valid JPEG or PNG | `200` with the `image_ref` |
+| bytes that are neither, whatever the header says | `415` |
+| empty body | `400` |
+| past `MAX_UPLOAD_IMAGE_BYTES` (25 MB by default) | `413`, streamed and refused without writing to disk |
+| `GET` with a reference that is not one of ours | `400` |
+| `GET` on an image past its 30 days | `410`, with the deposit date and the purge stated |
+| `GET` on a missing image still inside its window | `404`, which points at the mount, not at the purge |
+
+The `GET` exists for the replay, and it is the two-command proof that the `uploads/` mount is
+really shared: deposit on blue, read from green. See
+[Vision uploads: a folder with the opposite regime to `logs/`](#vision-uploads-a-folder-with-the-opposite-regime-to-logs).
+
+**MCP carries no bytes.** The MCP server mounted on this same app is JSON only, so an MCP client
+passes an `image_ref` that was deposited here first. That is the boundary of the design, not a
+gap to fill later.
+
 ### Client handling for quota / rate-limit errors
 
 When an upstream LLM provider rejects a request because of quota exhaustion or temporary rate limiting, the API returns the failure in the normal JSON response and also exposes structured retry metadata.
@@ -1198,6 +1257,27 @@ Two operational consequences, neither optional:
 
 The one-shot merge of the three historical directories is [migrate-logs-to-shared.sh](migrate-logs-to-shared.sh); see [Archiving old logs](#archiving-old-logs).
 
+### The third mount: the vision uploads, shared and purged
+
+`-v /home/debian/docker/shared_data/fastapi-text2sql/uploads:/app/uploads` (FASTAPI-TEXT2SQL-275)
+is the same move as the log mount, for the same reason, with the opposite retention. `UPLOADS_FOLDER`
+is the relative `"uploads"` ([uploads.py](uploads.py)), so again no code knows about the mount and a
+laptop checkout keeps its own folder.
+
+Why it cannot live inside a colour's stack directory: an image deposited on blue would be
+unreadable from green after a flip, and a replay would then fail **in silence**, which is worse
+than a failure that shows. The restart scripts create `uploads/vision` on the host before the
+first run, for the same ownership reason as `logs/`.
+
+The two folders are neighbours under `shared_data/fastapi-text2sql/` and obey **inverse** rules,
+so the rule belongs on each folder and never on their parent:
+
+| | `logs/` | `uploads/` |
+| --- | --- | --- |
+| Retention | indefinite, monthly archives | **30 days**, sliding, by [purge-uploads.sh](purge-uploads.sh) |
+| Backup | **yes**, it is a dataset | **no**: an archive would outlive the purge and cancel it |
+| Off-box mirror | yes | **no**, excluded in `sync_exclude.conf` |
+
 ### Why
 
 - `.env` is listed in [.dockerignore](.dockerignore) so local environment files are excluded from the build context and cannot end up in image layers, build cache, or pushed registries.
@@ -1212,6 +1292,7 @@ fastapi-text2sql/
 ├── text2sql.py              # Core text-to-SQL conversion, unified LLM dispatch (OpenAI/Anthropic/Gemini), retry helpers
 ├── entity.py                # Entity extraction, entity-resolution config loading, regex-validated placeholders, and placeholder resolution logic
 ├── closed_vocab.py          # Closed-vocabulary resolver (Movie_genre, Serie_genre, Technical_format, Status_name, Serie_type, Department_name) — DB-driven canonicals + JSON aliases + RapidFuzz typo tolerance
+├── uploads.py               # Vision-mode image deposits: magic-number check, house filename, 30-day retention, safe image_ref parsing (FASTAPI-TEXT2SQL-275)
 ├── sql_cache.py             # SQL cache lookups and cache writes for exact/anonymized questions
 ├── auth.py                  # API key authentication middleware (multi-key support via API_KEYS)
 ├── logs.py                  # API usage logging (JSON log files in logs/ folder)
@@ -1228,6 +1309,7 @@ fastapi-text2sql/
 ├── restart-green.sh         # Green deployment restart script
 ├── archive-logs.sh           # Monthly log archiver (cron): packs past months into logs/archive/
 ├── migrate-logs-to-shared.sh # One-shot merge of the three old per-stack log dirs
+├── purge-uploads.sh          # Daily 30-day purge of uploads/vision (cron): deletes, unlike archive-logs.sh
 ├── data/                    # Hot-reloaded prompt templates and configuration
 │   ├── entity_extraction.md                                          # Entity extraction prompt (hot-reloaded)
 │   ├── text_to_sql.md                                                # Text2SQL prompt (hot-reloaded)
@@ -1236,6 +1318,7 @@ fastapi-text2sql/
 │   └── closed_vocabularies.json                                      # Closed-vocabulary aliases for Movie_genre, Serie_genre, Technical_format, Status_name, Serie_type, Department_name (hot-reloaded)
 ├── eval/                    # Evaluation harness (see eval/README.md)
 │   ├── text2sql-eval.py                                              # End-to-end evaluator against the running API
+│   ├── verif-275.sh                                                  # Checks the vision upload path against a running deployment (cross-colour read included)
 │   ├── bench-entity-extraction.py                                    # Offline A/B comparison of two extraction configurations
 │   ├── bench-entity-resolution.py                                    # Offline bench that calibrates the entity-resolution thresholds
 │   ├── harvest-archived-entities.py                                  # Harvests entity values from the archived VPS logs
@@ -1255,14 +1338,14 @@ fastapi-text2sql/
 ```
 
 **Key Architecture Components:**
-- **ChromaDB Integration**: Vector database for entity matching and similarity search with 15 entity collections (`persons`, `movies`, `series`, `companies`, `networks`, `topics`, `t2slocations`, `groups`, `characters`, `lists`, `collections`, `deaths`, `awards`, `nominations`, `movements`) plus a separate `anonymizedqueries` cache collection. `t2slocations` is opened with `get_collection`, never `get_or_create_collection`: its HNSW configuration is fixed at creation by `embedding-update`, and whoever creates the collection first decides it for every reader
+- **ChromaDB Integration**: Vector database for entity matching and similarity search with 15 entity collections (`persons`, `movies`, `series`, `companies`, `networks`, `topics`, `t2slocations`, `groups`, `characters`, `lists`, `collections`, `deaths`, `awards`, `nominations`, `movements`) plus a separate `anonymizedqueries` cache collection. `t2slocations` is opened with `get_collection`, never `get_or_create_collection`: its HNSW configuration is fixed at creation by `embedding-update`, and whoever creates the collection first decides it for every reader. The separate `anonymizedqueries` cache collection is disabled by default (`USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE = False` in [main.py](main.py))
 - **Multi-Level Caching**: SQL cache + embeddings cache for performance optimization with automatic cleanup
 - **Entity Extraction**: `entity.py` handles GPT-powered entity recognition and anonymization for supported entity types
 - **Fork-Join Scheduling**: entity resolution runs in a worker thread while the text-to-SQL call is in flight (`ENTITY_RESOLUTION_PARALLEL`), since it depends only on the extraction output
 - **Unified LLM Dispatch**: `text2sql.py` routes to OpenAI (native SDK), Anthropic (native `anthropic` SDK), or Google Gemini (`google-generativeai`) based on model name
 - **Reasoning Retry Helpers**: `text2sql.py` contains stronger-model calls and retry-question construction helpers
 - **Endpoint Orchestration**: `main.py` coordinates request flow, recursive retry execution, and response/message merging
-- **Entity Detail Endpoints**: 14 endpoints returning full entity data with embedded relations, each with usage logging
+- **Entity Detail Endpoints**: 18 endpoints returning full entity data with embedded relations, each with usage logging
 - **MCP Server**: FastMCP 2.x tools and resource exposed at `/mcp` for Claude clients (see `doc/MCP.md`)
 - **Blue/Green Deployment**: Automatic port selection based on API version (even: port 8000, odd: port 8001)
 - **Processing Transparency**: Messages array tracks every processing step for debugging and analysis
@@ -1453,26 +1536,6 @@ If the user provides a disambiguation pattern like `<movie_title> (YYYY)`, entit
 
 **Year semantics: one tolerant case, everything else strict.** A year attached to a named title (`<title> (YYYY)`, "the X movie of 1936") is a *discriminant*, and it is the only case where the generated SQL widens the year to `RELEASE_YEAR BETWEEN Y-1 AND Y+1`: a film can legitimately be dated by its closing-credits copyright, by a festival premiere a year earlier, or by a theatrical release that varies per country, and the ±1 absorbs that gap. Every other year is a *filter* and keeps strict bounds. A decade ("the seventies", "les années 70") becomes `BETWEEN 1970 AND 1979` and never 1969/1980, "before 1960" and "after 2010" stay plain inequalities, and person years (`BIRTH_YEAR`, `DEATH_YEAR`) are never widened since a birth date has only one version. The rules, the column map (`RELEASE_YEAR`, `FIRST_AIR_YEAR`, `BIRTH_YEAR`, `DEATH_YEAR`) and the phrasing tables live in the "Years, decades and date ranges" section of [data/text_to_sql.md](data/text_to_sql.md).
 
-### Vector Search Integration
-
-ChromaDB collections for entity matching (15 entity collections + 1 cache collection — see [main.py:124-150](main.py#L124-L150)):
-- `persons` — actor/director/crew embeddings (also used by RapidFuzz pipeline as a secondary signal)
-- `movies` — movie title embeddings (English / French / original)
-- `series` — TV series title embeddings (English / French / original)
-- `companies` — production/distribution company embeddings
-- `networks` — TV network / streaming platform embeddings
-- `topics` — theme and recurring-character-collection embeddings
-- `lists` — curated ranking / canon embeddings (e.g., Sight and Sound, IMDb Top 250)
-- `awards` — named award embeddings
-- `nominations` — named award-nomination embeddings
-- `collections` — trilogy / named-work-series embeddings plus universe / franchise embeddings (e.g., Star Wars, Marvel Cinematic Universe, Middle-Earth)
-- `movements` — film-movement / stylistic-school embeddings
-- `groups` — organization / publication / musical-group embeddings
-- `deaths` — cause-of-death embeddings
-- `characters` — character-name embeddings (provisioned for upcoming use; not currently consumed by `entity_resolution.json`)
-- `locations` — Wikidata-backed narrative / filming location embeddings
-- `anonymizedqueries` — cached anonymized question patterns (disabled by default via `USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE = False`)
-
 ### Processing Transparency (Messages Array)
 
 Each API response includes a detailed `messages` array that tracks every processing step:
@@ -1634,6 +1697,45 @@ from backup. (Off-box mirroring is handled by `sync_vps_docker.py` in the
 `tmdb-front` repo under `%USERPROFILE%/Nestor/projets/t2s-backlog/topics/debian-migration/`, whose SFTP timeouts were raised
 so large log directories don't abort a sync mid-listing.)
 
+### Vision uploads: a folder with the opposite regime to `logs/`
+
+Images deposited on `POST /uploads/vision` land in `uploads/vision/` (FASTAPI-TEXT2SQL-275), on
+the VPS a bind mount onto `/home/debian/docker/shared_data/fastapi-text2sql/uploads`, shared by
+every colour. Everything about this folder is the reverse of `logs/`, deliberately: a visitor's
+photo is not a request log, and Philippe set its retention at 30 days on 2026-09-19.
+
+```bash
+./purge-uploads.sh --dry-run      # list what would go, delete nothing
+./purge-uploads.sh                # delete images older than 30 days in the shared dir
+./purge-uploads.sh --days 7 /some/other/uploads/vision
+
+# Daily cron, 03:50 (twenty minutes after the archiver's monthly slot, so the two never
+# overlap on the 1st). ONE cron for the machine, not one per colour: the folder is shared,
+# and a cron in each stack would purge the same files three times.
+# 50 3 * * * /home/debian/docker/fastapi-text2sql-blue/purge-uploads.sh #   >> /home/debian/docker/shared_data/fastapi-text2sql/uploads/purge-run.log 2>&1
+```
+
+**It is a separate script from [archive-logs.sh](archive-logs.sh), and must stay one.** That one
+advertises, in its own header, that it archives *without deleting any data*. Folding a deletion
+into a tool whose promise is that it loses nothing would be a trap for the next reader.
+
+**Three things the purge must never reach**, which is what the `vision/` level under `uploads/`
+buys: the run log of the purge itself (it sits in `uploads/`, not in `uploads/vision/`), the
+`logs/` folder (a guard refuses any directory whose path does not end in `uploads/vision`), and
+the evaluation fixtures of the vision bench, which live versioned in the `voice-agent` repo and
+must never be dropped here "just for now".
+
+**The image is purged, the log that names it is not.** A replay attempted more than a month later
+is therefore expected to fail, and it fails with a sentence and a date (`410 Gone`), never with a
+stack trace. That is the likeliest error case of the whole device, and it is the one that had to
+read well.
+
+**Not backed up, not mirrored, and that has to be written down.** A backup would let a photo
+survive its thirty days and the retention would mean nothing; the off-box mirror keeps
+`shared_data` by default, so the host path is excluded explicitly in `sync_exclude.conf`. Both
+exclusions are stated on the `uploads/` folder, never on `shared_data/fastapi-text2sql/`, which
+also holds `logs/` and its exactly opposite regime.
+
 ## 🔒 Security
 
 - **API Key Authentication**: All endpoints require a valid API key via `X-API-Key` header; multiple keys supported via `API_KEYS` env var
@@ -1701,126 +1803,7 @@ Beyond troubleshooting, these logs are a **retained usage & agent-behaviour data
 
 ## 📝 API Response Format
 
-All successful text2sql requests return a comprehensive response with:
-
-**Core Fields:**
-- `question`: The original natural language question
-- `question_hashed`: SHA256 hash of the question for pagination/caching
-- `sql_query`: The generated and optimized SQL query (with entities resolved)
-- `sql_query_anonymized`: The SQL query with entity placeholders (new in v1.1.13)
-- `justification`: Explanation or reasoning for the SQL query (if provided), with entities resolved
-- `justification_anonymized`: The `justification` before entity de-anonymization
-- `answer`: User-oriented plain-language description of what the query returns, in the requested `ui_language` (new in v1.1.15)
-- `answer_anonymized`: The `answer` before entity de-anonymization (new in v1.1.15)
-- `error`: Error message if query processing failed (e.g., the LLM's explanation when the question is ambiguous)
-- `entity_extraction`: Full entity extraction dictionary from LLM (new in v1.1.13)
-- `question_anonymized`: The anonymized version of the question with placeholders (new in v1.1.13)
-- `result`: Array of query results with `index` and `data`
-- `messages`: Array of processing step messages (`position` and `text`)
-
-**Performance Metrics:**
-- `entity_extraction_processing_time`: Time for entity extraction (seconds)
-- `text2sql_processing_time`: Time for SQL generation (seconds)
-- `result_entity_processing_time`: Time for the answer-entity classification (seconds)
-- `embeddings_processing_time`: Time for entity resolution (seconds)
-- `embeddings_cache_search_time`: Time for embeddings cache lookup (seconds)
-- `entity_resolution_planning_time`: Share of the above overlapped with SQL generation (seconds, already included in it)
-- `entity_raw_fallback_count`: Entities left unresolved and substituted raw (count)
-- `no_entity_extracted`: Extraction returned nothing at all (bool)
-- `first_pass_sql_query` / `first_pass_failure_code` / `first_pass_failure_reason` / `complex_retry_question`: On a retried request, what the first pass ran, why it was abandoned, and the stronger model's rewrite (strings, empty without a retry, FASTAPI-TEXT2SQL-241)
-- `complex_retry_cache_policy`: Whether the retry's SQL was cached under the original question, and if not why (string, FASTAPI-TEXT2SQL-242)
-- `no_entity_rescue_outcome`: Outcome of the resolver rescue of an unextracted literal before the stronger model (string, FASTAPI-TEXT2SQL-244)
-- `sql_regeneration_outcome`: Outcome of the one targeted SQL regeneration that runs when the query was refused, before any question rewrite (string, FASTAPI-TEXT2SQL-262)
-- `complex_retry_intent_dropped`: True when the retry answered a different question than the one asked (boolean, FASTAPI-TEXT2SQL-263)
-- `complex_question_processing_time`: The stronger-model simplification call (seconds, 0.0 without a retry)
-- `answer_single_value_processing_time`: The direct scalar answer when SQL returned a single cell worth 0 (seconds, 0.0 when the branch did not fire)
-- `entity_match_worst_distance` / `entity_match_worst_fuzz_ratio`: How far the weakest accepted entity match sat from the value sought (dissimilarity and similarity respectively, so the two run in opposite directions)
-- `entity_match_scores`: The same, detailed per entity, accepted candidates and rejected ones alike
-- `query_execution_time`: Time for SQL execution (seconds)
-- `total_processing_time`: Total request processing time (seconds)
-
-**Pagination:**
-- `page`: Current page number
-- `limit`: Records per page
-- `offset`: Current offset
-- `rows_per_page`: Configured page size (default: 50)
-- `llm_defined_limit`/`llm_defined_offset`: LLM-specified pagination (if any)
-
-**Cache Indicators:**
-- `cached_exact_question`: Whether exact question was found in cache
-- `cached_anonymized_question`: Whether anonymized question was cached
-- `cached_anonymized_question_embedding`: Whether similar question found via embeddings
-- `ambiguous_question_for_text2sql`: Whether question was too ambiguous for SQL generation
-
-**Configuration & Metadata:**
-- `llm_model_entity_extraction`: LLM model actually used for entity extraction
-- `llm_model_text2sql`: LLM model actually used for text-to-SQL conversion
-- `llm_model_complex`: LLM model **configured** for complex-question resolution / stronger-model retry (does not by itself indicate the retry path was taken)
-- `llm_model_result_entity`: LLM model used for the answer-entity classifier
-- `llm_model_answer_single_value`: LLM model **configured** for the direct scalar answer
-- `complex_model_used` (bool, new in v1.1.15): Whether the stronger model was actually invoked during the request — `true` only when one of the four complex-retry code paths fired (text2sql error, SQL execution error, zero-row result on page 1, or single-cell zero-count direct answer)
-- `ui_language` (new in v1.1.15): Language code used for the `answer` field and as part of the cache key
-- `api_version`: Current API version (e.g., "1.1.16")
-
-### Recent updates within v1.1.16
-
-The following changes ship under v1.1.16. They align the entity detail endpoints with the text-to-SQL prompt spec and add a directional sorting rule to remove ambiguity in cross-entity person queries:
-
-- **`data_freshness` on all 18 entity detail endpoints (and their MCP `get_*` tools)**: every full detail response now carries a top-level `data_freshness` block (`record_source`, `record_updated_at`, `tmdb_updated_at`, `wikidata_updated_at`, `wikipedia_updated_at`, `wikipedia_crawled_at`, `wikipedia_lang`) so a client can state how current an answer is instead of implying the data is live. The Wikipedia dates come from `T_WC_WIKIPEDIA_PAGE_LANG` (`LAST_SUCCESS_AT` / `LAST_CRAWLED_AT`) resolved to the same language the response's `wikipedia_content` and `wikipedia_images` were served in, and were not exposed anywhere before. `TIM_UPDATED` was already present in the payload via `SELECT *` but was unlabelled, so no consumer could know it is the TMDb refresh datetime propagated verbatim by `tmdb-movie-preprocess`; `record_source` now makes that explicit and keeps `tmdb_updated_at` null on the Wikidata-derived entities. Targeted `?collection=` pages keep their lean shape. See **Data freshness** under *API Endpoints*.
-- **Entity-detail response shape aligned with the text-to-SQL spec**: the response-dict key order in `GET /movies/{id}`, `GET /series/{id}`, and `GET /persons/{id}` now mirrors the "Default Sorting" section of `data/text_to_sql.md` (cast/crew last for movies and series; spec'd lists in spec order; non-spec'd "extras" kept at their relative position). `GET /movies/{id}` and `GET /series/{id}` gained a `lists` array (curated `T_WC_T2S_LIST` membership, ordered by `DISPLAY_ORDER`). Internal `ORDER BY` clauses added where the spec required them (`companies` by `ID_COMPANY`; `networks` by `ID_NETWORK`).
-- **Self-appearance cast filter (movies only)**: the `cast` array in `GET /movies/{id}` and the `movie_cast` array in `GET /persons/{id}` now drop rows whose `CAST_CHARACTER` is `Self`, `Himself`, `Herself`, `(archive footage)`, `Self (archive footage)`, `Self (archive footage) (uncredited)`, or `Self (uncredited)` — applied per-row only when the host movie is non-documentary (`IS_DOCUMENTARY != 1`), matching `data/text_to_sql.md` rules at lines 850-851. Series queries are deliberately unchanged so the endpoint mirrors text-to-SQL behavior, which does not apply the exclusion to series cast.
-- **Text-to-SQL prompt — directional ORDER BY rules for cross-entity person queries**: added two explicit rules in the "Default Sorting" section so the LLM emits `ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC` (and the series analog) for questions like "list movies starring X", instead of incorrectly reusing `T_WC_T2S_PERSON_MOVIE.DISPLAY_ORDER ASC` (which is correct only for the reverse direction, persons-for-a-given-movie).
-- **Coherence guidance for coding agents**: [AGENTS.md](AGENTS.md) now contains a dedicated "Text-to-SQL ↔ entity endpoint coherence" section listing the four drift categories (filter predicates, sort order, included list keys, result columns) so agents surface any divergence between `data/text_to_sql.md` and the hand-written endpoint SQL to the user instead of silently patching either side.
-
-### Recent updates within v1.1.15
-
-The following changes shipped inside the v1.1.15 deployment. They reorganize entity resolution into four well-defined categories and remove duplicated canonical lists from the prompt templates:
-
-- **Closed-vocabulary resolver layer ([closed_vocab.py](closed_vocab.py))**: introduced a unified DB-driven canonical loader (`closed_vocab.init(connection)` runs once at startup) plus a JSON-driven alias loader (hot-reloaded via `data_watcher`). Powers `Genre_name`, `Technical_format`, `Status_name`, and `Serie_type` resolution through a single `_resolve_closed_vocab()` matcher (RapidFuzz, `score_cutoff = 85`, `margin = 5`). Hard-coded `MOVIE_GENRE_NAME_TO_ID` / `SERIE_GENRE_NAME_TO_ID` dicts removed from `entity.py`; movie-vs-series context dispatch retired (both join tables share the same `T_WC_TMDB_GENRE` ID space).
-- **`Technical_format` placeholder added**: new closed-vocabulary entity backed by the `T_WC_T2S_TECHNICAL` reference table (56 active rows: sound systems, color/film/sound technologies, film formats — IMAX, Technicolor, CinemaScope, 35 mm, Dolby, etc.). Resolver substitutes the integer `ID_TECHNICAL` into `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL`. The "do not extract technical formats" rule was lifted from `data/entity_extraction.md`.
-- **Multilingual genre aliases via DB**: `T_WC_TMDB_GENRE_LANG(id, LANG, name)` is now read at startup alongside `T_WC_TMDB_GENRE`; adding rows for any new LANG (de, es, ja, …) auto-extends genre matching with no code change.
-- **`Status_name` and `Serie_type` placeholders added**: closed-vocabulary string substitution for production lifecycle status (`Released`, `Canceled`, `In Production`, `Post Production`, `Planned`, `Rumored`) and TV series type (`Documentary`, `Miniseries`, `News`, `Reality`, `Scripted`, `Talk Show`, `Video`).
-- **Hot-reloaded alias config (`data/closed_vocabularies.json`)**: per-entity alias dictionaries for typos, format variants, and multilingual synonyms (e.g. `35mm` → `35 mm`, `scifi` → `Science Fiction`, `cancelled` → `Canceled`, `documentaire` → `Documentary`). Edits picked up within ~5 seconds without restart.
-- **Regex-validated placeholder layer ([entity.py](entity.py) `_REGEX_PLACEHOLDER_RULES`)**: unified dispatcher covering 9 placeholders — `Release_year`, `Birth_year`, `Death_year` (`\d{4}` numeric), `TMDb_ID`, `Criterion_spine_ID` (`\d+` numeric), `IMDb_ID` / `IMDb_person_ID` (`tt\d+` / `nm\d+` quoted strings), `Wikidata_ID` / `Wikidata_property_ID` (`Q\d+` / `P\d+` quoted strings). Malformed values are now rejected at resolution time (placeholder left unresolved → marks question ambiguous), tightening defense against LLM hallucinations on identifier-style entities.
-- **`Birth_year` / `Death_year` placeholders added**: 4-digit year extraction for person filtering ("actors born in 1962", "directors who died in 1980"), reusing the `Release_year` substitution shape.
-- **Prompt deduplication (Option 1)**: the 56-row Technical_format ID:DESCRIPTION list and the 27 + 18 Genre Reference blocks have been removed from `data/text_to_sql.md`. The LLM now emits placeholders (`{{Genre_nameN}}`, `{{Technical_formatN}}`) and the resolver substitutes the integer ID at runtime — single source of truth for canonicals = the database. Saves ~500 prompt tokens per request and eliminates drift between prompt and DB.
-- **`doc/sql/T_WC_T2S_TECHNICAL.sql`**: reference dump of the Technical_format canonical table is now versioned alongside the code.
-
-### New Features in v1.1.15
-
-- **Localized user-oriented `answer`**: every successful response now includes an `answer` field — a plain-language sentence describing what the query returns, written in the language specified by `ui_language` (default `"en"`). The answer is generated alongside the SQL using the same LLM, preserves entity placeholders during generation, and is de-anonymized in lockstep with `sql_query` and `justification`. `ui_language` is also part of the cache key so the same question cached in different languages keeps separate entries.
-- **`answer_anonymized`** companion field exposes the placeholder version for cache reuse and debugging.
-- **`UI_LANGUAGE` cache column**: cache reads and writes filter by language (with `OR UI_LANGUAGE IS NULL` for backward compatibility).
-- **New first-class entities**: `List_name`, `Award_name`, `Nomination_name`, `Collection_name`, `Movement_name`, `Group_name`, `Death_name` — each with a dedicated `T_WC_T2S_*` table, ChromaDB collection, embedding-based resolver in `entity_resolution.json`, and `/`<entity>`/{id}` REST + MCP detail endpoint. Topics no longer overload these concepts.
-- **Single-cell zero-count direct answer**: when the SQL returns exactly one row / one column with value `0` and `complex_question_processing=true`, the stronger model is asked for the correct scalar; the answer is wrapped in a synthetic `SELECT {value} AS '{question}' FROM DUAL`, executed, and cached so subsequent calls bypass the stronger model.
-- **`complex_model_used` response flag**: tells callers whether the stronger model was actually invoked during the request (independent of the configured `llm_model_complex` value). Useful for evaluation pipelines and cost analysis.
-- **`f_build_retry_question_from_reasoning()`**: deterministically composes the retry question from the stronger model's structured reasoning output (typed entities + years), removing earlier free-text drift on retries.
-
-### New Features in v1.1.14
-
-- **Character Name Entity Extraction**: New entity type for extracting movie/series character names (e.g., "James Bond", "Sherlock Holmes", "R2-D2") with dedicated `characters` ChromaDB collection
-- **Location Name Entity Extraction**: New entity type for extracting narrative or filming locations (e.g., "New York City", "Gotham City", "South America") with dedicated `locations` ChromaDB collection
-- **Groups Collection**: New `groups` ChromaDB collection for group/collection-based entity matching
-
-### Recent Refactor Updates
-
-- **Lighter `main.py`**: request handling now delegates entity extraction/resolution and SQL cache operations to dedicated modules
-- **New `entity.py` module**: centralizes entity extraction, entity-resolution config loading, embeddings/RapidFuzz resolution, and placeholder substitution
-- **`sql_cache.py` module**: centralizes SQL cache lookup and write logic for exact and anonymized questions
-- **Reasoning helpers in `text2sql.py`**: complex-question resolution and retry-question construction now live alongside the LLM helper code
-- **API-selectable complex model**: clients can now provide `llm_model_complex` to choose the model used for complex-question resolution retries
-- **stronger-model compatibility handling**: complex-question resolution now uses model-compatible temperature settings, including `temperature=1` for `o1*`/`o3*` models
-- **Retry message transparency**: retry messages now include the selected complex-question model name
-- **Original complex-question cache persistence**: after a successful stronger-model retry, the original complex question is also stored in SQL cache with the final SQL returned by the retried flow
-- **Language-family-based person resolution**: `entity.py` now uses `guess_language_family()` so Latin person names search `T_WC_T2S_PERSON`, while non-Latin names keep the AKA-table resolution flow through `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`
-- **Person-name justification formatting**: when a person is matched through an AKA entry and resolved to a canonical name, SQL uses the canonical value while justification shows `AKA (Canonical)` only when the AKA differs from the canonical name
-
-### New Features in v1.1.13
-
-- **Enhanced Response Fields**: Added `sql_query_anonymized`, `entity_extraction`, and `question_anonymized` to the API response for better transparency into the query processing pipeline
-- **Justification Caching**: The `justification` field is now stored in both SQL cache and ChromaDB embeddings cache for retrieval on cache hits
-- **Improved Ambiguous Question Handling**: Ambiguous questions are now handled via the `error` response field instead of the previous `##AMBIGUOUS##` marker approach, providing clearer error messages
-- **Cleanup Module Refactoring**: Cleanup functions moved to separate `cleanup.py` module for better code organization and maintainability
+Every field of a `/search/text2sql` response is documented once, under [Text to SQL Conversion](#2-text-to-sql-conversion): the example payload, then **Response Fields** grouped into core fields, performance metrics, pagination, cache indicators and configuration. A second, shorter copy used to sit here and had fallen twelve fields behind the list it copied (`result_entity`, `name_ambiguity`, `dropped_clause`, the four error-handling fields and five more), so it was deleted rather than repaired. Per-version feature notes now live in the git history, which is the only place they cannot drift.
 
 ## 🤝 Contributing
 
@@ -1847,9 +1830,6 @@ This project is open source. Please check the repository for license details.
 - **MCP Integration Guide**: See `doc/MCP.md` in this repository
 
 ---
-
-**Current Version**: 1.1.16
-**Last Updated**: 2026-05-11
 
 **Note**: This API requires an active OpenAI API key to function. Make sure you have sufficient credits in your OpenAI account for the text-to-SQL conversions.
 

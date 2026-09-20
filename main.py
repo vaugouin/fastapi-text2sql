@@ -1,7 +1,7 @@
 from typing import List, Optional
 import asyncio
 from fastapi import FastAPI, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 import httpx
 from fastmcp import FastMCP
@@ -26,6 +26,7 @@ import chromadb
 import cleanup
 import entity
 import logs
+import uploads
 import sql_cache
 import sql_shapes
 import closed_vocab
@@ -1711,6 +1712,141 @@ async def f_hello_world(api_key: str = Depends(get_api_key)):
     }
     logs.log_usage("hello", result, strapiversion)
     return result
+
+@app.post("/uploads/vision", summary="Deposit an image for the vision path")
+async def upload_vision_image(request: Request, api_key: str = Depends(get_api_key)):
+    """Accept a raw JPEG or PNG body, store it under a name of our own, and return its reference.
+
+    FASTAPI-TEXT2SQL-275, the first binary input path of this API. The image is what the vision
+    task of FASTAPI-TEXT2SQL-114 will read; this endpoint only receives it, checks it and files
+    it, so that a question asked about a photo can be replayed later from its JSON log.
+
+    The body is the image itself, not a multipart form and not base64. Three consequences, all
+    of them deliberate:
+
+    - **The client sends no filename, so no filename can decide anything.** The name on disk is
+      built here (`uploads.f_getuploadfilename`), and the extension comes from the magic number
+      of the payload, never from `Content-Type`, which is not read at all. A file called
+      `../../etc/passwd` has nothing to travel on.
+    - **The body is streamed and the ceiling is enforced as it arrives**, so a payload past
+      `MAX_UPLOAD_IMAGE_BYTES` is refused with 413 without ever being buffered whole or written
+      to `uploads/`.
+    - **The MCP surface cannot carry bytes** (`app.mount("", mcp_app)`, 17 tools, JSON only).
+      An MCP client therefore passes an `image_ref` that was deposited here first. That is the
+      boundary, not a defect.
+
+    The returned `image_ref` is the bare filename. It is what a client sends back on the later
+    turns of a conversation, and what the JSON log of the turn records, so that the log and the
+    image pair by name. The image itself is never written into the log.
+
+    Args:
+        request (Request): The raw request; its body is the image payload.
+        api_key (str): Valid API key for authentication (injected by dependency)
+
+    Returns:
+        dict: image_ref, bytes, image_format, deposited_at, purge_after, retention_days and
+            api_version.
+
+    Raises:
+        HTTPException: 400 on an empty body, 413 past the size ceiling, 415 when the bytes are
+            neither a JPEG nor a PNG, 500 when the folder cannot be written.
+
+    Example:
+        curl -X POST -H "X-API-Key: <key>" --data-binary @poster.jpg \\
+             https://www.vaugouin.com/uploads/vision
+    """
+    lngmaxbytes = uploads.MAX_UPLOAD_IMAGE_BYTES
+
+    # The declared length is a courtesy, not a guarantee: it lets an oversized upload be refused
+    # before a single chunk is read. The streamed count below is the one that actually enforces.
+    strcontentlength = request.headers.get("content-length") or ""
+    if strcontentlength.isdigit() and int(strcontentlength) > lngmaxbytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Image too large: {int(strcontentlength)} bytes declared, ceiling is {lngmaxbytes}",
+        )
+
+    arrchunks = []
+    lngtotal = 0
+    async for chunk in request.stream():
+        lngtotal += len(chunk)
+        if lngtotal > lngmaxbytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Image too large: over {lngmaxbytes} bytes, nothing was written to disk",
+            )
+        arrchunks.append(chunk)
+    imagebytes = b"".join(arrchunks)
+
+    if not imagebytes:
+        raise HTTPException(status_code=400, detail="Empty body: the request body must be the image itself")
+
+    strimageformat = uploads.sniff_image_format(imagebytes)
+    if strimageformat is None:
+        raise HTTPException(
+            status_code=415,
+            detail="Unsupported image: the bytes are neither a JPEG nor a PNG (the declared Content-Type is not read)",
+        )
+
+    try:
+        stored = uploads.store_vision_image(imagebytes, strapiversion)
+    except OSError as e:
+        print(f"Vision upload failed to write: {e}")
+        raise HTTPException(status_code=500, detail=f"Could not store the image: {e}")
+
+    result = {
+        "image_ref": stored["image_ref"],
+        "bytes": stored["bytes"],
+        "image_format": stored["image_format"],
+        "deposited_at": stored["deposited_at"],
+        "purge_after": stored["purge_after"],
+        "retention_days": uploads.UPLOAD_RETENTION_DAYS,
+        "api_version": strapiversion,
+    }
+    logs.log_usage("uploads_vision", result, strapiversion)
+    return result
+
+@app.get("/uploads/vision/{image_ref}", summary="Read back a deposited image")
+async def get_vision_image(image_ref: str, api_key: str = Depends(get_api_key)):
+    """Return a deposited image, for a replay or for a later turn of the same conversation.
+
+    This is the read half of FASTAPI-TEXT2SQL-275, and it is also the two-command proof that the
+    `uploads/` mount is really shared: deposit on blue, read from green, and the bytes come back.
+    Without the shared mount the same call answers 404 after a flip, silently, which is the
+    failure this design exists to prevent.
+
+    A purged image is a **410 Gone with a date**, never a stack trace and never a bare 404. The
+    JSON log of a turn outlives the image it names by design (logs are kept without limit,
+    photos for 30 days), so an old replay failing this way is the normal end of the story and
+    must read as such.
+
+    Args:
+        image_ref (str): The bare filename returned by the deposit. Anything that is not exactly
+            one generated name is refused before a path is built from it.
+        api_key (str): Valid API key for authentication (injected by dependency)
+
+    Returns:
+        Response: The image bytes, with the media type read off the stored extension.
+
+    Raises:
+        HTTPException: 400 on a malformed reference, 410 when the image has been purged, 404
+            when it is missing inside its retention window (which points at the mount, not at
+            the purge).
+    """
+    try:
+        imagebytes, strmediatype = uploads.load_vision_image(image_ref)
+    except uploads.UploadRefInvalid as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except uploads.UploadUnavailable as e:
+        lngstatus = 410 if datetime.now() >= uploads.purge_after(image_ref) else 404
+        raise HTTPException(status_code=lngstatus, detail=str(e))
+
+    logs.log_usage(
+        "uploads_vision_read",
+        {"image_ref": image_ref, "bytes": len(imagebytes), "api_version": strapiversion},
+        strapiversion,
+    )
+    return Response(content=imagebytes, media_type=strmediatype)
 
 @app.post("/search/text2sql", response_model=Text2SQLResponse)
 async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_api_key)):

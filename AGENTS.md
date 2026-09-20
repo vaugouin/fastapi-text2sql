@@ -200,6 +200,13 @@ Edit at the right layer; the architecture is intentionally split.
 **[logs.py](logs.py)** — `log_usage(endpoint, content, strapiversion)` and `log_hot_reload(filename)`. Filenames are `YYYYMMDD-HHMMSS_{endpoint}_{version}_{md5hash}.json`; never overwrite existing files.
 - `LOGS_FOLDER` is the **relative** `"logs"`, and that is load-bearing: on the VPS the three deployments bind-mount `/home/debian/docker/shared_data/fastapi-text2sql/logs` onto `/app/logs` (FASTAPI-TEXT2SQL-276), so they all write to one corpus while the code stays unaware of it and a laptop checkout keeps its own folder. Making this path absolute or configurable would re-split the corpus per colour.
 
+**[uploads.py](uploads.py)** — the vision-mode image deposits (FASTAPI-TEXT2SQL-275), the only binary path in this repo.
+- `store_vision_image(imagebytes, strapiversion)` — magic-number check, house filename, write, and the `image_ref` returned to the client.
+- `f_getuploadfilename()` — twin of `logs.f_getlogfilename`, same `YYYYMMDD-HHMMSS_<kind>_<version>_<md5>` shape, **hash over the raw bytes**; do not reuse the log one, it hashes `contenttext.encode('utf-8')`.
+- `parse_image_ref()` / `vision_image_path()` — the guard between a client string and the filesystem. Anything the generator could not have produced is refused before a path exists.
+- `load_vision_image()` — the replay read, raising `UploadUnavailable` **with the deposit date and the purge** when the file is gone.
+- `UPLOADS_FOLDER` is the relative `"uploads"` for exactly the reason `LOGS_FOLDER` is relative: the host dir `shared_data/fastapi-text2sql/uploads` is bind-mounted on `/app/uploads` by both restart scripts, so an image deposited on one colour is readable from the other. Absolute or per-colour would make a post-flip replay fail silently.
+
 **[data/](data/)** — hot-reloaded prompts and config:
 - `text_to_sql.md` — main Text2SQL prompt (loaded by [text2sql.py](text2sql.py))
 - `complex_question.md` — complex-question resolver prompt (loaded by [text2sql.py](text2sql.py))
@@ -222,6 +229,7 @@ The app loads environment variables from `.env` via `python-dotenv`.
 - Blue/Green and MCP: `API_PORT_BLUE`, `API_PORT_GREEN`, `MCP_API_KEY`, `MCP_INTERNAL_API_KEY`, `MCP_INTERNAL_BASE_URL`.
   - **`MCP_API_KEY` empty means `/mcp` is open.** `_verify_mcp_bearer` only enforces a bearer `if MCP_API_KEY:`, so an unset value is not a weak configuration, it is no configuration: `sql_search` and the 16 entity tools answer anyone who reaches the port. Verified on 2026-08-23, when both colours and the public NGINX route returned 200 to `tools/list` with no token and with a wrong one. Startup now logs a warning when it is empty, and that log is the only signal.
 - Pipeline shape: `BKTREE_ENABLED` (default 1), `ENTITY_RESOLUTION_PARALLEL` (default 1), `CACHE_EMPTY_RESULTS` (default 0). All three are read at import time, so changing one needs a restart.
+- Vision uploads (FASTAPI-TEXT2SQL-275): `UPLOADS_FOLDER` (default `uploads`, relative on purpose), `UPLOAD_RETENTION_DAYS` (default 30, announced to the client in every deposit response), `MAX_UPLOAD_IMAGE_BYTES` (default 25 MB). Read at import time like the three above, so a change needs a restart, and `UPLOAD_RETENTION_DAYS` must be kept in step with the `--days` the cron passes to `purge-uploads.sh`.
 
 Important startup constraint: `OPENAI_API_KEY` is required at import/startup because `main.py` initializes the OpenAI embedding function for ChromaDB even if the request-time text model is Anthropic or Google.
 
@@ -1188,6 +1196,12 @@ The 9 regex-validated placeholders validate against a fixed pattern in `_REGEX_P
 ### Gotcha #12 — The Fork-Join Must Be Joined
 `plan_entity_resolutions()` runs in a worker thread holding **this request's** DB connection. The complex-question retry path calls `connection.close()`. The join therefore sits right after the answer-entity guard, before any path that can close the connection or return early. Do not move it, and do not add a `return` between the fork and the join.
 
+### Gotcha #13 : An image_ref is a client string, never a path (FASTAPI-TEXT2SQL-275)
+Anything arriving as an `image_ref` goes through `uploads.parse_image_ref()` first, which accepts
+only a name the generator itself could have produced. Do not join it to a folder, do not
+`os.path.basename()` it and hope: the whole upload path takes no filename from the client, and the
+extension comes from the magic number of the bytes.
+
 ---
 
 ## Database tables you'll touch most
@@ -1307,8 +1321,8 @@ retries out of 505 local logs" a statement about the system rather than about on
    combined. Verify the monthly cron **after** a change here, not only before.
 3. **The retention regime is written on `logs/`, never on its parent.** `logs/` is backed up,
    mirrored and kept without limit (README, *Why these logs are kept*); the vision-mode
-   `uploads/` folder due to land beside it under the same parent is neither backed up nor
-   mirrored. A rule on `shared_data/fastapi-text2sql/` is wrong for one of the two whichever
+   `uploads/` folder that landed beside it under the same parent (FASTAPI-TEXT2SQL-275) is
+   neither backed up nor mirrored, and is purged after 30 days. A rule on `shared_data/fastapi-text2sql/` is wrong for one of the two whichever
    way it is written.
 
 The one-shot merge of the three historical directories is `migrate-logs-to-shared.sh`. Its
@@ -1316,6 +1330,38 @@ hard part is not the move but the **monthly archives, which share their names ac
 directories**: `202608.tar.gz` exists three times with different contents, so a `mv` destroys
 two thirds of that month. The script concatenates the members and verifies the count before
 `--prune-sources` removes anything.
+
+### `uploads/` is shared too, and purged (FASTAPI-TEXT2SQL-275)
+
+`-v /home/debian/docker/shared_data/fastapi-text2sql/uploads:/app/uploads`, added to both restart
+scripts beside the log mount. Same move, same ownership precaution, **opposite retention**.
+
+**Everything about this folder is the reverse of `logs/`.** Images are purged after 30 days by
+`purge-uploads.sh`, are not backed up and are not mirrored; logs are archived monthly, kept
+without limit, backed up and mirrored. Write the regime on each folder, never on the shared
+parent `shared_data/fastapi-text2sql/`, where either rule is wrong for one of the two.
+
+**Four things not to undo.**
+
+1. **`UPLOADS_FOLDER` stays relative.** Making it absolute, or per colour, re-splits the folder
+   by deployment: an image deposited on blue becomes unreadable from green after a flip, and the
+   replay fails **in silence**, which is worse than an outage.
+2. **The purge is its own script.** `archive-logs.sh` advertises in its header that it archives
+   *without deleting any data*; a deletion folded into it would be a trap for the next reader.
+   The purge also refuses any directory whose path does not end in `uploads/vision`, which is
+   what the `vision/` level is for: the purge run log lives in `uploads/`, above what it deletes.
+3. **The format is decided by the magic number, never by `Content-Type` or a filename.** The raw
+   body carries no filename at all, which is the cheapest possible answer to path traversal. An
+   `image_ref` coming back from a client goes through `uploads.parse_image_ref()` before any path
+   is built from it.
+4. **A purged replay answers `410` with a date.** The JSON log outlives the image it names by
+   design, so an old replay is expected to fail; it must fail with a sentence, never a stack
+   trace. `eval/verif-275.sh` checks exactly that, and its one check that cannot run on a laptop
+   is the cross-colour read that proves the shared mount (`OTHER_BASE_URL=...`).
+
+**What MCP cannot do.** The MCP server mounted on this app is JSON only, so it carries no bytes:
+an MCP client passes an `image_ref` deposited beforehand through `POST /uploads/vision`. That is
+the boundary of the design, not a gap.
 
 ---
 

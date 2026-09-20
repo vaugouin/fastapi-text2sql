@@ -53,6 +53,10 @@ Thumbs.db
 *.log
 logs/
 
+# Vision uploads (FASTAPI-TEXT2SQL-275): user photos, never in the history.
+# On the VPS this is a bind mount on shared_data; locally it is a real folder.
+uploads/
+
 # Database
 *.db
 *.sqlite

@@ -53,6 +53,9 @@ Thumbs.db
 *.log
 logs/
 
+# Vision uploads (FASTAPI-TEXT2SQL-275)
+uploads/
+
 # Documentation
 *.md
 README*
