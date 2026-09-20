@@ -21,11 +21,16 @@
 # script runs in the container as well as on the workstation.
 #
 # KEY AND HOST
-# The key is read from the repo's .env (API_KEYS, else API_KEY), next to this eval/ folder. A
-# KEY already in the environment wins. The default host is the blue instance.
+# The key is taken from the first .env that carries one, looked for in three places in this
+# order: the repository root (the normal <repo>/eval/ layout), then beside the script itself,
+# which is where it lands when eval/ is copied out flat, as ~/docker/text2sql-eval on the VPS
+# is, then the working directory. Within a file API_KEYS wins over API_KEY, which wins over
+# TEXT2SQL_API_KEY, the evaluator's name for the same X-API-Key value. A KEY already in the
+# environment beats all of it. The default host is the blue instance, so green needs BASE_URL.
 #
 # Usage:
 #   sh eval/verif-275.sh
+#   BASE_URL=http://172.17.0.1:8187 sh verif-275.sh          # green, from a flat copy
 #   BASE_URL=http://172.17.0.1:8186 OTHER_BASE_URL=http://172.17.0.1:8187 sh eval/verif-275.sh
 #   docker exec -w /app <container> sh eval/verif-275.sh
 
@@ -35,7 +40,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(dirname -- "$SCRIPT_DIR")
 
 BASE_URL="${BASE_URL:-http://www.vaugouin.com:8186}"
-export BASE_URL REPO_DIR
+export BASE_URL REPO_DIR SCRIPT_DIR
 export KEY="${KEY:-}"
 export OTHER_BASE_URL="${OTHER_BASE_URL:-}"
 
@@ -63,34 +68,57 @@ import zlib
 BASE_URL = os.environ["BASE_URL"].rstrip("/")
 OTHER_BASE_URL = (os.environ.get("OTHER_BASE_URL") or "").rstrip("/")
 REPO_DIR = os.environ["REPO_DIR"]
+SCRIPT_DIR = os.environ.get("SCRIPT_DIR") or REPO_DIR
+
+KEY_NAMES = ("API_KEYS", "API_KEY", "TEXT2SQL_API_KEY")
+
+
+def env_candidates():
+    """Directories that may hold the .env, most authoritative first.
+
+    REPO_DIR is the repository root when this script sits in its own eval/ folder, the only
+    layout where the file is certainly the API's. SCRIPT_DIR is the same directory when eval/
+    has been copied out flat, which is what ~/docker/text2sql-eval on the VPS is. The working
+    directory comes last. Duplicates are dropped so a normal run still reports one path.
+    """
+    ordered = []
+    for path in (REPO_DIR, SCRIPT_DIR, os.getcwd()):
+        if path and path not in ordered:
+            ordered.append(path)
+    return ordered
 
 
 def read_key():
-    """KEY from the environment, else API_KEYS then API_KEY from the repo .env.
+    """KEY from the environment, else the first key name found in the first .env that has one.
 
     The .env is parsed by hand rather than with python-dotenv: this script has to run in any
-    container, including one without that dependency.
+    container, including one without that dependency. TEXT2SQL_API_KEY is accepted because the
+    evaluator's own .env names the same X-API-Key value that way, and its folder is a place
+    this script legitimately runs from.
     """
     key = (os.environ.get("KEY") or "").strip()
     if key:
         return key, "KEY environment variable"
-    env_path = os.path.join(REPO_DIR, ".env")
-    if not os.path.isfile(env_path):
-        return "", f"not found ({env_path} missing)"
-    found = {}
-    with open(env_path, encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            name, _, value = line.partition("=")
-            name = name.strip()
-            if name in ("API_KEYS", "API_KEY"):
-                found[name] = value.strip().strip('"').strip("'")
-    for name in ("API_KEYS", "API_KEY"):
-        if found.get(name):
-            return found[name].split(",")[0].strip(), f"{name} from .env"
-    return "", "neither API_KEYS nor API_KEY in .env"
+    tried = []
+    for directory in env_candidates():
+        env_path = os.path.join(directory, ".env")
+        tried.append(env_path)
+        if not os.path.isfile(env_path):
+            continue
+        found = {}
+        with open(env_path, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                name, _, value = line.partition("=")
+                name = name.strip()
+                if name in KEY_NAMES:
+                    found[name] = value.strip().strip('"').strip("'")
+        for name in KEY_NAMES:
+            if found.get(name):
+                return found[name].split(",")[0].strip(), f"{name} from {env_path}"
+    return "", "no .env carrying " + ", ".join(KEY_NAMES) + " in: " + ", ".join(tried)
 
 
 def call(url, key, method="GET", data=None, content_type=None):
