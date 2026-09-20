@@ -38,13 +38,34 @@ _MAGIC_NUMBERS = (
     (b"\xff\xd8\xff", "jpg"),
     (b"\x89PNG\r\n\x1a\n", "png"),
 )
-_MEDIA_TYPES = {"jpg": "image/jpeg", "png": "image/png"}
+
+# WEBP is a RIFF container, so its signature sits in TWO windows, "RIFF" at 0 and "WEBP" at
+# 8, with the file length in between. It cannot join the prefix table above, which is the
+# only reason it has its own branch in sniff_image_format. Accepted since
+# FASTAPI-TEXT2SQL-279 because it costs one signature and nothing else: OpenAI reads WEBP
+# natively, so nothing has to decode or convert it here.
+_WEBP_RIFF = b"RIFF"
+_WEBP_FORM = b"WEBP"
+
+# **HEIC is refused on purpose, and that is a decision rather than an omission**
+# (FASTAPI-TEXT2SQL-279, arbitrage de Philippe, 2026-09-20). An iPhone photo taken from the
+# library is often HEIC, so the temptation is real. But the vision model does not read HEIC,
+# so accepting it would mean converting it here, which means adding an image decoder to a
+# path that deliberately has none: no PIL, no ImageMagick, therefore no decoder CVE surface
+# on bytes a stranger chose. The clients already resize to JPEG before depositing
+# (VOICE-AGENT-179, TMDB-FRONT-088), so the conversion belongs there, where the photo is
+# still in the hands of the person who took it. The 415 says so instead of leaving the
+# caller guessing.
+_MEDIA_TYPES = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+
+# What the deposit accepts, in the words the client gets back on a 415.
+ACCEPTED_FORMATS = "JPEG, PNG or WEBP"
 
 # YYYYMMDD-HHMMSS_vision_<version>_<md5 of the bytes>.<ext>, the house convention of
 # logs.f_getlogfilename with the payload hash taken over bytes instead of text.
 _IMAGE_REF_PATTERN = re.compile(
     r"^(?P<stamp>\d{8}-\d{6})_(?P<kind>[a-z][a-z0-9]*)_"
-    r"(?P<version>[A-Za-z0-9][A-Za-z0-9._-]*)_(?P<md5>[0-9a-f]{32})\.(?P<ext>jpg|png)$"
+    r"(?P<version>[A-Za-z0-9][A-Za-z0-9._-]*)_(?P<md5>[0-9a-f]{32})\.(?P<ext>jpg|png|webp)$"
 )
 
 
@@ -71,14 +92,17 @@ def sniff_image_format(imagebytes):
     """Identify an image by its magic number, ignoring any declared type.
 
     Args:
-        imagebytes (bytes): The first bytes of the payload (8 are enough) or all of them.
+        imagebytes (bytes): The first twelve bytes of the payload, or all of them.
 
     Returns:
-        str or None: "jpg", "png", or None when the bytes are neither.
+        str or None: "jpg", "png", "webp", or None when the bytes are none of the three.
+        HEIC, GIF, SVG and everything else return None on purpose; see _MEDIA_TYPES.
     """
     for magic, extension in _MAGIC_NUMBERS:
         if imagebytes[:len(magic)] == magic:
             return extension
+    if imagebytes[:4] == _WEBP_RIFF and imagebytes[8:12] == _WEBP_FORM:
+        return "webp"
     return None
 
 
@@ -86,7 +110,7 @@ def media_type_for(extension):
     """Return the HTTP media type for a stored image extension.
 
     Args:
-        extension (str): "jpg" or "png".
+        extension (str): "jpg", "png" or "webp".
 
     Returns:
         str: The matching media type, defaulting to application/octet-stream.
@@ -111,7 +135,8 @@ def f_getuploadfilename(kind, imagebytes, strapiversion, strextension):
         kind (str): The deposit kind, currently only "vision".
         imagebytes (bytes): The image payload, hashed as is.
         strapiversion (str): The current API version string.
-        strextension (str): The extension decided by the magic number ("jpg" or "png").
+        strextension (str): The extension decided by the magic number ("jpg", "png" or
+            "webp").
 
     Returns:
         str: Complete path to the image file, under UPLOADS_FOLDER/<kind>/.
@@ -137,7 +162,8 @@ def store_vision_image(imagebytes, strapiversion):
             path, bytes, image_format, deposited_at and purge_after.
 
     Raises:
-        ValueError: If the bytes are neither a JPEG nor a PNG. The size ceiling is enforced by
+        ValueError: If the bytes are none of the three accepted formats. The size ceiling is
+            enforced by
             the caller, which streams the request and must never buffer a payload past it.
 
     Note:
@@ -146,7 +172,7 @@ def store_vision_image(imagebytes, strapiversion):
     """
     image_format = sniff_image_format(imagebytes)
     if image_format is None:
-        raise ValueError("payload is neither a JPEG nor a PNG (checked on the bytes)")
+        raise ValueError(f"payload is not one of {ACCEPTED_FORMATS} (checked on the bytes)")
 
     path = f_getuploadfilename(VISION_KIND, imagebytes, strapiversion, image_format)
     if not os.path.exists(path):

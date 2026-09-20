@@ -929,7 +929,7 @@ Claude → formats and presents results to user
 | Component | Role |
 |---|---|
 | FastAPI `POST /search/text2sql` | Accepts natural language question, converts to SQL, executes, and returns full result set with pipeline trace. With an optional `image_ref` it starts from a picture instead: the image is read, the question is composed from what it points at, and the same pipeline answers it |
-| FastAPI `POST /uploads/vision` | The only route that carries bytes. Deposits a JPEG or PNG and returns the `image_ref` that names it everywhere afterwards |
+| FastAPI `POST /uploads/vision` | The only route that carries bytes. Deposits a JPEG, a PNG or a WEBP and returns the `image_ref` that names it everywhere afterwards |
 | FastAPI `/movies/{id}` etc. | Returns full entity detail with embedded relations |
 | FastMCP mounted at `""` (root); Nginx routes `/mcp` → FastAPI | Exposes tools and resources over HTTPS |
 | Bearer token middleware | Guards `/mcp` paths; skipped when `MCP_API_KEY` is empty |

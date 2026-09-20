@@ -144,6 +144,23 @@ def call(url, key, method="GET", data=None, content_type=None):
         return 0, f"{type(error).__name__}: {error}".encode()
 
 
+def call_headers(url, key):
+    """Return (status, headers) for a GET, header names lower-cased.
+
+    `call` above returns the body and drops the headers, which was enough until
+    FASTAPI-TEXT2SQL-278 made one of them part of the contract. A missing header is a silence,
+    and a silence is exactly what this file exists to turn into a FAIL line.
+    """
+    request = urllib.request.Request(url, headers={"X-API-Key": key}, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return response.status, {k.lower(): v for k, v in response.headers.items()}
+    except urllib.error.HTTPError as error:
+        return error.code, {k.lower(): v for k, v in (error.headers or {}).items()}
+    except OSError as error:
+        return 0, {}
+
+
 def raw_connection(url):
     """A bare HTTPConnection plus the path to request.
 
@@ -227,6 +244,23 @@ def jpeg_bytes(payload=b"verif-275"):
     return b"\xff\xd8" + app0 + comment + b"\xff\xd9"
 
 
+def webp_bytes(payload=b"verif-275"):
+    """A RIFF/WEBP container carrying the marker, valid by its signature.
+
+    WEBP is the third accepted format since FASTAPI-TEXT2SQL-279, and it is the one that does
+    not fit the prefix table in uploads.py: "RIFF" sits at offset 0 and "WEBP" at offset 8,
+    with the file length in between. A fixture that only got the first window right would pass
+    a sniffer that only checks the first window, which is exactly the bug worth catching.
+    """
+    body = b"VP8 " + (len(payload) + 4).to_bytes(4, "little") + b"\x00" * 4 + payload
+    return b"RIFF" + (len(body) + 4).to_bytes(4, "little") + b"WEBP" + body
+
+
+def heic_bytes():
+    """The opening box of an HEIC file, the format an iPhone produces and this API refuses."""
+    return (24).to_bytes(4, "big") + b"ftypheic" + b"\x00" * 12
+
+
 key, key_origin = read_key()
 if not key:
     print(f"No API key: {key_origin}", file=sys.stderr)
@@ -246,6 +280,7 @@ refs = {}
 for label, payload, content_type in (
     ("jpeg deposit", jpeg_bytes(), "image/jpeg"),
     ("png deposit, with a lying Content-Type", png_bytes(), "text/plain"),
+    ("webp deposit", webp_bytes(), "image/webp"),
 ):
     status, body = call(BASE_URL + "/uploads/vision", key, "POST", payload, content_type)
     data = json.loads(body) if status == 200 else {}
@@ -262,9 +297,37 @@ for image_ref, payload in refs.items():
     status, body = call(f"{BASE_URL}/uploads/vision/{image_ref}", key)
     check("read back, byte for byte", status == 200 and body == payload,
           f"status {status}, {len(body)} bytes")
+    # FASTAPI-TEXT2SQL-278. The deposit guard is a magic number, not a decode, so a polyglot
+    # (JPEG signature plus an HTML or PHP payload) is stored. Nothing executes it here; browser
+    # sniffing was the last way it could be read as something else.
+    status, headers = call_headers(f"{BASE_URL}/uploads/vision/{image_ref}", key)
+    check("read back, with nosniff and an image content type",
+          headers.get("x-content-type-options", "").lower() == "nosniff"
+          and headers.get("content-type", "").startswith("image/"),
+          f"status {status}, type {headers.get('content-type')!r}, "
+          f"nosniff {headers.get('x-content-type-options')!r}")
 
 status, body = call(BASE_URL + "/uploads/vision", key, "POST", b"GIF89a" + b"\x00" * 64, "image/jpeg")
 check("a GIF announced as image/jpeg is refused", status == 415, f"status {status}")
+
+# FASTAPI-TEXT2SQL-279. HEIC is refused BY DECISION, not by oversight: the vision model does not
+# read it, so accepting it would mean decoding it here, on a path that deliberately carries no
+# image library. The check is on the message as much as on the status, because a 415 that does
+# not name the remedy leaves an iPhone user with no way forward.
+status, body = call(BASE_URL + "/uploads/vision", key, "POST", heic_bytes(), "image/heic")
+detail = ""
+try:
+    detail = json.loads(body).get("detail", "")
+except Exception:
+    detail = str(body[:160])
+check("HEIC is refused, and the message says to convert",
+      status == 415 and "HEIC" in detail and "JPEG" in detail,
+      f"status {status}, {detail[:100]}")
+
+# A RIFF container that is not WEBP must not slip through the two-window check.
+status, body = call(BASE_URL + "/uploads/vision", key, "POST",
+                    b"RIFF" + (36).to_bytes(4, "little") + b"WAVE" + b"\x00" * 32, "image/webp")
+check("a WAV announced as image/webp is refused", status == 415, f"status {status}")
 
 status, body = call(BASE_URL + "/uploads/vision", key, "POST", b"", "image/jpeg")
 check("an empty body is refused", status == 400, f"status {status}")

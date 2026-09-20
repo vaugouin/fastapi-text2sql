@@ -1344,6 +1344,14 @@ only a name the generator itself could have produced. Do not join it to a folder
 `os.path.basename()` it and hope: the whole upload path takes no filename from the client, and the
 extension comes from the magic number of the bytes.
 
+**Adding a format is two edits and a decision, not one edit** (FASTAPI-TEXT2SQL-279). The
+signature goes in `uploads.py`, `_IMAGE_REF_PATTERN` has to learn the new extension or every
+deposit becomes unreadable on the way back, and `_MEDIA_TYPES` decides what the read route
+announces. The decision is whether the VISION MODEL reads the format: WEBP was accepted because
+it does, HEIC was refused because it does not, and accepting HEIC would mean converting it here,
+which means putting the first image decoder of this repository on a path that handles bytes a
+stranger chose.
+
 ### Gotcha #14 : The vision model identifies, it never writes the question (FASTAPI-TEXT2SQL-114)
 `compose_vision_question()` builds the question from `items[]`, in code. Letting the model
 return the question instead would look simpler and would break the recognition cache: a cached

@@ -1773,7 +1773,9 @@ async def upload_vision_image(request: Request, api_key: str = Depends(get_api_k
     - **The client sends no filename, so no filename can decide anything.** The name on disk is
       built here (`uploads.f_getuploadfilename`), and the extension comes from the magic number
       of the payload, never from `Content-Type`, which is not read at all. A file called
-      `../../etc/passwd` has nothing to travel on.
+      `../../etc/passwd` has nothing to travel on. Three formats are accepted, JPEG, PNG and
+      WEBP, all three read natively by the vision model; HEIC is refused on purpose, since
+      accepting it would mean decoding it here (FASTAPI-TEXT2SQL-279).
     - **The body is streamed and the ceiling is enforced as it arrives**, so a payload past
       `MAX_UPLOAD_IMAGE_BYTES` is refused with 413 without ever being buffered whole or written
       to `uploads/`.
@@ -1795,7 +1797,7 @@ async def upload_vision_image(request: Request, api_key: str = Depends(get_api_k
 
     Raises:
         HTTPException: 400 on an empty body, 413 past the size ceiling, 415 when the bytes are
-            neither a JPEG nor a PNG, 500 when the folder cannot be written.
+            none of the accepted formats, 500 when the folder cannot be written.
 
     Example:
         curl -X POST -H "X-API-Key: <key>" --data-binary @poster.jpg \\
@@ -1831,7 +1833,12 @@ async def upload_vision_image(request: Request, api_key: str = Depends(get_api_k
     if strimageformat is None:
         raise HTTPException(
             status_code=415,
-            detail="Unsupported image: the bytes are neither a JPEG nor a PNG (the declared Content-Type is not read)",
+            detail=(
+                f"Unsupported image: the bytes are not {uploads.ACCEPTED_FORMATS}. The format is "
+                "read from the payload itself, so the declared Content-Type plays no part. HEIC, "
+                "which an iPhone often produces, is deliberately not accepted: convert it to JPEG "
+                "before depositing, as the clients already do when they resize."
+            ),
         )
 
     try:
@@ -1872,7 +1879,9 @@ async def get_vision_image(image_ref: str, api_key: str = Depends(get_api_key)):
         api_key (str): Valid API key for authentication (injected by dependency)
 
     Returns:
-        Response: The image bytes, with the media type read off the stored extension.
+        Response: The image bytes, with the media type read off the stored extension, and
+            `X-Content-Type-Options: nosniff` so a browser cannot decide to read them as
+            anything else (FASTAPI-TEXT2SQL-278).
 
     Raises:
         HTTPException: 400 on a malformed reference, 410 when the image has been purged, 404
@@ -1892,7 +1901,19 @@ async def get_vision_image(image_ref: str, api_key: str = Depends(get_api_key)):
         {"image_ref": image_ref, "bytes": len(imagebytes), "api_version": strapiversion},
         strapiversion,
     )
-    return Response(content=imagebytes, media_type=strmediatype)
+    # FASTAPI-TEXT2SQL-278. The stored type can only ever be image/jpeg or image/png, since the
+    # extension is derived from the magic number and never from the client. What this header adds
+    # is the one case the magic number cannot catch: a POLYGLOT, bytes that open with the JPEG
+    # signature and carry HTML or PHP further down. The guard at deposit is a signature and not a
+    # decode, so such a file is accepted and stored. Nothing executes it here (no StaticFiles
+    # mount, php-fpm does not mount shared_data, no image library ever touches the bytes), which
+    # leaves browser content sniffing as the only way it could ever be read as something other
+    # than an image. One header closes that, for good.
+    return Response(
+        content=imagebytes,
+        media_type=strmediatype,
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 @app.post("/search/text2sql", response_model=Text2SQLResponse)
 async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_api_key)):

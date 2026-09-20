@@ -1104,12 +1104,33 @@ refused with 415. No filename travels with a raw body, so no filename can decide
 extension. The name on disk follows the house convention of [logs.py](logs.py), with the hash
 taken over the bytes: `YYYYMMDD-HHMMSS_vision_<version>_<md5>.<ext>`.
 
+**There is no list of allowed extensions, because no extension is ever received.** The whitelist
+is a list of **magic numbers**, and the extension written to disk is derived from them. Three
+formats are accepted, **JPEG, PNG and WEBP**, all three read natively by the vision model so that
+nothing has to be decoded or converted here. A `.sh`, `.py`, `.php`, `.conf`, an HTML page, an
+SVG, an ELF binary, a ZIP or a GIF is refused with 415 before anything is written.
+
+**HEIC is refused by decision, not by oversight** (FASTAPI-TEXT2SQL-279). An iPhone photo taken
+from the library often is HEIC, so the temptation is real, but the vision model does not read it:
+accepting it would mean converting it server-side, which means adding an image decoder to a path
+that deliberately carries none, and with it a decoder CVE surface on bytes a stranger chose. The
+clients already resize to JPEG before depositing, so the conversion belongs there, where the
+photo is still in the hands of the person who took it. The 415 says exactly that rather than
+leaving the caller to guess.
+
+The one case a signature cannot catch is a **polyglot**, bytes opening with the JPEG signature
+and carrying a payload further down: that file is accepted and stored as `.jpg`. Nothing executes
+it here (no static mount serves `uploads/`, the read route below sets the type itself, and no
+image library ever touches the bytes), and the read route sends `X-Content-Type-Options: nosniff`
+so a browser cannot decide to read it as anything but an image (FASTAPI-TEXT2SQL-278).
+
 | Case | Answer |
 | --- | --- |
-| valid JPEG or PNG | `200` with the `image_ref` |
-| bytes that are neither, whatever the header says | `415` |
+| valid JPEG, PNG or WEBP | `200` with the `image_ref` |
+| HEIC, or anything else, whatever the header says | `415`, naming the accepted formats |
 | empty body | `400` |
 | past `MAX_UPLOAD_IMAGE_BYTES` (25 MB by default) | `413`, streamed and refused without writing to disk |
+| a valid image read back | `200`, with its `image/jpeg` or `image/png` type and `X-Content-Type-Options: nosniff` |
 | `GET` with a reference that is not one of ours | `400` |
 | `GET` on an image past its 30 days | `410`, with the deposit date and the purge stated |
 | `GET` on a missing image still inside its window | `404`, which points at the mount, not at the purge |
