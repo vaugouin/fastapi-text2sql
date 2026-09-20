@@ -28,14 +28,30 @@
 #
 # Usage:
 #   ./migrate-logs-to-shared.sh                        # dry run: inventory + collisions
-#   sudo ./migrate-logs-to-shared.sh --apply           # merge archives, move loose files
-#   sudo ./migrate-logs-to-shared.sh --prune-sources   # remove the source archives, only
+#   ./migrate-logs-to-shared.sh --apply                # merge archives, move loose files
+#   ./migrate-logs-to-shared.sh --prune-sources        # remove the source archives, only
 #                                                      # after re-reading them out of the
 #                                                      # target
 #   ./migrate-logs-to-shared.sh --target DIR SOURCE... # override the paths
 #
-# sudo is needed because the three source logs/ directories were created by the container,
-# which runs as root: moving files out of them needs write permission on them.
+# WHO CAN RUN IT. Removing or renaming a file is governed by write permission on its
+# DIRECTORY, not by ownership of the file, so the log files being root-owned (the
+# container runs as root) changes nothing. What decides is who owns the source logs/
+# directories. Measured on the VPS 2026-09-20: both are debian:debian drwxr-xr-x, so
+# debian runs this unaided. Check before assuming, and prefix with sudo if any of them
+# came back root:
+#   ls -ld /home/debian/docker/fastapi-text2sql{-blue,-green,}/logs
+#
+# Create the target as debian BEFORE any sudo run, or the mkdir -p below makes it
+# root-owned and archive-logs.sh needs sudo for ever after.
+#
+# MEASURED ON THE VPS, 2026-09-20, and it corrects two assumptions of the ticket.
+# There are TWO source directories, not three: the colourless fastapi-text2sql/ deployment
+# has no logs/ at all. And there is not a single monthly archive on either colour, so the
+# name collision above, the dangerous half of this script, does not arise in practice: the
+# migration is a plain move of 24 940 loose files (20 656 blue, 4 284 green). The archive
+# code stays because it is what makes the script safe to re-run after archive-logs.sh
+# finally runs, which on that date it never had.
 #
 # Idempotent. A month is merged into a temp file and moved into place only once verified,
 # so it is either complete or absent; a second run skips the months already done and moves
@@ -59,7 +75,7 @@ while [ $# -gt 0 ]; do
     --apply)          APPLY=1 ;;
     --prune-sources)  PRUNE=1 ;;
     --target)         TARGET="$2"; shift ;;
-    -h|--help)        sed -n '2,40p' "$0"; exit 0 ;;
+    -h|--help)        sed -n '2,50p' "$0"; exit 0 ;;
     -*)               echo "unknown option: $1" >&2; exit 2 ;;
     *)                explicit_sources+=("$1") ;;
   esac
@@ -287,5 +303,5 @@ echo "Acceptance: the target's loose count plus its archived members must equal 
 echo "sources' $total_loose_before + $total_arc_members_before measured above, minus any duplicate reported."
 if [ "$APPLY" -eq 0 ] && [ "$PRUNE" -eq 0 ]; then
   echo
-  echo "Nothing was written. Re-run with --apply (as root) to perform the merge."
+  echo "Nothing was written. Re-run with --apply to perform the merge."
 fi

@@ -841,6 +841,25 @@ read the old name.**
 Read the `undefined name` lines as blocking. The `assigned to but never used` lines are worth a
 look too, since they usually mean a refactor left something behind, but they do not break anything.
 
+## A new shell script needs its executable bit set IN GIT, not on disk
+
+`core.filemode` is **false** in this checkout, which is the Windows default: a `chmod +x` on
+the working copy changes the file and changes nothing git records, so the script lands in the
+repository as `100644` and the VPS answers `Permission denied` on the first `./script.sh` after
+the pull. The fix is one command, and it is the only one that works from Windows:
+
+```bash
+git update-index --chmod=+x path/to/script.sh
+git ls-files -s '*.sh'          # every one of them must read 100755
+```
+
+**This is the third time the same bit has cost a deployment.** `archive-logs.sh` never ran once
+before 2026-08-21, partly for this reason (the other being an impossible redirect target, both
+recorded in its own header), and `migrate-logs-to-shared.sh` was added on 2026-09-19 as `100644`
+and failed on its first run the next day. `eval/verif-206.sh` was found carrying the same defect
+while fixing it, never having been run. Check the listing above whenever a `.sh` is added, and
+prefer `bash script.sh` over `./script.sh` when a first run must not be about permissions.
+
 ## Code conventions
 
 - **Hungarian notation** for variables (legacy style):
