@@ -258,6 +258,59 @@ def main():
               % ("OK   " if conforme else "ECHEC", obtenu[:52]))
 
     print()
+    print("-- Option 1 : une question sur les personnes est repondue par les visages lus")
+    # Mesure du 2026-09-20 : "who are the actors on this picture?" rendait les 32 noms du
+    # generique, Dorothy Malone au rang 11, alors que le modele avait lu et nomme les deux
+    # visages. Arbitrage de Philippe : rendre les visages quand il y en a.
+    BOGART = item("Humphrey Bogart", "person", "", 0.95)
+    MALONE = item("Dorothy Malone", "person", "", 0.88)
+    SLEEP = item("The Big Sleep", "movie", "1946", 0.99)
+    photo = payload(SLEEP, BOGART, MALONE)
+    for question, attendu, pourquoi in [
+        ("Who are the actors on this picture?", "Persons Humphrey Bogart, Dorothy Malone",
+         "la question porte sur les visages, le generique de 32 noms ne repond pas"),
+        ("qui sont les acteurs de ce film ?", "Persons Humphrey Bogart, Dorothy Malone",
+         "en francais, et le mot 'film' ne doit PAS faire retomber sur le generique"),
+        ("who directed this?", "who directed the movie The Big Sleep (1946)?",
+         "un role n'est pas sur l'image : le catalogue repond, par l'oeuvre"),
+        ("what is this?", "what is the movie The Big Sleep (1946)?",
+         "la question porte sur l'oeuvre"),
+        ("", "Movie The Big Sleep released in 1946",
+         "photo seule : l'oeuvre, jamais un visage"),
+    ]:
+        total += 1
+        obtenu = compose(photo, question)
+        conforme = obtenu == attendu
+        succes += conforme
+        print("%s  %-46s %s" % ("OK   " if conforme else "ECHEC", obtenu[:46], pourquoi))
+
+    total += 1
+    obtenu = compose(payload(SLEEP), "Who are the actors on this picture?")
+    conforme = obtenu == "Who are the actors on the movie The Big Sleep (1946)?"
+    succes += conforme
+    print("%s  aucun visage lu : la question retombe sur l'oeuvre, comportement d'avant"
+          % ("OK   " if conforme else "ECHEC"))
+
+    total += 1
+    obtenu = compose(payload(BOGART), "")
+    conforme = obtenu == "Person Humphrey Bogart"
+    succes += conforme
+    print("%s  un portrait sans oeuvre devient repondable : %r"
+          % ("OK   " if conforme else "ECHEC", obtenu))
+
+    # Le plafond s'applique par nature. Sans cela, cinq visages pousseraient le film hors
+    # d'une liste de cinq et la photo serait repondue comme si elle ne montrait aucun film.
+    total += 1
+    foule = payload(SLEEP, *[item("P%d" % i, "person", "", 0.9) for i in range(7)])
+    choix = choisit(foule)
+    conforme = ([c["value"] for c in choix["works"]] == ["The Big Sleep"]
+                and len(choix["people"]) == MAX_CANDIDATS)
+    succes += conforme
+    print("%s  sept visages ne chassent pas le film : oeuvres=%s, personnes=%d"
+          % ("OK   " if conforme else "ECHEC",
+             [c["value"] for c in choix["works"]], len(choix["people"])))
+
+    print()
     print("-- La composition survit au cache, et c'est ce qui rend la page 2 ordinaire")
     # L'invariant qui compte n'est pas "deux identifications differentes donnent la meme
     # question", il est "l'identification RANGEE EN CACHE donne la meme question que celle qui

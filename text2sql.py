@@ -1250,6 +1250,63 @@ def _phrase_language(matched_text: str, ui_language: str) -> str:
     return str(ui_language or "en").strip().lower()
 
 
+# A question asking WHO IS IN THE PICTURE, which the faces answer better than a cast list
+# (FASTAPI-TEXT2SQL-281). Measured on 2026-09-20: "who are the actors on this picture?" returned
+# the 32 names of The Big Sleep, with Dorothy Malone at rank 11, while the vision model had read
+# and named both visible faces. The names were in the response all along, in `hints.faces`, and
+# thrown away.
+_VISION_PERSON_QUESTION_MARKERS = (
+    # English
+    "who is this", "who is that", "who is he", "who is she", "who is the actor",
+    "who is the actress", "who is the person", "who's this", "who's that", "who is it",
+    "who are these", "who are those", "who are they", "who are the actors",
+    "who are the actresses", "who are the people", "name the actors", "name these actors",
+    "which actor", "which actress", "identify the actor", "identify the person",
+    # French
+    "qui est cet", "qui est cette", "qui est ce ", "qui est l'acteur", "qui est l'actrice",
+    "qui est la personne", "c'est qui", "qui sont ces", "qui sont ils", "qui sont-ils",
+    "qui sont les acteurs", "qui sont les actrices", "quel acteur", "quelle actrice",
+)
+
+# ... unless the question names a ROLE, in which case it asks about someone who is very
+# probably not in the frame. "who directed this?" carries "who" and must never be answered by
+# the faces: that person is found in the catalogue, from the work.
+#
+# Each entry is deliberately a WHOLE role word and not a stem. "film" was in the first draft
+# and it would have disabled the feature in French on its own: "qui sont les acteurs de ce
+# film ?" contains it, so every French person question would have fallen back to the cast, the
+# exact behaviour this ticket exists to stop. Same reasoning removed "edit" (edition), "shot"
+# and "score".
+_VISION_ROLE_VERBS = (
+    "directed", "director", "wrote", "writer", "written", "screenplay", "screenwriter",
+    "produced", "producer", "composed", "composer", "music by", "score by", "filmed by",
+    "edited by", "editor", "cinematograph",
+    "realis", "r\u00e9alis", "sc\u00e9nariste", "scenariste", "sc\u00e9nario", "scenario",
+    "\u00e9crit par", "ecrit par", "produit par", "producteur", "compositeur", "musique de",
+    "monteur", "chef op\u00e9rateur", "chef operateur",
+)
+
+
+def question_targets_the_people_shown(user_question) -> bool:
+    """True when the question asks who the people IN the image are.
+
+    FASTAPI-TEXT2SQL-281, arbitrage of 2026-09-20 (option 1): when the model has read faces,
+    such a question is answered by those faces rather than by the work's whole cast. Two
+    conditions, and the second is what keeps it safe: a person-identity marker, and no role
+    verb. "Who directed this?" carries "who" and is not about the visible people, so composing
+    from the faces there would answer confidently and wrongly.
+
+    Flattening an identity question into entity cards is NOT the -263 defect: -263 is about a
+    question asking for a RELATION being replaced by a card. "Who is this?" asks for the card.
+    """
+    q = str(user_question or "").strip().lower()
+    if not q:
+        return False
+    if any(verb in q for verb in _VISION_ROLE_VERBS):
+        return False
+    return any(marker in q for marker in _VISION_PERSON_QUESTION_MARKERS)
+
+
 def question_targets_the_image(user_question) -> bool:
     """True when the question asks about the image itself rather than about the work.
 
@@ -1304,8 +1361,11 @@ def _normalize_vision_items(payload) -> list:
             "confidence": confidence,
             "evidence": evidence,
         })
+    # No cap here: the cap is applied per KIND by select_vision_candidates, because a single
+    # cap over a confidence-sorted list lets recognised faces evict the work
+    # (FASTAPI-TEXT2SQL-281).
     cleaned.sort(key=lambda c: -c["confidence"])
-    return cleaned[:VISION_MAX_CANDIDATES]
+    return cleaned
 
 
 def select_vision_candidates(payload) -> dict:
@@ -1322,20 +1382,36 @@ def select_vision_candidates(payload) -> dict:
     evidence the user is entitled to see.
     """
     ranked = _normalize_vision_items(payload)
-    if not ranked:
-        return {"ranked": [], "selected": None, "alternatives": [], "dominant": False}
-    top = ranked[0]
-    if len(ranked) == 1:
-        return {"ranked": ranked, "selected": top, "alternatives": [], "dominant": True}
-    runner_up = ranked[1]
+    # Works and people are capped SEPARATELY (FASTAPI-TEXT2SQL-281). A single cap over a list
+    # sorted by confidence would let five recognised faces push the film out of a five-slot
+    # list, and the photo would then be answered as if it showed nobody's film.
+    works = [c for c in ranked if c["type"] != "person"][:VISION_MAX_CANDIDATES]
+    people = [c for c in ranked if c["type"] == "person"][:VISION_MAX_CANDIDATES]
+    # What the response reports is the union of the two capped lists, so `candidates` never
+    # holds an item the composer could not have used.
+    ranked = sorted(works + people, key=lambda c: -c["confidence"])
+    # What a question about the SUBJECT is answered from: the work when there is one, the
+    # people when the image shows no work at all (a portrait), which is the case that had no
+    # answer before this ticket.
+    pool = works or people
+    if not pool:
+        return {"ranked": ranked, "works": works, "people": people,
+                "selected": None, "alternatives": [], "dominant": False}
+    top = pool[0]
+    if len(pool) == 1:
+        return {"ranked": ranked, "works": works, "people": people,
+                "selected": top, "alternatives": [], "dominant": True}
+    runner_up = pool[1]
     dominant = (
         top["confidence"] >= VISION_CONFIDENCE_DOMINANT
         and (top["confidence"] - runner_up["confidence"]) >= VISION_CONFIDENCE_MARGIN
     )
     return {
         "ranked": ranked,
+        "works": works,
+        "people": people,
         "selected": top,
-        "alternatives": ranked[1:],
+        "alternatives": pool[1:],
         "dominant": dominant,
     }
 
@@ -1386,8 +1462,17 @@ def compose_vision_question(payload, user_question: str = "", ui_language: str =
         return ""
 
     question = str(user_question or "").strip()
+
+    # FASTAPI-TEXT2SQL-281, option 1. "Who are the actors on this picture?" is answered by the
+    # faces the model read, not by the work's cast: the user pointed at two people and the cast
+    # buried them among thirty-two. When no face was read, this does not fire and the question
+    # falls through to the work, which is the pre-existing behaviour.
+    if question and selection["people"] and question_targets_the_people_shown(question):
+        return f_build_retry_question_from_reasoning(
+            {"question": "", "items": selection["people"]})
+
     if question == "":
-        items = [selection["selected"]] if selection["dominant"] else ranked
+        items = [selection["selected"]] if selection["dominant"] else (selection["works"] or ranked)
         return f_build_retry_question_from_reasoning({"question": "", "items": items})
 
     # The demonstrative is located BEFORE the phrase is built, because the language it is

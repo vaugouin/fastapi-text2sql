@@ -704,6 +704,27 @@ substituted into it (`who directed this film?` -> `who directed the movie Blade 
 nothing, which is the defect recorded as **-263**, and the vision prompt inherits that rule in
 so many words.
 
+**A question about the people IN the image is answered by the faces, not by the cast**
+(FASTAPI-TEXT2SQL-281, arbitrage of 2026-09-20, explicitly "let us try it and see"). The vision
+task declares the people it recognises as `person` items beside the `movie` item, and
+`compose_vision_question` prefers them when `question_targets_the_people_shown()` fires. Measured
+before the change: "who are the actors on this picture?" returned the 32 names of *The Big
+Sleep*, Dorothy Malone at rank 11, while the model had already read and named both visible faces
+in `hints.faces` and the pipeline threw that away.
+
+Three properties of that branch are worth knowing before touching it. It is **gated on a role
+verb being absent**, so "who directed this?" is never answered from faces, the director not being
+in the frame; the first draft of that list contained the stem `film`, which would have disabled
+the whole feature in French, since "qui sont les acteurs de ce film ?" contains it. It **falls
+back to the cast when no face was read**, so the behaviour is not uniform and that is the thing
+to watch in use. And it is what finally answers a **portrait with no work in it**, which had no
+answer at all before: with only `person` items, the composer builds `Person X`.
+
+**The cap is applied per kind, and that is not cosmetic.** `select_vision_candidates` keeps up to
+`VISION_MAX_CANDIDATES` works AND up to as many people. A single cap over a confidence-sorted
+list would let five recognised faces evict the film, and the photo would then be answered as if
+it showed nobody's film.
+
 **Three outcomes never reach the catalogue**, and none of them is an error: a question about
 the pixels (`about_image`, answered from the image), an image with nothing of cinema in it,
 and an image the model could not read. All three return an `answer`, an empty `result`, no SQL

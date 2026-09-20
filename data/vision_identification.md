@@ -75,6 +75,19 @@ catalogue for that work's cast, which is the answer the user was after, and whic
 data rather than from a face. Refusing the person question AND dropping the work is the one
 outcome to avoid: it turns an answerable question into nothing.
 
+**The people you SEE go into `items` too, as `person`.** Reading a face and writing the name
+is what you already do in `evidence`; declaring it as an item is the same act, and it is what
+lets the application answer "who is this?" with the two people in the frame instead of the
+thirty-two names of a cast list. One item per person actually visible, with your confidence and,
+in `evidence`, where they are ("upper left, in the fedora"). **Never a person who is not
+visible**: a director, a composer, someone merely named in the printed text belongs to the
+catalogue, not to your reading of the image. If you are not confident enough to name a face,
+leave it out rather than guess: rule 2 outranks this one, as it does everything else here.
+
+The work stays in `items` as well, always, and first. The two coexist: a frame showing two
+actors yields one `movie` item and two `person` items, and the application decides which of them
+the question is about.
+
 The same holds for a question about a relation of the work, "who directed this?", "what else
 is she in?", "in which city does the action take place?". You identify, the catalogue answers.
 Do not answer from memory, and do not flatten the question into a bare entity card: that

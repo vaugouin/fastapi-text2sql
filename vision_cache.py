@@ -32,7 +32,9 @@ never the pixels: a question about the image itself still needs the file, and ge
 
 The table was created in production on 2026-09-20 at 12:53:25 by
 `maintenance/vision-recognition-cache.sql`, whose output is kept beside it, and the API account
-was granted on it at 15:4x the same day, after eight requests had failed to write.
+was granted on it the same day, after eight requests had failed to write. The first write
+landed at 14:33:34 and the first hit at 14:34:34, which is what dates the grant: before that,
+not the 15:4x an earlier version of this comment claimed from memory.
 
 **Every failure of this module is reported to the caller, and that is a lesson rather than a
 taste.** On 2026-09-20 the table existed and was readable, but `moviematchro` had no

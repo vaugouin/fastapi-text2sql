@@ -2422,6 +2422,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
 
         # What was read, what it points at, and which candidate the confidence picked.
         dctvisionselection = t2s.select_vision_candidates(dctvision)
+        intansweredfromfaces = bool(
+            strvisionquestion
+            and dctvisionselection.get("people")
+            and t2s.question_targets_the_people_shown(strvisionquestion))
         strvisioncomposed = t2s.compose_vision_question(
             dctvision, strvisionquestion, request.ui_language)
         vision_evidence = {
@@ -2433,6 +2437,12 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             "selected": dctvisionselection["selected"],
             "alternatives": dctvisionselection["alternatives"],
             "dominant": dctvisionselection["dominant"],
+            # FASTAPI-TEXT2SQL-281. Which of the two branches answered: the faces read in the
+            # image, or the work it points at. Sliceable, because the arbitrage that chose the
+            # faces (option 1, 2026-09-20) is explicitly "on verra a l'usage", and a campaign
+            # cannot revisit it without being able to count the turns it changed.
+            "answered_from_faces": bool(intansweredfromfaces),
+            "people": dctvisionselection.get("people") or [],
             "about_image": bool(dctvision.get("about_image")),
             "authoritative_empty": bool(dctvision.get("authoritative_empty")),
             "justification": str(dctvision.get("justification") or ""),
@@ -2512,7 +2522,15 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # complex-question retry: a rewrite must start from the words the pipeline actually
         # ran on, not from a demonstrative the image is no longer attached to.
         original_question = strvisioncomposed
-        if strvisionquestion:
+        if intansweredfromfaces:
+            messages.append(TextMessage(
+                position=position_counter,
+                text=(f"Vision: the question asks who is IN the image, and "
+                      f"{len(dctvisionselection['people'])} face(s) were read, so it is answered "
+                      f"from them rather than from the work's cast; "
+                      f"'{strvisionquestion}' becomes '{strvisioncomposed}'.")
+            ))
+        elif strvisionquestion:
             messages.append(TextMessage(
                 position=position_counter,
                 text=(f"Vision: the identified entity was substituted into the question, "
