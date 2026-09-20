@@ -146,7 +146,7 @@ Edit at the right layer; the architecture is intentionally split.
 
 **[main.py](main.py)** (~2460 lines) — FastAPI app, ChromaDB / DB startup, request orchestration only.
 - Version utilities: `format_api_version()` ([main.py:33](main.py#L33)), `compare_versions()` ([main.py:38](main.py#L38))
-- `strapiversion` lives at [main.py:105](main.py#L105) (also drives Blue/Green port parity and `MCP_INTERNAL_BASE_URL`)
+- `strapiversion` lives at [main.py:137](main.py#L137) (also drives Blue/Green port parity and `MCP_INTERNAL_BASE_URL`)
 - `Text2SQLRequest` / `Text2SQLResponse` Pydantic models around [main.py:214-269](main.py#L214-L269)
 - `POST /search/text2sql` — main pipeline endpoint
 - 18 entity detail endpoints (movies, series, seasons, episodes, persons, companies, networks, collections, topics, lists, movements, technicals, genres, groups, deaths, awards, nominations, locations). `seasons` and `episodes` are keyed on composite paths (`/seasons/{id_serie}/{season_number}`, `/episodes/{id_serie}/{season_number}/{episode_number}`) and currently read from `T_WC_TMDB_*` source tables — see [SEASONS_AND_EPISODES.md](doc/SEASONS_AND_EPISODES.md) §6.1. `genres` reads the closed-vocabulary reference table `T_WC_TMDB_GENRE` (legacy lowercase PK `id`, no `ID_WIKIDATA`, so no Wikipedia arrays).
@@ -198,14 +198,16 @@ Edit at the right layer; the architecture is intentionally split.
 **[language_family.py](language_family.py)** — `guess_language_family()` from Unicode code points (Latin / Hangul / Japanese / Chinese / Cyrillic / Arabic / Hebrew / Devanagari / etc.).
 
 **[logs.py](logs.py)** — `log_usage(endpoint, content, strapiversion)` and `log_hot_reload(filename)`. Filenames are `YYYYMMDD-HHMMSS_{endpoint}_{version}_{md5hash}.json`; never overwrite existing files.
-- `LOGS_FOLDER` is the **relative** `"logs"`, and that is load-bearing: on the VPS the three deployments bind-mount `/home/debian/docker/shared_data/fastapi-text2sql/logs` onto `/app/logs` (FASTAPI-TEXT2SQL-276), so they all write to one corpus while the code stays unaware of it and a laptop checkout keeps its own folder. Making this path absolute or configurable would re-split the corpus per colour.
+- `LOGS_FOLDER` is the **relative** `"logs"`, and that is load-bearing. Making it absolute or
+  configurable would re-split the corpus per colour; see *`logs/` and `uploads/` are shared*.
 
 **[uploads.py](uploads.py)** — the vision-mode image deposits (FASTAPI-TEXT2SQL-275), the only binary path in this repo.
 - `store_vision_image(imagebytes, strapiversion)` — magic-number check, house filename, write, and the `image_ref` returned to the client.
 - `f_getuploadfilename()` — twin of `logs.f_getlogfilename`, same `YYYYMMDD-HHMMSS_<kind>_<version>_<md5>` shape, **hash over the raw bytes**; do not reuse the log one, it hashes `contenttext.encode('utf-8')`.
 - `parse_image_ref()` / `vision_image_path()` — the guard between a client string and the filesystem. Anything the generator could not have produced is refused before a path exists.
 - `load_vision_image()` — the replay read, raising `UploadUnavailable` **with the deposit date and the purge** when the file is gone.
-- `UPLOADS_FOLDER` is the relative `"uploads"` for exactly the reason `LOGS_FOLDER` is relative: the host dir `shared_data/fastapi-text2sql/uploads` is bind-mounted on `/app/uploads` by both restart scripts, so an image deposited on one colour is readable from the other. Absolute or per-colour would make a post-flip replay fail silently.
+- `UPLOADS_FOLDER` is relative for exactly the same reason, and with a sharper failure mode:
+  absolute or per-colour makes a post-flip replay fail **silently**.
 
 **[data/](data/)** — hot-reloaded prompts and config:
 - `text_to_sql.md` — main Text2SQL prompt (loaded by [text2sql.py](text2sql.py))
@@ -220,62 +222,73 @@ Edit at the right layer; the architecture is intentionally split.
 
 ## Runtime dependencies
 
-The app loads environment variables from `.env` via `python-dotenv`.
+The variables are documented in `README.md`, *Set up environment variables*. Three things that
+file does not say, and that bite an agent:
 
-- MariaDB: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`.
-- API auth: `API_KEYS` (comma-separated) or legacy `API_KEY`.
-- LLMs: `OPENAI_API_KEY` for `gpt-*`, `o1*`, `o3*`, and embeddings; `ANTHROPIC_API_KEY` for `claude-*`; `GOOGLE_API_KEY` for `gemini-*`; `OPENROUTER_API_KEY` for OpenRouter-routed models.
-- ChromaDB: `CHROMADB_HOST`, `CHROMADB_PORT`.
-- Blue/Green and MCP: `API_PORT_BLUE`, `API_PORT_GREEN`, `MCP_API_KEY`, `MCP_INTERNAL_API_KEY`, `MCP_INTERNAL_BASE_URL`.
-  - **`MCP_API_KEY` empty means `/mcp` is open.** `_verify_mcp_bearer` only enforces a bearer `if MCP_API_KEY:`, so an unset value is not a weak configuration, it is no configuration: `sql_search` and the 16 entity tools answer anyone who reaches the port. Verified on 2026-08-23, when both colours and the public NGINX route returned 200 to `tools/list` with no token and with a wrong one. Startup now logs a warning when it is empty, and that log is the only signal.
-- Pipeline shape: `BKTREE_ENABLED` (default 1), `ENTITY_RESOLUTION_PARALLEL` (default 1), `CACHE_EMPTY_RESULTS` (default 0). All three are read at import time, so changing one needs a restart.
-- Vision uploads (FASTAPI-TEXT2SQL-275): `UPLOADS_FOLDER` (default `uploads`, relative on purpose), `UPLOAD_RETENTION_DAYS` (default 30, announced to the client in every deposit response), `MAX_UPLOAD_IMAGE_BYTES` (default 25 MB). Read at import time like the three above, so a change needs a restart, and `UPLOAD_RETENTION_DAYS` must be kept in step with the `--days` the cron passes to `purge-uploads.sh`.
-
-Important startup constraint: `OPENAI_API_KEY` is required at import/startup because `main.py` initializes the OpenAI embedding function for ChromaDB even if the request-time text model is Anthropic or Google.
+- **`OPENAI_API_KEY` is required at startup even when no OpenAI model is selected**: `main.py`
+  initializes the OpenAI embedding function for ChromaDB before it serves anything.
+- **`MCP_API_KEY` empty means `/mcp` is open**, not weakly protected. `_verify_mcp_bearer` only
+  enforces a bearer `if MCP_API_KEY:`, so `sql_search` and the 16 entity tools answer anyone who
+  reaches the port. Verified 2026-08-23: both colours and the public NGINX route returned 200 to
+  `tools/list` with no token and with a wrong one. Startup logs a warning, the only signal there is.
+- **`UPLOADS_FOLDER`, `UPLOAD_RETENTION_DAYS` (30) and `MAX_UPLOAD_IMAGE_BYTES` (25 MB)** are not
+  in that README block. They are read at import time like the three pipeline-shape flags, so a
+  change needs a restart, and `UPLOAD_RETENTION_DAYS` must match the `--days` the cron passes to
+  `purge-uploads.sh`.
 
 ---
 
 ## ChromaDB collections
 
-`main.py` creates or opens 14 entity collections with `get_or_create_collection`: `persons`, `movies`, `series`, `companies`, `networks`, `topics`, `groups`, `characters`, `lists`, `collections`, `deaths`, `awards`, `nominations`, `movements`. It then opens `t2slocations` with **`get_collection`, never `get_or_create_collection`** (FASTAPI-TEXT2SQL-247): that collection's HNSW configuration (`space l2`, `ef_search 100`) is written at creation by process 216 of `embedding-update` and cannot be changed afterwards, so the first program to create it decides it for every reader. A `get_or_create` here would silently recreate it with the server defaults on the day it is missing, with no error at query time, only worse ranking. The old QID-keyed `locations` collection was dropped from the list for the same reason: leaving it would recreate it empty once `embedding-update` deletes it.
+`main.py` opens 14 entity collections with `get_or_create_collection` (the roster is in
+`README.md`, *Key Architecture Components*), then opens `t2slocations` with **`get_collection`,
+never `get_or_create_collection`** (FASTAPI-TEXT2SQL-247): that collection's HNSW configuration
+(`space l2`, `ef_search 100`) is written at creation by process 216 of `embedding-update` and
+cannot be changed afterwards, so the first program to create it decides it for every reader. A
+`get_or_create` here would silently recreate it with the server defaults on the day it is
+missing, with no error at query time, only worse ranking. The old QID-keyed `locations`
+collection was dropped from the list for the same reason: leaving it would recreate it empty
+once `embedding-update` deletes it.
 
-The `anonymizedqueries` collection is separate and is used for the optional embeddings-based anonymized-question cache. If schema, entity IDs, collection document IDs, or language-routed fields change, assume the relevant ChromaDB collection may need to be rebuilt or resynced; stale embeddings can resolve to IDs that no longer exist in the SQL tables.
+If schema, entity IDs, collection document IDs, or language-routed fields change, assume the
+relevant collection may need rebuilding or resyncing: stale embeddings resolve to IDs that no
+longer exist in the SQL tables.
 
 ---
 
 ## Hot-reloaded vs restart-required
 
-**Hot-reloaded (no restart)** — picked up within ~5 s of mtime change:
-- Anything under `data/` (the five files above).
+**Hot-reloaded** (~5 s after an mtime change): anything under `data/`, see `README.md`.
 
-**Restart required** — consider whether a user-requested `strapiversion` bump is also needed so the cache key flips and the Blue/Green parity moves:
+**Restart required** — consider whether a user-requested `strapiversion` bump is also needed so
+the cache key flips and the Blue/Green parity moves:
 - Any change to `*.py`.
 - Any new placeholder (it must dispatch through `entity.py`).
 - New `closed_vocab` canonical loader or query (touched in `closed_vocab.py`).
 
-Do not bump `strapiversion` automatically. If the user explicitly asks for a version bump, update `strapiversion`; otherwise, mention when a prompt/config change may be shadowed by old cached SQL and let the user decide.
+Do not bump `strapiversion` automatically, see *Version management workflow*. When a prompt or
+config change ships without a bump, say so: cache rows for the current version may shadow it.
 
 ---
 
 ## Placeholder dispatch order
 
-Inside `entity.resolve_entities()`, the dispatch order is fixed and matters:
+Inside `entity.resolve_entities()` the four stages run in this order, and the order is the
+content of this section. `README.md` lists which placeholder belongs to which stage, with the
+patterns, the canonical sources and the substitution kinds; it does not say what follows.
 
-1. **Regex-validated** ([entity.py](entity.py) `_REGEX_PLACEHOLDER_RULES`) — uses `startswith()`, so more specific prefixes must come first:
-   - `Release_year`, `Birth_year`, `Death_year` — `\d{4}`, numeric (bare integer)
-   - `IMDb_person_ID` (before `IMDb_ID`) — `nm\d+`, quoted string
-   - `IMDb_ID` — `tt\d+`, quoted string
-   - `Wikidata_property_ID` (before `Wikidata_ID`) — `P\d+`, quoted string
-   - `Wikidata_ID` — `Q\d+`, quoted string
-   - `TMDb_ID`, `Criterion_spine_ID` — `\d+`, numeric
-   - **Malformed values are rejected** → placeholder left unresolved → question marked ambiguous.
-2. **Closed-vocabulary branches** — handled by name-prefix `if/elif`:
-   - `Movie_genre*` → `closed_vocab.resolve_movie_genre()` → integer `ID_GENRE` (no quotes in SQL); restricted to genres with `APPLIES_TO_MOVIE = 1` in `T_WC_TMDB_GENRE`.
-   - `Serie_genre*` → `closed_vocab.resolve_serie_genre()` → integer `ID_GENRE` (no quotes in SQL); restricted to genres with `APPLIES_TO_SERIE = 1` in `T_WC_TMDB_GENRE`.
-   - `Technical_format*` → `closed_vocab.resolve_technical()` → integer `ID_TECHNICAL` (no quotes in SQL).
-   - `Status_name*` / `Serie_type*` / `Department_name*` → `closed_vocab.resolve(entity, raw)` → canonical string (single-quoted in SQL).
-3. **Embeddings / RapidFuzz** — driven by `data/entity_resolution.json` `search_list` strategies; per-strategy language-family gating is supported.
-4. **Raw fallback** — any unmatched placeholder gets the raw extracted value SQL-escaped and substituted directly. If anything is still left after the loop, `ambiguous_question_for_text2sql = 1` is set.
+1. **Regex-validated** ([entity.py](entity.py) `_REGEX_PLACEHOLDER_RULES`). Dispatch uses
+   `startswith()`, so **a more specific prefix must be listed before the prefix it extends**:
+   `IMDb_person_ID` before `IMDb_ID`, `Wikidata_property_ID` before `Wikidata_ID`. Getting this
+   wrong is silent: the shorter rule swallows the longer name and its pattern rejects the value.
+   A rejected value leaves the placeholder in place, which marks the question ambiguous.
+2. **Closed-vocabulary branches**, dispatched by name prefix in an `if/elif` chain calling
+   `closed_vocab.resolve*`. Genre and `Technical_format` substitute a bare integer, the other
+   three a single-quoted string; pick by the target column's SQL type.
+3. **Embeddings / RapidFuzz**, driven by `data/entity_resolution.json` `search_list` strategies,
+   with optional per-strategy language-family gating.
+4. **Raw fallback**: the raw extracted value, SQL-escaped, substituted directly. Anything still
+   unresolved after the loop sets `ambiguous_question_for_text2sql = 1`.
 
 ---
 
@@ -304,8 +317,6 @@ Always also:
 
 - **Requests now genuinely interleave.** Per-request state (the DB connection, the messages list) is local; module state touched at request time is either read-only after startup (prompts, closed-vocab canonicals) or lock-protected (`_BKTREE_CACHE`). The prompt-cache buffer is a `ContextVar` holding a list, and `asyncio.to_thread` copies the context by reference, so appends from worker threads still reach the response.
 **The fork-join (FASTAPI-TEXT2SQL-201).** Entity resolution iterates over the extraction payload, not over the placeholders found in the SQL, and `f_text2sql` only ever sees `input_text_anonymized`. The two branches are therefore independent, and `plan_entity_resolutions()` is started in a worker thread just before the text-to-SQL call, then joined right after the answer-entity guard. **The join is unconditional and must stay where it is**: the complex-question retry path below it closes the connection the worker thread is using. A plan that raised degrades to `resolve_entities()` on the sequential path.
-
-`embeddings_processing_time` deliberately adds the overlapped planning time back in, so the metric keeps meaning "what entity resolution cost" and stays comparable with campaigns run before the fork-join. The saving appears in `total_processing_time`.
 
 **One accepted behavioural divergence.** When a placeholder is extracted but appears nowhere in the SQL, the justification or the answer, the old resolver ran *every* strategy and logged each one before discarding the result; the planner stops at the first strategy that resolves. The three texts come out identical, only the message trace is shorter. Everything else is byte-identical, message traces included.
 
@@ -618,97 +629,52 @@ the retry helper. And `QUERY_MODE` is the only denominator available, since the 
 exists on retried rows alone: a rate of "descriptive questions that escalated" needs a
 classification on every row, escalated or not.
 
-## Reasoning models reject `temperature` (FASTAPI-TEXT2SQL-231)
+## The reasoning-family block in `text2sql.py` (FASTAPI-TEXT2SQL-231, -274)
 
-**The trap, and it is a hard failure, not a degradation.** Every one of the five tasks passes
-`temperature=0` on purpose. Reasoning models, the whole o-series and the entire GPT-5.x family
-including the 5.6 Sol / Terra / Luna tiers, accept only the default and answer **HTTP 400,
-`Unsupported value: 'temperature' does not support 0 with this model`**. Before -231 the model
-router at `text2sql.py` matched anything starting with `gpt-` and sent it to
-`chat.completions` with the parameter attached, so a swap as innocent as
-`gpt-4o` → `gpt-5.6-terra` failed on the **first request of all five tasks**. Four call sites
-fed it: `_complex_question_temperature`, which exempted only `o1`/`o3`, plus three hard-coded
-`temperature=0` arguments in `entity.py` and `text2sql.py`. Those arguments are still there and
-still correct: the guard is central, in `_call_chat_llm`, so no caller had to learn about model
-families.
+`README.md` states the user-visible rule: reasoning models reject `temperature` and get
+`reasoning_effort` instead, `_openai_sampling_kwargs` builds that half of the call per family,
+`gpt-4o` is unchanged, and effort is the real cost knob. What it cannot say is how the block fails
+when you extend it.
 
-**The fix.** `_openai_sampling_kwargs(model_norm, temperature, cache_label, reasoning_effort)`
-builds the sampling half of the call per model family. Non-reasoning models keep
-`temperature` and their behaviour is byte-identical. Reasoning models get `reasoning_effort`
-and **no `temperature` at all**: the parameter is omitted rather than pinned to `1`, because
-passing the default explicitly is still rejected on some routes.
+**There is no allowlist, so an undeclared family does not bounce, it leaves.** `_call_chat_llm`
+routes on the prefix, anything starting with `gpt-` goes to OpenAI, and the five `llm_model_*`
+fields of `Text2SQLRequest` are `Optional[str]` with no validator. Before -274,
+`llm_model_text2sql: "gpt-6-astra"` was accepted, sent with `temperature=0` attached, and answered
+400; on a route that tolerates the parameter it would instead have run at the model's default
+effort with nobody able to read or set it. A family that is not declared here is a family that
+spends silently.
 
-**`reasoning_effort` is the real cost and latency knob, and it dwarfs the choice of tier.**
-The same model spans roughly **1.8 s to first token at `low` and 115 s at `max`**, and
-reasoning tokens are billed at the output rate, so effort multiplies the output bill severalfold
-before the tier's price list is even consulted. `_DEFAULT_EFFORT_TIER` therefore gives the
-`cheapest` rung to the tasks on the 100 % path, where the p50 is 5.45 s end to end and there is
-no room for a thinking budget, and `medium` only to the complex-question pair that fires on
-~1 % of requests. Override per call with the `reasoning_effort` argument; `"default"` omits
-the parameter and lets the API decide. Note the indirection: the table holds a **tier name**,
-not a provider value, and `_EFFORT_BY_FAMILY` turns it into one, because the families do not
-share a vocabulary (`minimal` was a GPT-5.0-era value and no longer exists anywhere).
+**The four things a new family needs**, all in the same block and all four or none: the prefix in
+`_REASONING_MODEL_PREFIXES` (or `temperature` stays attached), a row in `_EFFORT_BY_FAMILY` (or
+the effort resolution falls back to the o-series vocabulary), a rung for every `cache_label` in
+`_DEFAULT_EFFORT_TIER`, and an endpoint decision via `_CHAT_COMPLETIONS_REASONING_PREFIXES`.
 
-**Two things NOT to assume.**
+**Note the indirection**: `_DEFAULT_EFFORT_TIER` holds a **tier name**, not a provider value, and
+`_EFFORT_BY_FAMILY` turns it into one, because the families share no vocabulary (`minimal` was a
+GPT-5.0-era value and exists nowhere now). **GPT-6 has no `none` rung**, and that one cell decides
+the bill: copying the GPT-5 row would 400 on every call, while "fixing" it to `medium` would
+quietly buy a thinking budget on the three tasks that fire on 100 % of requests. Only the two
+rungs this pipeline selects are declared, because a rung nobody selects is a rung nobody has
+measured. `vision_identification` sits in the table at the cheapest rung ahead of the task itself
+(-114), so the family table is complete the day it lands.
 
-- **GPT-5.x goes through `chat.completions`, not the Responses API.** The `responses.create`
-  branch is now restricted to the o-series. The prompt-cache accounting this pipeline reports
-  is the one measured on `chat.completions`, and the two routes name their usage fields
-  differently.
-- **Reported incompatibility, not yet hit here:** function tools combined with
-  `reasoning_effort` are refused for `gpt-5.6-sol` on `/v1/chat/completions`. This pipeline
-  uses neither tools nor `response_format`, so it does not bite today. It will the moment
-  someone adds structured outputs.
+**Four things NOT to assume.**
 
-## Adding a reasoning family is not optional (FASTAPI-TEXT2SQL-274)
-
-**The shape of the trap, and it is the opposite of the usual one.** The dispatcher has no
-allowlist: `_call_chat_llm` routes on the prefix, anything starting with `gpt-` goes to OpenAI,
-and the five `llm_model_*` fields of `Text2SQLRequest` are `Optional[str]` with no validator. So
-an unknown reasoning family does **not** bounce with a clear error. It leaves. Before -274,
-`llm_model_text2sql: "gpt-6-astra"` was accepted, sent with `temperature=0` attached, and
-answered 400. Or, on a route that tolerates the parameter, ran at the model's default effort
-with nobody able to read or set it. A family that is not declared here is a family that spends
-silently.
-
-**The four things a new family needs**, all in the same block of `text2sql.py`, and all four or
-none: the prefix in `_REASONING_MODEL_PREFIXES` (or `temperature` stays attached), a row in
-`_EFFORT_BY_FAMILY` (or the effort resolution falls back to the o-series vocabulary), a rung for
-every `cache_label` in `_DEFAULT_EFFORT_TIER`, and a decision on the endpoint via
-`_CHAT_COMPLETIONS_REASONING_PREFIXES`.
-
-**GPT-6 has no `none`, and that one cell decides the bill.** GPT-5.6's cheapest rung is `none`,
-which spends no reasoning tokens at all; GPT-6 declares `low`, `medium`, `high`, `xhigh`, `max`
-and its floor is `low`, like the o-series. Copying the GPT-5 row would 400 on every call;
-"fixing" that to `medium` would quietly buy a thinking budget on the three tasks that fire on
-100 % of requests. Only the two rungs this pipeline selects are declared; the three upper ones
-are documented in the comment rather than in the table, because a rung nobody selects is a rung
-nobody has measured.
-
-**`vision_identification` is in `_DEFAULT_EFFORT_TIER` before the task exists.** It is the sixth
-task, from -114, declared ahead of time at the cheapest rung so the family table is complete the
-day the task lands. -114 says to start at `low` and raise only if recognition weakens on the
-twenty-image bench.
-
-**The endpoint choice was free, so it is written down.** `gpt-6-astra` accepts both
-`responses.create` and `chat.completions`; it takes `chat.completions`, with GPT-5.x. The
-prompt-cache accounting depends on it (the two routes name their usage fields differently), and
-comparing a GPT-6 evaluation campaign against the `gpt-4o` baseline requires both to travel the
-same route.
-
-**A defect found while deciding that branch: the o-series was never getting its effort.**
-`responses.create` takes `reasoning={"effort": "low"}`, not the flat `reasoning_effort="low"`
-that `chat.completions` takes. The flat form was being passed, rejected, and swallowed by the
-`try/except` that falls back to chat.completions, so the o-series reached the fallback on
-**every** call and ran at its default effort. `_as_responses_api_kwargs` now translates.
-Neither GPT-5.x nor GPT-6 uses that path.
-
-**Measured live on 2026-09-19, before any switch.** `gpt-6-astra` caches the static prefix at
-100 % on repeat calls (24 190 of 24 193 tokens) against 99.5 % for `gpt-4o`: no cache penalty.
-Latency at effort `low` is 7.9–11.1 s on the text-to-SQL task alone, against 6.6 s for `gpt-4o`
-with a warm cache. Note the prefix is now **24.2 K tokens, not the 14.8 K** measured in June;
-any cost estimate starting from the old figure is a third too low. Full protocol and figures:
-`%USERPROFILE%/Nestor/projets/t2s-backlog/topics/prompt-caching.md` PROMPT-CACHING-009.
+- **The `responses.create` branch is restricted to the o-series.** GPT-5.x and GPT-6 both go
+  through `chat.completions`, which is also where the prompt-cache accounting this pipeline
+  reports was measured; the two routes name their usage fields differently, so a campaign compared
+  against the `gpt-4o` baseline needs both on the same route.
+- **The o-series was never getting its effort**, a defect found while deciding that branch.
+  `responses.create` takes `reasoning={"effort": "low"}`, not the flat `reasoning_effort="low"` of
+  `chat.completions`. The flat form was passed, rejected, and swallowed by the `try/except` that
+  falls back, so the o-series reached the fallback on **every** call and ran at its default
+  effort. `_as_responses_api_kwargs` now translates. Neither GPT-5.x nor GPT-6 uses that path.
+- **The cached prefix is 24.2 K tokens, not the 14.8 K measured in June.** Any cost estimate
+  starting from the old figure is a third too low. Full protocol and figures:
+  `%USERPROFILE%/Nestor/projets/t2s-backlog/topics/prompt-caching.md` PROMPT-CACHING-009.
+- **Function tools combined with `reasoning_effort` are refused for `gpt-5.6-sol`** on
+  `/v1/chat/completions`. It does not bite today, since this pipeline uses neither tools nor
+  `response_format`. It will the moment someone adds structured outputs.
 
 **Offline check:** `uv run eval/verif-274.py` (31 cases, no API and no database). It reads the
 family block out of `text2sql.py` and executes it in isolation, so it runs on a machine without
@@ -910,52 +876,59 @@ When working on either side, scan the other for divergence and **surface any dis
 
 When you spot a divergence, describe it (which side has which behavior, where in the spec/code), and let the user decide which side is authoritative for the fix.
 
-### Entity endpoint localization (`ui_language`)
+### Entity endpoints: the contracts to preserve
 
-Every entity detail endpoint and its MCP `get_*` proxy take a `ui_language` parameter (query param for REST, tool arg for MCP), normalized by `normalize_ui_language()` to `en`/`fr` (default/fallback `en`). Responses are localized by `localize_response()`, which recursively collapses each `<COL>`/`<COL>_FR` pair into the single canonical `<COL>` (French value when present, English fallback) and drops the `_FR` keys — on both the primary entity and nested related rows. The real localizable columns are `MOVIE_TITLE`, `SERIE_TITLE`, `TOPIC_NAME`, `LIST_NAME`, `COLLECTION_NAME`, `MOVEMENT_NAME`, `AWARD_NAME`, `NOMINATION_NAME`, `GROUP_NAME`, `DEATH_NAME`, `LOCATION_NAME`, and technical `DESCRIPTION`; person `BIOGRAPHY` and company `DESCRIPTION` have no `_FR` variant. `SERIE_TITLE_FR` exists on `T_WC_T2S_SERIE` (and is collapsed into `SERIE_TITLE`): the base `/series/{id}` row picks it up via `SELECT *`, and every nested series SELECT (parent-series nav stubs in `/seasons` & `/episodes`, and the series lists in `/persons`, `/companies`, `/networks`, `/collections`, `/movements`, `/awards`, `/nominations`, `/locations`) explicitly selects `SERIE_TITLE_FR` alongside `SERIE_TITLE`. `_fetch_wikipedia_images` / `_fetch_wikipedia_content` filter by `ui_language` with English fallback. When adding a nested related-entity SELECT that exposes a localizable name/description column, also select its `_FR` variant so `localize_response()` can resolve it. Usage logs (`logs.log_usage`) capture the pre-localization row, so logged responses retain both language columns.
+`README.md` documents what these endpoints **return**: the `ui_language` collapse, the
+`data_freshness` block, the `wikipedia_page` credit and the `collection` pagination. Below is only
+what **breaks when you edit them**.
 
-`apply_localized_main_image()` ([main.py](main.py)) is the image counterpart to `localize_response()`: image paths have no `_FR` column, so for a non-default `ui_language` it overrides the **top-level** entity's canonical main-picture path with the `IMAGE_PATH` of the main (lowest `DISPLAY_ORDER`) related image whose `LANG` matches the requested language, falling back to the canonical path when no localized image exists. It runs after `logs.log_usage` (so logs keep the canonical path) and before `localize_response`. Wired on the entities that carry a language-tagged image array: `/movies/{id}`, `/series/{id}`, and `/seasons/{...}` (`posters` → `POSTER_PATH`) and `/persons/{id}` (`portraits` → `PROFILE_PATH`).
+**Localization.** `localize_response()` collapses each `<COL>`/`<COL>_FR` pair, so it can only
+collapse what the SELECT fetched: a new nested related-entity SELECT **must select the `_FR`
+variant** alongside the canonical column. Image paths have no `_FR`, so they go through
+`apply_localized_main_image()` (top-level entity) and `apply_localized_related_images()` (nested
+rows, one batched query per kind declared in `_RELATED_IMAGE_SOURCES`: `movie` / `serie` →
+`POSTER_PATH`, `person` → `PROFILE_PATH`, `season` → `POSTER_PATH`), so a new nested array of
+movie / serie / person / season rows **must be added to that endpoint's
+`apply_localized_related_images` call**. Both run after `logs.log_usage` and before
+`localize_response`, which is why logs keep the canonical path and both language columns.
+Episodes are excluded: `STILL_PATH` frames are not language-specific.
 
-`apply_localized_related_images(conn, grouped_rows, ui_language)` ([main.py](main.py)) extends the same idea to **nested related rows** (the "collections" embedded in each detail response — `cast`, `crew`, `movie_cast`, `movies`, `series`, `persons`, the parent-series/season nav stubs, the `seasons` array, …). Nested rows carry a main image path but not their own image array, so the localized path is fetched in one batched query per entity kind. `grouped_rows` maps a kind in `_RELATED_IMAGE_SOURCES` (`movie` → `T_WC_T2S_MOVIE_IMAGE`/`ID_MOVIE`/`poster`/`POSTER_PATH`; `serie` → `T_WC_T2S_SERIE_IMAGE`/`ID_SERIE`/`poster`/`POSTER_PATH`; `person` → `T_WC_T2S_PERSON_IMAGE`/`ID_PERSON`/`profile`/`PROFILE_PATH`; `season` → `T_WC_TMDB_SEASON_IMAGE`/`ID_SEASON`/`poster`/`POSTER_PATH`) to a list of row collections (each a list of dicts, or a single dict stub). For each id it keeps the lowest-`DISPLAY_ORDER` image in the requested `LANG`, overwriting the row's path field (canonical kept as fallback). It runs in the same slot as `apply_localized_main_image` (after `logs.log_usage`, before `localize_response`) and is a no-op for the default language. Wired on every detail endpoint that returns localizable person/movie/serie/season nested rows. When adding a nested array of movie/serie/person/season rows, add it to that endpoint's `apply_localized_related_images` call so its main picture is localized too. Episodes are excluded — `STILL_PATH` frames are not language-specific.
+**Data freshness.** `_build_data_freshness(cursor, row, record_source, ui_language)`. The argument
+to get right is `record_source`, because it is what licenses labelling `TIM_UPDATED` as a TMDb
+date. `RECORD_SOURCE_TMDB` only where `tmdb-movie-preprocess` copies `TIM_UPDATED` **verbatim**
+from the `T_WC_TMDB_*` row (movies, series, seasons, episodes, persons, companies, networks);
+`RECORD_SOURCE_WIKIDATA` everywhere else, where `tmdb_updated_at` **must stay null**, since
+labelling a Wikidata refresh as a TMDb date is a lie a voice client repeats out loud;
+`RECORD_SOURCE_REFERENCE` for `/genres`, all nulls.
 
-### Entity endpoint data freshness (`data_freshness`)
+**One language resolution, two consumers.** `_resolve_wikipedia_page_row()` is the single home of
+the rule (the requested language wins only when it actually has sections, English otherwise).
+`_fetch_wikipedia_freshness()` *dates* the content and `_fetch_wikipedia_page()` *credits* it from
+the same row, so `wikipedia_page.lang == data_freshness.wikipedia_lang` must hold on every
+response. That invariant is the cheapest regression check in the repo, internal and needing no
+fixture. If you change the fallback in `_fetch_wikipedia_content` or `_fetch_wikipedia_images`,
+change it there too, or a response dates one language and credits another. Do not add a third
+resolution, and never resolve on the page row's *existence*: a row can exist for a language
+carrying zero sections, and crediting that article over English prose is a false attribution,
+worse than no credit. `verify_wikipedia_page.py` checks all of it against a deployed API and
+reports what it could not reach as SKIPPED rather than passing it. Every source column stays in an
+allowed table, so the restricted-DB table-scope contract (DATA-DISTRIBUTION-008) holds without new
+promotions.
 
-Every entity detail endpoint returns a top-level `data_freshness` block on its **full** response (not on a targeted `?collection=` page), built by `_build_data_freshness(cursor, row, record_source, ui_language)` ([main.py](main.py)) right beside the `_fetch_wikipedia_*` calls. Nothing in a response is fetched live, so this block is the only way a consumer (`voice-agent`) can date an answer.
+**Pagination.** Each endpoint declares a local `pcollections` registry mapping
+`collection_name -> (sql, params, image_kind)`, driven by `_run_collections()`. It is the single
+source of truth for both the untargeted and the targeted mode, so a new nested related-entity list
+**goes in the registry**, never in a one-off `cursor.execute`. Every registry SQL must select
+`COUNT(*) OVER() AS _TOTAL_COUNT` (MariaDB >= 10.2; stripped by `_paginate_collection`), carry a
+deterministic `ORDER BY` with a unique tiebreaker, and omit its own `LIMIT` and semicolon, which
+the helper appends. `cast` / `crew` and the four person variants are split per `CREDIT_TYPE` with
+`CAST_CHARACTER_EXCLUSIONS` pushed into SQL.
 
-Keys: `record_source`, `record_updated_at` (base row `TIM_UPDATED`), `tmdb_updated_at`, `wikidata_updated_at` (`TIM_WIKIDATA_COMPLETED`), `wikipedia_updated_at` / `wikipedia_crawled_at` / `wikipedia_lang`.
-
-**The `record_source` argument is the thing to get right when adding or changing an endpoint.** It is what licenses labelling `TIM_UPDATED` as a TMDb date:
-
-- `RECORD_SOURCE_TMDB`: `/movies`, `/series`, `/seasons`, `/episodes`, `/persons`, `/companies`, `/networks`. `tmdb-movie-preprocess` copies `TIM_UPDATED` **verbatim** from the `T_WC_TMDB_*` source row into the `T2S_*` read-model row (`INSERT ... SELECT ... TIM_UPDATED ... FROM T_WC_TMDB_MOVIE`, and the same shape for serie / person / company / network / season / episode), so on these entities `TIM_UPDATED` **is** the TMDb refresh datetime. `tmdb_updated_at` mirrors it.
-- `RECORD_SOURCE_WIKIDATA`: `/collections`, `/topics`, `/lists`, `/movements`, `/technicals`, `/groups`, `/deaths`, `/awards`, `/nominations`, `/locations`. Built from Wikidata (`wikidata-crawler` sets `TIM_WIKIDATA_COMPLETED`; `T_WC_T2S_LOCATION` is rebuilt nightly by process 72 of `tmdb-movie-preprocess`), so `tmdb_updated_at` **must stay null**. Labelling a Wikidata refresh as a TMDb date would be a lie a voice client repeats out loud.
-- `RECORD_SOURCE_REFERENCE`: `/genres` only. `T_WC_TMDB_GENRE` is a static reference table with no timestamp columns, so every field comes back null.
-
-`_fetch_wikipedia_freshness()` reads `T_WC_WIKIPEDIA_PAGE_LANG` (`LAST_SUCCESS_AT` = last *successful* fetch = the real data date of the served content; `LAST_CRAWLED_AT` = last attempt) via `_resolve_wikipedia_page_row()`, which **mirrors the language resolution of `_fetch_wikipedia_content`**: the requested language wins only when it actually has sections, English otherwise. If you ever change the fallback rule in `_fetch_wikipedia_content` or `_fetch_wikipedia_images`, change it in `_resolve_wikipedia_page_row` too or `wikipedia_lang` will date the wrong language's content *and* `wikipedia_page` will credit the wrong article. Entities whose base table has no `ID_WIKIDATA` (`companies`, `networks`, `genres`) skip the query entirely and get nulls.
-
-### Entity endpoint Wikipedia page reference (`wikipedia_page`)
-
-The 15 detail endpoints that can serve `wikipedia_content` also return a top-level `wikipedia_page` object (`lang` / `title` / `url`, from `WIKIPEDIA_PAGE_TITLE` and `WIKIPEDIA_PAGE_URL`), built by `_fetch_wikipedia_page()` and attached by `_attach_wikipedia_page()` right before `logs.log_usage`. It exists because displaying `wikipedia_content` requires CC BY-SA attribution to the source article, and a client holding only an `ID_WIKIDATA` cannot derive that URL: the article title is not the entity title and differs per language.
-
-Three rules to preserve when touching this:
-
-- **One resolution, two consumers.** `_resolve_wikipedia_page_row()` is the single home of the language resolution; `_fetch_wikipedia_freshness()` *dates* the content and `_fetch_wikipedia_page()` *credits* it from the same row. The invariant `wikipedia_page.lang == data_freshness.wikipedia_lang` must hold on every response, and it is the cheapest regression check available (internal, no fixture needed). Do not add a third resolution.
-- **Resolve on the content, never on the page row's existence.** A page row can exist for a language that carries **zero sections**, so an entity can have a French page row while the served prose falls back to English. Crediting the French article there would be a false attribution, which is worse than no credit: it states something untrue about the source of the text on screen.
-- **Absent, not null.** The key is omitted when the entity has no page (or the row has no title/url), so a client never renders a hollow credit. Detail responses only: never on `/search/text2sql`, never on related-entity rows, and not on a targeted `?collection=` page.
-
-`verify_wikipedia_page.py` at the repo root checks all of the above against a deployed API (it discovers one live id per entity type by walking a seed movie's relations, and reports what it could not reach as SKIPPED rather than passing it).
-
-All source columns live in allowed tables (`T2S_*`, `TMDB_*` only where seasons/episodes already read from them, `WIKIPEDIA_*`), so this respects the restricted-DB table-scope contract (DATA-DISTRIBUTION-008) without new promotions.
-
-### Entity endpoint collection pagination (`collection` / `page` / `rows_per_page`)
-
-Every entity detail endpoint (and its MCP `get_*` proxy) paginates its **related-entity lists** so large results stay bounded. Each endpoint declares a local `pcollections` registry mapping `collection_name -> (sql, params, image_kind)`; the shared driver `_run_collections()` ([main.py](main.py)) runs it. The registry is the single source of truth and is used for both modes:
-
-- **Untargeted** (`collection is None`): every list is fetched at page 1 (using the requested `rows_per_page`); the response is assembled as before plus a top-level `pagination` block (`name -> {total, page, rows_per_page, returned}`). Non-paginated extras (scalar lists, image arrays, `videos`, Wikipedia arrays) are fetched only in this branch.
-- **Targeted** (`?collection=<name>`): only that list is fetched at the requested `page`; `_targeted_collection_response()` returns a lean payload (identifier echo + that one list + its `pagination`), then runs the usual `apply_localized_related_images` / `localize_response`. An unknown name → HTTP 400.
-
-Each registry SQL **must** select `COUNT(*) OVER() AS _TOTAL_COUNT` (one-query window total, stripped by `_paginate_collection`), carry a deterministic `ORDER BY` with a unique tiebreaker (usually the related entity `ID_*`), and omit its own `LIMIT`/semicolon (the helper appends `LIMIT %s OFFSET %s`). `cast`/`crew` (movies/series/seasons/episodes) and `movie_cast`/`movie_crew`/`series_cast`/`series_crew` (persons) are split into separate per-`CREDIT_TYPE` queries with the `CAST_CHARACTER_EXCLUSIONS` filter pushed into SQL (movies: only when non-documentary; persons `movie_cast`: per-row on the host movie's `IS_DOCUMENTARY`). The `image_kind` (a `_RELATED_IMAGE_SOURCES` key or `None`) drives related-image localization via `_localized_image_groups()`. Constants `COLLECTION_ROWS_PER_PAGE_DEFAULT` (50) / `COLLECTION_ROWS_PER_PAGE_MAX` (200) live near the helpers. **When adding a new nested related-entity list, add it to the endpoint's `pcollections` registry** (not as a one-off `cursor.execute`) so it is paginated and localized consistently. Note: `COUNT(*) OVER()` requires MariaDB ≥ 10.2.
-
-**MCP alignment (keep the two surfaces in sync).** The MCP `get_*` tools relay the endpoint's JSON **verbatim** (`_mcp_get` → `return r.text`, no field filtering), so a new collection's **data** shows up in MCP automatically — no code needed. But each MCP tool's **docstring** (the description an MCP client actually sees) is hand-maintained, so when you add or rename a returned collection you **must also list it in that tool's docstring** — both in the relations enumeration *and* among the valid `collection` values for targeted pagination — or the collection stays invisible to MCP clients even though the data is present. The docstrings are the MCP contract; treat them like the OpenAPI docstrings on the REST endpoints and update both together.
+**MCP alignment.** The `get_*` tools relay the endpoint JSON verbatim (`_mcp_get` returns
+`r.text`), so a new collection's **data** appears in MCP with no code at all. Its **docstring does
+not**: that is hand-maintained and it is the MCP contract. List the new collection there twice, in
+the relations enumeration and among the valid `collection` values, or it stays invisible to MCP
+clients although the data is present.
 
 ---
 
@@ -997,41 +970,34 @@ When delegating to `entity.resolve_entities()` or `_retry_with_resolved_complex_
 When one of the three complex-retry paths fires (text2sql error, execution failure, 0 rows on
 page 1), `_retry_with_resolved_complex_question` reruns the whole pipeline on the stronger
 model's rewrite and returns the INNER response, with the outer messages merged in front. Before
--241 the SQL that failed and the reason it failed survived nowhere: that early return skipped
-the `logs.log_usage` call at the end of `search_text2sql`, so the only file on disk was the
-inner pass's, whose `request.question` is the rewritten question. The 2026-09-08 "Pour le
-plaisir" trace had to be reconstructed from the prompt-cache token counts leaked into that
-file (8989 for extraction and 23437 for text2sql fit only the raw, unanonymized phrase), then
-confirmed in the container stdout. Now:
+-241 the SQL that failed and the reason it failed survived nowhere: that early return skipped the
+`logs.log_usage` call at the end of `search_text2sql`, so the only file on disk was the inner
+pass's, whose `request.question` is the rewritten question.
 
-- **Five response fields**, empty unless a retry happened: `first_pass_sql_query`,
-  `first_pass_failure_code`, `first_pass_failure_reason`, `complex_retry_question`, and
-  `first_pass_entity_extraction` (FASTAPI-TEXT2SQL-256). They are set
-  on the inner response right after it is produced, so the returned object and the outer log
-  file carry them; the inner log file, written before that, does not.
+`README.md` documents the five `first_pass_*` / `complex_retry_*` response fields and the closed
+vocabulary of `first_pass_failure_code`. Five things it does not say:
+
+- **The fields are set on the inner response right after it is produced**, so the returned object
+  and the **outer** log file carry them; the inner log file, written before that, does not.
 - **`entity_extraction` and `first_pass_entity_extraction` answer different questions.** The
   first describes the pass that produced the returned rows, so on a retry it holds the INNER
   extraction of the rewritten question (`Serie Twin Peaks`), and it is `null` when that inner
   pass hit the exact-question cache and never extracted anything. The second holds what the
   user's own wording produced, which is where `query_mode` reads `descriptive_identification`
-  and explains why the retry fired at all. Read the second one when asking why a question was
-  routed; read the first when asking how the answer was built.
+  and explains why the retry fired at all. Read the second one when asking **why** a question
+  was routed; read the first when asking **how** the answer was built.
 - **Three messages**, written by the retry helper BEFORE the stronger model is called:
   `First-pass SQL query (before the stronger-model retry): ...`, `First-pass failure reason
   [<code>]: ...`, and once the rewrite is known, `Stronger model rewrote the question as: '...'
   (original question: '...').` The wording of the pre-existing retry messages is untouched:
   `analyze-complex-retry-logs.py` keys on `SQL query returned 0 rows; attempting to simplify`.
-- **The outer request is logged too**, from the helper's return, so a retried question now
-  produces TWO files: the inner one (`request.complex_question_already_resolved` true, rewritten
+- **A retried question produces TWO log files**, since the outer request is logged too from the
+  helper's return: the inner one (`request.complex_question_already_resolved` true, rewritten
   question, no first-pass fields) and the outer one (the user's own wording, merged messages,
-  first-pass fields). Anything that counts questions from the log folder must skip the inner
-  file (FASTAPI-TEXT2SQL-246).
-- **`first_pass_failure_code` is a closed vocabulary**: `text2sql_error`, `sql_guard_rejected`,
-  `entity_fallback_unmatchable`, `sql_execution_error`, or `no_results:<signal>[+<signal>]`
-  where the signals are those of the no-results guard, in the guard's own order:
-  `unresolved_placeholder`, `raw_fallback`, `no_entity_extracted`, `person_role_collapse`. The
-  execution branch records its code in `sql_execution_failure_code` / `_reason`, set by the
-  three `except` clauses of the execution block; extend that pair when you add an `except`.
+  first-pass fields). Anything that counts questions from `logs/` must skip the inner file
+  (FASTAPI-TEXT2SQL-246).
+- **The execution branch records its own code** in `sql_execution_failure_code` / `_reason`, set
+  by the three `except` clauses of the execution block; extend that pair when you add an `except`.
 
 What the "Pour le plaisir" trace taught, and why it is worth reading a first pass: extraction
 returned no entity for the bare French phrase, so no ChromaDB resolution ran and no
@@ -1068,9 +1034,8 @@ true and no exact-cache hit:
    extracted, the anonymized question IS the raw question, which is why the anonymized copy
    must follow: otherwise its row would keep serving the equality that just failed.
 
-Zero LLM call. The outcome is in `no_entity_rescue_outcome` (`rescued`, `still_empty`,
-`resolver_found_nothing`, `no_literal`, `error`), the rescue's candidates join
-`entity_match_scores`, and the re-execution time is added to `query_execution_time`. The
+Zero LLM call. `README.md` lists the `no_entity_rescue_outcome` values. The rescue's candidates
+join `entity_match_scores`, and its re-execution time is added to `query_execution_time`. The
 rescue is gated on the EMPTY result on purpose: a first pass that returns rows is left alone,
 whatever column it compared. Not covered: a raw fallback (the resolver's own thresholds decide),
 and a literal that is not an equality (`LIKE`, `IN`).
@@ -1085,17 +1050,18 @@ rewritten "Movie Pour le plaisir (2004)" from the model's memory, and the year-f
 served every following "Pour le plaisir" for two days, hiding the 2026 film. Since -242 the
 write is skipped when the rewrite carries a four-digit year absent from the original question,
 or (second belt) when the inner extraction produced a `Release_year` / `Birth_year` /
-`Death_year` placeholder while the original question holds no year. The decision is written
-to the messages and to `complex_retry_cache_policy` (`stored`, `skipped:empty_result` from
--212, `skipped:added_constraint (...)`). The rewritten question stays cached under its own
-wording by the inner pass, so nothing is lost. Not done: marking retry-derived rows, which
-would need a column in `T_WC_T2S_CACHE`.
+`Death_year` placeholder while the original question holds no year. The decision is written to
+the messages and to `complex_retry_cache_policy`, whose values `README.md` lists. The rewritten
+question stays cached under its own wording by the inner pass, so nothing is lost. Not done:
+marking retry-derived rows, which would need a column in `T_WC_T2S_CACHE`.
 
 ## Cache API-version filtering
 
-All cache reads and writes must pass `strapiversionformatted` (`XXX.YYY.ZZZ`), never the raw `strapiversion`. The `sql_cache` helpers already take the formatted version as a parameter — pass it through, do not recompute.
-
-Cache lookups also filter by `UI_LANGUAGE` (with `OR UI_LANGUAGE IS NULL` for backward compatibility). Lookups that hit prefer `SQL_PROCESSED`; raw `SQL_QUERY` is used only when it preserves a smaller LLM-defined `LIMIT`.
+Reads and writes take the **formatted** version (`XXX.YYY.ZZZ`), never the raw `strapiversion`;
+the `sql_cache` helpers already receive it as a parameter, so pass it through rather than
+recomputing it. Lookups also filter on `UI_LANGUAGE`, with `OR UI_LANGUAGE IS NULL` for rows
+written before that column existed. Which SQL column a hit prefers is in *Where things live*,
+under `sql_cache.py`.
 
 ---
 
@@ -1103,7 +1069,7 @@ Cache lookups also filter by `UI_LANGUAGE` (with `OR UI_LANGUAGE IS NULL` for ba
 
 When updating prompt templates, schema, or resolver behavior:
 1. Edit the hot-reloaded file in `data/` directly — no versioned filename suffix; hot-reload picks the change up within ~5 s without a restart.
-2. Bump `strapiversion` in [main.py:105](main.py#L105) only when the user explicitly asks for a version bump. This also flips Blue/Green port parity when the patch number changes.
+2. Bump `strapiversion` in [main.py:137](main.py#L137) only when the user explicitly asks for a version bump. This also flips Blue/Green port parity when the patch number changes.
 3. Restart only if you also touched `*.py`.
 4. If `intcleanupenabled = True`, startup cleanup will purge old cached queries for the previous version.
 5. If you do not bump the version after a prompt/config change, tell the user that existing cache rows for the current formatted version may still shadow the new behavior.
@@ -1141,10 +1107,8 @@ Use `''`, never `\'`. Centralize via `entity._sql_escape_literal()`. Backslash e
 Always pass `strapiversionformatted` (`XXX.YYY.ZZZ`), never raw `strapiversion`, to `sql_cache` helpers.
 
 ### Gotcha #3 — ChromaDB Document IDs
-Format `{entity}_{id}_{lang}` (e.g., `movie_12345_fr`). Language drives the SQL field via the `languages` map in `entity_resolution.json`:
-```
-"languages": { "en": "MOVIE_TITLE", "fr": "MOVIE_TITLE_FR", "*": "ORIGINAL_TITLE" }
-```
+Format `{entity}_{id}_{lang}` (e.g. `movie_12345_fr`); the language drives the SQL field through
+the `languages` map. See *Entity-resolution config schema*.
 
 ### Gotcha #4 — Entity Variable Matching in Embeddings Cache
 A candidate document is only accepted when **all** extracted entity variables appear in it ([main.py:671](main.py#L671)):
@@ -1153,7 +1117,8 @@ if all(var in doc_entity_vars for var in entity_variables):
 ```
 
 ### Gotcha #5 — Messages Position Counter
-Always increment after appending. When delegating to `entity.resolve_entities()` or `_retry_with_resolved_complex_question()`, the updated counter is threaded through the return dict.
+Always increment after appending. See *Messages array invariant* for how the counter comes back
+from a delegated call.
 
 ### Gotcha #6 — Database Connection Lifecycle
 Open once per request, pass the connection around, close in a `finally`. Do NOT call `get_db_connection()` inside loops.
@@ -1165,36 +1130,48 @@ Open once per request, pass the connection around, close in a `finally`. Do NOT 
 The pipeline can retry via the stronger model, but only when `complex_question_already_resolved = False`. The recursive call sets it to `True` to prevent runaway retries.
 
 ### Gotcha #8b : An empty result is never cached (FASTAPI-TEXT2SQL-212)
-A query returning **0 rows on page 1** is written to no cache tier: not the exact row, not the anonymized row, not the embeddings row, and not the row the stronger-model retry writes for the original question. All four go through the single `store_to_cache_allowed` / `retry_store_allowed` gate, so do not reintroduce a bare `request.store_to_cache` in a write. The reason is not tidiness: the **anonymized** row freezes the whole template, so one defective query poisons every entity pair on that pattern. Measured on 2026-08-25, a broken "costumière du film {{Movie_title1}} avec {{Person_name1}}" was written at 18:05:03 and served back verbatim at 18:06:36. `CACHE_EMPTY_RESULTS=1` restores the old behaviour. A page **beyond the first** returning empty is unaffected: that only means the result set ended.
+`README.md` says why (the anonymized row freezes the whole **template**, so one defective query
+poisons every entity pair on that pattern) and how to override it (`CACHE_EMPTY_RESULTS=1`). The
+code rule: all four tiers go through the single `store_to_cache_allowed` / `retry_store_allowed`
+gate, so do not reintroduce a bare `request.store_to_cache` in a write.
 
 ### Gotcha #8c : Signal (d) of the no-results guard reads the SQL, not the resolution (FASTAPI-TEXT2SQL-211)
 The three original signals of **-156** all watch **entity resolution**, so an empty result whose entities all resolved was declared authoritative. Signal (d) is the first one to look at the query itself, via `sql_shapes.detect_person_role_collapse`. It is a **suspicion, not a proof**, and that is deliberate: firing wrongly costs one stronger-model call on a result that was **already empty**, while missing it hands the user a silent "no results" on an answerable question. Keep that asymmetry in mind before tightening it. Before widening it, run `analyze-complex-retry-logs.py`, whose `person-role collapse` column reports how many blocked empties, and how many **authoritative** ones, the signal moves. Local corpus on 2026-08-26: 4 fires out of 438 logs, all 4 the same defect, 2 of them previously classified AUTHORITATIVE.
 
 ### Gotcha #8d : A retried request writes two log files (FASTAPI-TEXT2SQL-241)
-The inner pass logs itself (`request.question` is the stronger model's rewrite,
-`complex_question_already_resolved` true), and since -241 the outer request logs the merged
-response too. Counting questions from `logs/` without skipping the inner file counts a retried
-question twice. The outer file is the complete record: it alone carries the `first_pass_*` fields.
+See *The first pass of a retried request is recorded*. Counting questions over `logs/` without
+skipping the inner file counts a retried question twice; the outer file is the complete record.
 
-### Gotcha #9 — Closed-Vocabulary Resolution
-`Movie_genre`, `Serie_genre`, `Technical_format`, `Status_name`, `Serie_type`, and `Department_name` are resolved via [closed_vocab.py](closed_vocab.py): canonicals from the database at startup, aliases from [data/closed_vocabularies.json](data/closed_vocabularies.json) (hot-reloaded). Typo tolerance is uniform via RapidFuzz with `score_cutoff=85` and `margin=5`. Genre placeholders and `Technical_format` substitute integers (no quotes); `Status_name`, `Serie_type`, and `Department_name` substitute single-quoted canonical strings. `Movie_genre` and `Serie_genre` draw from the same `T_WC_TMDB_GENRE` table but each loader query filters by the `APPLIES_TO_MOVIE` / `APPLIES_TO_SERIE` flag, so a question filtering movies cannot resolve to a TV-only genre (e.g. `Reality`, `Sci-Fi & Fantasy`) and vice versa.
+### Gotcha #9 — Closed-vocabulary resolution: order, and where aspect ratios live
+`README.md` lists the six placeholders, their canonical sources, their substitution kinds (integer
+for the genres and `Technical_format`, quoted string for the other three), the `APPLIES_TO_MOVIE` /
+`APPLIES_TO_SERIE` split, the `Department_name` crew-only rule and which placeholders have a
+`_LANG` companion table. Two things it does not carry:
 
-**Resolver order matters**: in `_resolve_closed_vocab`, canonical exact match runs **before** alias match. If a user-typed value happens to be a literal canonical, the canonical wins and the alias never fires. To remap noisy DB variants to a single dominant form, exclude them from canonicals via the loader query.
+**Resolver order matters.** In `_resolve_closed_vocab`, canonical exact match runs **before** alias
+match. If a user-typed value happens to be a literal canonical, the canonical wins and the alias
+never fires, so remapping noisy DB variants onto one dominant form means **excluding them from the
+canonicals in the loader query**, never adding an alias.
 
-`Department_name` is **crew-only** — its canonical loader explicitly excludes `'Actors'` and `'Acting'` from all three UNIONed source columns (`CREW_DEPARTMENT` × movie + serie, plus `KNOWN_FOR_DEPARTMENT` from `T_WC_T2S_PERSON`). The text-to-SQL prompt picks the column based on question intent (person-search → `KNOWN_FOR_DEPARTMENT`, crew-of-content → `CREW_DEPARTMENT`); whenever `CREW_DEPARTMENT` is filtered via `{{Department_nameN}}`, the prompt also enforces `CREDIT_TYPE = 'crew'` on the same join. Cast / actor queries never produce a `Department_name` placeholder; the LLM emits `CREDIT_TYPE = 'cast'` (film context) or `KNOWN_FOR_DEPARTMENT = 'Acting'` (person-search) inline.
-
-Aspect ratios are **part of `Technical_format`** (rows in `T_WC_T2S_TECHNICAL` with `TECHNICAL_TYPE='aspect_ratio'` and dot-decimal `DESCRIPTION` values like `'1.85'`, `'2.35'`). Surface variants (`Academy`, `widescreen`, `flat`, `4:3`, `16:9`, `2.35:1`, `2,35` with French comma) live as aliases under `Technical_format` in [data/closed_vocabularies.json](data/closed_vocabularies.json) and resolve to the matching aspect-ratio `ID_TECHNICAL`. Filtering and detail both go through the same `{{Technical_formatN}}` pattern as every other technical (junction `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL` for filter; direct `T_WC_T2S_TECHNICAL.ID_TECHNICAL` for detail), so a movie that ships in several aspect ratios is correctly matched on any of them.
-
-Only the two genre placeholders (`Movie_genre`, `Serie_genre`) have a `_LANG` companion table today (`T_WC_TMDB_GENRE_LANG`, joined against the side-applicability flag at load time); for the others, multilingual aliases live in JSON only.
+**Aspect ratios are rows of `T_WC_T2S_TECHNICAL`**, carrying `TECHNICAL_TYPE='aspect_ratio'` and
+dot-decimal `DESCRIPTION` values (`'1.85'`, `'2.35'`), with the surface variants as aliases under
+`Technical_format`. There is no `Aspect_ratio` placeholder and no `T_WC_T2S_MOVIE.ASPECT_RATIO`
+filter: everything goes through `{{Technical_formatN}}` and the `T_WC_T2S_MOVIE_TECHNICAL`
+junction like every other technical, which is what makes a movie shipping in several ratios match
+on any of them.
 
 ### Gotcha #10 — Regex Placeholders Reject Malformed Values
-The 9 regex-validated placeholders validate against a fixed pattern in `_REGEX_PLACEHOLDER_RULES`. Failed matches are **rejected** — the placeholder is left in place and the trailing unresolved-placeholder check marks the question ambiguous. Order in the rule list matters because dispatch uses `startswith()`: `IMDb_person_ID` precedes `IMDb_ID`, `Wikidata_property_ID` precedes `Wikidata_ID`. Numeric rules substitute as bare integers (and strip surrounding quotes via two regex passes); string rules substitute as quoted SQL string literals — choose `is_numeric` based on the target column's SQL type.
+Rejection and the prefix-ordering rule are in *Placeholder dispatch order*; the patterns are in
+`README.md`. The one choice left when adding a rule: `is_numeric` follows the **target column's
+SQL type**, since numeric rules substitute a bare integer (stripping surrounding quotes in two
+regex passes) and string rules substitute a quoted SQL literal.
 
 ### Gotcha #11 — MCP Mount Path
 `app.mount("", mcp_app)` (empty string), not `"/mcp"`. Nginx strips/preserves `/mcp` upstream, and FastMCP's own routes live under `/mcp/…`. Mounting under `/mcp` produces `/mcp/mcp` paths.
 
 ### Gotcha #12 — The Fork-Join Must Be Joined
-`plan_entity_resolutions()` runs in a worker thread holding **this request's** DB connection. The complex-question retry path calls `connection.close()`. The join therefore sits right after the answer-entity guard, before any path that can close the connection or return early. Do not move it, and do not add a `return` between the fork and the join.
+See *Pipeline scheduling*: `plan_entity_resolutions()` holds this request's DB connection and the
+retry path closes it. Do not move the join, and do not add a `return` between the fork and it.
 
 ### Gotcha #13 : An image_ref is a client string, never a path (FASTAPI-TEXT2SQL-275)
 Anything arriving as an `image_ref` goes through `uploads.parse_image_ref()` first, which accepts
@@ -1206,14 +1183,17 @@ extension comes from the magic number of the bytes.
 
 ## Database tables you'll touch most
 
-Full prompt-visible schema rules live in [data/text_to_sql.md](data/text_to_sql.md), full DDL lives in [doc/sql/](doc/sql/), and MCP clients also see the `context://database-scope` resource. Quick map:
+Prompt-visible schema rules live in [data/text_to_sql.md](data/text_to_sql.md), the DDL in
+[doc/sql/](doc/sql/), the entity roster in `README.md` (*Database Schema Coverage*), the naming
+rules below in *SQL Object Naming Conventions*, and MCP clients also see the
+`context://database-scope` resource. One table is described nowhere else:
 
-- `T_WC_T2S_CACHE` — cache storage. Keys: `QUESTION`, `QUESTION_HASHED`, `SQL_QUERY`, `SQL_PROCESSED`, `JUSTIFICATION`, `ANSWER`, `RESULT_ENTITY`, `API_VERSION` (`XXX.YYY.ZZZ`), `UI_LANGUAGE`, `IS_ANONYMIZED`, `DELETED`, timing columns. `RESULT_ENTITY` is written/read by [sql_cache.py](sql_cache.py) with graceful degradation: if the column is absent (pre-migration), reads/writes fall back to the legacy column set and treat it as empty rather than failing.
-- Primary entities: `T_WC_T2S_MOVIE`, `T_WC_T2S_SERIE`, `T_WC_T2S_PERSON`.
-- Reference (closed-vocab): `T_WC_TMDB_GENRE` + `T_WC_TMDB_GENRE_LANG` (genres); `T_WC_T2S_TECHNICAL` (technical formats).
-- Person AKAs: `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` (used by RapidFuzz for non-Latin person names; resolves canonical via `resolve_to_canonical`).
-- Locations: `T_WC_T2S_LOCATION` + `T_WC_T2S_MOVIE_LOCATION` / `T_WC_T2S_SERIE_LOCATION` (joined on `ID_LOCATION`; `LOCATION_ROLE` is `'narrative'` or `'filming'`).
-- Join tables follow `T_WC_T2S_{PARENT}_{CHILD}` (e.g., `T_WC_T2S_PERSON_MOVIE`, `T_WC_T2S_MOVIE_GENRE`, `T_WC_T2S_SERIE_NETWORK`, `T_WC_T2S_MOVIE_AWARD`).
+- `T_WC_T2S_CACHE` — keys `QUESTION`, `QUESTION_HASHED`, `SQL_QUERY`, `SQL_PROCESSED`,
+  `JUSTIFICATION`, `ANSWER`, `RESULT_ENTITY`, `API_VERSION` (`XXX.YYY.ZZZ`), `UI_LANGUAGE`,
+  `IS_ANONYMIZED`, `DELETED`, plus timing columns. `RESULT_ENTITY` is written and read by
+  [sql_cache.py](sql_cache.py) with **graceful degradation**: when the column is absent
+  (pre-migration), reads and writes fall back to the legacy column set and treat it as empty
+  rather than failing.
 
 ---
 
@@ -1288,85 +1268,38 @@ Keep Markdown, prompt files, JSON config, and logs UTF-8. These files contain no
 
 The API/MCP server is built and run as a Docker container via the repo's `Dockerfile` (base image `python:3.12-slim-bookworm`, `PYTHONUNBUFFERED=1`). The build compiles SQLite 3.40.1 from source (set on `LD_LIBRARY_PATH`) for ChromaDB compatibility, installs `requirements.txt`, copies `*.py` and `./data/`, and runs `CMD ["python", "./main.py"]`. The `Dockerfile` does not declare an `EXPOSE` or `VOLUME`; the runtime config (the `.env` variables in "Runtime dependencies", including the Blue/Green `API_PORT_*` ports) is supplied at `docker run` time. Note `data/` is hot-reloaded from inside the image, so prompt/config edits need a rebuilt (or volume-mounted) `data/` to take effect in a running container.
 
-### Which Blue/Green slot is live — read it off the version's patch number
+### Which Blue/Green slot is live: read it off the version's patch number
 
-The live color is determined by the **parity of the `strapiversion` patch number** (the `ZZZ` in `X.Y.ZZZ`), so you never have to guess which slot to restart:
+Odd patch means Green, even patch means Blue. The rule itself, the real ports and the four
+clients that have to be repointed are in "Clients of this API" above; the consequence here is
+narrower. After touching a `*.py`, run the restart script for the colour matching the **current**
+version's parity, `restart-green.sh` on an odd patch, `restart-blue.sh` on an even one. Never
+infer the live colour from which script happened to be run last.
 
-- **Odd** patch → **Green** is live (mnemonic: "Green" has 5 letters — odd). E.g. `1.1.17` → Green.
-- **Even** patch → **Blue** is live (mnemonic: "Blue" has 4 letters — even). E.g. `1.1.16` / `1.1.18` → Blue.
+### `logs/` and `uploads/` are shared by every colour, with opposite retentions
 
-Restarting a `*.py` change therefore means running the script for the color matching the current version's parity: `restart-green.sh` for an odd patch, `restart-blue.sh` for an even one. This also explains why an explicit `strapiversion` bump flips the parity — the deploy moves to the other color's port.
-
-### `logs/` is shared by every colour (FASTAPI-TEXT2SQL-276)
-
-Until 2026-09-19 the `docker run` lines mounted only the code (`-v $(pwd):/app`), so each
-deployment wrote its logs inside its own stack directory: blue, green, and a third, colourless
-one. The corpus existed in three pieces, and `archive-logs.sh` carried the proof in a
-three-entry `DEFAULT_DIRS`. Both restart scripts now add
-`-v /home/debian/docker/shared_data/fastapi-text2sql/logs:/app/logs`, and `DEFAULT_DIRS` holds
-one path.
+Both folders are bind-mounted from `shared_data/fastapi-text2sql/` by the two restart scripts:
+every deployment writes into one log corpus (FASTAPI-TEXT2SQL-276), and an image deposited on one
+colour is readable from the other (FASTAPI-TEXT2SQL-275). That is why `LOGS_FOLDER` and
+`UPLOADS_FOLDER` stay relative, see "Where things live" above. The mount lines, the
+host-directory ownership trap, the archive merge and the inverse retention table (`logs/` kept
+without limit and backed up, `uploads/` purged at 30 days and neither backed up nor mirrored)
+are in `README.md`, sections *The second mount*, *The third mount* and *Vision uploads*. Do not
+restate them here.
 
 **What this changes for an agent reading the logs.** A path no longer says which colour served
 a request; the **version component of the filename** does, and it always did. Anything counting
 questions over `logs/` now sees every colour at once, which is what makes a figure like "35
 retries out of 505 local logs" a statement about the system rather than about one port.
 
-**Three things not to undo.**
-
-1. **The host directory is created by the restart script, not by Docker.** Docker would create
-   it root-owned and `archive-logs.sh`, running as `debian`, could no longer delete the loose
-   files it has just archived. That is precisely how the blue directory reached 17 842 files
-   and 616 MB by 2026-08-21.
-2. **The archiver is now more critical, not less.** One directory fills at the rate of the three
-   combined. Verify the monthly cron **after** a change here, not only before.
-3. **The retention regime is written on `logs/`, never on its parent.** `logs/` is backed up,
-   mirrored and kept without limit (README, *Why these logs are kept*); the vision-mode
-   `uploads/` folder that landed beside it under the same parent (FASTAPI-TEXT2SQL-275) is
-   neither backed up nor mirrored, and is purged after 30 days. A rule on `shared_data/fastapi-text2sql/` is wrong for one of the two whichever
-   way it is written.
-
-The one-shot merge of the three historical directories is `migrate-logs-to-shared.sh`. Its
-hard part is not the move but the **monthly archives, which share their names across the three
-directories**: `202608.tar.gz` exists three times with different contents, so a `mv` destroys
-two thirds of that month. The script concatenates the members and verifies the count before
-`--prune-sources` removes anything.
-
-### `uploads/` is shared too, and purged (FASTAPI-TEXT2SQL-275)
-
-`-v /home/debian/docker/shared_data/fastapi-text2sql/uploads:/app/uploads`, added to both restart
-scripts beside the log mount. Same move, same ownership precaution, **opposite retention**.
-
-**Everything about this folder is the reverse of `logs/`.** Images are purged after 30 days by
-`purge-uploads.sh`, are not backed up and are not mirrored; logs are archived monthly, kept
-without limit, backed up and mirrored. Write the regime on each folder, never on the shared
-parent `shared_data/fastapi-text2sql/`, where either rule is wrong for one of the two.
-
-**Four things not to undo.**
-
-1. **`UPLOADS_FOLDER` stays relative.** Making it absolute, or per colour, re-splits the folder
-   by deployment: an image deposited on blue becomes unreadable from green after a flip, and the
-   replay fails **in silence**, which is worse than an outage.
-2. **The purge is its own script.** `archive-logs.sh` advertises in its header that it archives
-   *without deleting any data*; a deletion folded into it would be a trap for the next reader.
-   The purge also refuses any directory whose path does not end in `uploads/vision`, which is
-   what the `vision/` level is for: the purge run log lives in `uploads/`, above what it deletes.
-3. **The format is decided by the magic number, never by `Content-Type` or a filename.** The raw
-   body carries no filename at all, which is the cheapest possible answer to path traversal. An
-   `image_ref` coming back from a client goes through `uploads.parse_image_ref()` before any path
-   is built from it.
-4. **A purged replay answers `410` with a date.** The JSON log outlives the image it names by
-   design, so an old replay is expected to fail; it must fail with a sentence, never a stack
-   trace. `eval/verif-275.sh` checks exactly that, and its one check that cannot run on a laptop
-   is the cross-colour read that proves the shared mount (`OTHER_BASE_URL=...`).
-
-**What MCP cannot do.** The MCP server mounted on this app is JSON only, so it carries no bytes:
-an MCP client passes an `image_ref` deposited beforehand through `POST /uploads/vision`. That is
-the boundary of the design, not a gap.
+**Verifying the shared mount.** `eval/verif-275.sh` exercises the upload path against a running
+deployment. Its one check that cannot run on a laptop is the cross-colour read that proves the
+mount is really shared, `OTHER_BASE_URL=...`.
 
 ---
 
-**Last Updated**: 2026-06-03
-**Current Version**: 1.1.16 (see `strapiversion` in [main.py:105](main.py#L105))
+**Last Updated**: 2026-09-20
+**Current Version**: 1.1.19 (see `strapiversion` in [main.py:137](main.py#L137))
 
 ## Backlog (Nestor second-brain)
 
