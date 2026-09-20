@@ -28,6 +28,7 @@ import entity
 import logs
 import uploads
 import sql_cache
+import vision_cache
 import sql_shapes
 import closed_vocab
 import samples_assertions as sa
@@ -1504,6 +1505,19 @@ class Text2SQLRequest(BaseModel):
     # or moved on its own. Five tasks, five selectors, each echoed back in the response.
     llm_model_result_entity: Optional[str] = "default"
     llm_model_answer_single_value: Optional[str] = "default"
+    # FASTAPI-TEXT2SQL-114. The sixth task, and the sixth selector: reading an image and
+    # saying which work or person it points at. Its module default is `gpt-6-astra`, not
+    # `gpt-4o` like the five others: Astra is the model the feature was tried on and the one
+    # its cost was computed from. Recognition quality itself is unmeasured until the
+    # twenty-image bench of FASTAPI-TEXT2SQL-277 exists.
+    llm_model_vision: Optional[str] = "default"
+    # The bare filename returned by POST /uploads/vision (FASTAPI-TEXT2SQL-275). A STRING, not
+    # bytes: the deposit has its own route, so a search stays JSON and one endpoint serves both
+    # modes. When it is present the request starts with the vision pre-stage, which composes
+    # the question and then continues through the ordinary pipeline; page 2 of a search born
+    # from an image is an ordinary paginated request, with or without the reference, because
+    # the composition is deterministic and the hash is taken on the composed question.
+    image_ref: Optional[str] = None
     complex_question_processing: bool = False
     complex_question_already_resolved: bool = False
     ui_language: Optional[str] = "en"
@@ -1522,9 +1536,15 @@ class Text2SQLRequest(BaseModel):
 
     @model_validator(mode='after')
     def validate_question_or_hashed(self):
-        """Ensure that each request provides either the original question or its hash."""
-        if not self.question and not self.question_hashed:
-            raise ValueError('Either question or question_hashed must be provided')
+        """Ensure that each request carries something to answer: a question, a hash, or an image.
+
+        The third branch is FASTAPI-TEXT2SQL-114. A photo sent alone, with no words at all, is
+        a legitimate request: the vision pre-stage composes the question from what it reads in
+        the image. Without this branch that request is refused with a 422 before any code of
+        this endpoint runs, which is the one way the feature could not work at all.
+        """
+        if not self.question and not self.question_hashed and not self.image_ref:
+            raise ValueError('Either question, question_hashed or image_ref must be provided')
         return self
 
 class TextMessage(BaseModel):
@@ -1585,6 +1605,29 @@ class Text2SQLResponse(BaseModel):
     # nothing to attribute them to, which is exactly the shape of latency that looks like
     # database slowness in a campaign. 0.0 when the branch did not fire.
     answer_single_value_processing_time: float = 0.0
+    # FASTAPI-TEXT2SQL-114, the sixth task. Wall clock of the vision call that read the image
+    # and named what it points at, 0.0 when no image was sent AND on a recognition-cache hit.
+    # That second case is the point of the cache and the criterion that proves it: the same
+    # photo re-deposited answers with `vision_model_used` false and this chrono at 0.0,
+    # because the identification came from the fingerprint of the bytes rather than from a
+    # second $0.04 call. Like the five others, it is reported and never cached in
+    # T_WC_T2S_CACHE, whose five time columns are write-only and would have to hold 0.0 here.
+    vision_identification_processing_time: float = 0.0
+    # True only when the vision model was actually invoked on this turn. Read it rather than
+    # `llm_model_vision`, which is echoed even when no image was sent, exactly as
+    # `complex_model_used` is read rather than `llm_model_complex`.
+    vision_model_used: bool = False
+    # The image this turn was built from, echoed back so a client can keep holding it across
+    # the turns of one conversation without re-sending the bytes. Empty without an image.
+    image_ref: str = ""
+    # What the vision model read, and why it proposes what it proposes: the `hints` block
+    # (kind, title text, credits block, faces, era and genre cues, text language), the ranked
+    # `candidates` with their `confidence` and their `evidence`, which one was `selected`, the
+    # `alternatives`, and the `composed_question` the rest of the pipeline then answered. This
+    # is what the client displays beside the photo, and it is the difference between an
+    # application that proposes a title and one that shows how it read the image. None without
+    # an image.
+    vision_evidence: Optional[dict] = None
     # How far the accepted match actually sat from the sought value, per resolved entity
     # (FASTAPI-TEXT2SQL-206). The list is the calibration material; the two scalars below are
     # the weakest link of the request, which is precisely what a threshold would cut, and they
@@ -1662,6 +1705,9 @@ class Text2SQLResponse(BaseModel):
     # rather than required so a client reading an older cached payload still validates.
     llm_model_result_entity: str = ""
     llm_model_answer_single_value: str = ""
+    # FASTAPI-TEXT2SQL-114. Echoed like the five others even when no image was sent, so a
+    # campaign reads the configuration from the response and never from the request.
+    llm_model_vision: str = ""
     complex_model_used: bool = False
     # True when the original question required identity resolution by the stronger
     # model, whether signalled by extraction, Text2SQL, or the deterministic SQL guard.
@@ -1859,6 +1905,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     locations (narrative or filming, via Wikidata).
 
     Processing pipeline:
+    0. When an `image_ref` is supplied (FASTAPI-TEXT2SQL-114), read the deposited image
+       first, identify what it points at, and compose the question from it: the photo
+       alone yields an identity question, a photo with a question keeps the question and
+       has the identified entity substituted into it. A question about the image itself,
+       and an image with nothing of cinema in it, answer here and run no SQL at all. The
+       identification is cached on the fingerprint of the bytes, so the same photo is
+       never read twice. Everything below then runs unchanged on the composed question.
     1. Normalize and sanitize the input question.
     2. Extract and anonymize named entities using an LLM, replacing them with typed
        placeholders such as {{Person_name1}}, {{Movie_title1}}, {{Topic_name1}} etc.
@@ -1896,6 +1949,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             - llm_model_answer_single_value (str, default "default"): LLM asked for a
               direct scalar answer when SQL returned a single cell worth 0. Until -232 it
               borrowed llm_model_complex; it now has its own selector and its own default.
+            - llm_model_vision (str, default "default"): LLM that reads the image when
+              `image_ref` is supplied. "default" resolves to gpt-6-astra, not gpt-4o.
+              FASTAPI-TEXT2SQL-114.
+            - image_ref (str, optional): The bare filename returned by
+              POST /uploads/vision. Optional third way to carry a request, beside
+              `question` and `question_hashed`: with an image, a request may legitimately
+              carry no words at all.
         api_key (str): Valid API key injected via X-API-Key header.
 
     Returns:
@@ -1942,6 +2002,16 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
               guard_rejected, unbacked_entity_literal, error. Empty when not attempted.
               A broken SQL is a generator defect, not a question defect.
               FASTAPI-TEXT2SQL-262.
+            - image_ref, vision_evidence, vision_model_used,
+              vision_identification_processing_time, llm_model_vision: the vision half of
+              the turn (FASTAPI-TEXT2SQL-114). `vision_evidence` carries what was read in
+              the image (kind, title text, credits block, faces, era and genre cues), the
+              ranked candidates with their confidence and the clues behind each one, which
+              one was selected, the alternatives, and the composed question the rest of the
+              pipeline answered. `vision_model_used` is false, and the chrono 0.0, when the
+              identification came from the recognition cache, which is the criterion that
+              tells a server-side cache from a token a cooperative client remembered to
+              resend. All five are empty / false / 0.0 without an image.
             - complex_retry_intent_dropped: True when the stronger model's rewrite
               REPLACED the question instead of repairing it (a relation question came
               back as a bare entity card, with a different answer entity). The rows
@@ -1965,6 +2035,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     # the same context and must share the buffer so its LLM calls are captured too.
     if not getattr(request, "complex_question_already_resolved", False):
         t2s.reset_prompt_cache_events()
+
+    # The user's own wording, as everything downstream reads it: the complex-question retry
+    # rewrites THIS, and several branches read it without first testing that it exists.
+    # Initialized unconditionally since FASTAPI-TEXT2SQL-114, because a photo sent with no
+    # words at all is now a legitimate request: it used to be assigned only inside the `if`
+    # below, so a request carrying no `question` left the name unbound and any later retry
+    # raised NameError rather than answering.
+    original_question = request.question or ""
 
     # Strip whitespace and carriage return characters from question if provided
     if request.question:
@@ -2067,6 +2145,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     stranswersinglevaluemodel = t2s.stranswersinglevaluemodeldefault
     if request.llm_model_answer_single_value and request.llm_model_answer_single_value != "default":
         stranswersinglevaluemodel = request.llm_model_answer_single_value
+    strvisionmodel = t2s.strvisionmodeldefault
+    if request.llm_model_vision and request.llm_model_vision != "default":
+        strvisionmodel = request.llm_model_vision
 
     print("/search/text2sql LLM selection:")
     print("- Entity extraction model:", strentityextractionmodel)
@@ -2074,6 +2155,336 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     print("- Complex question model:", strcomplexquestionmodel)
     print("- Result entity model:", strresultentitymodel)
     print("- Answer single value model:", stranswersinglevaluemodel)
+    print("- Vision identification model:", strvisionmodel)
+
+
+    # --- Vision pre-stage (FASTAPI-TEXT2SQL-114) -------------------------------
+    # An image_ref turns this request into a two-step one: read the image, compose the
+    # question it implies, then run the ORDINARY pipeline on that question. Neither entity
+    # extraction nor the first-pass SQL ever sees the image.
+    #
+    # **A pre-stage, not a recursive re-entry**, and that is the whole of the design. The
+    # complex-question retry re-enters this endpoint, which is why it has to merge and
+    # renumber two message arrays and why it writes TWO log files per request (Gotcha #8d).
+    # Composing the question in place has neither: one counter, one log file, and nothing to
+    # teach to whatever counts questions over logs/.
+    #
+    # **`request.question` is overwritten on purpose**, because `question_hashed` is the
+    # SHA-256 of it: page 2 of a search born from an image is therefore an ordinary paginated
+    # request. The user's own wording is not lost, it travels in
+    # `vision_evidence["user_question"]`, which is what the log file records.
+    strimageref = str(request.image_ref or "").strip()
+    vision_evidence = None
+    vision_identification_processing_time = 0.0
+    vision_model_used = False
+
+    def _vision_short_circuit_response(*, answer_text, justification_text, question_text,
+                                       error_text="", error_code=None):
+        """Build, log and return a response for a turn the catalogue must NOT be asked about.
+
+        Three cases reach here and none of them is a failure of the pipeline: a question about
+        the pixels (answered from the image), an image with nothing of cinema in it, and an
+        image the model could not read. All three return an `answer`, an empty `result` and no
+        SQL, which is the shape `authoritative_empty` was invented for on the complex-question
+        path (FASTAPI-TEXT2SQL-221): an affirmative emptiness, not an error.
+        """
+        try:
+            connection.close()
+        except Exception:
+            pass
+        _hash = (hashlib.sha256(question_text.encode('utf-8')).hexdigest()
+                 if question_text else None)
+        _response = Text2SQLResponse(
+            question=question_text,
+            question_hashed=_hash,
+            sql_query="",
+            sql_query_anonymized="",
+            justification=justification_text,
+            justification_anonymized=justification_text,
+            answer=answer_text,
+            answer_anonymized=answer_text,
+            result_entity="",
+            error=error_text,
+            error_code=error_code,
+            is_retryable=False,
+            entity_extraction=None,
+            question_anonymized=None,
+            entity_extraction_processing_time=0.0,
+            text2sql_processing_time=0.0,
+            embeddings_processing_time=0.0,
+            embeddings_cache_search_time=0.0,
+            query_execution_time=0.0,
+            total_processing_time=time.time() - total_start_time,
+            vision_identification_processing_time=vision_identification_processing_time,
+            vision_model_used=vision_model_used,
+            image_ref=strimageref,
+            vision_evidence=vision_evidence,
+            page=lngpage,
+            rows_per_page=lngrowsperpage,
+            llm_model_entity_extraction=strentityextractionmodel,
+            llm_model_text2sql=strtext2sqlmodel,
+            llm_model_complex=strcomplexquestionmodel,
+            llm_model_result_entity=strresultentitymodel,
+            llm_model_answer_single_value=stranswersinglevaluemodel,
+            llm_model_vision=strvisionmodel,
+            ui_language=request.ui_language,
+            api_version=strapiversion,
+            messages=messages,
+            result=[],
+        )
+        logs.log_usage(
+            "text2sql_post",
+            {"request": request.model_dump(), "response": _response.model_dump()},
+            strapiversion,
+        )
+        return _response
+
+    if strimageref and not getattr(request, "complex_question_already_resolved", False):
+        strvisionquestion = (request.question or "").strip()
+
+        # An image_ref is a client string, never a path (Gotcha #13). Anything the generator
+        # could not have produced is refused here, before a path is built from it.
+        try:
+            dctimageparts = uploads.parse_image_ref(strimageref)
+        except uploads.UploadRefInvalid as vision_ref_error:
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Vision: the supplied image_ref is not one of ours and was refused ({vision_ref_error})."
+            ))
+            position_counter += 1
+            return _vision_short_circuit_response(
+                answer_text=("La référence d'image fournie est invalide."
+                             if request.ui_language == "fr"
+                             else "The supplied image reference is not valid."),
+                justification_text="The image_ref does not match the upload naming convention.",
+                question_text=strvisionquestion,
+                error_text=str(vision_ref_error),
+                error_code="image_ref_invalid",
+            )
+
+        strimagemd5 = dctimageparts["md5"]
+        # Does the question ask about the PIXELS rather than about the work? When it does, the
+        # cached identification cannot answer it and the model is called whatever the cache
+        # holds. See text2sql.question_targets_the_image: this is a may-call gate, and the
+        # model has the final word through `about_image`.
+        intquestionaboutimage = t2s.question_targets_the_image(strvisionquestion)
+        dctvision = None
+        intvisionfromcache = False
+
+        if request.retrieve_from_cache and not intquestionaboutimage:
+            dctvisioncached = vision_cache.search_vision_cache(
+                connection, strimagemd5, strapiversionformatted)
+            if dctvisioncached.get("found"):
+                dctvision = dctvisioncached["identification"]
+                intvisionfromcache = True
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=(f"Vision: recognition cache hit on the image fingerprint {strimagemd5} "
+                          f"(API version {strapiversionformatted}); the vision model was not called.")
+                ))
+                position_counter += 1
+
+        if dctvision is None:
+            try:
+                imagebytes, strmediatype = uploads.load_vision_image(strimageref)
+            except uploads.UploadUnavailable as vision_load_error:
+                # A purged image is the expected end of an old replay, not a crash: it is said
+                # with its deposit date. 200 with an error_code rather than the 410 of
+                # GET /uploads/vision, because a client of this route parses a
+                # Text2SQLResponse and must not have to branch on the HTTP status.
+                intpurged = datetime.now() >= uploads.purge_after(strimageref)
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Vision: the image could not be read ({vision_load_error})."
+                ))
+                position_counter += 1
+                if intpurged:
+                    strimageanswer = (
+                        "Cette image n'est plus disponible : les photos sont conservées "
+                        f"{uploads.UPLOAD_RETENTION_DAYS} jours."
+                        if request.ui_language == "fr"
+                        else "This image is no longer available: photos are kept for "
+                             f"{uploads.UPLOAD_RETENTION_DAYS} days.")
+                else:
+                    strimageanswer = ("Cette image est introuvable sur ce déploiement."
+                                      if request.ui_language == "fr"
+                                      else "This image could not be found on this deployment.")
+                return _vision_short_circuit_response(
+                    answer_text=strimageanswer,
+                    justification_text=str(vision_load_error),
+                    question_text=strvisionquestion,
+                    error_text=str(vision_load_error),
+                    error_code="image_gone" if intpurged else "image_missing",
+                )
+
+            messages.append(TextMessage(
+                position=position_counter,
+                text=(f"Vision: reading image {strimageref} ({len(imagebytes)} bytes, "
+                      f"{strmediatype}) with model {strvisionmodel} at detail "
+                      f"'{t2s.VISION_IMAGE_DETAIL}'.")
+            ))
+            position_counter += 1
+
+            _vision_start_time = time.time()
+            # Blocking provider call, so it goes to a worker thread like the three others
+            # (FASTAPI-TEXT2SQL-201): a vision call is the slowest of the six and would
+            # otherwise serialize every concurrent request behind it.
+            dctvision = await asyncio.to_thread(
+                t2s.f_identify_from_image,
+                imagebytes,
+                strmediatype,
+                strvisionquestion,
+                strvisionmodel,
+                request.ui_language,
+            )
+            vision_identification_processing_time = time.time() - _vision_start_time
+            vision_model_used = True
+
+            if not isinstance(dctvision, dict):
+                # f_identify_from_image always returns a dict, including on failure. This is
+                # the belt: everything below reads the payload with .get, and a stray type
+                # here would turn a bad model answer into a 500 on the whole endpoint.
+                dctvision = {"error": f"the vision task returned {type(dctvision).__name__}, "
+                                      "not a JSON object"}
+            if str(dctvision.get("error") or "").strip():
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Vision: identification failed ({dctvision.get('error')})."
+                ))
+                position_counter += 1
+                return _vision_short_circuit_response(
+                    answer_text=("La reconnaissance de l'image a échoué."
+                                 if request.ui_language == "fr"
+                                 else "The image could not be processed."),
+                    justification_text=str(dctvision.get("error") or ""),
+                    question_text=strvisionquestion,
+                    error_text=str(dctvision.get("error") or ""),
+                    error_code="vision_failed",
+                )
+
+            if request.store_to_cache and vision_cache.is_cacheable(dctvision):
+                dctvisionwrite = vision_cache.write_vision_cache_entry(
+                    connection,
+                    image_md5=strimagemd5,
+                    api_version=strapiversionformatted,
+                    identification=dctvision,
+                    image_ref=strimageref,
+                    vision_model=strvisionmodel,
+                    processing_time=vision_identification_processing_time,
+                )
+                if dctvisionwrite.get("written"):
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=(f"Vision: identification stored in the recognition cache under "
+                              f"fingerprint {strimagemd5}; the same image will not be paid twice.")
+                    ))
+                    position_counter += 1
+
+        # What was read, what it points at, and which candidate the confidence picked.
+        dctvisionselection = t2s.select_vision_candidates(dctvision)
+        strvisioncomposed = t2s.compose_vision_question(
+            dctvision, strvisionquestion, request.ui_language)
+        vision_evidence = {
+            "image_ref": strimageref,
+            "user_question": strvisionquestion,
+            "cached": intvisionfromcache,
+            "hints": dctvision.get("hints") if isinstance(dctvision.get("hints"), dict) else {},
+            "candidates": dctvisionselection["ranked"],
+            "selected": dctvisionselection["selected"],
+            "alternatives": dctvisionselection["alternatives"],
+            "dominant": dctvisionselection["dominant"],
+            "about_image": bool(dctvision.get("about_image")),
+            "authoritative_empty": bool(dctvision.get("authoritative_empty")),
+            "justification": str(dctvision.get("justification") or ""),
+            "composed_question": strvisioncomposed,
+            "confidence_thresholds": {
+                "dominant": t2s.VISION_CONFIDENCE_DOMINANT,
+                "margin": t2s.VISION_CONFIDENCE_MARGIN,
+            },
+        }
+
+        if dctvisionselection["ranked"]:
+            _read = ", ".join(
+                f"{c['value']}{' (' + c['year'] + ')' if c['year'] else ''} [{c['type']}, "
+                f"confidence {c['confidence']:.2f}]"
+                for c in dctvisionselection["ranked"]
+            )
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Vision: candidates read from the image: {_read}."
+            ))
+            position_counter += 1
+            if dctvisionselection["alternatives"] and dctvisionselection["dominant"]:
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=(f"Vision: one candidate dominates (confidence >= "
+                          f"{t2s.VISION_CONFIDENCE_DOMINANT} and at least "
+                          f"{t2s.VISION_CONFIDENCE_MARGIN} above the next); the alternatives are "
+                          f"reported in vision_evidence rather than searched.")
+                ))
+                position_counter += 1
+            elif dctvisionselection["alternatives"]:
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=("Vision: the candidates sit close together; all of them are searched "
+                          "so the client can ask which one is meant.")
+                ))
+                position_counter += 1
+
+        # Case 3 of the ticket: the question is about the image itself, which no catalogue can
+        # answer. The model answered it from the pixels; nothing is searched.
+        if dctvision.get("about_image") and str(dctvision.get("image_answer") or "").strip():
+            messages.append(TextMessage(
+                position=position_counter,
+                text="Vision: the question asks about the image itself; answered from the image, no catalogue query."
+            ))
+            position_counter += 1
+            return _vision_short_circuit_response(
+                answer_text=str(dctvision.get("image_answer")).strip(),
+                justification_text=str(dctvision.get("justification") or ""),
+                question_text=strvisionquestion,
+            )
+
+        # Case 4, and the unreadable image: an affirmative emptiness. Never a plausible title
+        # offered "just in case", which is the one failure this path must not produce.
+        if dctvision.get("authoritative_empty") or strvisioncomposed == "":
+            messages.append(TextMessage(
+                position=position_counter,
+                text=("Vision: the image points at no work of the catalogue (authoritative "
+                      "empty); no search is attempted.")
+            ))
+            position_counter += 1
+            _fallback_answer = ("Cette image ne correspond à aucune œuvre du catalogue."
+                                if request.ui_language == "fr"
+                                else "This image does not point to any work in the catalogue.")
+            return _vision_short_circuit_response(
+                answer_text=str(dctvision.get("image_answer") or "").strip() or _fallback_answer,
+                justification_text=str(dctvision.get("justification") or ""),
+                question_text=strvisionquestion,
+            )
+
+        # Nominal case: the composed question replaces the user's words and the ordinary
+        # pipeline takes over from here. question_hashed is deliberately NOT cleared: a client
+        # paginating with both a hash and the image keeps its hash lookup, and one sending the
+        # image alone gets the hash of the composed question back in the response.
+        request.question = strvisioncomposed
+        # From here on the composed question IS this request's question, including for the
+        # complex-question retry: a rewrite must start from the words the pipeline actually
+        # ran on, not from a demonstrative the image is no longer attached to.
+        original_question = strvisioncomposed
+        if strvisionquestion:
+            messages.append(TextMessage(
+                position=position_counter,
+                text=(f"Vision: the identified entity was substituted into the question, "
+                      f"'{strvisionquestion}' becomes '{strvisioncomposed}'.")
+            ))
+        else:
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Vision: the photo was sent alone; composed question '{strvisioncomposed}'."
+            ))
+        position_counter += 1
+    # --- end vision pre-stage --------------------------------------------------
 
     # --- Bare-identifier fast path (FASTAPI-TEXT2SQL-137) ----------------------
     # When the whole question is just a self-identifying id (tt…/nm…/Q…), answer it
@@ -2194,7 +2605,12 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             llm_model_complex=strcomplexquestionmodel,
             llm_model_result_entity=strresultentitymodel,
             llm_model_answer_single_value=stranswersinglevaluemodel,
+            llm_model_vision=strvisionmodel,
             complex_model_used=False,
+            vision_identification_processing_time=vision_identification_processing_time,
+            vision_model_used=vision_model_used,
+            image_ref=strimageref,
+            vision_evidence=vision_evidence,
             ui_language=request.ui_language,
             api_version=strapiversion,
             result=fast_path_results,
@@ -2329,6 +2745,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 llm_model_complex=strcomplexquestionmodel,
                 llm_model_result_entity=strresultentitymodel,
                 llm_model_answer_single_value=stranswersinglevaluemodel,
+                llm_model_vision=strvisionmodel,
                 ui_language=request.ui_language,
                 api_version=strapiversion,
                 messages=messages,
@@ -2956,6 +3373,18 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         dict(entity_extraction) if isinstance(entity_extraction, dict) else None
                     )
                     retry_response.requires_complex_resolution = True
+                    # FASTAPI-TEXT2SQL-114. The vision pre-stage ran on the OUTER pass, before
+                    # the question this retry rewrote even existed, and the inner pass never
+                    # sees an image (the pre-stage is skipped on the re-entry). Without these
+                    # four lines a vision request that ends in a retry returns a response with
+                    # no image_ref, no evidence and vision_model_used false, which reads as "no
+                    # image was ever sent" and hides the cost that was really paid.
+                    retry_response.image_ref = strimageref
+                    retry_response.vision_evidence = vision_evidence
+                    retry_response.vision_model_used = vision_model_used
+                    retry_response.vision_identification_processing_time = (
+                        getattr(retry_response, "vision_identification_processing_time", 0.0) or 0.0
+                    ) + vision_identification_processing_time
                 except Exception as _fp_exc:
                     messages.append(TextMessage(
                         position=position_counter,
@@ -4529,7 +4958,12 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         llm_model_complex=strcomplexquestionmodel,
         llm_model_result_entity=strresultentitymodel,
         llm_model_answer_single_value=stranswersinglevaluemodel,
+        llm_model_vision=strvisionmodel,
         complex_model_used=complex_model_used,
+        vision_identification_processing_time=vision_identification_processing_time,
+        vision_model_used=vision_model_used,
+        image_ref=strimageref,
+        vision_evidence=vision_evidence,
         requires_complex_resolution=requires_complex_resolution,
         ui_language=request.ui_language,
         api_version=strapiversion,
@@ -7834,16 +8268,18 @@ async def get_samples(ui_language: Optional[str] = "en", set: Optional[str] = "s
 
 @mcp.tool(name="sql_search")
 async def _mcp_sql_search(
-    question: str,
+    question: str = "",
     ui_language: str = "en",
+    image_ref: str = "",
     llm_model_entity_extraction: str = "default",
     llm_model_text2sql: str = "default",
     llm_model_complex: str = "default",
     llm_model_result_entity: str = "default",
     llm_model_answer_single_value: str = "default",
+    llm_model_vision: str = "default",
 ) -> str:
     """
-    Query the cinema and TV database in natural language.
+    Query the cinema and TV database in natural language, or from a deposited image.
 
     Covers movies, TV series, persons (actors, directors, writers, crew),
     production companies, TV networks, topics (themes, recurring-character collections),
@@ -7864,13 +8300,31 @@ async def _mcp_sql_search(
     persons). Use it to ask the user which one they mean before drilling in.
 
     Optional model overrides (each defaults to "default" = the server's configured
-    model, currently gpt-4o). The pipeline makes five distinct LLM calls and each has
-    its own selector: llm_model_entity_extraction, llm_model_text2sql,
-    llm_model_complex, llm_model_result_entity (the answer-entity classifier) and
-    llm_model_answer_single_value (the direct scalar answer). Each routes its step
+    model, gpt-4o for the five text tasks and gpt-6-astra for the vision one). The
+    pipeline makes six distinct LLM calls and each has its own selector:
+    llm_model_entity_extraction, llm_model_text2sql, llm_model_complex,
+    llm_model_result_entity (the answer-entity classifier),
+    llm_model_answer_single_value (the direct scalar answer) and llm_model_vision (the
+    image reader, which only fires when an image_ref is supplied). Each routes its step
     through a chosen provider/model (an OpenAI "gpt-*"/"o1*"/"o3*"/"o4*" model, a
-    "claude-*" model, or a "gemini-*" model). The response echoes back the five
-    resolved names and the per-task wall clock, so a run can be priced task by task.
+    "claude-*" model, or a "gemini-*" model; the vision task reads images through the
+    OpenAI route only). The response echoes back the six resolved names and the
+    per-task wall clock, so a run can be priced task by task.
+
+    `image_ref` starts the question from a picture instead of from words
+    (FASTAPI-TEXT2SQL-114). It is the bare filename returned by a deposit on
+    POST /uploads/vision: this MCP server is JSON only and carries no bytes, so the
+    image is deposited over HTTP first and only its name travels here. That is the
+    boundary of the design, not a gap. With an image the request may carry no question
+    at all (the vision task composes one from what it reads), or carry a question about
+    the work ("who directed this?", answered by the catalogue from the work it
+    identified), or a question about the picture itself ("what is written on this
+    poster?", answered from the pixels with no catalogue query). The response then
+    carries `vision_evidence` (what was read, the ranked candidates with their
+    confidence and the clues behind each one), the `image_ref` used,
+    `vision_model_used` and `vision_identification_processing_time`. A sixth selector,
+    `llm_model_vision`, chooses the model that reads the image; its default is
+    gpt-6-astra rather than gpt-4o.
 
     For precise field knowledge (column names, value ranges, genre codes) read
     the resource context://database-scope before formulating complex questions.
@@ -7892,6 +8346,8 @@ async def _mcp_sql_search(
     Network IDs    → https://myapp.com/networks/{ID_NETWORK}
     Location IDs   → https://myapp.com/locations/{ID_LOCATION}
     """
+    if not str(question or "").strip() and not str(image_ref or "").strip():
+        return json.dumps({"error": "Provide a question, an image_ref, or both."})
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             r = await client.post(
@@ -7899,11 +8355,13 @@ async def _mcp_sql_search(
                 json={
                     "question": question,
                     "ui_language": normalize_ui_language(ui_language),
+                    "image_ref": image_ref or None,
                     "llm_model_entity_extraction": llm_model_entity_extraction,
                     "llm_model_text2sql": llm_model_text2sql,
                     "llm_model_complex": llm_model_complex,
                     "llm_model_result_entity": llm_model_result_entity,
                     "llm_model_answer_single_value": llm_model_answer_single_value,
+                    "llm_model_vision": llm_model_vision,
                 },
                 headers={"X-API-Key": MCP_INTERNAL_API_KEY},
             )

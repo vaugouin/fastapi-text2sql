@@ -21,6 +21,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **Robust Error Handling**: Enhanced error handling for malformed responses and SQL escaping issues
 - **Docker Support**: Containerized deployment with Blue/Green deployment strategy
 - **UTF-8 Support**: Proper handling of Unicode characters in queries and logs
+- **Picture-based search**: an optional `image_ref` on `/search/text2sql` turns a photo into a question. A poster, a frame or a Blu-ray sleeve is read by a vision model, the work or person it points at is identified with the clues that support each candidate, and the ordinary pipeline answers from there. A photo alone opens the entity's card, a photo with a question answers the question, a question about the picture itself is answered from the pixels with no catalogue query, and an image with nothing of cinema in it says so rather than guessing
 - **MCP Server**: Remote MCP endpoint for Claude clients (web, desktop, mobile) via FastMCP 2.x
 - **Entity Detail Endpoints**: 18 REST endpoints returning full entity data with embedded relations and usage logging, each accepting an optional `ui_language` parameter (`en`/`fr`) that returns fully localized, language-collapsed responses (see below)
 - **Multi-API Key Support**: Comma-separated `API_KEYS` env var with legacy `API_KEY` fallback
@@ -29,7 +30,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **Localized User-Oriented Answers (`ui_language`)**: Each response includes a plain-language `answer` field describing what the query returns, written in the language specified by `ui_language` (default `"en"`). The answer preserves entity placeholders during generation and is de-anonymized alongside the SQL and justification. `ui_language` is part of the cache key so that the same question cached in different languages gets separate entries.
 - **Multi-Language Support**: Handles English, French, and original language titles for movies and series
 - **Processing Transparency**: Detailed messages array showing each processing step
-- **Configurable LLM Models**: Separate model selection for entity extraction, text-to-SQL conversion, and complex-question escalation
+- **Configurable LLM Models**: one selector per LLM task, six in all: entity extraction, text-to-SQL conversion, answer-entity classification, complex-question escalation, the direct scalar answer, and the image reader
 - **Complex Question Escalation (Stronger Model)**: Optional one-time retry using a stronger model to simplify complex questions
 - **Retry Model Visibility**: Retry messages explicitly display the selected complex-question model used during reasoning escalation
 - **No-Results Escalation**: If SQL executes successfully but returns 0 rows (page 1), the question can be escalated to the stronger model and retried once
@@ -56,7 +57,15 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 
 ### Pipeline Steps
 
-0. **Bare-Identifier Fast Path (no LLM)**
+0a. **Vision pre-stage (only when `image_ref` is supplied)**
+   - When the request carries an `image_ref` (the bare filename returned by `POST /uploads/vision`), the image is read **first** and turned into a question in words; everything below then runs unchanged on that question. Neither entity extraction nor SQL generation ever sees the image.
+   - **A photo alone** yields the canonical identity question (`Movie Blade Runner released in 1982`), composed deterministically from the identified candidates by the same helper the complex-question retry uses. **A photo with a question** keeps the question and has the identified entity substituted into it (`who directed this film?` → `who directed the movie Blade Runner (1982)?`), so a relation question is answered instead of being flattened into an entity card.
+   - **Three cases never reach the catalogue**, and none is an error: a question about the image itself (`what is written on this poster?`, answered from the pixels), an image with nothing of cinema in it, and an image the model could not read. All three return an `answer`, an empty `result` and no SQL.
+   - The identification is cached on the **fingerprint of the image bytes** (the MD5 already carried by the `image_ref`) and the API version, so the same photo re-deposited costs nothing: `vision_model_used` comes back `false` and `vision_identification_processing_time` 0.0. Only the question-independent half is stored, so one row answers any later question about that photo.
+   - Because the composed question is deterministic, **page 2 of a search born from an image is an ordinary paginated request**: the hash is taken on the composed question, with or without the `image_ref`.
+   - Skipped on the complex-question retry re-entry. It is a pre-stage and not a recursive call, so a picture-based request still writes exactly **one** log file.
+
+0b. **Bare-Identifier Fast Path (no LLM)**
    - Before any cache or LLM step, if the **whole trimmed question is just a self-identifying identifier** it is answered with a direct, indexed SQL lookup and the entire LLM pipeline (entity extraction + text-to-SQL + resolution) is skipped — a sub-millisecond, zero-token response.
    - Recognized forms (an optional leading `imdb` / `wikidata` keyword is tolerated, casing is normalized): `tt…` (IMDb title → looked up on `T_WC_T2S_MOVIE` then `T_WC_T2S_SERIE` by `ID_IMDB`; if it is instead a **season / episode** IMDb id, it is resolved through `T_WC_TMDB_SEASON` / `T_WC_TMDB_EPISODE` to its parent series, which is returned), `nm…` (IMDb person → `T_WC_T2S_PERSON.ID_IMDB`), `Q…` (Wikidata id → scanned across the `ID_WIKIDATA`-bearing entity tables in a fixed precedence, first match wins).
    - The response keeps the **same shape** as a normal `/search/text2sql` answer: `result_entity` is set, the entity's "Result Columns" are projected, and `sql_query` + `messages` show the direct lookup (there is **no** text-to-SQL LLM message in the trace). The projected columns are read from the **live, hot-reloaded** "Result Columns" section of `data/text_to_sql.md` (single source of truth — a static per-entity table in `main.py` is only a fallback), so the fast path stays in sync when that prompt section changes.
@@ -340,6 +349,8 @@ Content-Type: application/json
   "llm_model_complex": "default",
   "llm_model_result_entity": "default",
   "llm_model_answer_single_value": "default",
+  "llm_model_vision": "default",
+  "image_ref": null,
   "complex_question_processing": false,
   "ui_language": "en"
 }
@@ -357,6 +368,8 @@ Content-Type: application/json
 - `llm_model_complex` (optional, str, default: "default"): LLM model to use for complex-question resolution / stronger-model retry
 - `llm_model_result_entity` (optional, str, default: "default"): LLM model for the answer-entity classifier, which decides from the **original** question what kind of thing the returned rows should be. Before FASTAPI-TEXT2SQL-232 this task was reachable only through its module default, so it could be neither priced nor moved.
 - `llm_model_answer_single_value` (optional, str, default: "default"): LLM model asked for a direct scalar answer when the SQL came back as a single cell worth 0. Before -232 it borrowed `llm_model_complex`; the two share a caller but not a job, so they now have separate selectors and separate defaults.
+- `llm_model_vision` (optional, str, default: "default"): LLM that reads the image when `image_ref` is supplied, the sixth and last task of the pipeline (FASTAPI-TEXT2SQL-114). `"default"` resolves to **`gpt-6-astra`**, not `gpt-4o`: this is the one task whose default is not the house model, because it is the model the feature was designed and tried on. Only the OpenAI families read images here (`gpt-4o`, the GPT-5.x line, `gpt-6-astra`); an Anthropic or Gemini name is refused with an explicit error rather than silently ignored.
+- `image_ref` (optional, str): The bare filename returned by `POST /uploads/vision`. This is the picture-based search, and it is a **string**, not bytes: the deposit has its own route, so a search request stays JSON and one endpoint serves both modes. A request may legitimately carry **only** an image, with no `question` and no `question_hashed`. See the vision pre-stage in *Query Processing Pipeline* for what happens then, and `vision_evidence` in the response for what comes back.
 - `ui_language` (optional, str, default: `"en"`): Language code for the user-oriented `answer` field in the response. Only `"en"` (English) and `"fr"` (French) are supported; the value is normalized (case-insensitive, region/script subtags stripped, so `"fr-FR"` → `"fr"`) and any missing, empty, or unsupported value falls back to `"en"`. The answer is a plain-language sentence describing what the query returns, written in the specified language, with no table/column names or SQL details. This value is also used as part of the cache key, so the same question submitted with different `ui_language` values produces separate cache entries.
 - `complex_question_processing` (optional, bool, default: `false`): Controls whether the API is allowed to escalate to the stronger model when the primary pipeline fails. When `false` (the default), the API returns the raw error or empty result set directly to the caller without retrying. When `true`, the three automatic retry triggers are active:
   - The text-to-SQL model cannot produce a SQL query and returns an error
@@ -375,6 +388,7 @@ Content-Type: application/json
     - `llm_model_complex` → `gpt-4o`
     - `llm_model_result_entity` → `gpt-4o`
     - `llm_model_answer_single_value` → `gpt-4o`
+    - `llm_model_vision` → `gpt-6-astra`
 
 - OpenAI models
   - Supported when the value is:
@@ -432,12 +446,18 @@ Content-Type: application/json
   - `llm_model_complex`
   - `llm_model_result_entity`
   - `llm_model_answer_single_value`
+- **`llm_model_vision` is the exception, and deliberately so.** It reads an image, and every
+  provider encodes an image differently, so it is wired for the OpenAI chat-completions route
+  only: `gpt-4o`, the GPT-5.x line and `gpt-6-astra`. A `claude-*` or `gemini-*` name is
+  refused with an error naming the supported families, rather than being sent and failing
+  obscurely. Both providers do read images; adding one is a small explicit job, not something
+  to have half-done in advance.
 - `gemma-4-google` is intended for direct Google Gemma 4 access on entity extraction and text-to-SQL.
 - `gemma-4` is available through OpenRouter and is useful if you prefer the OpenRouter route for Gemma 4.
 - For `llm_model_complex`, if the selected stronger model is unavailable and it is not already `gpt-4o`, the application may retry once with `gpt-4o`.
 - **Reasoning models do not take `temperature` at all (FASTAPI-TEXT2SQL-231).** The whole o-series, the entire GPT-5.x family (the 5.6 Sol / Terra / Luna tiers included) and the GPT-6 line answer HTTP 400 on any explicit `temperature`. `_openai_sampling_kwargs` therefore omits the parameter for those families and sends `reasoning_effort` instead; `gpt-4o` and the other 4.x models keep `temperature=0` and behave exactly as before. This applies to all five parameters, not just `llm_model_complex`.
 - **`reasoning_effort` is the cost and latency knob, and it matters more than the tier.** The same model runs about 1.8 s to first token at `low` and about 115 s at `max`, and reasoning tokens are billed at the output rate. Defaults are the cheapest rung for the three tasks on the 100 % path and `medium` for the two complex-question tasks that fire on roughly 1 % of requests.
-- **The GPT-6 family is selectable on every task, not only on the vision path (FASTAPI-TEXT2SQL-274).** `gpt-6-astra` is accepted by all five selectors above, exactly like any other model name, and the response echoes it back the same way. Two family details are handled for you and are worth knowing before reading a bill: GPT-6 has **no `none` rung** (its floor is `low`, unlike GPT-5.6), and it is served through `chat.completions` rather than the Responses API, so its prompt-cache figures are directly comparable with the `gpt-4o` baseline. Measured on 2026-09-19: the static prefix caches at **100 %** on repeat calls (24 190 of 24 193 tokens), against 99.5 % for `gpt-4o`, so the switch carries no cache penalty. On latency it is slightly slower at effort `low` (7.9–11.1 s on the text-to-SQL task alone, against 6.6 s for `gpt-4o` with a warm cache).
+- **The GPT-6 family is selectable on every task, not only on the vision path (FASTAPI-TEXT2SQL-274).** `gpt-6-astra` is accepted by all six selectors above, exactly like any other model name, and the response echoes it back the same way (it is also the default of the sixth, the vision task). Two family details are handled for you and are worth knowing before reading a bill: GPT-6 has **no `none` rung** (its floor is `low`, unlike GPT-5.6), and it is served through `chat.completions` rather than the Responses API, so its prompt-cache figures are directly comparable with the `gpt-4o` baseline. Measured on 2026-09-19: the static prefix caches at **100 %** on repeat calls (24 190 of 24 193 tokens), against 99.5 % for `gpt-4o`, so the switch carries no cache penalty. On latency it is slightly slower at effort `low` (7.9–11.1 s on the text-to-SQL task alone, against 6.6 s for `gpt-4o` with a warm cache).
 - The project now uses Google's current `google-genai` SDK for Google-hosted Gemini and Gemma requests.
 
 **Note:** Either `question` or `question_hashed` must be provided.
@@ -498,6 +518,10 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "complex_retry_intent_dropped": false,
   "complex_question_processing_time": 0.0,
   "answer_single_value_processing_time": 0.0,
+  "vision_identification_processing_time": 0.0,
+  "vision_model_used": false,
+  "image_ref": "",
+  "vision_evidence": null,
   "entity_match_worst_distance": 0.41,
   "entity_match_worst_fuzz_ratio": 88.0,
   "entity_match_scores": [
@@ -523,6 +547,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "llm_model_complex": "gpt-4o",
   "llm_model_result_entity": "gpt-4o",
   "llm_model_answer_single_value": "gpt-4o",
+  "llm_model_vision": "gpt-6-astra",
   "complex_model_used": false,
   "api_version": "1.1.16",
   "messages": [
@@ -567,10 +592,12 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `result_entity` (str): The kind of row the result set lists — one of `movie`, `serie`, `person`, `collection`, `list`, `topic`, `movement`, `technical`, `group`, `death`, `award`, `nomination`, `company`, `network`, `location`, `genre` (empty when not determined, e.g. ambiguous questions or `movie_serie` UNION results). `genre` is only chosen when the genres themselves are the answer ("what are the movie genres?"); a genre used to scope a search ("Sci-Fi movies") is a filter and yields `movie` / `serie`. It is the answer type enforced by the answer-entity guard, stored in the cache (`T_WC_T2S_CACHE.RESULT_ENTITY`) so it is also returned on cache hits.
 - `dropped_clause` (str): **What the SQL does not implement.** Names the part of the question the generator had to abandon, empty when the SQL implements all of it (FASTAPI-TEXT2SQL-220). It is filled when a filter would have needed a placeholder that entity extraction never produced: dropping the filter widens the result, and saying nothing would present a narrower answer as a complete one. Example: `"genre filter: science-fiction"`. Neutral like `name_ambiguity`: the API states the fact, each client decides whether to show it. It is deliberately NOT used to decide whether an empty result is authoritative; that call belongs to FASTAPI-TEXT2SQL-207 and wants measuring first.
 - `name_ambiguity` (dict, optional): **Neutral same-name-cluster signal** — present only when the generated SQL is a *pure* exact-equality match on an entity's name/title column(s) against a single literal (never `LIKE`) and returns **≥2 distinct rows**, i.e. the user named one entity (`movie` / `serie` / `person`) but the database holds several homonyms or duplicate titles (e.g. *"Steve McQueen"* → actor + director; *"Le Bonheur"* → four films). It is a **fact about the result, not an instruction**: the API does not decide whether to disambiguate — intent (*"tell me about Dracula"* vs *"list all movies called Dracula"*) is **not** in the SQL (both produce the identical `WHERE`), so a conversational client (voice-agent) reads this flag and asks *"which one?"* while a plain display client (tmdb-front) ignores it. `null` otherwise, so ignoring clients are unaffected. Shape: `{ "entity": "movie", "anchor": "Le bonheur", "count": 4, "candidates": [ { "id": 53023, "display": "Le Bonheur", "discriminator": { "year": 1965, "release_date": "1965-02-17", "directors": ["Agnès Varda"], "top_cast": ["Jean-Claude Drouot", "Claire Drouot", "Marie-France Boyer"] } }, … ] }` — for `movie` / `serie` the discriminator carries the `year` (human phrasing, "the 1969 one"), the full `release_date` (`YYYY-MM-DD`, `null` when only a year is known), the **`directors`** and the top-3 billed **`top_cast`** (plus **`creators`** for `serie`) — so twins sharing *both* title AND year (e.g. *The Odyssey*'s two 2026 films, Nolan vs Walz) are told apart by the director/cast name, not only the date (FASTAPI-TEXT2SQL-176). For `person` the discriminator is `{ "birth_year", "death_year", "role", "birth_date", "death_date", "country_of_birth", "known_for" }`, where **`known_for`** lists up to 3 of the person's best-rated titles (by `IMDB_RATING_WEIGHTED`, movies + series) so two homonyms (e.g. *Steve McQueen* the actor vs the director) are separable by their notable works, nationality and full dates. `candidates` is ordered **chronologically, oldest first** (by `release_date`, else the year — `birth_year` for a person — with undated candidates last, ties keeping DB order). DB order is arbitrary, which misled consumers twice: an agent enumerating candidates read them out of order, and a *positional* reading of a superlative (*"the latest one"* = the last item) picked the wrong entity. Ordering by date makes position agree with time, so the last candidate really is the most recent. Only **true duplicates** (rows sharing the same `ID_IMDB`) are collapsed; distinct works that merely share a title and year are kept as separate candidates (e.g. two different *Dracula* films from 2025). Computed on page 1 only.
+- `image_ref` (str): The image this turn was built from, echoed back so a client can keep holding it across the turns of one conversation without ever re-sending the bytes. Empty when no image was sent
+- `vision_evidence` (dict, optional): **What the model read in the image, and why it proposes what it proposes.** `null` without an image. Shape: `{ "image_ref", "user_question" (the words the user actually typed, before the composition overwrote them), "cached" (true when the identification came from the recognition cache), "hints": { "kind": poster | frame | still | physical_media | other, "title_text", "credits_block", "faces": [], "era_cues": [], "genre_cues": [], "text_language" }, "candidates": [ { "type", "value", "year", "note", "confidence", "evidence": [] } ] (ranked, best first), "selected", "alternatives", "dominant" (true when one candidate clearly leads, so its entry is opened and the others are only reported), "about_image", "authoritative_empty", "justification", "composed_question" (the question the rest of the pipeline actually answered), "confidence_thresholds" }`. The `evidence` strings are the point: they cite what was read (a credits block, a typography, a face), which is what lets a client show **how** the image was read instead of dropping a title out of nowhere
 - `entity_extraction` (dict, optional): Full LLM entity extraction output, including the anonymized `question` key plus one key per extracted placeholder (e.g., `Person_name1`, `Movie_title1`)
 - `question_anonymized` (str, optional): The user question with entities replaced by typed placeholders
 - `error` (str): Error message if query processing failed (e.g., the LLM's explanation when the question is ambiguous)
-- `error_code` (str, optional): Structured API error code when the failure can be classified. `"429"` is used for retryable provider quota / rate-limit failures. `"cache_miss"` is returned (with HTTP 200, `is_retryable: false`) when a request supplies a `question_hashed` that is not present in the cache and provides no original `question` text to fall back on — resend the request including the original question.
+- `error_code` (str, optional): Structured API error code when the failure can be classified. `"429"` is used for retryable provider quota / rate-limit failures. `"cache_miss"` is returned (with HTTP 200, `is_retryable: false`) when a request supplies a `question_hashed` that is not present in the cache and provides no original `question` text to fall back on: resend the request including the original question. Four more belong to the picture-based search, all of them HTTP 200 with a `Text2SQLResponse` body so a client never has to branch on the status code: `"image_ref_invalid"` (the reference is not one this API could have produced), `"image_gone"` (the image is past its 30-day retention, the answer says the deposit date), `"image_missing"` (it is absent although still inside its window, which points at the uploads mount rather than at the purge) and `"vision_failed"` (the vision model could not be reached or answered outside its contract). Note that an image with nothing of cinema in it is **not** one of these: it is an answer, with `error` empty.
 - `is_retryable` (bool): Indicates whether the client should treat the failure as retryable.
 - `retry_after_seconds` (float, optional): Suggested wait time before retrying the request. When available, this is extracted from the underlying provider response.
 - `provider` (str, optional): Provider associated with the failure when it can be inferred, such as `google`, `openrouter`, `openai`, or `anthropic`.
@@ -598,6 +625,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `entity_match_scores` (list): One entry per candidate weighed by an embeddings or rapidfuzz strategy, accepted or not, with what was sought, what was found and how far apart they sat. `fuzz_ratio` is the score the gate actually used, after the entity's own descriptor words were neutralised on both sides; `fuzz_ratio_raw` is what it would have been without that, kept so the effect stays auditable. Measured 2026-08-24: "wagonlit collection" against "life collection" scores 76.5 raw and 33.3 stripped, and the threshold sits at 72. This is the calibration material for FASTAPI-TEXT2SQL-206: twelve of the fourteen resolvers currently have no threshold and accept their nearest neighbour however far it sits. Not summed across a retry, like the counts: it describes the resolution that produced the returned result
 - `complex_question_processing_time` (float): The stronger-model simplification call that precedes a complex retry. 0.0 when no retry happened, so it is the most direct marker of a retried request. **On a retried request every timing above covers both passes**, and `total_processing_time` is the real end-to-end elapsed
 - `answer_single_value_processing_time` (float): The direct scalar answer asked of the stronger model when the SQL returned a single cell worth 0 (FASTAPI-TEXT2SQL-233). 0.0 when that branch did not fire. Banked before any early return, so an answer that errored still reports the seconds it spent. With this field the response carries **one wall clock per LLM task**, which is what makes a per-task model swap measurable rather than merely configurable. The five do not sum to `total_processing_time`: that one is measured end to end and includes the plumbing between the steps
+- `vision_identification_processing_time` (float): The sixth and last wall clock, the vision call that read the image and named what it points at (FASTAPI-TEXT2SQL-114). 0.0 when no image was sent **and** on a recognition-cache hit, which is the criterion that proves the cache: the same photo re-deposited answers with this at 0.0 and `vision_model_used` false, because the identification came from the fingerprint of the bytes rather than from a second call of about 4 cents
 - `query_execution_time` (float): Time for SQL execution in seconds
 - `total_processing_time` (float): Total request processing time in seconds
 
@@ -621,6 +649,8 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `llm_model_complex` (str): LLM model **configured** for complex-question resolution / stronger-model retry — exposed even when the retry path was not taken
 - `llm_model_result_entity` (str): LLM model actually used for the answer-entity classifier (FASTAPI-TEXT2SQL-232)
 - `llm_model_answer_single_value` (str): LLM model **configured** for the direct scalar answer, exposed even when that branch did not fire
+- `llm_model_vision` (str): LLM model **configured** for the image-reading task, exposed even when no image was sent
+- `vision_model_used` (bool, default `false`): **Whether the vision model was actually invoked** on this turn. Read this rather than `llm_model_vision`, exactly as `complex_model_used` is read rather than `llm_model_complex`. It stays `false` on a recognition-cache hit, and it is what proves a second turn on the same photo cost nothing
 - `complex_model_used` (bool, default `false`): **Whether the stronger model was actually invoked** during the request — set to `true` when any of the four complex-retry code paths fired (text2sql error, SQL execution error, zero-row result on page 1, or single-cell zero-count direct answer). Use this rather than `llm_model_complex` to know whether the extra LLM call happened.
 - `ui_language` (str): Normalized language code used for the `answer` field and the cache key — either `"en"` or `"fr"` (any other requested value falls back to `"en"`)
 - `api_version` (str): Current API version
@@ -1092,6 +1122,11 @@ really shared: deposit on blue, read from green. See
 passes an `image_ref` that was deposited here first. That is the boundary of the design, not a
 gap to fill later.
 
+**What to do with the `image_ref` afterwards.** Send it as the `image_ref` field of an ordinary
+`POST /search/text2sql`, with or without a question beside it. There is no second search route:
+the deposit is what needed a content type of its own, and it has one. See the vision pre-stage
+in *Query Processing Pipeline*, and `vision_evidence` in the response fields.
+
 ### Client handling for quota / rate-limit errors
 
 When an upstream LLM provider rejects a request because of quota exhaustion or temporary rate limiting, the API returns the failure in the normal JSON response and also exposes structured retry metadata.
@@ -1294,6 +1329,7 @@ fastapi-text2sql/
 ├── closed_vocab.py          # Closed-vocabulary resolver (Movie_genre, Serie_genre, Technical_format, Status_name, Serie_type, Department_name) — DB-driven canonicals + JSON aliases + RapidFuzz typo tolerance
 ├── uploads.py               # Vision-mode image deposits: magic-number check, house filename, 30-day retention, safe image_ref parsing (FASTAPI-TEXT2SQL-275)
 ├── sql_cache.py             # SQL cache lookups and cache writes for exact/anonymized questions
+├── vision_cache.py          # Recognition cache of the picture-based search: keyed on the MD5 of the image bytes, its own table, degrades to a silent miss before the migration runs (FASTAPI-TEXT2SQL-114)
 ├── auth.py                  # API key authentication middleware (multi-key support via API_KEYS)
 ├── logs.py                  # API usage logging (JSON log files in logs/ folder)
 ├── data_watcher.py          # File-system watcher for hot-reloading data/ files
@@ -1310,15 +1346,17 @@ fastapi-text2sql/
 ├── archive-logs.sh           # Monthly log archiver (cron): packs past months into logs/archive/
 ├── migrate-logs-to-shared.sh # One-shot merge of the three old per-stack log dirs
 ├── purge-uploads.sh          # Daily 30-day purge of uploads/vision (cron): deletes, unlike archive-logs.sh
-├── data/                    # Hot-reloaded prompt templates and configuration
+├── data/                    # Hot-reloaded prompt templates and configuration (see data/AGENTS.md before editing one: what each file must keep, and the rules twinned between two prompts)
 │   ├── entity_extraction.md                                          # Entity extraction prompt (hot-reloaded)
 │   ├── text_to_sql.md                                                # Text2SQL prompt (hot-reloaded)
 │   ├── complex_question.md                                           # Stronger model prompt (complex question simplification, hot-reloaded)
+│   ├── vision_identification.md                                      # Image-reading prompt: what the picture shows and which work it points at (hot-reloaded)
 │   ├── entity_resolution.json                                        # Entity resolution configuration (embeddings + rapidfuzz, hot-reloaded)
 │   └── closed_vocabularies.json                                      # Closed-vocabulary aliases for Movie_genre, Serie_genre, Technical_format, Status_name, Serie_type, Department_name (hot-reloaded)
 ├── eval/                    # Evaluation harness (see eval/README.md)
 │   ├── text2sql-eval.py                                              # End-to-end evaluator against the running API
 │   ├── verif-275.sh                                                  # Checks the vision upload path against a running deployment (cross-colour read included)
+│   ├── verif-114.py                                                  # Checks the deterministic half of the picture-based search: composition, confidence rule, cache contract (no API, no DB, no image)
 │   ├── bench-entity-extraction.py                                    # Offline A/B comparison of two extraction configurations
 │   ├── bench-entity-resolution.py                                    # Offline bench that calibrates the entity-resolution thresholds
 │   ├── harvest-archived-entities.py                                  # Harvests entity values from the archived VPS logs
@@ -1343,6 +1381,7 @@ fastapi-text2sql/
 - **Entity Extraction**: `entity.py` handles GPT-powered entity recognition and anonymization for supported entity types
 - **Fork-Join Scheduling**: entity resolution runs in a worker thread while the text-to-SQL call is in flight (`ENTITY_RESOLUTION_PARALLEL`), since it depends only on the extraction output
 - **Unified LLM Dispatch**: `text2sql.py` routes to OpenAI (native SDK), Anthropic (native `anthropic` SDK), or Google Gemini (`google-generativeai`) based on model name
+- **Vision Pre-stage**: with an `image_ref`, `text2sql.py` reads the image (OpenAI route only), the code composes the question deterministically from what was identified, and the ordinary pipeline answers it. The identification is cached on the fingerprint of the bytes (`vision_cache.py`), so the same photo is never read twice
 - **Reasoning Retry Helpers**: `text2sql.py` contains stronger-model calls and retry-question construction helpers
 - **Endpoint Orchestration**: `main.py` coordinates request flow, recursive retry execution, and response/message merging
 - **Entity Detail Endpoints**: 18 endpoints returning full entity data with embedded relations, each with usage logging
@@ -1435,9 +1474,16 @@ The API implements a sophisticated three-tier caching system for optimal perform
 - Configurable similarity threshold (default: 0.15)
 - Stores anonymized SQL queries in metadata for quick retrieval
 
+#### 4. **Recognition Cache (images, `T_WC_T2S_VISION_CACHE`)**
+- Keyed on the **MD5 of the image bytes**, which the deposit filename already carries, plus the API version. The same photo re-deposited therefore gets a new name and the same key.
+- Stores only what depends on the image and not on the question (the clues, the candidates, the authoritative-empty flag), so **one row answers any later question about that photo**.
+- A photo with nothing of cinema in it **is** cached, unlike an empty SQL result: it will still be a photo of a meal tomorrow, and that is the case where the cache most reliably avoids a pointless spend.
+- Survives the 30-day image purge, because the key is the fingerprint and not the file. It then serves the identification, never the pixels.
+- Governed by the same `retrieve_from_cache` / `store_to_cache` request flags as the three tiers above. Its table is created by `maintenance/vision-recognition-cache.sql`; until that runs, the module degrades to a silent miss and the picture-based search works uncached.
+
 #### What is never cached: an empty result
 
-A query that returns **0 rows on page 1** is not written to any of the three tiers. An empty result is precisely where the odds that the SQL is wrong, rather than the
+A query that returns **0 rows on page 1** is not written to any of the three question tiers. An empty result is precisely where the odds that the SQL is wrong, rather than the
 data genuinely absent, are at their highest, and caching one does not merely freeze the
 question that produced it: the anonymized row freezes the whole **template**.
 

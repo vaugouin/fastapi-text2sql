@@ -6,6 +6,7 @@ import psutil
 import os
 import json
 import re
+import base64
 import contextvars
 from typing import Optional
 
@@ -53,6 +54,17 @@ strcomplexquestionmodeldefault = "gpt-4o"
 # See f_classify_result_entity().
 strresultentitymodeldefault = "gpt-4o"
 
+# Vision identification: read a deposited image and say which work or person it points at
+# (FASTAPI-TEXT2SQL-114). Sixth LLM task of the pipeline, and the only one whose input is not
+# text. The default is `gpt-6-astra` and not `gpt-4o` like the five others, on purpose: this is
+# the model Philippe tried the feature on (2026-09-16, poster and frame both recognised, the
+# reasoning model enumerating the clues it read), it is the one whose price the ~4 cents a photo
+# figure was computed from, and its family is declared in the reasoning block below since
+# FASTAPI-TEXT2SQL-274. Any other model is accepted, like everywhere else here, as long as it
+# reads images: see _call_vision_llm, which supports the OpenAI families only and says so.
+strvisionprompttemplate = "vision_identification.md"
+strvisionmodeldefault = "gpt-6-astra"
+
 # Direct scalar answer when the SQL path returned a single cell worth 0 (FASTAPI-TEXT2SQL-232).
 # Until then this task borrowed the complex-question model, which made the two impossible to
 # price or to move apart: they are different jobs (one rewrites a question, the other answers
@@ -73,6 +85,7 @@ CACHE_BOUNDARY_MARKER = "<!--CACHE_BOUNDARY-->"
 # the register() calls below.
 text2sql_prompt_template = ""
 complex_question_prompt_template = ""
+vision_identification_prompt_template = ""
 
 
 def _on_text2sql_prompt_change(content: str) -> None:
@@ -85,8 +98,14 @@ def _on_complex_question_prompt_change(content: str) -> None:
     complex_question_prompt_template = content
 
 
+def _on_vision_prompt_change(content: str) -> None:
+    global vision_identification_prompt_template
+    vision_identification_prompt_template = content
+
+
 data_watcher.register(strtext2sqlprompttemplate, _on_text2sql_prompt_change)
 data_watcher.register(strcomplexquestionprompttemplate, _on_complex_question_prompt_change)
+data_watcher.register(strvisionprompttemplate, _on_vision_prompt_change)
 
 # Load environment variables (OPENAI_API_KEY)
 load_dotenv()
@@ -838,10 +857,11 @@ def f_build_retry_question_from_reasoning(resolved: dict) -> str:
             if v == "":
                 continue
             y = str(it.get("year") or "").strip()
+            bare = v
             if re.fullmatch(r"\d{4}", y or ""):
                 v = f"{v} ({y})"
             t = str(it.get("type") or "").strip().lower()
-            cleaned_items.append({"type": t, "value": v, "year": y})
+            cleaned_items.append({"type": t, "value": v, "year": y, "bare_value": bare})
 
         if len(cleaned_items) == 0:
             return base_q
@@ -849,7 +869,15 @@ def f_build_retry_question_from_reasoning(resolved: dict) -> str:
         if len(cleaned_items) == 1 and base_q == "":
             it0 = cleaned_items[0]
             t0 = it0.get("type")
-            v0 = it0.get("value")
+            # The title WITHOUT its parenthesised year, because the single-item patterns below
+            # state the year themselves: `Movie Blade Runner (1982) released in 1982` was what
+            # this branch produced, and the redundancy only stayed invisible because the branch
+            # is nearly dead on the complex-retry path (the stronger model almost always fills
+            # `question`, so `base_q` is not empty and this code is skipped). The vision
+            # pre-stage of FASTAPI-TEXT2SQL-114 never fills `question`, so it exercises this
+            # branch on every lone photo. The list branch below keeps the parenthesised form,
+            # which is right there: `Movies A (1931), B (1992)` has nowhere else to put a year.
+            v0 = it0.get("bare_value") or it0.get("value")
             y0 = it0.get("year")
             if t0 == "movie":
                 if re.fullmatch(r"\d{4}", y0 or ""):
@@ -1065,3 +1093,511 @@ def f_resolve_complex_question_retry_payload(user_question: str, strcomplexquest
         "authoritative_empty": bool(
             isinstance(resolved_complex, dict) and resolved_complex.get("authoritative_empty")),
     }
+
+
+# ---------------------------------------------------------------------------
+# Vision identification, the sixth LLM task (FASTAPI-TEXT2SQL-114)
+# ---------------------------------------------------------------------------
+# An image enters the pipeline as an `image_ref` on /search/text2sql, is read here, and
+# leaves as a question in words. Everything downstream (entity extraction, text-to-SQL,
+# resolution, cache, pagination) is untouched: only the MODALITY of the fuzzy input
+# changes, which is what makes this feature much cheaper than it looks.
+#
+# Two boundaries worth knowing before editing this block.
+#
+# **This task identifies, it never composes the question that reaches the database.** The
+# composition is deterministic, below, and that is a decision rather than an omission: the
+# identification of an image does not depend on the question asked about it, so it is cached
+# on the MD5 of the bytes (see vision_cache.py). A model-composed question would make the
+# cached path and the fresh path produce different questions for the same photo, and the
+# divergence would only show up in production, on the second turn of a conversation.
+#
+# **This task never answers a catalogue question.** "Who directed this?" is answered by the
+# catalogue, from the work identified here. The prompt says so twice; the code enforces it by
+# reading nothing but `hints`, `items`, `about_image`, `image_answer`, `authoritative_empty`.
+
+# OpenAI bills an image by patches: a 1024x1024 photo at detail "high" is
+# ceil(1024/32)^2 = 1024 patches, billed ceil(1024 * 1.2) = 1229 tokens, about $0.0123 at
+# $10 per million. "low" divides that by twenty and loses the credits block of a poster,
+# which the ticket calls the most discriminating clue a poster carries. So: "high", and let the client
+# bound the bill by resizing before the deposit (the front resizes to ~1024 px, q~0.8).
+VISION_IMAGE_DETAIL = "high"
+
+# Telling two candidates apart (FASTAPI-TEXT2SQL-114 point 8, arbitrage 5 of VOICE-AGENT-179).
+# A candidate that clearly dominates opens its entry, with the alternative reported beside it;
+# candidates that sit close are all presented, which is rule VOICE-AGENT-093.
+#
+# **These two values are PROVISIONAL and have not been measured.** The ticket is explicit that
+# the threshold is settled on the twenty-image bench and not guessed, and that bench does not
+# exist yet (FASTAPI-TEXT2SQL-277). They are named constants precisely so the measurement has
+# somewhere to land: do not inline them, and do not tune them on a single bad photo.
+VISION_CONFIDENCE_DOMINANT = 0.70
+VISION_CONFIDENCE_MARGIN = 0.20
+
+# At most this many candidates reach the composed question. Beyond it the model is listing
+# rather than identifying, and a list question returns a page of unrelated rows.
+VISION_MAX_CANDIDATES = 5
+
+# The item types the composer knows how to phrase. Same vocabulary as complex_question.md,
+# deliberately: f_build_retry_question_from_reasoning is shared with the complex-retry path.
+_VISION_ITEM_TYPES = (
+    "movie", "serie", "person", "collection", "topic",
+    "company", "network", "location", "other",
+)
+
+# How each type reads inside a user's own question. "who directed {phrase}?" must come out as
+# a sentence, so these carry their article and stay lowercase. Per language, because the
+# substitution happens INSIDE the user's own words: dropping "the movie Blade Runner" into
+# "qui a realise ce film ?" would hand the pipeline a sentence no one wrote.
+_VISION_TYPE_PHRASE = {
+    "en": {
+        "movie": "the movie",
+        "serie": "the TV series",
+        "person": "the person",
+        "collection": "the collection",
+        "topic": "the topic",
+        "company": "the company",
+        "network": "the network",
+        "location": "the location",
+    },
+    "fr": {
+        "movie": "le film",
+        "serie": "la série",
+        "person": "la personne",
+        "collection": "la collection",
+        "topic": "le sujet",
+        "company": "la société",
+        "network": "la chaîne",
+        "location": "le lieu",
+    },
+}
+
+# What is appended when the question carries no demonstrative to replace ("cast", "trivia").
+_VISION_SUBJECT_SUFFIX = {
+    "en": "the image shows {phrase}",
+    "fr": "l'image montre {phrase}",
+}
+
+# A question that asks about the PIXELS, which no catalogue can answer: the tagline printed on
+# a poster, the edition of a Blu-ray, whether the image is a poster or a frame. This list is a
+# *may-call* gate and nothing more: when it fires the vision model is called even if the image
+# is already in the recognition cache, because the answer depends on the question and the cache
+# holds only the identification. When it does not fire and the model is called anyway (a cache
+# miss), the model still has the final word through `about_image`. So a marker missing from
+# this list costs one cached turn, never a wrong answer.
+_VISION_IMAGE_QUESTION_MARKERS = (
+    # English
+    "poster", "cover", "sleeve", "jacket", "artwork", "blu-ray", "bluray", "dvd",
+    "edition", "written", "writing", "tagline", "caption", "font", "typography",
+    "logo", "colour of", "color of", "background", "screenshot",
+    "in this image", "in this picture", "in this photo", "on this image",
+    "what does it say", "what is written",
+    # French
+    "affiche", "jaquette", "pochette", "boitier", "couverture", "edition", "accroche",
+    "police de caractere", "typographie", "couleur de", "arriere-plan", "capture",
+    "photogramme", "sur cette image", "sur cette photo", "ecrit sur",
+    "qu'est-ce qui est ecrit", "qu'y a-t-il d'ecrit",
+)
+
+# The demonstrative phrases a user actually types in front of a photo. The first match is
+# replaced by the identified entity, which is the whole of "substituting the resolved entity
+# into the user's question": "who directed this film?" becomes "who directed the movie Blade
+# Runner (1982)?", keeping the interrogative form the catalogue needs (FASTAPI-TEXT2SQL-263).
+_VISION_DEMONSTRATIVE_RE = re.compile(
+    r"\b("
+    r"(?:this|that|the)\s+(?:movie|film|picture|serie|series|show|tv\s+show|poster|image|photo|"
+    r"person|actor|actress|director|character)"
+    r"|(?:ce|cet|cette)\s+(?:film|long[-\s]m[eé]trage|s[eé]rie|affiche|image|photo|"
+    r"personne|acteur|actrice|r[eé]alisateur|r[eé]alisatrice|personnage)"
+    r"|celui[-\s]ci|celle[-\s]ci|ceux[-\s]ci|celles[-\s]ci"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# The bare pronoun, handled apart because it must only fire when it stands alone at the end of
+# a clause: "who directed this?" is a reference to the photo, "this movie" is already covered
+# above, and "it is a comedy" is not a reference at all.
+_VISION_PRONOUN_RE = re.compile(r"\b(this|it|ca|ça)\b(?=\s*[?!.,]|\s*$)", re.IGNORECASE)
+
+
+def question_targets_the_image(user_question) -> bool:
+    """True when the question asks about the image itself rather than about the work.
+
+    See ``_VISION_IMAGE_QUESTION_MARKERS``: this is a gate that decides whether the vision
+    model MAY be called again on an image already recognised, never a verdict. The model
+    itself answers that question, through ``about_image``, whenever it is called.
+    """
+    q = str(user_question or "").strip().lower()
+    if not q:
+        return False
+    return any(marker in q for marker in _VISION_IMAGE_QUESTION_MARKERS)
+
+
+def _normalize_vision_items(payload) -> list:
+    """Return the payload's candidates as clean dicts, best first.
+
+    Ranked on ``confidence`` with a stable sort, so the model's own order survives ties and
+    a payload that omits confidence entirely keeps the order it was written in.
+    """
+    try:
+        items = payload.get("items") if isinstance(payload, dict) else None
+    except Exception:
+        items = None
+    if not isinstance(items, list):
+        return []
+    cleaned = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        value = str(it.get("value") or "").strip()
+        if value == "":
+            continue
+        item_type = str(it.get("type") or "").strip().lower()
+        if item_type not in _VISION_ITEM_TYPES:
+            item_type = "other"
+        year = str(it.get("year") or "").strip()
+        if not re.fullmatch(r"\d{4}", year or ""):
+            year = ""
+        try:
+            confidence = float(it.get("confidence"))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        confidence = max(0.0, min(1.0, confidence))
+        raw_evidence = it.get("evidence")
+        evidence = ([str(e).strip() for e in raw_evidence if str(e).strip()]
+                    if isinstance(raw_evidence, list) else [])
+        cleaned.append({
+            "type": item_type,
+            "value": value,
+            "year": year,
+            "note": str(it.get("note") or "").strip(),
+            "confidence": confidence,
+            "evidence": evidence,
+        })
+    cleaned.sort(key=lambda c: -c["confidence"])
+    return cleaned[:VISION_MAX_CANDIDATES]
+
+
+def select_vision_candidates(payload) -> dict:
+    """Decide whether one candidate dominates, or whether they all have to be presented.
+
+    Returns ``{"ranked": [...], "selected": item|None, "alternatives": [...],
+    "dominant": bool}``. ``dominant`` is what tells the caller to compose the question from
+    ONE candidate; otherwise the question lists them all and the ordinary same-name-cluster
+    machinery (``name_ambiguity``) lets the client ask which one is meant.
+
+    A single candidate is dominant by construction: there is nothing to be ambiguous with,
+    and its own confidence is reported rather than used as a floor. Refusing it below a
+    threshold would turn "one uncertain reading" into "no reading at all", which loses the
+    evidence the user is entitled to see.
+    """
+    ranked = _normalize_vision_items(payload)
+    if not ranked:
+        return {"ranked": [], "selected": None, "alternatives": [], "dominant": False}
+    top = ranked[0]
+    if len(ranked) == 1:
+        return {"ranked": ranked, "selected": top, "alternatives": [], "dominant": True}
+    runner_up = ranked[1]
+    dominant = (
+        top["confidence"] >= VISION_CONFIDENCE_DOMINANT
+        and (top["confidence"] - runner_up["confidence"]) >= VISION_CONFIDENCE_MARGIN
+    )
+    return {
+        "ranked": ranked,
+        "selected": top,
+        "alternatives": ranked[1:],
+        "dominant": dominant,
+    }
+
+
+def vision_entity_phrase(item, ui_language: str = "en") -> str:
+    """Phrase one identified candidate as it reads inside a sentence.
+
+    ``{"type": "movie", "value": "Blade Runner", "year": "1982"}`` becomes
+    ``the movie Blade Runner (1982)``, or ``le film Blade Runner (1982)`` in French.
+    """
+    if not isinstance(item, dict):
+        return ""
+    value = str(item.get("value") or "").strip()
+    if value == "":
+        return ""
+    year = str(item.get("year") or "").strip()
+    table = _VISION_TYPE_PHRASE.get(str(ui_language or "en").strip().lower(),
+                                    _VISION_TYPE_PHRASE["en"])
+    phrase = table.get(str(item.get("type") or "").strip().lower(), "")
+    if re.fullmatch(r"\d{4}", year or ""):
+        value = f"{value} ({year})"
+    return f"{phrase} {value}".strip()
+
+
+def compose_vision_question(payload, user_question: str = "", ui_language: str = "en") -> str:
+    """Turn an identification into the question the rest of the pipeline will answer.
+
+    Two shapes, one per case of the ticket:
+
+    - **Photo alone.** ``f_build_retry_question_from_reasoning`` composes the canonical
+      identity question, exactly as it does for the complex-question retry: ``Movie Blade
+      Runner released in 1982``, or a list when several candidates are close.
+    - **Photo plus a question.** The user's own question is kept and the identified entity is
+      substituted into it, so ``who directed this film?`` becomes ``who directed the movie
+      Blade Runner (1982)?``. Flattening it into a bare entity card would return the film and
+      answer nothing, which is the defect recorded as FASTAPI-TEXT2SQL-263.
+
+    With several close candidates AND a user question, the best candidate is substituted: a
+    relation question needs one subject. The alternatives are not lost, they travel in
+    ``vision_evidence`` and the client can re-ask on another one.
+
+    Returns "" when nothing was identified; the caller then treats the turn as an
+    authoritative empty rather than searching for the user's raw words.
+    """
+    selection = select_vision_candidates(payload)
+    ranked = selection["ranked"]
+    if not ranked:
+        return ""
+
+    question = str(user_question or "").strip()
+    if question == "":
+        items = [selection["selected"]] if selection["dominant"] else ranked
+        return f_build_retry_question_from_reasoning({"question": "", "items": items})
+
+    phrase = vision_entity_phrase(selection["selected"], ui_language)
+    if phrase == "":
+        return question
+
+    substituted, count = _VISION_DEMONSTRATIVE_RE.subn(phrase, question, count=1)
+    if count == 0:
+        substituted, count = _VISION_PRONOUN_RE.subn(phrase, question, count=1)
+    if count == 0:
+        # No demonstrative to replace ("cast", "trivia", "awards"). Naming the subject beside
+        # the question is the honest composition: it adds what the photo carried and removes
+        # nothing of what was typed.
+        suffix = _VISION_SUBJECT_SUFFIX.get(str(ui_language or "en").strip().lower(),
+                                            _VISION_SUBJECT_SUFFIX["en"])
+        substituted = f"{question} ({suffix.format(phrase=phrase)})"
+    return substituted.strip()
+
+
+# The strict schema is the primary path: the OpenAI documentation shows `response_format`
+# json_schema and `reasoning_effort` together on chat.completions, which is exactly this call.
+# The fallback below exists anyway, for two reasons and not out of superstition. AGENTS.md
+# records a neighbouring refusal (function tools combined with `reasoning_effort` on
+# gpt-5.6-sol), and this repository has never exercised structured outputs against the live
+# API, so the first request of the first deployment is where a surprise would land. On a
+# refusal this flag flips and every later call of the process goes straight to the plain-JSON
+# contract the other five tasks use, cleaned and validated the same way. Same degrade-once
+# idiom as sql_cache._RESULT_ENTITY_COLUMN_AVAILABLE.
+_VISION_STRUCTURED_OUTPUTS_AVAILABLE = True
+
+# The contract, as a strict JSON schema. Strict mode demands that every property be listed in
+# `required` and that every object refuse additional properties, so an optional field is
+# expressed as a field the model must emit empty, never as an absent one.
+_VISION_RESPONSE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["hints", "items", "about_image", "image_answer",
+                 "authoritative_empty", "justification", "error"],
+    "properties": {
+        "hints": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["kind", "title_text", "credits_block", "faces",
+                         "era_cues", "genre_cues", "text_language"],
+            "properties": {
+                "kind": {"type": "string",
+                         "enum": ["poster", "frame", "still", "physical_media", "other"]},
+                "title_text": {"type": "string"},
+                "credits_block": {"type": "string"},
+                "faces": {"type": "array", "items": {"type": "string"}},
+                "era_cues": {"type": "array", "items": {"type": "string"}},
+                "genre_cues": {"type": "array", "items": {"type": "string"}},
+                "text_language": {"type": "string"},
+            },
+        },
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["type", "value", "year", "note", "confidence", "evidence"],
+                "properties": {
+                    "type": {"type": "string", "enum": list(_VISION_ITEM_TYPES)},
+                    "value": {"type": "string"},
+                    "year": {"type": "string"},
+                    "note": {"type": "string"},
+                    "confidence": {"type": "number"},
+                    "evidence": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+        },
+        "about_image": {"type": "boolean"},
+        "image_answer": {"type": "string"},
+        "authoritative_empty": {"type": "boolean"},
+        "justification": {"type": "string"},
+        "error": {"type": "string"},
+    },
+}
+
+
+def _is_structured_outputs_refusal(exc: Exception) -> bool:
+    """True when this failure is the provider refusing the strict schema, and only then.
+
+    The distinction is load-bearing. Flipping `_VISION_STRUCTURED_OUTPUTS_AVAILABLE` on any
+    exception would let a rate limit, a timeout or a network blip disable structured outputs
+    for the whole life of the process, and nothing would ever turn them back on. A refusal is
+    a 400 that names the parameter; everything else is re-raised and surfaces to the caller
+    like any other provider failure, which is what keeps a 429 retryable for the client.
+    """
+    status = getattr(exc, "status_code", None)
+    if status is not None and status != 400:
+        return False
+    text = str(exc).lower()
+    return any(marker in text for marker in (
+        "response_format", "json_schema", "structured output",
+        "unsupported parameter", "unsupported value",
+    ))
+
+
+def _call_vision_llm(*, model: str, system_prompt: str, user_prompt: str,
+                     imagebytes: bytes, media_type: str,
+                     cache_label: str = "vision_identification") -> str:
+    """Call a vision-capable LLM with one image and return its raw text content.
+
+    Deliberately NOT folded into ``_call_chat_llm``: that dispatcher takes a string prompt and
+    every provider encodes an image differently, so merging them would put three content
+    builders behind one signature for the benefit of one caller.
+
+    **OpenAI only, and the error says so.** `gpt-4o` and the GPT-5.x / GPT-6 families read
+    images through `chat.completions` with an `image_url` content block, which is the route
+    this function implements; the o-series would need the Responses API and is not wired.
+    Anthropic and Gemini both accept images and neither is wired either: an unexercised branch
+    that formats bytes for a provider nobody has tested against is a liability, not a feature.
+    Adding one is a small, explicit job, not an accident to have in advance.
+    """
+    global _VISION_STRUCTURED_OUTPUTS_AVAILABLE
+    model_norm = str(model).strip()
+    if not (model_norm.startswith("gpt-") or model_norm.startswith("chatgpt-")):
+        raise RuntimeError(
+            f"Unsupported vision model: {model_norm}. The vision task reads images through the "
+            "OpenAI chat.completions route only (gpt-4o, gpt-5.x, gpt-6-astra). "
+            "Anthropic and Gemini vision are not wired in this repository."
+        )
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not found in environment variables")
+
+    user_prompt_plain = user_prompt.replace(CACHE_BOUNDARY_MARKER, "")
+    data_url = f"data:{media_type};base64,{base64.b64encode(imagebytes).decode('ascii')}"
+    client = openai.OpenAI(api_key=api_key)
+    sampling_kwargs = _openai_sampling_kwargs(model_norm, 0, cache_label)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": [
+            {"type": "text", "text": user_prompt_plain},
+            {"type": "image_url", "image_url": {"url": data_url, "detail": VISION_IMAGE_DETAIL}},
+        ]},
+    ]
+
+    if _VISION_STRUCTURED_OUTPUTS_AVAILABLE:
+        try:
+            response = client.chat.completions.create(
+                model=model_norm,
+                messages=messages,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "vision_identification",
+                        "strict": True,
+                        "schema": _VISION_RESPONSE_SCHEMA,
+                    },
+                },
+                **sampling_kwargs,
+            )
+            _log_openai_cache_usage(response, model_norm=model_norm, label=cache_label)
+            if (response.choices and response.choices[0].message
+                    and response.choices[0].message.content):
+                return response.choices[0].message.content
+            raise RuntimeError("No content in OpenAI API response")
+        except RuntimeError:
+            raise
+        except Exception as structured_error:
+            if not _is_structured_outputs_refusal(structured_error):
+                raise
+            _VISION_STRUCTURED_OUTPUTS_AVAILABLE = False
+            print(f"[vision] Structured outputs refused ({structured_error}); falling back to "
+                  "the plain-JSON contract for the rest of this process.")
+
+    response = client.chat.completions.create(
+        model=model_norm,
+        messages=messages,
+        **sampling_kwargs,
+    )
+    _log_openai_cache_usage(response, model_norm=model_norm, label=cache_label)
+    if not response.choices or not response.choices[0].message or not response.choices[0].message.content:
+        raise RuntimeError("No content in OpenAI API response")
+    return response.choices[0].message.content
+
+
+def f_identify_from_image(imagebytes: bytes, media_type: str, user_question: str = "",
+                          strvisionmodel: str = "default", ui_language: str = "en"):
+    """Read an image and return what it points at, in the ``items[]`` contract.
+
+    Args:
+        imagebytes: The deposited image, read back from ``uploads/vision/``.
+        media_type: Its media type, decided by the magic number at deposit time.
+        user_question: What the user asked alongside the photo, "" when the photo is alone.
+            It is passed to the model for ONE purpose, deciding ``about_image`` and answering
+            it; the identification itself does not depend on it, which is what makes the
+            recognition cache sound.
+        strvisionmodel: Model override; "default" resolves to ``strvisionmodeldefault``.
+        ui_language: Language of ``image_answer``, the only user-facing string here.
+
+    Returns:
+        dict: the parsed contract (``hints``, ``items``, ``about_image``, ``image_answer``,
+        ``authoritative_empty``, ``justification``), or ``{"error": ...}``. Never raises:
+        a vision failure degrades to a turn the user can retype, not to a 500.
+    """
+    model_to_use = _normalize_llm_model(strvisionmodel, strvisionmodeldefault)
+    print("Vision identification LLM model:", model_to_use)
+
+    try:
+        question_for_prompt = str(user_question or "").strip()
+        if question_for_prompt == "":
+            question_for_prompt = "(none: the user sent the photo alone, with no question)"
+        formatted_prompt = vision_identification_prompt_template.replace(
+            "{user_question}", question_for_prompt)
+        formatted_prompt = formatted_prompt.replace("{ui_language}", ui_language or "en")
+
+        json_content = _call_vision_llm(
+            model=model_to_use,
+            system_prompt=("You are a film and television image reader. Respond only with the "
+                           "JSON content, no explanations."),
+            user_prompt=formatted_prompt,
+            imagebytes=imagebytes,
+            media_type=media_type,
+        ).strip()
+    except Exception as e:
+        print(f"Error in vision identification: {str(e)}")
+        return {"error": f"Vision identification failed: {str(e)}"}
+
+    if json_content.startswith("```json"):
+        json_content = json_content[7:].strip()
+    if json_content.startswith("```"):
+        json_content = json_content[3:].strip()
+    if json_content.endswith("```"):
+        json_content = json_content[:-3].strip()
+
+    cleaned_content = json_content.strip()
+    if not cleaned_content.startswith('{') or not cleaned_content.endswith('}'):
+        return {"error": "Incomplete JSON response from the vision model",
+                "raw_content": json_content}
+
+    try:
+        parsed = json.loads(cleaned_content)
+    except json.JSONDecodeError as json_error:
+        print(f"JSON parsing error in vision identification: {str(json_error)}")
+        return {"error": f"JSON parsing failed: {str(json_error)}", "raw_content": json_content}
+
+    ok, guard_error = json_guardrails.validate_llm_json(parsed, "vision_identification")
+    if not ok:
+        print(f"JSON guardrail failed in vision identification: {guard_error}")
+        return {"error": f"JSON guardrail: {guard_error}", "raw_content": json_content}
+    return parsed

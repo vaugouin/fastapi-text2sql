@@ -58,17 +58,22 @@ MCP_INTERNAL_BASE_URL = os.getenv(
 
 @mcp.tool(name="sql_search")
 async def _mcp_sql_search(
-    question: str,
+    question: str = "",
     ui_language: str = "en",
-    # Five selectors, one per LLM task in the pipeline (FASTAPI-TEXT2SQL-232).
+    # The picture-based search (FASTAPI-TEXT2SQL-114). A STRING, never bytes: this server is
+    # JSON only, so the image is deposited on POST /uploads/vision first and only its name
+    # travels here. `question` is therefore optional: a photo can be sent alone.
+    image_ref: str = "",
+    # Six selectors, one per LLM task in the pipeline (FASTAPI-TEXT2SQL-232, -114).
     llm_model_entity_extraction: str = "default",
     llm_model_text2sql: str = "default",
     llm_model_complex: str = "default",
     llm_model_result_entity: str = "default",
     llm_model_answer_single_value: str = "default",
+    llm_model_vision: str = "default",
 ) -> str:
     """
-    Query the cinema and TV database in natural language.
+    Query the cinema and TV database in natural language, or from a deposited image.
 
     Covers movies, TV series, persons (actors, directors, writers, crew),
     production companies, TV networks, topics (themes, recurring-character collections),
@@ -923,7 +928,8 @@ Claude → formats and presents results to user
 
 | Component | Role |
 |---|---|
-| FastAPI `POST /search/text2sql` | Accepts natural language question, converts to SQL, executes, and returns full result set with pipeline trace |
+| FastAPI `POST /search/text2sql` | Accepts natural language question, converts to SQL, executes, and returns full result set with pipeline trace. With an optional `image_ref` it starts from a picture instead: the image is read, the question is composed from what it points at, and the same pipeline answers it |
+| FastAPI `POST /uploads/vision` | The only route that carries bytes. Deposits a JPEG or PNG and returns the `image_ref` that names it everywhere afterwards |
 | FastAPI `/movies/{id}` etc. | Returns full entity detail with embedded relations |
 | FastMCP mounted at `""` (root); Nginx routes `/mcp` → FastAPI | Exposes tools and resources over HTTPS |
 | Bearer token middleware | Guards `/mcp` paths; skipped when `MCP_API_KEY` is empty |

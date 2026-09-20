@@ -87,6 +87,30 @@ _SCHEMAS = {
             "error": str, "raw_content": str, "authoritative_empty": bool,
         },
     },
+    # f_identify_from_image -> {"hints": {...}, "items": [...], "about_image", "image_answer",
+    #                           "authoritative_empty", "justification", "error"}
+    #
+    # FASTAPI-TEXT2SQL-114. The sixth LLM task, and the only one whose input is an image. Its
+    # three legitimate outcomes are "here is what the image points at" (`items`), "here is the
+    # answer to your question about the pixels" (`image_answer`), and "there is nothing of
+    # cinema here, do not search" (`authoritative_empty`), so `any_of_required` lists all
+    # three beside `error`. `items` is checked by truthiness like every other entry, so an
+    # empty list does NOT satisfy the gate: a payload that identifies nothing has to SAY so
+    # through `authoritative_empty`, exactly the lesson -221 taught on the complex question,
+    # where a silence meant to be affirmative read as a malformed output.
+    #
+    # The per-item shape (type / value / year / confidence / evidence) is deliberately not
+    # validated here: the strict json_schema sent to the provider covers it when the route
+    # accepts it, and `_normalize_vision_items` cleans it defensively when it does not. A
+    # second hand-written copy of that shape would be a third place to keep in sync.
+    "vision_identification": {
+        "any_of_required": ["items", "image_answer", "authoritative_empty", "error"],
+        "types": {
+            "hints": dict, "items": list, "about_image": bool, "image_answer": str,
+            "authoritative_empty": bool, "justification": str,
+            "error": str, "raw_content": str,
+        },
+    },
 }
 
 

@@ -5,6 +5,7 @@ This file gives you the agentic context you need to work on this codebase safely
 This is the single canonical guide for autonomous coding agents in this repository. Assistant-specific files such as @CLAUDE.md, and any future tool-specific guide such as `GEMINI.md`, should only point here and should not duplicate repository instructions.
 
 Deeper specs live in their own files:
+- @data/AGENTS.md : the hot-reloaded prompts and configuration, what each file must keep, and the three rules twinned between `complex_question.md` and `vision_identification.md` that must stay different
 - @doc/AGENTS.md : index of the reference documentation, and the rule that a new entity ships with a measured threshold
 - @doc/MCP.md — full MCP integration guide (tool code, resource reference, client setup, bearer token, end-to-end flow)
 - @doc/RAPIDFUZZ.md — RapidFuzz setup and SQL schema requirements
@@ -148,7 +149,11 @@ Edit at the right layer; the architecture is intentionally split.
 - Version utilities: `format_api_version()` ([main.py:33](main.py#L33)), `compare_versions()` ([main.py:38](main.py#L38))
 - `strapiversion` lives at [main.py:137](main.py#L137) (also drives Blue/Green port parity and `MCP_INTERNAL_BASE_URL`)
 - `Text2SQLRequest` / `Text2SQLResponse` Pydantic models around [main.py:214-269](main.py#L214-L269)
-- `POST /search/text2sql` — main pipeline endpoint
+- `POST /search/text2sql` : main pipeline endpoint. Its first stage is the vision pre-stage
+  when the request carries an `image_ref` (FASTAPI-TEXT2SQL-114): identify, compose the
+  question, then fall through to the ordinary pipeline
+- `POST /uploads/vision` / `GET /uploads/vision/{image_ref}` : the binary deposit and its
+  replay read (FASTAPI-TEXT2SQL-275), the only routes in this repo that carry bytes
 - 18 entity detail endpoints (movies, series, seasons, episodes, persons, companies, networks, collections, topics, lists, movements, technicals, genres, groups, deaths, awards, nominations, locations). `seasons` and `episodes` are keyed on composite paths (`/seasons/{id_serie}/{season_number}`, `/episodes/{id_serie}/{season_number}/{episode_number}`) and currently read from `T_WC_TMDB_*` source tables — see [SEASONS_AND_EPISODES.md](doc/SEASONS_AND_EPISODES.md) §6.1. `genres` reads the closed-vocabulary reference table `T_WC_TMDB_GENRE` (legacy lowercase PK `id`, no `ID_WIKIDATA`, so no Wikipedia arrays).
 - FastMCP instance + 17 MCP tools (`sql_search` + 16 entity tools), 1 resource (`context://database-scope`), bearer-token middleware, `app.mount("", mcp_app)` at root. The `seasons` and `episodes` HTTP endpoints do not yet have MCP wrappers (tracked in [SEASONS_AND_EPISODES.md](doc/SEASONS_AND_EPISODES.md) §3 "MCP coverage")
 
@@ -158,7 +163,13 @@ Edit at the right layer; the architecture is intentionally split.
 - `f_resolve_complex_question()` / `f_resolve_complex_question_retry_payload()` — complex-question simplification via stronger model.
 - `f_build_retry_question_from_reasoning()` — deterministic retry-question composer (typed entities + years).
 - `f_answer_single_value()` — direct-answer path for single-cell zero-count results.
-- Hot-reloads `text_to_sql.md` and `complex_question.md` via `data_watcher`.
+- `f_identify_from_image()` / `_call_vision_llm()` : the sixth task, the only one whose input
+  is an image (FASTAPI-TEXT2SQL-114). OpenAI route only, and the error says so.
+- `compose_vision_question()` / `select_vision_candidates()` / `question_targets_the_image()` :
+  the deterministic half of the vision path: what the model identified becomes a question here,
+  never in the model. See *The vision pre-stage*.
+- Hot-reloads `text_to_sql.md`, `complex_question.md` and `vision_identification.md` via
+  `data_watcher`.
 
 **[entity.py](entity.py)** — entity extraction + resolution.
 - `f_entity_extraction()` — LLM-based extraction + anonymization.
@@ -185,6 +196,15 @@ Edit at the right layer; the architecture is intentionally split.
 - `search_sql_cache_by_question_hash()`, `search_sql_cache_by_question_text()`, `write_sql_cache_entry()` — all take the **formatted** API version (`XXX.YYY.ZZZ`).
 - `_normalize_cache_row()` — picks `SQL_QUERY` over `SQL_PROCESSED` when needed to preserve a smaller LLM-defined `LIMIT` (see `used_raw_query_to_preserve_limit`).
 
+**[vision_cache.py](vision_cache.py)** : the recognition cache of the vision path
+(FASTAPI-TEXT2SQL-114), keyed on the MD5 of the image bytes and the formatted API version, in
+its own table `T_WC_T2S_VISION_CACHE`.
+- `search_vision_cache()` / `write_vision_cache_entry()` : degrade to a silent miss when the
+  table is absent, so the path works before the migration runs.
+- `identification_payload()` : **the contract**, what is stored is what depends on the image
+  and not on the question. Adding a question-dependent key here makes the cache serve
+  yesterday's answer to today's question.
+
 **[sql_shapes.py](sql_shapes.py)** : structural predicates over a generated SQL query. Pure string analysis, no DB and no LLM: it answers *what shape does this query have*, never *is it right*.
 - `detect_person_role_collapse(sql_query, result_entity)` : true when a person-listing query pins the `ID_PERSON` it projects to a person named in the question, a shape that can only ever return that named person (FASTAPI-TEXT2SQL-211).
 - It exists as its own module so the runtime guard in `main.py` and the measurement in `analyze-complex-retry-logs.py` share the **exact same predicate**. A guard measured with a rule other than the one it runs is a number about nothing; do not fork the logic back into either caller.
@@ -209,12 +229,16 @@ Edit at the right layer; the architecture is intentionally split.
 - `UPLOADS_FOLDER` is relative for exactly the same reason, and with a sharper failure mode:
   absolute or per-colour makes a post-flip replay fail **silently**.
 
-**[data/](data/)** — hot-reloaded prompts and config:
+**[data/](data/)** : hot-reloaded prompts and config. [data/AGENTS.md](data/AGENTS.md) carries
+what only matters when editing one of these files, in particular the three rules twinned
+between `complex_question.md` and `vision_identification.md`, which share a motive and must
+keep different instructions:
 - `text_to_sql.md` — main Text2SQL prompt (loaded by [text2sql.py](text2sql.py))
 - `complex_question.md` — complex-question resolver prompt (loaded by [text2sql.py](text2sql.py))
 - `entity_extraction.md` — entity extraction prompt (loaded by [entity.py](entity.py))
 - `entity_resolution.json` — per-placeholder resolution strategy list (loaded by [entity.py](entity.py))
 - `closed_vocabularies.json` — alias dictionaries (loaded by [closed_vocab.py](closed_vocab.py))
+- `vision_identification.md` : the image-reading prompt (loaded by [text2sql.py](text2sql.py))
 
 **[maintenance/](maintenance/)** — one-shot operational SQL, run by hand against the production DB, no code path loads it. Distinct from `doc/sql/` (reference DDL, read-only) and from `eval/assertions-*.sql` (which writes to the evaluation bank): this folder writes to operational tables, `T_WC_T2S_CACHE` first among them. Conventions and the cache facts a cleanup relies on are in [maintenance/AGENTS.md](maintenance/AGENTS.md); read it before adding or running anything there.
 
@@ -315,6 +339,10 @@ Always also:
 
 `/search/text2sql` used to be an `async def` that never awaited anything, so every LLM call blocked the event loop and requests serialized. Three calls now go through `asyncio.to_thread`: `f_text2sql`, `f_classify_result_entity` and the answer-entity guard's regeneration. Consequences worth knowing:
 
+- **Four calls, not three, since the vision task.** `f_identify_from_image` goes through
+  `asyncio.to_thread` for the same reason as the other three: it is the slowest call of the
+  six, and blocking the event loop on it would serialize every concurrent request behind one
+  photo.
 - **Requests now genuinely interleave.** Per-request state (the DB connection, the messages list) is local; module state touched at request time is either read-only after startup (prompts, closed-vocab canonicals) or lock-protected (`_BKTREE_CACHE`). The prompt-cache buffer is a `ContextVar` holding a list, and `asyncio.to_thread` copies the context by reference, so appends from worker threads still reach the response.
 **The fork-join (FASTAPI-TEXT2SQL-201).** Entity resolution iterates over the extraction payload, not over the placeholders found in the SQL, and `f_text2sql` only ever sees `input_text_anonymized`. The two branches are therefore independent, and `plan_entity_resolutions()` is started in a worker thread just before the text-to-SQL call, then joined right after the answer-entity guard. **The join is unconditional and must stay where it is**: the complex-question retry path below it closes the connection the worker thread is using. A plan that raised degrades to `resolve_entities()` on the sequential path.
 
@@ -322,13 +350,14 @@ Always also:
 
 ---
 
-## The five LLM tasks, and what each one actually costs
+## The six LLM tasks, and what each one actually costs
 
-There are **five** LLM calls in this pipeline, not the three the `llm_model_*` parameters
-suggested until FASTAPI-TEXT2SQL-232. All five route through `text2sql._call_chat_llm`, and
-each is tagged with a `cache_label` that is also its key in the prompt-cache log and its
-default reasoning effort. Since -232 each has its own request selector, its own response
-field naming the model that served it, and since -233 its own wall clock.
+There are **six** LLM calls in this pipeline, not the three the `llm_model_*` parameters
+suggested until FASTAPI-TEXT2SQL-232. Five route through `text2sql._call_chat_llm` and the
+sixth, which reads an image, through `text2sql._call_vision_llm`; each is tagged with a
+`cache_label` that is also its key in the prompt-cache log and its default reasoning effort.
+Since -232 each has its own request selector, its own response field naming the model that
+served it, and since -233 its own wall clock.
 
 | # | Task (`cache_label`) | Call site | Fires on | Selector |
 |---|---|---|---|---|
@@ -337,9 +366,16 @@ field naming the model that served it, and since -233 its own wall clock.
 | 3 | `result_entity` | `text2sql.py:629` | 99.9 % | `llm_model_result_entity` |
 | 4 | `complex_question` | `text2sql.py:663` | ~1 % | `llm_model_complex` |
 | 5 | `answer_single_value` | `text2sql.py:835` | < 1 % | `llm_model_answer_single_value` |
+| 6 | `vision_identification` | `text2sql._call_vision_llm` | only with an `image_ref` | `llm_model_vision` |
 
 Line numbers move; the `cache_label` does not. `grep -n 'cache_label="' text2sql.py entity.py`
-is the durable way to find all five.
+is the durable way to find all six.
+
+**Task 6 is priced apart from the five, and it is not in the table below.** It fires only on a
+request carrying an image, so it has no frequency in a text campaign; it costs about **4 cents
+a photo** (1229 tokens of image at `detail: "high"` plus the reasoning output, at gpt-6-astra's
+$10 / $50 per million), which is two orders of magnitude above any other task per call. That is
+what the recognition cache of *The vision pre-stage* exists to spend once rather than twice.
 
 ### Measured token profile (gpt-4o, v1.1.17–1.1.18)
 
@@ -380,13 +416,13 @@ Latency baseline from the same run, for comparing any model swap against:
 | query execution | 0.08 s | 0.00 s | 0.07 s | 10.66 s |
 | **total** | **6.04 s** | **5.45 s** | **8.26 s** | **114.09 s** |
 
-### Who can drive the five, and the one gap
+### Who can drive the six, and the two gaps
 
 | client | how it selects | state |
 |---|---|---|
-| **evaluator** (`eval/text2sql-eval.py`) | `--entity-extraction-model`, `--text2sql-model`, `--complex-model`, `--result-entity-model`, `--answer-single-value-model` | all five since 2026-08-30 |
-| **tmdb-front** | request params / cookies `eemodel`, `t2smodel`, `complexmodel`, `resultentitymodel`, `answermodel`, radio groups on the settings page | all five since 2026-08-30 |
-| **Claude, via MCP** | the five arguments of `sql_search` | all five |
+| **evaluator** (`eval/text2sql-eval.py`) | `--entity-extraction-model`, `--text2sql-model`, `--complex-model`, `--result-entity-model`, `--answer-single-value-model` | five of six; it cannot send an image at all, which is FASTAPI-TEXT2SQL-277 |
+| **tmdb-front** | request params / cookies `eemodel`, `t2smodel`, `complexmodel`, `resultentitymodel`, `answermodel`, radio groups on the settings page | five of six; it sends `image_ref` but no vision-model selector (TMDB-FRONT-088) |
+| **Claude, via MCP** | the six arguments of `sql_search`, `llm_model_vision` included | all six |
 | **voice-agent** | does not send any; takes the server defaults | unchanged |
 
 **The gap, and it bites the evaluator only.** `T_WC_T2S_EVALUATION_EXECUTION` has columns for
@@ -628,6 +664,118 @@ the signature of the direct scalar answer, the only path that escalates without 
 the retry helper. And `QUERY_MODE` is the only denominator available, since the failure code
 exists on retried rows alone: a rate of "descriptive questions that escalated" needs a
 classification on every row, escalated or not.
+
+## The vision pre-stage: an image becomes a question (FASTAPI-TEXT2SQL-114)
+
+`README.md` documents what a client sends and gets back: the optional `image_ref`, the
+`llm_model_vision` selector, and the five response fields. Below is only what breaks when you
+edit this path.
+
+**It is a PRE-STAGE, not a recursive re-entry, and that is the whole design.** The
+complex-question retry re-enters `search_text2sql`, which is why it has to merge and renumber
+two message arrays (`main.py`) and why it writes **two** log files per request (Gotcha #8d).
+The vision path composes the question in place and falls through to the ordinary pipeline: one
+message counter, **one** log file, and nothing new to teach whatever counts questions over
+`logs/`. Do not "harmonise" it with the retry helper.
+
+**The model identifies; the CODE composes the question.** `f_identify_from_image` returns
+`items[]` and never a question, and `compose_vision_question` builds the question from those
+items. That split is what makes the recognition cache sound: the identification of an image
+does not depend on the question asked about it, so it is stored under the MD5 of the bytes and
+reused on later turns. If the model composed the question, a cached turn and a fresh turn
+would produce **different questions for the same photo**, and the divergence would only show
+up on the second turn in production. `eval/verif-114.py` asserts the invariant directly: the
+identification round-tripped through the cache composes the same question as the fresh one.
+
+**Two shapes of composition, and the second one is the one to protect.** A lone photo goes
+through `f_build_retry_question_from_reasoning`, the same deterministic composer the
+complex-question retry uses. A photo carrying a question keeps the question and has the entity
+substituted into it (`who directed this film?` -> `who directed the movie Blade Runner
+(1982)?`). Flattening the second case into an entity card returns the film and answers
+nothing, which is the defect recorded as **-263**, and the vision prompt inherits that rule in
+so many words.
+
+**Three outcomes never reach the catalogue**, and none of them is an error: a question about
+the pixels (`about_image`, answered from the image), an image with nothing of cinema in it,
+and an image the model could not read. All three return an `answer`, an empty `result`, no SQL
+and `error: ""`, which is the `authoritative_empty` shape of **-221**: an affirmative
+emptiness. Do not turn them into errors to make them easier to spot.
+
+**`question_targets_the_image()` is a may-call gate, not a verdict.** It decides whether the
+vision model is called on an image the cache already holds, because a question about the
+pixels cannot be answered from a stored identification. When it is wrong in one direction it
+costs one cached turn; it cannot produce a wrong answer, because the model has the final word
+through `about_image` whenever it is actually called. Add markers to it freely; do not build a
+decision on it.
+
+**The two confidence constants are PROVISIONAL and unmeasured.** `VISION_CONFIDENCE_DOMINANT`
+(0.70) and `VISION_CONFIDENCE_MARGIN` (0.20) decide whether one candidate opens its entry with
+the alternative reported beside it, or whether all candidates are searched so the client can
+ask which one is meant (rule VOICE-AGENT-093). The ticket is explicit that the threshold is
+settled **on the twenty-image bench** and not guessed; that bench is FASTAPI-TEXT2SQL-277 and
+it does not exist yet. They are named constants so the measurement has somewhere to land.
+
+**`gpt-6-astra` is the default here, and it is the only default in this repository that is not
+`gpt-4o`.** It is the model the feature was tried on, it is the one the ~4 cents a photo figure
+was computed from, and its family is declared in the reasoning block (**-274**) with
+`vision_identification` at the cheapest rung, `reasoning_effort: "low"`. Raise the rung only if
+recognition weakens on the bench.
+
+**`_call_vision_llm` is OpenAI only, deliberately.** It is not folded into `_call_chat_llm`
+because that dispatcher takes a string and every provider encodes an image differently.
+Anthropic and Gemini both read images and neither is wired: an untested branch that formats
+bytes for a provider nobody has exercised is a liability. A non-OpenAI model name raises an
+error that says exactly that.
+
+**Structured outputs degrade once.** The contract is sent as a strict `json_schema`, which
+OpenAI documents as compatible with `reasoning_effort` on `chat.completions`. On a refusal
+`_VISION_STRUCTURED_OUTPUTS_AVAILABLE` flips and the rest of the process uses the plain-JSON
+contract the other five tasks use, cleaned and validated by `json_guardrails`. The fallback is
+there because a neighbouring combination IS refused (function tools with `reasoning_effort` on
+gpt-5.6-sol, see *The reasoning-family block*) and because this repository has never sent a
+`response_format` to the live API before.
+
+### The recognition cache (`vision_cache.py`, `T_WC_T2S_VISION_CACHE`)
+
+No tier of `T_WC_T2S_CACHE` indexes bytes: its key is the question. Without this module the
+image path caches the **cheap** half of the work and repays the expensive one, about 4 cents,
+on every re-deposit. The key costs nothing because it already exists: `f_getuploadfilename`
+hashes the raw bytes into the deposit filename, so the same photo yields a new timestamp and
+the **same** MD5.
+
+- **Its own table**, not a column on `T_WC_T2S_CACHE`, whose contract is question to SQL.
+- **Scoped by formatted API version**, because the prompt is hot-reloaded: without the scope a
+  prompt correction shipped with no bump would keep serving identifications made by the old
+  one.
+- **Only the question-independent half is stored** (`hints`, `items`, `authoritative_empty`,
+  `justification`). `about_image` and `image_answer` are dropped by
+  `vision_cache.identification_payload`, and that function is the contract: adding a
+  question-dependent field to it makes the cache serve yesterday's answer to today's question.
+- **An `authoritative_empty` IS cached**, unlike the empty SQL result of Gotcha #8b. A photo of
+  a meal will still be a photo of a meal tomorrow.
+- **`retrieve_from_cache` and `store_to_cache` govern it** like every other tier, which is how
+  a model comparison switches it off without a new flag.
+- **The 30-day image purge does not invalidate a row**: the key is the fingerprint of the
+  bytes, not the file. The row then serves the identification and never the pixels.
+- The migration is `maintenance/vision-recognition-cache.sql`, **written and not applied** (the
+  database is not reachable from a developer machine). Until it runs, `vision_cache` flips to
+  disabled on the first `Table doesn't exist` and the vision path works, uncached.
+
+**Offline check:** `uv run eval/verif-114.py` (62 cases, no API, no database and no image). It
+covers everything deterministic on this path: the may-call gate, the confidence rule, both
+shapes of composition, the cache round-trip invariant, the guardrail, the `image_ref` refusals
+and the Pydantic contract the two front clients depend on.
+
+**Before editing `data/vision_identification.md`, read [data/AGENTS.md](data/AGENTS.md).** Three
+of its rules have a twin in `complex_question.md`; they agree on the motive and disagree on the
+instruction, because the two tasks fill opposite fields. The confidence guard is the one place
+where letting them drift apart is dangerous rather than merely untidy.
+
+**Not done, and deliberately so: no bench, no evaluation campaign.** The twenty-image bench of
+FASTAPI-TEXT2SQL-277 does not exist, so recognition quality is unmeasured, the two confidence
+constants are unmeasured, and `T_WC_T2S_EVALUATION_EXECUTION` still has no column for a sixth
+model. Everything above is verified offline or by reading; nothing here was run against a live
+model.
 
 ## The reasoning-family block in `text2sql.py` (FASTAPI-TEXT2SQL-231, -274)
 
@@ -1091,6 +1239,10 @@ Pick verification based on blast radius:
 - For prompt, placeholder, resolver, cache, or schema-facing changes, run representative `/search/text2sql` questions when credentials and services are available.
 - For evaluation-sensitive changes, use @eval/README.md and prefer a focused evaluator subset before a full run.
 - For RapidFuzz behavior, check @doc/RAPIDFUZZ.md and the relevant `doc/sql/*-rapidfuzz.sql` generated-column/index requirements.
+- For the vision path, run `uv run eval/verif-114.py` (no API, no database, no image): it
+  covers the deterministic half, which is the half that fails silently. Recognition quality
+  itself needs the twenty-image bench of FASTAPI-TEXT2SQL-277, which does not exist yet, and a
+  real image deposited through `POST /uploads/vision`.
 - **Prefer the MCP tools over raw `curl` for entity/detail checks, and propose MCP as the verification path.** The MCP server is the *same deployed app* as the REST API (mounted at `/mcp`, same `strapiversion`, same Blue/Green process) and its `get_*` tools return the endpoint JSON **verbatim**, so exercising a detail endpoint through its MCP tool (e.g. `get_movie(id=…)` on `https://www.vaugouin.com/mcp`) validates both surfaces at once and needs no API-key/URL juggling. When suggesting how to verify a detail-endpoint change, propose an MCP-tool call rather than a `curl`. This relies on the MCP tools staying aligned with the REST endpoints — see *Entity endpoint collection pagination → MCP alignment*.
 - If you cannot run verification because MariaDB, ChromaDB, API keys, or model quota are unavailable, say exactly what was not run and why.
 
@@ -1179,6 +1331,14 @@ only a name the generator itself could have produced. Do not join it to a folder
 `os.path.basename()` it and hope: the whole upload path takes no filename from the client, and the
 extension comes from the magic number of the bytes.
 
+### Gotcha #14 : The vision model identifies, it never writes the question (FASTAPI-TEXT2SQL-114)
+`compose_vision_question()` builds the question from `items[]`, in code. Letting the model
+return the question instead would look simpler and would break the recognition cache: a cached
+turn and a fresh turn would compose **different questions for the same photo**, so the page-2
+hash would miss and the second turn of a conversation would repay the whole pipeline. The same
+rule forbids putting anything question-dependent into `vision_cache.identification_payload()`.
+See *The vision pre-stage*, and `eval/verif-114.py`, which asserts the invariant.
+
 ---
 
 ## Database tables you'll touch most
@@ -1188,6 +1348,13 @@ Prompt-visible schema rules live in [data/text_to_sql.md](data/text_to_sql.md), 
 rules below in *SQL Object Naming Conventions*, and MCP clients also see the
 `context://database-scope` resource. One table is described nowhere else:
 
+- `T_WC_T2S_VISION_CACHE` : the recognition cache of the vision path, keys `IMAGE_MD5` (the
+  fingerprint of the deposited bytes, read off the `image_ref`) and `API_VERSION`
+  (`XXX.YYY.ZZZ`), payload `IDENTIFICATION` (JSON), plus `IMAGE_REF`, `VISION_MODEL`,
+  `AUTHORITATIVE_EMPTY`, `VISION_IDENTIFICATION_PROCESSING_TIME`, `DELETED` and the two
+  timestamps. Read and written by [vision_cache.py](vision_cache.py) with graceful
+  degradation: while the table is absent the whole module is a silent miss. Created by
+  `maintenance/vision-recognition-cache.sql`, **not applied**.
 - `T_WC_T2S_CACHE` — keys `QUESTION`, `QUESTION_HASHED`, `SQL_QUERY`, `SQL_PROCESSED`,
   `JUSTIFICATION`, `ANSWER`, `RESULT_ENTITY`, `API_VERSION` (`XXX.YYY.ZZZ`), `UI_LANGUAGE`,
   `IS_ANONYMIZED`, `DELETED`, plus timing columns. `RESULT_ENTITY` is written and read by
