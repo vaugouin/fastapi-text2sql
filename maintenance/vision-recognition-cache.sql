@@ -51,11 +51,22 @@
 -- lecture. Mettre le modele dans la cle rendrait le cache inoperant des qu'un client change de
 -- defaut, ce qui est l'inverse du but.
 --
--- NON VERIFIE
--- Rien ici n'a ete execute : la base n'est pas joignable depuis le poste de developpement.
--- Valide syntaxiquement, pas par un passage reel. Le code degrade proprement tant que la table
--- n'existe pas : vision_cache.py bascule sur le premier "Table doesn't exist" (erreur 1146) et
--- le chemin vision continue de fonctionner, sans cache, au lieu de rendre 500.
+-- PASSE EN PRODUCTION LE 2026-09-20 A 12:53:25
+-- Section 2 executee sur vaugouindb (conteneur damp-vaugouin-com-mariadb-1). La sortie des
+-- deux requetes de verification est conservee a cote, dans
+-- vision-recognition-cache-20260920.txt, et elle correspond a la DDL ci-dessous : 11 colonnes
+-- identiques sur le nom, le type, la nullabilite, le defaut ET l'ordre, la cle primaire sur
+-- ID_ROW, la cle UNIQUE sur (IMAGE_MD5, API_VERSION) dans ce sens, et l'index sur IMAGE_REF.
+--
+-- CE QUE CETTE SORTIE NE PROUVE PAS. Ni le moteur ni la collation n'y figurent, la requete qui
+-- les lit etant celle de la section 1, qui tourne AVANT la creation et n'a donc rien rendu.
+-- Rejouer cette requete aujourd'hui rendrait une ligne et confirmerait InnoDB / utf8mb4.
+--
+-- Le fichier reste rejouable : CREATE TABLE IF NOT EXISTS ne fait rien sur une table existante,
+-- et les sections 1 et 3 sont en lecture seule. Avant ce passage, le code degradait proprement :
+-- vision_cache.py bascule sur le premier "Table doesn't exist" (erreur 1146) et le chemin vision
+-- continue de fonctionner, sans cache, au lieu de rendre 500. Ce filet sert encore le jour ou un
+-- deploiement pointe une autre base.
 
 
 -- ===== 1. Constat, a lire avant d'ecrire =====

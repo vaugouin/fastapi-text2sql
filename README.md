@@ -1479,7 +1479,7 @@ The API implements a sophisticated three-tier caching system for optimal perform
 - Stores only what depends on the image and not on the question (the clues, the candidates, the authoritative-empty flag), so **one row answers any later question about that photo**.
 - A photo with nothing of cinema in it **is** cached, unlike an empty SQL result: it will still be a photo of a meal tomorrow, and that is the case where the cache most reliably avoids a pointless spend.
 - Survives the 30-day image purge, because the key is the fingerprint and not the file. It then serves the identification, never the pixels.
-- Governed by the same `retrieve_from_cache` / `store_to_cache` request flags as the three tiers above. Its table is created by `maintenance/vision-recognition-cache.sql`; until that runs, the module degrades to a silent miss and the picture-based search works uncached.
+- Governed by the same `retrieve_from_cache` / `store_to_cache` request flags as the three tiers above. Its table is created by `maintenance/vision-recognition-cache.sql`, run in production on 2026-09-20. Should the table ever be absent (another database, a dropped table), the module degrades to a silent miss and the picture-based search works uncached rather than failing.
 
 #### What is never cached: an empty result
 

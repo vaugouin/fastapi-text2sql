@@ -30,11 +30,13 @@ the file, so an entry outlives the image it came from. It then serves the identi
 never the pixels: a question about the image itself still needs the file, and gets the
 `410 Gone` of `uploads.load_vision_image`.
 
-The module degrades gracefully when the table has not been created yet
-(`maintenance/vision-recognition-cache.sql` is written and, per this repository's convention,
-not applied from a developer machine): on the first "table doesn't exist" the flag below flips
-and every later call is a silent miss, so the vision path keeps working, uncached, rather than
-returning 500 on a migration that has not run.
+The table was created in production on 2026-09-20 at 12:53:25 by
+`maintenance/vision-recognition-cache.sql`, whose output is kept beside it. The module still
+degrades gracefully when it is absent, which is now the signature of a deployment pointing at
+another database rather than of a migration waiting: on the first "table doesn't exist" the flag
+below flips and every later call is a silent miss, so the vision path keeps working, uncached,
+rather than returning 500. Note that the flag never flips back, so a process that met the missing
+table once stays uncached until it is restarted.
 """
 import json
 from typing import Any, Optional

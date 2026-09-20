@@ -1,0 +1,26 @@
+-- vision-recognition-cache.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-09-20 12:53:25
+--
++---------------------------------------+---------------+-------------+----------------+
+| COLUMN_NAME                           | COLUMN_TYPE   | IS_NULLABLE | COLUMN_DEFAULT |
++---------------------------------------+---------------+-------------+----------------+
+| ID_ROW                                | bigint(20)    | NO          | NULL           |
+| IMAGE_MD5                             | char(32)      | NO          | NULL           |
+| API_VERSION                           | varchar(11)   | NO          | NULL           |
+| IMAGE_REF                             | varchar(255)  | YES         | NULL           |
+| IDENTIFICATION                        | mediumtext    | YES         | NULL           |
+| VISION_MODEL                          | varchar(100)  | YES         | NULL           |
+| AUTHORITATIVE_EMPTY                   | tinyint(1)    | NO          | 0              |
+| VISION_IDENTIFICATION_PROCESSING_TIME | decimal(10,4) | YES         | NULL           |
+| DELETED                               | tinyint(1)    | YES         | 0              |
+| DAT_CREAT                             | date          | YES         | NULL           |
+| TIM_UPDATED                           | datetime      | YES         | NULL           |
++---------------------------------------+---------------+-------------+----------------+
++--------------------------+------------+--------------+-------------+
+| INDEX_NAME               | NON_UNIQUE | SEQ_IN_INDEX | COLUMN_NAME |
++--------------------------+------------+--------------+-------------+
+| IDX_T2S_VISION_CACHE_REF |          1 |            1 | IMAGE_REF   |
+| PRIMARY                  |          0 |            1 | ID_ROW      |
+| UK_T2S_VISION_CACHE      |          0 |            1 | IMAGE_MD5   |
+| UK_T2S_VISION_CACHE      |          0 |            2 | API_VERSION |
++--------------------------+------------+--------------+-------------+

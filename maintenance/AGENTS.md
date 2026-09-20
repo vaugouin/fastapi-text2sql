@@ -14,6 +14,12 @@ Not to be confused with two neighbours that also hold `.sql`:
 
 This folder writes to **operational** tables, `T_WC_T2S_CACHE` first among them.
 
+A `.sql` may be accompanied by the output of its run, named `<file>-<YYYYMMDD>.txt`, as
+`vision-recognition-cache-20260920.txt` is. That is what turns "applied" from a claim into
+evidence, and it is what the inventory below dates. Keep such a file to the output of the
+verification queries: it is read by someone deciding whether to trust the table, not by someone
+replaying the migration.
+
 ## Conventions
 
 - **Read-only sections first, writes last, numbered.** A file opens with counts
@@ -132,11 +138,36 @@ they address the table directly.
   offers to split them from `first_pass_failure_reason`. And `QUERY_MODE` must be read from
   `first_pass_entity_extraction`, not from `entity_extraction`, which on a retried row describes
   the rewritten question and reads `named_entity_query` in 27 of 30 measured cases.
+- `eval-mode-de-resolution.sql` : adds `RESOLUTION_MODE` to `T_WC_T2S_EVALUATION` and four
+  columns to `T_WC_T2S_EVALUATION_EXECUTION`, so that a campaign can say which path was
+  SUPPOSED to resolve a question and not only which one did (FASTAPI-TEXT2SQL-257). **Written
+  2026-09-14, never run**, so the columns do not exist in production yet and the evaluator would
+  write into columns that are not there; its section 1 settles that in one query. Three things
+  in its header are worth reading first. The verdict deliberately stays OUT of
+  `ASSERTIONS_TOTAL_SCORE`, which is the one measure that makes a campaign comparable to the
+  previous one, and lives in `RESOLUTION_MODE_RESPECTED` instead. The mode is copied onto the
+  execution as well as declared on the evaluation, so re-qualifying a question later does not
+  rewrite the meaning of campaigns already played. And two of the five columns exist only
+  because the recording was a quarter short: measured on campaign `001.001.018`,
+  `complex_model_used` is true on 46 executions where `COMPLEX_QUESTION_PROCESSING_TIME` sees
+  only 34, the missing twelve being the direct scalar answer, which banks into its own timer.
 - `eval-executions-retirer-1-1-17.sql` : retires the 1.1.17 execution rows so the
   evaluation suite actually re-runs. Not housekeeping: `text2sql-eval.py` skips
   any evaluation that already has a live execution row for the same version,
   models and language, so a "full re-run" over a populated version runs almost
   nothing. Read the trap section before choosing to keep recent rows.
+- `vision-recognition-cache.sql` : creates `T_WC_T2S_VISION_CACHE`, the recognition cache of the
+  picture-based search, **run 2026-09-20 at 12:53:25** (FASTAPI-TEXT2SQL-114). Its output is kept
+  beside it in `vision-recognition-cache-20260920.txt` and matches the DDL column for column and
+  index for index; the engine and the collation are the one thing it does not show, the query
+  that reads them being in section 1, which runs before the creation. Two things in its header
+  are worth reading before using the table. The key is the MD5 of the image bytes, which the
+  deposit filename already carries, so the same photo re-deposited hits the same row under a new
+  name. And only the question-independent half of an identification is stored, `about_image` and
+  `image_answer` being dropped by `vision_cache.identification_payload`: putting a
+  question-dependent field back in there would make the cache serve yesterday's answer to today's
+  question. It is also the only file here whose `DROP` asks for no backup, and the header says
+  why: the table is entirely rebuildable by repaying the vision calls.
 - `serie-type-contre-serie-genre.sql` : read-only, decides a modelling question
   rather than cleaning anything. `Documentary`, `News`, `Reality` and `Talk` sit
   in BOTH the `Serie_type` and `Serie_genre` vocabularies, so one word maps to

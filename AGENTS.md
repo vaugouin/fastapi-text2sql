@@ -757,9 +757,13 @@ the **same** MD5.
   a model comparison switches it off without a new flag.
 - **The 30-day image purge does not invalidate a row**: the key is the fingerprint of the
   bytes, not the file. The row then serves the identification and never the pixels.
-- The migration is `maintenance/vision-recognition-cache.sql`, **written and not applied** (the
-  database is not reachable from a developer machine). Until it runs, `vision_cache` flips to
-  disabled on the first `Table doesn't exist` and the vision path works, uncached.
+- The migration is `maintenance/vision-recognition-cache.sql`, **run in production on
+  2026-09-20 at 12:53:25**; its output sits beside it in
+  `maintenance/vision-recognition-cache-20260920.txt` and matches the DDL column for column and
+  index for index. The graceful degradation stays, for the day a deployment points at another
+  database: `vision_cache` flips to disabled on the first `Table doesn't exist` and the vision
+  path works, uncached. **That flag never flips back**, so a process that met the missing table
+  once stays uncached until it is restarted.
 
 **Offline check:** `uv run eval/verif-114.py` (62 cases, no API, no database and no image). It
 covers everything deterministic on this path: the may-call gate, the confidence rule, both
@@ -1354,7 +1358,7 @@ rules below in *SQL Object Naming Conventions*, and MCP clients also see the
   `AUTHORITATIVE_EMPTY`, `VISION_IDENTIFICATION_PROCESSING_TIME`, `DELETED` and the two
   timestamps. Read and written by [vision_cache.py](vision_cache.py) with graceful
   degradation: while the table is absent the whole module is a silent miss. Created by
-  `maintenance/vision-recognition-cache.sql`, **not applied**.
+  `maintenance/vision-recognition-cache.sql`, run in production 2026-09-20.
 - `T_WC_T2S_CACHE` — keys `QUESTION`, `QUESTION_HASHED`, `SQL_QUERY`, `SQL_PROCESSED`,
   `JUSTIFICATION`, `ANSWER`, `RESULT_ENTITY`, `API_VERSION` (`XXX.YYY.ZZZ`), `UI_LANGUAGE`,
   `IS_ANONYMIZED`, `DELETED`, plus timing columns. `RESULT_ENTITY` is written and read by
