@@ -17,9 +17,13 @@
 # script tourne aussi bien dans le conteneur que sur le poste.
 #
 # CLE ET HOTE
-# La cle est lue dans le .env du depot (API_KEYS, sinon API_KEY), a cote de ce dossier eval/.
-# Une variable d'environnement KEY deja posee l'emporte, ce qui permet de tester une autre cle
-# sans toucher au fichier. L'hote par defaut est www.vaugouin.com:8186, l'instance Blue ; depuis
+# La cle est prise dans le premier .env qui en porte une, cherche a trois endroits dans cet
+# ordre : la racine du depot (la disposition <depot>/eval/ habituelle), puis a cote du script
+# lui-meme, ou il atterrit quand eval/ est recopie a plat comme ~/docker/text2sql-eval sur le
+# VPS, puis le repertoire courant. Dans un fichier donne, API_KEYS l'emporte sur API_KEY, qui
+# l'emporte sur TEXT2SQL_API_KEY, le nom que l'evaluateur donne a la meme valeur X-API-Key.
+# Une variable d'environnement KEY deja posee l'emporte sur tout, ce qui permet de tester une
+# autre cle sans toucher au fichier. L'hote par defaut est www.vaugouin.com:8186, l'instance Blue ; depuis
 # un conteneur sur le VPS, BASE_URL=http://172.17.0.1:8186 evite l'aller-retour par le DNS
 # public, comme le fait deja le reverseproxy.
 #
@@ -35,7 +39,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(dirname -- "$SCRIPT_DIR")
 
 BASE_URL="${BASE_URL:-http://www.vaugouin.com:8186}"
-export BASE_URL REPO_DIR
+export BASE_URL REPO_DIR SCRIPT_DIR
 export KEY="${KEY:-}"
 
 # python3 dans le conteneur, python ailleurs. On verifie que l'interpreteur REPOND, et pas
@@ -64,46 +68,59 @@ import urllib.request
 
 BASE_URL = os.environ["BASE_URL"].rstrip("/")
 REPO_DIR = os.environ["REPO_DIR"]
+SCRIPT_DIR = os.environ.get("SCRIPT_DIR") or REPO_DIR
 
-QUESTIONS = [
-    ("Bogart, le temoin",            "List all color movies with Humphrey Bogart"),
-    ("Wagonlit, le faux positif",    "Movies from the Wagonlit collection"),
-    ("Zorglub, le vrai rejet",       "Collection Zorglub"),
-    # Le garde rapidfuzz n'existe que depuis le 2026-08-25 : min_fuzz_ratio n'etait lu que dans la
-    # branche embeddings, donc Person_name, purement rapidfuzz, ne pouvait pas echouer.
-    ("Zamboni-Trask, personne inventee", "Movies with Zamboni-Trask"),
-    # La faute de frappe doit continuer de passer : c'est ce qu'un seuil ne doit jamais casser.
-    ("Bogrart, la faute de frappe",  "List all color movies with Humphrey Bogrart"),
-]
+NOMS_DE_CLE = ("API_KEYS", "API_KEY", "TEXT2SQL_API_KEY")
+
+
+def dossiers_env():
+    """Les dossiers susceptibles de porter le .env, du plus autoritaire au moins.
+
+    REPO_DIR est la racine du depot quand ce script est dans son dossier eval/, la seule
+    disposition ou le fichier est a coup sur celui de l'API. SCRIPT_DIR est ce meme dossier
+    quand eval/ a ete recopie a plat, ce qu'est ~/docker/text2sql-eval sur le VPS. Le
+    repertoire courant vient en dernier. Les doublons sont retires pour qu'un lancement normal
+    ne rapporte qu'un seul chemin.
+    """
+    ordre = []
+    for chemin in (REPO_DIR, SCRIPT_DIR, os.getcwd()):
+        if chemin and chemin not in ordre:
+            ordre.append(chemin)
+    return ordre
 
 
 def read_key():
-    """KEY de l'environnement, sinon API_KEYS puis API_KEY dans le .env du depot.
+    """KEY de l'environnement, sinon le premier nom de cle trouve dans le premier .env qui en a.
 
     Le .env est parse a la main plutot qu'avec python-dotenv : ce script doit tourner dans
-    n'importe quel conteneur, y compris un qui n'aurait pas la dependance.
+    n'importe quel conteneur, y compris un qui n'aurait pas la dependance. TEXT2SQL_API_KEY est
+    accepte parce que le .env de l'evaluateur nomme ainsi la meme valeur, et que son dossier est
+    un endroit d'ou ce script tourne legitimement.
     """
     key = (os.environ.get("KEY") or "").strip()
     if key:
         return key, "variable d'environnement KEY"
-    env_path = os.path.join(REPO_DIR, ".env")
-    if not os.path.isfile(env_path):
-        return "", f"introuvable ({env_path} absent)"
-    found = {}
-    with open(env_path, encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            name, _, value = line.partition("=")
-            name = name.strip()
-            if name in ("API_KEYS", "API_KEY"):
-                found[name] = value.strip().strip('"').strip("'")
-    for name in ("API_KEYS", "API_KEY"):
-        if found.get(name):
-            # API_KEYS peut en contenir plusieurs, separees par une virgule ; la premiere suffit.
-            return found[name].split(",")[0].strip(), f"{name} du .env"
-    return "", "ni API_KEYS ni API_KEY dans le .env"
+    essayes = []
+    for dossier in dossiers_env():
+        env_path = os.path.join(dossier, ".env")
+        essayes.append(env_path)
+        if not os.path.isfile(env_path):
+            continue
+        found = {}
+        with open(env_path, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                name, _, value = line.partition("=")
+                name = name.strip()
+                if name in NOMS_DE_CLE:
+                    found[name] = value.strip().strip('"').strip("'")
+        for name in NOMS_DE_CLE:
+            if found.get(name):
+                # API_KEYS peut en contenir plusieurs, separees par une virgule ; la premiere suffit.
+                return found[name].split(",")[0].strip(), f"{name} de {env_path}"
+    return "", "aucun .env portant " + ", ".join(NOMS_DE_CLE) + " dans : " + ", ".join(essayes)
 
 
 def call(question, key):
