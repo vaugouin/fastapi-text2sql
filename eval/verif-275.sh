@@ -7,7 +7,8 @@
 #   2. bytes decide the format, not the header: a GIF announced as image/jpeg is refused
 #   3. a hostile or simply foreign image_ref determines nothing, it is refused before a path
 #      is built from it
-#   4. a payload past the ceiling is refused with 413
+#   4. a payload past the ceiling is refused, on the declared Content-Length before any body
+#      is read, and again on the streamed count when no length is declared
 #   5. the deposit is readable again, byte for byte
 #   6. a reference whose image is past the retention window answers 410 with a date, never a
 #      stack trace: that is the normal end of an old replay
@@ -58,10 +59,12 @@ if [ -z "$PY_BIN" ]; then
 fi
 
 "$PY_BIN" - <<'PYTHON'
+import http.client
 import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 import zlib
 
@@ -122,7 +125,12 @@ def read_key():
 
 
 def call(url, key, method="GET", data=None, content_type=None):
-    """Return (status, body_bytes). An HTTP error is a result here, not an exception."""
+    """Return (status, body_bytes). An HTTP error is a result here, not an exception, and so is
+    a connection the server closed on us: status 0, with the reason in place of the body.
+
+    Nothing at this level may raise. One unreachable host used to end the whole run with a stack
+    trace where a FAIL line was wanted.
+    """
     headers = {"X-API-Key": key}
     if content_type:
         headers["Content-Type"] = content_type
@@ -132,6 +140,72 @@ def call(url, key, method="GET", data=None, content_type=None):
             return response.status, response.read()
     except urllib.error.HTTPError as error:
         return error.code, error.read()
+    except OSError as error:
+        return 0, f"{type(error).__name__}: {error}".encode()
+
+
+def raw_connection(url):
+    """A bare HTTPConnection plus the path to request.
+
+    urllib serves every other call here, but it insists on sending the whole body before it will
+    look at a response, and both ceiling checks below need exactly the opposite.
+    """
+    parsed = urllib.parse.urlsplit(url)
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    opener = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+    return opener(parsed.hostname, port, timeout=60), (parsed.path or "/")
+
+
+def oversize_declared(url, key, declared):
+    """Declare a body past the ceiling and send no body at all.
+
+    The endpoint refuses on the declared Content-Length before reading a single chunk, which is
+    precisely the guarantee under test, so the bytes never have to exist. Sending them for real
+    is what used to end this script with a stack trace: the server had answered 413 and closed
+    while the client was still pushing 26 MB into the socket, so the reset arrived before the
+    response could be read. The refusal was correct; only the way of observing it was wrong.
+    """
+    conn, path = raw_connection(url)
+    try:
+        conn.putrequest("POST", path, skip_accept_encoding=True)
+        conn.putheader("X-API-Key", key)
+        conn.putheader("Content-Type", "image/jpeg")
+        conn.putheader("Content-Length", str(declared))
+        conn.endheaders()
+        response = conn.getresponse()
+        return response.status, response.read()
+    except (OSError, http.client.HTTPException) as error:
+        return 0, f"{type(error).__name__}: {error}".encode()
+    finally:
+        conn.close()
+
+
+def oversize_streamed(url, key, ceiling):
+    """Push past the ceiling with no declared length, so only the streamed guard can stop it.
+
+    That guard is the one which actually enforces, the declared length being a courtesy, and a
+    chunked body is the only way to reach it. A reset while writing counts as a refusal here,
+    and an early one, but only once the server is shown to be still standing: see the caller.
+    """
+    conn, path = raw_connection(url)
+    block = b"\xff\xd8" + b"\x00" * (1024 * 1024 - 2)
+    try:
+        conn.putrequest("POST", path, skip_accept_encoding=True)
+        conn.putheader("X-API-Key", key)
+        conn.putheader("Content-Type", "image/jpeg")
+        conn.putheader("Transfer-Encoding", "chunked")
+        conn.endheaders()
+        sent = 0
+        while sent < ceiling + len(block):
+            conn.send(("%x\r\n" % len(block)).encode() + block + b"\r\n")
+            sent += len(block)
+        conn.send(b"0\r\n\r\n")
+        response = conn.getresponse()
+        return response.status, response.read()
+    except (OSError, http.client.HTTPException) as error:
+        return 0, f"{type(error).__name__}: {error}".encode()
+    finally:
+        conn.close()
 
 
 def png_bytes(payload=b"verif-275"):
@@ -195,11 +269,26 @@ check("a GIF announced as image/jpeg is refused", status == 415, f"status {statu
 status, body = call(BASE_URL + "/uploads/vision", key, "POST", b"", "image/jpeg")
 check("an empty body is refused", status == 400, f"status {status}")
 
-# The trailing filler sits after the EOI marker: still a JPEG by its first bytes, and
-# refused on size before anything else is even looked at.
-status, body = call(BASE_URL + "/uploads/vision", key, "POST",
-                    jpeg_bytes() + b"x" * (26 * 1024 * 1024), "image/jpeg")
-check("a payload past the ceiling is refused with 413", status == 413, f"status {status}")
+# MAX_UPLOAD_IMAGE_BYTES, the documented default. A deployment that raised it fails the next two
+# checks, which is the right answer: they would no longer be testing the ceiling they name.
+CEILING = 25 * 1024 * 1024
+
+status, body = oversize_declared(BASE_URL + "/uploads/vision", key, CEILING + 1024)
+check("a declared length past the ceiling is refused with 413, before any body is read",
+      status == 413, f"status {status}")
+
+status, body = oversize_streamed(BASE_URL + "/uploads/vision", key, CEILING)
+if status == 0:
+    # A reset is a refusal, but only if the server survived it. Without this, a crash caused by
+    # the very request under test would read as a pass, the worst outcome a check can have.
+    alive, _ = call(f"{BASE_URL}/uploads/vision/" + "x" * 8, key)
+    streamed_ok = alive in (400, 404)
+    detail = (f"refused by reset, server still answering ({alive})" if streamed_ok
+              else f"connection lost and the server did not answer ({alive})")
+else:
+    streamed_ok = status == 413
+    detail = f"status {status}"
+check("a streamed body past the ceiling is refused", streamed_ok, detail)
 
 for label, bad_ref in (
     ("a client filename determines nothing", "poster.jpg"),
