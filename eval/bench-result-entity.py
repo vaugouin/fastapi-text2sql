@@ -213,6 +213,9 @@ def load_questions_file(path: str, limit: int):
     return items[:limit] if limit else items
 
 
+OUTCOME_ERROR = "error"
+
+
 def classify_outcome(predicted: str, truth: str, allowed_set) -> str:
     """Return 'correct', 'abstained' or 'wrong' for one prediction."""
     if not truth:
@@ -224,15 +227,46 @@ def classify_outcome(predicted: str, truth: str, allowed_set) -> str:
     return "wrong"
 
 
+# What `f_classify_result_entity` prints when its own try/except catches a call failure.
+# Matching on it is the only way to tell a failed call from a cautious one, see `measure`.
+_CLASSIFIER_ERROR_PREFIX = "Error in result_entity classification:"
+
+
 def measure(model: str, question: str, allowed):
-    """Run one classification and return its answer plus its wall-clock cost."""
+    """Run one classification and return its answer plus its wall-clock cost.
+
+    A failed call and a cautious model are the same thing to the naked eye, and that is a
+    measurement hazard rather than a cosmetic one. `f_classify_result_entity` swallows its
+    own exceptions on purpose, so that a provider hiccup never breaks a live request, and
+    returns "". This bench would then score a rate-limited call as an ABSTENTION, which
+    reads as "the model declined", which is free and safe, when in truth nothing was
+    measured at all. A 429 storm would show up as a model growing prudent.
+
+    The classifier leaves exactly one trace when that happens: a line on stdout. So the
+    call is run with stdout captured and that line is turned back into an error, which
+    `bench_one` then scores as its own outcome rather than as caution. The captured output
+    is re-emitted so --verbose keeps working.
+    """
     started = time.time()
+    captured = io.StringIO()
     try:
-        answer = t2s.f_classify_result_entity(question, allowed, model)
+        with contextlib.redirect_stdout(captured):
+            answer = t2s.f_classify_result_entity(question, allowed, model)
         answer = (answer or "").strip().lower()
         error = ""
     except Exception as e:
         answer, error = "", f"{type(e).__name__}: {e}"
+
+    noise = captured.getvalue()
+    if not error:
+        for line in noise.splitlines():
+            if line.startswith(_CLASSIFIER_ERROR_PREFIX):
+                error = line[len(_CLASSIFIER_ERROR_PREFIX):].strip() or "classifier error"
+                answer = ""
+                break
+    if noise:
+        # Back to whatever stdout the caller had, muted or not, so --verbose is unaffected.
+        sys.stdout.write(noise)
     return answer, error, time.time() - started
 
 
@@ -264,8 +298,10 @@ def bench_one(item, model_a, model_b, allowed, allowed_set, total):
         "b_error": error_b,
         "a_seconds": seconds_a,
         "b_seconds": seconds_b,
-        "a_outcome": classify_outcome(answer_a, item["truth"], allowed_set),
-        "b_outcome": classify_outcome(answer_b, item["truth"], allowed_set),
+        # An errored call is NOT an abstention: nothing was measured, so it must not be
+        # counted as the model declining. See `measure`.
+        "a_outcome": OUTCOME_ERROR if error_a else classify_outcome(answer_a, item["truth"], allowed_set),
+        "b_outcome": OUTCOME_ERROR if error_b else classify_outcome(answer_b, item["truth"], allowed_set),
     }
 
 
@@ -279,9 +315,10 @@ def percentile(values, share):
 
 
 def outcome_counts(results, side):
-    """Return the three-way outcome tally for one side."""
+    """Return the outcome tally for one side: correct, abstained, wrong, errored."""
     counter = Counter(row[f"{side}_outcome"] for row in results)
-    return counter["correct"], counter["abstained"], counter["wrong"]
+    return (counter["correct"], counter["abstained"], counter["wrong"],
+            counter[OUTCOME_ERROR])
 
 
 def report(results, elapsed, model_a, model_b, min_decidable, noise_floor):
@@ -309,13 +346,18 @@ def report(results, elapsed, model_a, model_b, min_decidable, noise_floor):
           f"Read every score below against this, not against zero.")
 
     print("\nOutcomes")
-    print(f"  {'':22s}{'correct':>10s}{'abstained':>12s}{'WRONG':>10s}")
-    a_ok, a_abs, a_bad = outcome_counts(scored, "a")
-    b_ok, b_abs, b_bad = outcome_counts(scored, "b")
-    for label, ok, abstain, bad in (("A " + model_a, a_ok, a_abs, a_bad),
-                                    ("B " + model_b, b_ok, b_abs, b_bad)):
-        print(f"  {label[:22]:22s}{ok:>10d}{abstain:>12d}{bad:>10d}")
-    print(f"  {'delta (B - A)':22s}{b_ok - a_ok:>+10d}{b_abs - a_abs:>+12d}{b_bad - a_bad:>+10d}")
+    print(f"  {'':22s}{'correct':>10s}{'abstained':>12s}{'WRONG':>10s}{'errored':>10s}")
+    a_ok, a_abs, a_bad, a_err = outcome_counts(scored, "a")
+    b_ok, b_abs, b_bad, b_err = outcome_counts(scored, "b")
+    for label, ok, abstain, bad, err in (("A " + model_a, a_ok, a_abs, a_bad, a_err),
+                                         ("B " + model_b, b_ok, b_abs, b_bad, b_err)):
+        print(f"  {label[:22]:22s}{ok:>10d}{abstain:>12d}{bad:>10d}{err:>10d}")
+    print(f"  {'delta (B - A)':22s}{b_ok - a_ok:>+10d}{b_abs - a_abs:>+12d}"
+          f"{b_bad - a_bad:>+10d}{b_err - a_err:>+10d}")
+    if a_err or b_err:
+        print("")
+        print("  ERRORED calls measured nothing. They used to be scored as abstentions,")
+        print("  which made a rate-limited run look like a cautious model.")
     print("\n  An abstention falls back to the text-to-SQL model's own result_entity, which is")
     print("  the pre-existing behaviour, so it costs nothing. Only WRONG overrides a query.")
 

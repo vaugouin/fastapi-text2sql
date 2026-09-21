@@ -173,6 +173,7 @@ INSTRUCTIONS = (
     "back, never the filters or constraints used to narrow the search."
 )
 
+DEFAULT_MODEL = "jev-latest"
 DEFAULT_THRESHOLDS = [0.0, 0.50, 0.60, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95]
 
 
@@ -226,10 +227,16 @@ def ask_jev(client, question: str, model: str):
         try:
             response = client.system_one(state=question, questions=questions, model=model)
         except TypeError:
-            # The SDK version in use may not expose `model` on system_one; the documented
-            # default is jev-latest. Falling back is better than failing the whole bench,
-            # but the report must not then claim a model it did not pin, so this is
-            # surfaced rather than swallowed.
+            # The installed SDK may not expose `model` on system_one. Falling back silently
+            # was the first version of this, and it was wrong: a run pinned to a specific
+            # version would have been answered by whatever the SDK defaults to, and the
+            # report would have named the pinned model anyway. Since the fallback IS the
+            # SDK default, it is only harmless when that is what was asked for.
+            if model != DEFAULT_MODEL:
+                return "", 0.0, {}, (
+                    f"the installed typesafe-sdk does not accept a `model` argument, so "
+                    f"--model {model} cannot be honoured. Upgrade the SDK, or drop --model "
+                    f"and accept the SDK default ({DEFAULT_MODEL})")
             response = client.system_one(state=question, questions=questions)
         answer = response.answers["result_entity"]
         return (
@@ -328,11 +335,17 @@ def report(results, rows, elapsed, model, min_decidable, compare_confident_error
               f"{row['abstained']:>6d} {row['abstained_pct']:>6.1f} %  "
               f"{row['confidently_wrong']:>6d} {row['confident_error_pct']:>6.1f} %")
 
+    operating = max(rows, key=lambda r: r["threshold"])
+    operating_why = ("the strictest swept, for want of a --compare-confident-error to "
+                     "name an operating point")
+
     if compare_confident_error is not None:
         print(f"\nEqual-risk read against gpt-4o's confident-error rate of "
               f"{compare_confident_error:.1f} %:")
         usable = [r for r in rows if r["confident_error_pct"] <= compare_confident_error]
         if not usable:
+            operating_why = ("the strictest swept: no threshold reached the comparison "
+                             "risk, so there is no equal-risk point to read at")
             best = min(rows, key=lambda r: r["confident_error_pct"])
             print(f"  None. Jev's floor is {best['confident_error_pct']:.1f} % at "
                   f"threshold {best['threshold']:.2f}, above gpt-4o even when abstaining "
@@ -340,6 +353,12 @@ def report(results, rows, elapsed, model, min_decidable, compare_confident_error
                   f"reach parity, so the swap is not defensible on risk.")
         else:
             pick = min(usable, key=lambda r: r["abstained_pct"])
+            # The per-class table below is read at THIS threshold, not at the strictest
+            # swept. Printing it at the strictest was the first version, and it slandered
+            # every class: at a threshold nobody would deploy the model abstains far more,
+            # so each class reads worse than it behaves at the point under consideration.
+            operating = pick
+            operating_why = "the equal-risk point, which is the one worth deploying"
             print(f"  Threshold {pick['threshold']:.2f}: confident error "
                   f"{pick['confident_error_pct']:.1f} %, abstains {pick['abstained_pct']:.1f} %, "
                   f"correct {pick['correct_pct']:.1f} %.")
@@ -347,8 +366,11 @@ def report(results, rows, elapsed, model, min_decidable, compare_confident_error
             print("  same safety by deferring more often, which costs nothing but gains nothing.")
 
     print(f"\nPer class (classes under n={min_decidable} are not decidable at this sample):")
-    strict = max(rows, key=lambda r: r["threshold"])["threshold"]
-    print(f"  measured at threshold {strict:.2f}")
+    strict = operating["threshold"]
+    print(f"  measured at threshold {strict:.2f}, {operating_why}")
+    print(f"  at that point, overall: {operating['correct_pct']:.1f} % correct, "
+          f"{operating['abstained_pct']:.1f} % abstained, "
+          f"{operating['confident_error_pct']:.1f} % confidently wrong")
     allowed_set = set(CRITERIA)
     for truth in sorted(counts, key=counts.get, reverse=True):
         subset = [r for r in scored if r["truth"] == truth]
@@ -369,7 +391,7 @@ def report(results, rows, elapsed, model, min_decidable, compare_confident_error
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model", default="jev-latest", help="TypeSafe model id.")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="TypeSafe model id.")
     parser.add_argument("--lang", choices=["en", "fr"], default="en")
     parser.add_argument("--limit", type=int, default=100, help="Questions to bench (0 = all).")
     parser.add_argument("--workers", type=int, default=4)
