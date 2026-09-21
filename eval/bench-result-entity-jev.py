@@ -60,6 +60,7 @@ Requires TYPESAFE_API_KEY in the environment (read by the SDK itself) and
 """
 
 import argparse
+import collections
 import concurrent.futures
 import importlib.util
 import json
@@ -241,10 +242,20 @@ def ask_jev(client, question: str, model: str):
         return "", 0.0, {}, f"{type(exc).__name__}: {exc}"
 
 
+# The exact strings `bench-result-entity.classify_outcome` returns. Taken from its CODE,
+# not from its prose: its docstrings say "confidently wrong" for readability while the
+# function returns "wrong", and copying the prose version cost a crash on the first real
+# run (and, worse, would have made the per-class block below report zeros in silence).
+OUTCOME_CORRECT = "correct"
+OUTCOME_ABSTAINED = "abstained"
+OUTCOME_WRONG = "wrong"
+OUTCOMES = (OUTCOME_CORRECT, OUTCOME_ABSTAINED, OUTCOME_WRONG)
+
+
 def outcome_at(label: str, confidence: float, truth: str, allowed_set, threshold: float) -> str:
     """Apply the synthesised abstention, then the sibling bench's own outcome rule."""
     if not label or label not in allowed_set or confidence < threshold:
-        return "abstained"
+        return OUTCOME_ABSTAINED
     return BENCH.classify_outcome(label, truth, allowed_set)
 
 
@@ -253,19 +264,28 @@ def sweep(results, allowed_set, thresholds):
     rows = []
     scored = [r for r in results if r["error"] is None]
     for threshold in thresholds:
-        counts = {"correct": 0, "abstained": 0, "confidently wrong": 0}
-        for record in scored:
-            counts[outcome_at(record["label"], record["confidence"],
-                              record["truth"], allowed_set, threshold)] += 1
+        # Counter, not a pre-filled dict: a missing outcome must read as zero rather than
+        # raise, and an unexpected one must be named rather than swallowed.
+        counts = collections.Counter(
+            outcome_at(record["label"], record["confidence"],
+                       record["truth"], allowed_set, threshold)
+            for record in scored
+        )
+        unexpected = set(counts) - set(OUTCOMES)
+        if unexpected:
+            raise RuntimeError(
+                f"the sibling bench returned outcome(s) this script does not know: "
+                f"{sorted(unexpected)}. Expected {list(OUTCOMES)}. Reconcile OUTCOMES with "
+                f"bench-result-entity.classify_outcome before trusting any figure.")
         total = max(len(scored), 1)
         rows.append({
             "threshold": threshold,
-            "correct": counts["correct"],
-            "abstained": counts["abstained"],
-            "confidently_wrong": counts["confidently wrong"],
-            "correct_pct": 100.0 * counts["correct"] / total,
-            "abstained_pct": 100.0 * counts["abstained"] / total,
-            "confident_error_pct": 100.0 * counts["confidently wrong"] / total,
+            "correct": counts[OUTCOME_CORRECT],
+            "abstained": counts[OUTCOME_ABSTAINED],
+            "confidently_wrong": counts[OUTCOME_WRONG],
+            "correct_pct": 100.0 * counts[OUTCOME_CORRECT] / total,
+            "abstained_pct": 100.0 * counts[OUTCOME_ABSTAINED] / total,
+            "confident_error_pct": 100.0 * counts[OUTCOME_WRONG] / total,
         })
     return rows
 
@@ -334,10 +354,10 @@ def report(results, rows, elapsed, model, min_decidable, compare_confident_error
         subset = [r for r in scored if r["truth"] == truth]
         good = sum(1 for r in subset
                    if outcome_at(r["label"], r["confidence"], r["truth"], allowed_set, strict)
-                   == "correct")
+                   == OUTCOME_CORRECT)
         bad = sum(1 for r in subset
                   if outcome_at(r["label"], r["confidence"], r["truth"], allowed_set, strict)
-                  == "confidently wrong")
+                  == OUTCOME_WRONG)
         if len(subset) < min_decidable:
             print(f"  {truth:<14} n={len(subset):<4} not decidable at this n "
                   f"({good} right, {bad} wrong)")
