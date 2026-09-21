@@ -52,12 +52,18 @@ IMAGE=${IMAGE:-t2s-bench-jev}
 
 RUN=${RUN:-001.001.018}
 LANG_CODE=${LANG_CODE:-en}
-LIMIT=${LIMIT:-100}
+# The whole verified set by default, and NOT a sample. --limit triggers stratified
+# sampling, which flattens the classes: `movie` falls from 55 % of the corpus to 16 % of a
+# 100-question sample. That answers "how does it behave class by class", never "what will
+# it do in production", and it moves the comparison bar with it (see COMPARE below). The
+# full pass costs about 48 seconds, so there is little reason to sample at all.
+LIMIT=${LIMIT:-0}
 MODEL=${MODEL:-jev-latest}
-# gpt-4o's confident-error rate, measured 2026-09-21 on 688 verified questions: 2 of 688 on
-# one side, 1 on the other. The bench prints its equal-risk line against this number. It is
-# a percentage, not a count.
+# gpt-4o's confident-error rate on the FULL verified set, measured 2026-09-21: 2 of 688 on
+# one side, 1 on the other. A percentage, not a count. On a stratified sample the same
+# configuration scores 1 to 2 per 100, so this number does not apply there.
 COMPARE=${COMPARE:-0.3}
+COMPARE_DEFAULT=0.3
 OUT=${OUT:-/shared/bench-jev-$LANG_CODE.json}
 
 fail() { echo "ERROR: $*" >&2; exit 1; }
@@ -78,6 +84,18 @@ fail() { echo "ERROR: $*" >&2; exit 1; }
 
 DRY_RUN=0
 for arg in "$@"; do [ "$arg" = "--dry-run" ] && DRY_RUN=1; done
+
+# The pairing trap, paid for once on 2026-09-21. A sampled run compared against the
+# full-set bar produces a verdict that is wrong in both directions: "does not reach
+# parity" when it does, or the reverse. LIMIT and COMPARE must describe the same pass.
+if [ "$LIMIT" != "0" ] && [ "$COMPARE" = "$COMPARE_DEFAULT" ]; then
+    echo "WARNING: LIMIT=$LIMIT samples the set, but COMPARE=$COMPARE is gpt-4o's rate on"
+    echo "         the FULL set. The two describe different passes, so the equal-risk line"
+    echo "         below is measured against the wrong bar and will read too harshly."
+    echo "         Either drop LIMIT to compare like with like, or pass the sampled bar,"
+    echo "         which for a 100-question stratified sample is COMPARE=1.0."
+    echo ""
+fi
 
 # The key is only needed for a real run. --dry-run returns before the SDK is imported, on
 # purpose, so the layout and the truth can be checked on a machine that has no key at all.
