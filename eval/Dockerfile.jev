@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1
+#
+# Standalone image for the Jev answer-entity bench (FASTAPI-TEXT2SQL-282).
+#
+# Independent of the blue and green deployments on purpose. It shares nothing with them:
+# not their image, not their env file, not their network, and it needs neither MariaDB
+# nor ChromaDB nor a running API. A measurement of a vendor classifier has no business
+# holding the production keyring.
+#
+# It carries NO application code. The bench and `main.py` arrive through a bind mount at
+# run time, for two reasons. The repository `.dockerignore` excludes `eval/` ("Eval
+# subproject (has its own Dockerfile)"), so a COPY of the bench from a root build context
+# would silently produce an image without it. And the bench is a script under active
+# edit: baking it in would mean rebuilding the image on every change, for nothing.
+#
+# The whole dependency set is two packages. `python-dotenv` because the sibling bench
+# imports it at module level; `typesafe-sdk` for the calls themselves. Everything else
+# the two benches use is the standard library. The heavy chain that `text2sql` used to
+# drag in, pandas, numpy, psutil, openai and the `data/` prompt watcher, is gone: the
+# sibling only touches `text2sql` inside functions this bench never calls, so it is
+# stubbed at load (see `load_sibling_bench`).
+#
+# Build (context is irrelevant, nothing is copied):
+#   docker build -f eval/Dockerfile.jev -t t2s-bench-jev .
+#
+# Run: see the "Run it anywhere" block in eval/bench-result-entity-jev.py.
+
+FROM python:3.12-slim-bookworm
+WORKDIR /app
+
+# The code is mounted read-only, so let Python skip bytecode it could not write anyway,
+# and keep stdout unbuffered so a long sweep prints as it goes rather than at the end.
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+RUN pip install --no-cache-dir python-dotenv typesafe-sdk
+
+ENTRYPOINT ["python", "eval/bench-result-entity-jev.py"]

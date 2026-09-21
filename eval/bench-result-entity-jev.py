@@ -66,6 +66,7 @@ import json
 import os
 import sys
 import time
+import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
@@ -75,7 +76,23 @@ def load_sibling_bench():
     """Import `bench-result-entity.py` by path; its hyphens make it un-importable by name.
 
     Its `if __name__ == "__main__"` guard means loading it runs no benchmark.
+
+    The stub below is what lets this bench run in a container of its own. The sibling
+    does `import text2sql as t2s` at module level, and `text2sql` pulls in pandas, numpy,
+    psutil, openai, `data_watcher` and `json_guardrails`, then boots a prompt hot-reload
+    watcher over `data/` just by being imported. None of that is reachable from here:
+    `t2s` is touched only inside the sibling's `measure()` and `preflight()`, and this
+    bench calls neither, since Jev is not reachable through `_call_chat_llm`. The four
+    things actually borrowed, `load_allowed_entities`, `load_truth`, `classify_outcome`
+    and `force_utf8_console`, are pure.
+
+    So an empty module is registered under that name before the sibling is executed. The
+    alternative was copying those four functions, which would let the two benches drift
+    apart on ground truth and vocabulary, and comparing them is the entire point. If the
+    sibling ever starts using `t2s` at module level, this fails loudly at load rather
+    than quietly measuring the wrong thing.
     """
+    sys.modules.setdefault("text2sql", types.ModuleType("text2sql"))
     path = os.path.join(HERE, "bench-result-entity.py")
     spec = importlib.util.spec_from_file_location("bench_result_entity", path)
     if spec is None or spec.loader is None:
