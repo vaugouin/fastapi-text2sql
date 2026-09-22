@@ -78,6 +78,7 @@ import glob
 import io
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -115,6 +116,99 @@ def load_allowed_entities():
         ):
             return [key.value for key in node.value.keys]
     raise RuntimeError("_RESULT_ENTITY_SOURCES not found in main.py")
+
+
+def load_entity_id_tokens():
+    """Return `_RESULT_ENTITY_SOURCES` as {label: id_token}, read out of main.py.
+
+    Same `ast` parse and same reason as `load_allowed_entities`: importing main.py would
+    boot the application. The id token is the column the answer-entity guard looks for in
+    the SELECT, and it is ALSO what the hand-written result assertions name, which is what
+    makes `adjudicate_from_assertions` possible.
+    """
+    source = os.path.join(REPO_ROOT, "main.py")
+    with open(source, "r", encoding="utf-8") as handle:
+        tree = ast.parse(handle.read())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(
+            getattr(target, "id", "") == "_RESULT_ENTITY_SOURCES" for target in node.targets
+        ):
+            return {key.value: value.elts[0].value
+                    for key, value in zip(node.value.keys, node.value.values)}
+    raise RuntimeError("_RESULT_ENTITY_SOURCES not found in main.py")
+
+
+# `Statement:` is how the evaluator prints each result assertion inside
+# `scoring.assertions_result_detailed`, e.g. "Statement: ID_PERSON IN (56819)".
+_ASSERTION_STATEMENT_RE = re.compile(r"^Statement:\s*(.+)$", re.M)
+_ID_TOKEN_RE = re.compile(r"\bID_[A-Z0-9_]+\b")
+
+
+def adjudicate_from_assertions(record, id_tokens):
+    """Name the correct label for one disagreement, from the hand-written assertions.
+
+    FASTAPI-TEXT2SQL-284. The point of this function is that it is NOT circular. The
+    export's own `result_entity` is whatever the guard settled on, so on an `overridden`
+    case it IS the classifier's label and cannot judge it. The result assertions are
+    different in kind: they are written by hand, per evaluation, BEFORE any of this, and
+    they name the column the rows are expected to carry, e.g.
+
+        Statement: ID_PERSON IN (56819)
+        Message: Column 'ID_PERSON' does not exist in DataFrame
+
+    That column is the same id token the guard looks for, so it names an answer entity
+    independently of every model in the pipeline.
+
+    It only names one when it DISCRIMINATES, and the two ways it fails to are both real:
+
+    1. `COUNT(*) > 0` and friends carry no column at all. Four of the fifteen EN cases are
+       like that, and they are unjudgeable here, not wins for either side.
+    2. A label outside the classifier's vocabulary, `movie_video`, `serie_video`,
+       `movie_serie`, comes from the text-to-SQL model alone, and its rows carry the base
+       entity's id as a FOREIGN KEY: a `movie_video` row has an ID_MOVIE column too. So an
+       ID_MOVIE assertion is satisfied by both `movie` rows and `movie_video` rows and
+       separates nothing. Reading it as a win for `movie` was the first version of this
+       function, and it would have handed the classifier six free victories in French.
+
+    Returns (correct_label, winner, reason) with correct_label empty when undecidable.
+    """
+    classifier, text2sql = record["classifier"], record["text2sql"]
+
+    if not record["classifier_in_vocabulary"] or not record["text2sql_in_vocabulary"]:
+        outside = classifier if not record["classifier_in_vocabulary"] else text2sql
+        return "", "undecidable", (
+            f"'{outside}' is outside the classifier vocabulary, so its rows carry the base "
+            f"entity's id as a foreign key and no id assertion can separate the two")
+
+    statements = _ASSERTION_STATEMENT_RE.findall(record.get("assertions_detail") or "")
+    tokens = set()
+    for statement in statements:
+        tokens.update(_ID_TOKEN_RE.findall(statement))
+    if not tokens:
+        return "", "undecidable", (
+            "the result assertions name no id column (a COUNT(*) check), so they say the "
+            "answer was non-empty and nothing about its type")
+
+    # ID_ROW is shared by person_image, movie_image and serie_image, so it names "an image
+    # type" and not which one. Kept rather than special-cased: the membership test below
+    # already refuses to pick when both candidates map to the same token.
+    matching = {label for label, token in id_tokens.items() if token in tokens}
+    classifier_hit = classifier in matching
+    text2sql_hit = text2sql in matching
+
+    if classifier_hit and not text2sql_hit:
+        return classifier, "classifier", (
+            f"the assertions require {id_tokens[classifier]}, which only '{classifier}' projects")
+    if text2sql_hit and not classifier_hit:
+        return text2sql, "text2sql", (
+            f"the assertions require {id_tokens[text2sql]}, which only '{text2sql}' projects")
+    if classifier_hit and text2sql_hit:
+        return "", "undecidable", (
+            f"'{classifier}' and '{text2sql}' share the id token {id_tokens[classifier]}, "
+            f"so the assertions cannot tell them apart")
+    return "", "undecidable", (
+        f"the assertions require {sorted(tokens)}, which neither '{classifier}' nor "
+        f"'{text2sql}' projects: both were wrong, or the assertion targets a third entity")
 
 
 def load_truth(truth_dir: str, run_prefix: str, lang: str, allowed, limit: int):
@@ -173,6 +267,166 @@ def load_truth(truth_dir: str, run_prefix: str, lang: str, allowed, limit: int):
         "skipped_out_of_vocab": skipped_out_of_vocab,
         "duplicates": duplicates,
     }
+    return items, stats
+
+
+# The three sentences main.py writes into `api_output.messages` around the guard. Parsed
+# rather than re-derived, because they are the only place the two labels are BOTH recorded:
+# `result_entity` on the export is the surviving one, and which one survived is exactly the
+# thing under test. Kept as literals next to the f-strings they mirror (main.py:3228, :3251,
+# :3277, :3284) so a wording change here fails loudly on an empty corpus instead of quietly
+# reporting no disagreements.
+_EXPECTATION_RE = re.compile(
+    r"Answer-entity expectation from original question: '([^']*)' \(LLM proposed '([^']*)'\)")
+_GUARD_FIRED_RE = re.compile(
+    r"Answer-entity guard: query did not return the expected entity '([^']*)'")
+_GUARD_ADOPTED_RE = re.compile(
+    r"Answer-entity guard: regenerated query now returns '([^']*)'")
+_GUARD_REJECTED = "Answer-entity guard: regeneration still did not return the expected entity"
+
+
+def load_disagreements(truth_dir: str, run_prefix: str, lang: str, allowed):
+    """Return the questions where the classifier CONTRADICTED the text-to-SQL model.
+
+    FASTAPI-TEXT2SQL-284. Both benches score the classifier against ground truth on the
+    whole bank, and that is the wrong population. main.py only writes the expectation
+    message when `expected_result_entity != result_entity`, so its presence marks a
+    disagreement exactly; everywhere else the classifier agreed or abstained and the
+    pipeline would have returned the same answer type without it. Measured on the 892 EN
+    exports of 001.001.018: 17 files, about 2 % of the bank.
+
+    Offline on purpose: no API call, no key, no database. The exports already carry both
+    labels, so this reads the same files `load_truth` reads.
+
+    Each record carries `effect`, which is NOT the same thing as the disagreement:
+
+      inert       the guard never fired, because the SELECT already projected the id the
+                  classifier expected. The labels differ on paper and the query is
+                  untouched, so the classifier decided nothing here either.
+      overridden  the guard fired AND the regenerated query was adopted. This is the only
+                  effect where the classifier actually changed the answer.
+      attempted   the guard fired and the regeneration was thrown away for not projecting
+                  the expected id. One extra text2sql call paid, query unchanged.
+
+    `truth` is deliberately left empty. On this corpus the export's own `result_entity` is
+    whatever the guard settled on, so on `overridden` cases it IS the classifier's label:
+    scoring against it would ask the classifier to agree with itself. Adjudication is a
+    separate, hand-written file, see bench-disagreements.py.
+    """
+    allowed_set = set(allowed)
+    pattern = os.path.join(truth_dir, f"{run_prefix}_{lang}_*", "*.json")
+    items, by_question = [], {}
+    files_seen = files_with_disagreement = duplicates = conflicting = 0
+
+    for path in sorted(glob.glob(pattern)):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except Exception:
+            continue
+        files_seen += 1
+        output = payload.get("api_output") or {}
+        texts = [str((message or {}).get("text") or "")
+                 for message in (output.get("messages") or [])]
+
+        expectation = None
+        for text in texts:
+            found = _EXPECTATION_RE.search(text)
+            if found:
+                expectation = found
+        if expectation is None:
+            continue
+        files_with_disagreement += 1
+
+        # 'none' is what main.py writes when the text-to-SQL model returned no entity at
+        # all; it is not a label and must not be mistaken for one.
+        classifier_label = expectation.group(1).strip().lower()
+        text2sql_label = expectation.group(2).strip().lower()
+        if text2sql_label == "none":
+            text2sql_label = ""
+
+        fired = any(_GUARD_FIRED_RE.search(text) for text in texts)
+        adopted = any(_GUARD_ADOPTED_RE.search(text) for text in texts)
+        rejected = any(text.startswith(_GUARD_REJECTED) for text in texts)
+        effect = "overridden" if adopted else ("attempted" if fired or rejected else "inert")
+
+        scoring = payload.get("scoring") or {}
+        total = scoring.get("assertions_total_score")
+        try:
+            passed = float(total) >= 1.0
+        except (TypeError, ValueError):
+            passed = None
+
+        question = (output.get("question") or "").strip()
+        record = {
+            "id": payload.get("evaluation_id"),
+            "question": question,
+            "classifier": classifier_label,
+            "text2sql": text2sql_label,
+            "final": (output.get("result_entity") or "").strip().lower(),
+            "effect": effect,
+            "assertions_passed": passed,
+            "assertions_score": total,
+            # Carried whole, because `adjudicate_from_assertions` reads the expected id
+            # column out of it and that is the only non-circular truth this corpus has.
+            "assertions_detail": scoring.get("assertions_result_detailed") or "",
+            # A label the classifier cannot return is not a disagreement it could have
+            # won: `movie_video` and friends come from the text-to-SQL model alone.
+            "text2sql_in_vocabulary": text2sql_label in allowed_set,
+            "classifier_in_vocabulary": classifier_label in allowed_set,
+            "source_file": os.path.basename(path),
+            # Filled in by an adjudication file, never by the pipeline; see the docstring.
+            "truth": "",
+        }
+
+        # Same dedupe rule as load_truth, and for the same reason: the identical question
+        # appears once per evaluation id. Recorded rather than dropped when two copies
+        # disagree about what happened, since that would be a reproducibility problem
+        # rather than a duplicate.
+        previous = by_question.get(question)
+        if previous is not None:
+            duplicates += 1
+            if (previous["classifier"], previous["text2sql"], previous["effect"]) != (
+                    classifier_label, text2sql_label, effect):
+                conflicting += 1
+                previous.setdefault("conflicting_copies", []).append(record)
+            continue
+        by_question[question] = record
+        items.append(record)
+
+    items.sort(key=lambda item: (item["id"] is None, item["id"]))
+    stats = {
+        "files_seen": files_seen,
+        "files_with_disagreement": files_with_disagreement,
+        "duplicates": duplicates,
+        "conflicting_duplicates": conflicting,
+        "distinct_questions": len(items),
+    }
+    return items, stats
+
+
+def load_disagreement_truth(truth_dir: str, run_prefix: str, lang: str, allowed):
+    """The FASTAPI-TEXT2SQL-284 corpus, in the shape the benches already consume.
+
+    Wraps `load_disagreements` and `adjudicate_from_assertions` so both benches can run
+    `--disagreements-only` without either of them owning the extraction. Items come back
+    with the usual `id` / `question` / `truth` keys, plus the disagreement facts, so the
+    existing scoring path needs no change: an undecidable case carries `truth = ""`, which
+    `classify_outcome` already reports as "unscored" and which the reports already skip.
+
+    Nothing is sampled here. --limit exists to make a run cheap, and this corpus is fifteen
+    questions: sampling it would leave nothing to read.
+    """
+    id_tokens = load_entity_id_tokens()
+    items, stats = load_disagreements(truth_dir, run_prefix, lang, allowed)
+    decidable = 0
+    for record in items:
+        label, winner, reason = adjudicate_from_assertions(record, id_tokens)
+        record["truth"] = label
+        record["winner"] = winner
+        record["verdict_reason"] = reason
+        decidable += bool(label)
+    stats["decidable"] = decidable
     return items, stats
 
 
@@ -292,6 +546,12 @@ def bench_one(item, model_a, model_b, allowed, allowed_set, total):
         "id": item["id"],
         "question": question,
         "truth": item["truth"],
+        # Empty on a normal run; carried on --disagreements-only so the report can name
+        # what each stage had said without re-reading the exports.
+        "text2sql": item.get("text2sql", ""),
+        "classifier": item.get("classifier", ""),
+        "effect": item.get("effect", ""),
+        "winner": item.get("winner", ""),
         "a": answer_a,
         "b": answer_b,
         "a_error": error_a,
@@ -321,13 +581,20 @@ def outcome_counts(results, side):
             counter[OUTCOME_ERROR])
 
 
-def report(results, elapsed, model_a, model_b, min_decidable, noise_floor):
+def report(results, elapsed, model_a, model_b, min_decidable, noise_floor,
+           disagreements_only=False):
     """Print the comparison: outcomes, per-class table, confusions, latency, verdict."""
     scored = [row for row in results if row["truth"]]
     total = len(scored)
 
     print()
     print("=" * 78)
+    if disagreements_only:
+        print("*** DISAGREEMENTS ONLY (FASTAPI-TEXT2SQL-284) ***")
+        print("This is the corpus where the classifier CONTRADICTED the text-to-SQL model,")
+        print("about 2 % of the bank and the hardest questions in it. It is biased by")
+        print("construction: no figure below is comparable with a full-bank figure, and the")
+        print("two must never share a table.")
     print(f"Questions run: {len(results)}   scored: {total}   wall clock: {elapsed:.1f}s")
     print(f"A = {model_a}")
     print(f"B = {model_b}")
@@ -402,9 +669,15 @@ def report(results, elapsed, model_a, model_b, min_decidable, noise_floor):
         plural = "class" if len(undecidable) == 1 else "classes"
         print(f"\n  Not decidable at this sample size: {len(undecidable)} {plural}, {tail_n} questions "
               f"({100.0 * tail_n / total:.1f}% of the set)")
-        for name, n, a_bad, b_bad in undecidable:
-            flag = "  <-- B errs here" if b_bad > a_bad else ""
-            print(f"    {name:16s} n={n:<4d} A wrong {a_bad}, B wrong {b_bad}{flag}")
+        # Deliberately NOT named a_bad / b_bad. They were, and the loop rebound the running
+        # totals computed above, so the summary this function RETURNS carried the last
+        # small class's error counts instead of the run's. The printed table above was
+        # always right, `--out`'s `summary` block never was, and the two disagreed in
+        # silence. Found 2026-09-21 on the -284 corpus, where the table said 2 confident
+        # errors and the JSON said 1.
+        for name, n, tail_a_bad, tail_b_bad in undecidable:
+            flag = "  <-- B errs here" if tail_b_bad > tail_a_bad else ""
+            print(f"    {name:16s} n={n:<4d} A wrong {tail_a_bad}, B wrong {tail_b_bad}{flag}")
         print("  These are counted, never scored. A model that breaks only here will not show")
         print("  up in any percentage above, which is the whole reason they are listed.")
 
@@ -419,6 +692,21 @@ def report(results, elapsed, model_a, model_b, min_decidable, noise_floor):
                 print(f"  {count:>4d}x  {truth} -> {predicted}")
             if len(confusions) > 12:
                 print(f"  ... and {len(confusions) - 12} further pairs (see --out)")
+
+    if disagreements_only:
+        # At this n the list IS the result. A per-class table would print "not decidable"
+        # for every row, which is correct and useless, so the cases are named instead.
+        print("\nThe cases, one per line. `truth` comes from the hand-written result")
+        print("assertions, not from the pipeline's own label, which on this corpus was")
+        print("written by the classifier under test.")
+        for row in results:
+            verdict = row.get("truth") or "(undecidable)"
+            print(f"\n  #{row['id']}  truth={verdict}"
+                  f"   text2sql said '{row.get('text2sql') or 'none'}'"
+                  f"   guard {row.get('effect', '?')}")
+            print(f"      {row['question'][:72]}")
+            print(f"      A {model_a[:20]:<20} -> {row['a'] or '(abstain)':<14} {row['a_outcome']}")
+            print(f"      B {model_b[:20]:<20} -> {row['b'] or '(abstain)':<14} {row['b_outcome']}")
 
     disagreements = [row for row in scored if row["a"] != row["b"]]
     print(f"\nA and B answered differently on {len(disagreements)} of {total} questions")
@@ -542,6 +830,10 @@ def main():
                         help="Confident-error count measured by running one model against itself.")
     parser.add_argument("--questions-file", default=None,
                         help="Read questions from a file instead of the exports (no labels, no scoring).")
+    parser.add_argument("--disagreements-only", action="store_true",
+                        help="Run ONLY the questions where the classifier contradicted the "
+                             "text-to-SQL model (FASTAPI-TEXT2SQL-284), scored against the "
+                             "hand-written assertions rather than the pipeline's own label.")
     parser.add_argument("--out", default=None, help="Write the full per-question result as JSON.")
     parser.add_argument("--verbose", action="store_true", help="Keep the classifier's own console output.")
     args = parser.parse_args()
@@ -558,6 +850,14 @@ def main():
     if args.questions_file:
         items = load_questions_file(args.questions_file, args.limit)
         print(f"Loaded {len(items)} questions from {args.questions_file} (no labels, no scoring)")
+    elif args.disagreements_only:
+        items, stats = load_disagreement_truth(args.truth_dir, args.run, args.lang, allowed)
+        print(f"DISAGREEMENTS ONLY: {len(items)} distinct {args.lang} questions where the "
+              f"classifier contradicted the text-to-SQL model")
+        print(f"  out of {stats['files_seen']} exports, so the classifier decided anything at "
+              f"all on {100.0 * stats['files_with_disagreement'] / max(stats['files_seen'], 1):.1f} % of them")
+        print(f"  {stats['decidable']} of them are decidable: the rest carry a COUNT(*) "
+              f"assertion or a label outside the vocabulary, and are run but never scored")
     else:
         items, stats = load_truth(args.truth_dir, args.run, args.lang, allowed, args.limit)
         print(f"Loaded {len(items)} labelled {args.lang} questions from run {args.run}")
@@ -594,7 +894,8 @@ def main():
         print(f"Raw results saved to {args.out} before reporting")
 
 
-    summary = report(results, elapsed, args.model_a, args.model_b, args.min_decidable, args.noise_floor)
+    summary = report(results, elapsed, args.model_a, args.model_b, args.min_decidable,
+                     args.noise_floor, args.disagreements_only)
 
     if args.out:
         with open(args.out, "w", encoding="utf-8") as handle:

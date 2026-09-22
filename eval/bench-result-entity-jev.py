@@ -173,6 +173,50 @@ INSTRUCTIONS = (
     "back, never the filters or constraints used to narrow the search."
 )
 
+# FASTAPI-TEXT2SQL-282, point 5: the compression hypothesis, made testable.
+#
+# The gpt-4o system prompt carries eleven few-shot examples, all built around the filter
+# trap, and `criteria` is a label -> description map with nowhere to put them. So the
+# candidate model is not being compared with gpt-4o, it is being compared with gpt-4o's
+# prompt, and if Jev loses on `person` the first suspect is the missing examples rather
+# than the model. This variant is the control: the SAME criteria, the SAME questions, the
+# SAME model, with the examples moved into `instructions` and nothing else touched. Any
+# other change would measure a configuration instead of the hypothesis.
+#
+# The wording is copied from `text2sql.f_classify_result_entity` rather than rewritten,
+# for the same reason: a better-phrased example would make this a test of the phrasing.
+INSTRUCTIONS_FEWSHOT = INSTRUCTIONS + (
+    "\n\nFilter traps (do NOT pick one of these just because the word appears in the "
+    "question):\n"
+    "- A named collection / franchise, award, genre, list, company, network, movement or "
+    "location used as a CONSTRAINT is a filter, not the answer. Phrases like 'in the "
+    "Criterion collection', 'won the Palme d'Or', 'Sci-Fi movies', 'on Netflix', 'set in "
+    "Paris' only scope the query.\n"
+    "- 'movie' / 'film' / 'TV' / 'serie' in front of a role ('movie directors') only "
+    "scopes the medium; the role is what the user wants listed.\n"
+    "Image requests: 'pictures / photos / portraits / images / posters / backdrops OF a "
+    "person, movie or serie' means the user wants the IMAGE ROWS, not the entity card.\n"
+    "\nExamples:\n"
+    "- 'List the movie directors with the most movies in the Criterion collection' -> "
+    "person (the directors are the answer; 'Criterion collection' is only a filter).\n"
+    "- 'Which movie directors died in 2025?' -> person.\n"
+    "- 'movies with Brad Pitt' -> movie.\n"
+    "- 'who directed Inception?' -> person.\n"
+    "- 'List Criterion collection movies' -> movie (you want movies; the collection "
+    "filters).\n"
+    "- 'What collections is Inception part of?' -> collection (here the collections ARE "
+    "the answer).\n"
+    "- 'Sci-Fi series on HBO' -> serie (the genre filters).\n"
+    "- 'List Sci-Fi movies' -> movie (the genre filters).\n"
+    "- 'What are all the movie genres?' / 'list the genres' -> genre (here the genres ARE "
+    "the answer).\n"
+    "- 'Show Zendaya pictures' / 'photos of Timothee Chalamet' -> person_image (the photos "
+    "are the answer, not the person card).\n"
+    "- 'Dune posters' -> movie_image.  'backdrops of Breaking Bad' -> serie_image."
+)
+
+INSTRUCTION_VARIANTS = {"plain": INSTRUCTIONS, "fewshot": INSTRUCTIONS_FEWSHOT}
+
 DEFAULT_MODEL = "jev-latest"
 DEFAULT_THRESHOLDS = [0.0, 0.50, 0.60, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95]
 
@@ -214,7 +258,7 @@ def build_client():
     return Client()
 
 
-def ask_jev(client, question: str, model: str):
+def ask_jev(client, question: str, model: str, instructions: str = INSTRUCTIONS):
     """One Choice call. Returns (label, confidence, probabilities, error).
 
     Errors are returned rather than raised, for the same reason the production classifier
@@ -223,7 +267,7 @@ def ask_jev(client, question: str, model: str):
     """
     from typesafe_sdk import Choice
     try:
-        questions = {"result_entity": Choice(instructions=INSTRUCTIONS, criteria=CRITERIA)}
+        questions = {"result_entity": Choice(instructions=instructions, criteria=CRITERIA)}
         try:
             response = client.system_one(state=question, questions=questions, model=model)
         except TypeError:
@@ -269,7 +313,12 @@ def outcome_at(label: str, confidence: float, truth: str, allowed_set, threshold
 def sweep(results, allowed_set, thresholds):
     """Three outcomes at each threshold. The table this bench exists to print."""
     rows = []
-    scored = [r for r in results if r["error"] is None]
+    # A row with no truth was RUN but cannot be scored, and it must not reach the
+    # sweep: `classify_outcome` returns "unscored" for it, which the OUTCOMES guard
+    # below rejects by design. It never happened before --disagreements-only, because
+    # `load_truth` only ever returns labelled questions. The sibling bench filters the
+    # same way, on the same key, so both stay comparable.
+    scored = [r for r in results if r["error"] is None and r["truth"]]
     for threshold in thresholds:
         # Counter, not a pre-filled dict: a missing outcome must read as zero rather than
         # raise, and an unexpected one must be named rather than swallowed.
@@ -297,15 +346,25 @@ def sweep(results, allowed_set, thresholds):
     return rows
 
 
-def report(results, rows, elapsed, model, min_decidable, compare_confident_error):
-    scored = [r for r in results if r["error"] is None]
+def report(results, rows, elapsed, model, min_decidable, compare_confident_error,
+           disagreements_only=False, instructions_name="plain"):
+    """Print the sweep, the equal-risk read, the per-class table and the verdict."""
+    # Same filter as `sweep`, and it has to be the same or the report would describe a
+    # different population than the table above it. A row with no truth was RUN and is
+    # still worth printing, so --disagreements-only re-reads `results` for its case list.
+    scored = [r for r in results if r["error"] is None and r["truth"]]
     errored = [r for r in results if r["error"] is not None]
     total = len(scored)
 
     print()
     print("=" * 78)
-    print(f"Jev answer-entity bench  |  model={model}  |  {total} scored, "
-          f"{len(errored)} errored  |  {elapsed:.1f}s")
+    print(f"Jev answer-entity bench  |  model={model}  |  instructions={instructions_name}"
+          f"  |  {total} scored, {len(errored)} errored  |  {elapsed:.1f}s")
+    if disagreements_only:
+        print("*** DISAGREEMENTS ONLY (FASTAPI-TEXT2SQL-284) ***")
+        print("The corpus where the classifier CONTRADICTED the text-to-SQL model: about")
+        print("2 % of the bank, and the hardest questions in it. Biased by construction, so")
+        print("no figure below shares a table with a full-bank figure.")
     print("=" * 78)
 
     if errored:
@@ -365,6 +424,27 @@ def report(results, rows, elapsed, model, min_decidable, compare_confident_error
             print("  Compare that abstention rate with gpt-4o's. Higher means Jev buys the")
             print("  same safety by deferring more often, which costs nothing but gains nothing.")
 
+    if disagreements_only:
+        # At this n a per-class table prints "not decidable" on every row, which is right
+        # and useless. The cases are named instead, at the operating threshold.
+        gate = operating["threshold"]
+        allowed_here = set(CRITERIA)
+        print(f"\nThe cases at threshold {gate:.2f}. `truth` comes from the hand-written")
+        print("result assertions, not from the pipeline's own label, which on this corpus")
+        print("was written by the classifier under test.")
+        # Every question that RAN, not just the scorable ones: an undecidable case still
+        # shows what Jev answered, and that is worth reading even when nothing can grade it.
+        for record in [r for r in results if r["error"] is None]:
+            outcome = outcome_at(record["label"], record["confidence"],
+                                 record["truth"], allowed_here, gate)
+            verdict = record.get("truth") or "(undecidable)"
+            print(f"\n  #{record['id']}  truth={verdict}"
+                  f"   text2sql said '{record.get('text2sql') or 'none'}'"
+                  f"   guard {record.get('effect', '?')}")
+            print(f"      {record['question'][:72]}")
+            print(f"      Jev -> {record['label'] or '(none)':<14} "
+                  f"conf {record['confidence']:.2f}   {outcome}")
+
     print(f"\nPer class (classes under n={min_decidable} are not decidable at this sample):")
     strict = operating["threshold"]
     print(f"  measured at threshold {strict:.2f}, {operating_why}")
@@ -401,6 +481,15 @@ def main():
     parser.add_argument("--compare-confident-error", type=float, default=None,
                         help="gpt-4o's confident-error %% from the sibling bench, for an "
                              "equal-risk read.")
+    parser.add_argument("--instructions", choices=sorted(INSTRUCTION_VARIANTS),
+                        default="plain",
+                        help="'plain' is the description-only prompt; 'fewshot' adds the "
+                             "eleven examples from the gpt-4o system prompt, and is the "
+                             "control for the compression hypothesis (-282, point 5).")
+    parser.add_argument("--disagreements-only", action="store_true",
+                        help="Run ONLY the questions where the classifier contradicted the "
+                             "text-to-SQL model (FASTAPI-TEXT2SQL-284), scored against the "
+                             "hand-written assertions rather than the pipeline's own label.")
     parser.add_argument("--thresholds", default=None,
                         help="Comma-separated confidence thresholds to sweep.")
     parser.add_argument("--out", default=None, help="Write the per-question result as JSON.")
@@ -418,12 +507,21 @@ def main():
             print(f"  - {problem}")
         return 1
 
-    items, stats = BENCH.load_truth(args.truth_dir, args.run, args.lang, allowed, args.limit)
     print(f"Vocabulary: {len(allowed)} labels, all described.")
-    print(f"Ground truth: {len(items)} pass-verified questions from {args.run} ({args.lang}).")
-    print(f"  dropped: {stats['skipped_failed']} that failed their assertions, "
-          f"{stats['skipped_out_of_vocab']} outside the classifier vocabulary, "
-          f"{stats['duplicates']} duplicates, {stats['skipped_unscored']} unscored.")
+    if args.disagreements_only:
+        items, stats = BENCH.load_disagreement_truth(
+            args.truth_dir, args.run, args.lang, allowed)
+        print(f"DISAGREEMENTS ONLY: {len(items)} distinct {args.lang} questions where the "
+              f"classifier contradicted the text-to-SQL model, out of {stats['files_seen']} "
+              f"exports.")
+        print(f"  {stats['decidable']} are decidable against the hand-written assertions; "
+              f"the rest are run and never scored.")
+    else:
+        items, stats = BENCH.load_truth(args.truth_dir, args.run, args.lang, allowed, args.limit)
+        print(f"Ground truth: {len(items)} pass-verified questions from {args.run} ({args.lang}).")
+        print(f"  dropped: {stats['skipped_failed']} that failed their assertions, "
+              f"{stats['skipped_out_of_vocab']} outside the classifier vocabulary, "
+              f"{stats['duplicates']} duplicates, {stats['skipped_unscored']} unscored.")
     if not items:
         print("No ground truth found. Check --truth-dir and --run.")
         return 1
@@ -437,7 +535,7 @@ def main():
         print(json.dumps({
             "model": args.model,
             "state": items[0]["question"],
-            "questions": {"result_entity": {"instructions": INSTRUCTIONS,
+            "questions": {"result_entity": {"instructions": INSTRUCTION_VARIANTS[args.instructions],
                                             "criteria": {k: CRITERIA[k] for k in
                                                          list(CRITERIA)[:3]}}},
         }, indent=2, ensure_ascii=False)[:900] + "\n  ... criteria truncated to 3 of "
@@ -446,15 +544,21 @@ def main():
         print("Nothing was sent. Set TYPESAFE_API_KEY and drop --dry-run to measure.")
         return 0
 
+    instructions = INSTRUCTION_VARIANTS[args.instructions]
     client = build_client()
     started = time.time()
     results = []
 
     def run_one(item):
-        label, confidence, probabilities, error = ask_jev(client, item["question"], args.model)
+        label, confidence, probabilities, error = ask_jev(
+            client, item["question"], args.model, instructions)
         return {"id": item["id"], "question": item["question"], "truth": item["truth"],
                 "label": label, "confidence": confidence,
-                "probabilities": probabilities, "error": error}
+                "probabilities": probabilities, "error": error,
+                # Empty on a normal run; carried on --disagreements-only so the report can
+                # name what each stage said without re-reading the exports.
+                "text2sql": item.get("text2sql", ""), "classifier": item.get("classifier", ""),
+                "effect": item.get("effect", ""), "winner": item.get("winner", "")}
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
         for record in pool.map(run_one, items):
@@ -463,11 +567,12 @@ def main():
     elapsed = time.time() - started
     rows = sweep(results, set(CRITERIA), thresholds)
     report(results, rows, elapsed, args.model, args.min_decidable,
-           args.compare_confident_error)
+           args.compare_confident_error, args.disagreements_only, args.instructions)
 
     if args.out:
         with open(args.out, "w", encoding="utf-8") as handle:
             json.dump({"model": args.model, "lang": args.lang, "run": args.run,
+                       "instructions": args.instructions,
                        "sweep": rows, "results": results}, handle,
                       indent=2, ensure_ascii=False)
         print(f"\nWritten: {args.out}")
