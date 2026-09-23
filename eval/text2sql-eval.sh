@@ -62,7 +62,7 @@
 # NOTHING IS LAUNCHED WITHOUT A TYPED "yes"
 # A full two-language run is hours of wall-clock and around $150 on gpt-4o. So the script first
 # builds the image, runs a read-only pre-flight inside it (what is left to run, what the target
-# API answers, whether the eval copy drifted, what else is loading the VPS), prints all of it,
+# API answers, whether the eval copy drifted, which scheduled tasks are still armed), prints it all,
 # and waits for the word "yes". Anything else aborts. With no terminal attached (cron, nohup)
 # it aborts too, unless EVAL_CONFIRM=yes is set, the only way to skip the question.
 #
@@ -107,11 +107,21 @@ SHARED_DIR=${SHARED_DIR:-$HOME/docker/shared_data/text2sql-eval}
 # The git clone the eval copy is compared against. ~/docker/text2sql-eval is NOT a checkout
 # and its eval/*.py drift from the repo silently (AGENTS.md, "Clients of this API").
 REPO_EVAL_DIR=${REPO_EVAL_DIR:-$HOME/docker/fastapi-text2sql-blue/eval}
-# Workloads to stop for the duration of a run (list set by Philippe on 2026-09-23). The first
-# four share the MariaDB and the CPU with the API and inflate every latency the campaign
-# records. embedding-update is worse: it rewrites the ChromaDB collections the API resolves
-# entities against, so it can change the ANSWERS mid-run, not only their timing.
-COMPETING_PATTERN=${COMPETING_PATTERN:-^(tmdb-movie-preprocess|wikipedia-crawler|movieparadise|sqlite|embedding-update)}
+# Scheduled workloads to switch OFF for the duration of a run. Stopping a container is not
+# enough: cron relaunches it at its next tick, in the middle of a multi-hour campaign. The house
+# convention is that each repository under ~/docker carries an off.sh that renames the script
+# cron calls (tmdb-movie-preprocess.sh -> tmdb-movie-preprocess-off.sh) and an on.sh that puts
+# it back. The crontab never changes; its ticks simply find nothing to run. So the pre-flight
+# reads every ~/docker/*/off.sh, tells from its `mv` lines which tasks are still armed, and
+# recommends off.sh for each of them, including the ones not running right now (wikidata-crawler,
+# sqlite, ...), since an idle armed task can start at any minute.
+# Why it matters: the crawlers and preprocessors share the MariaDB and the CPU with the API and
+# inflate every latency the campaign records, and embedding-update rewrites the ChromaDB
+# collections the API resolves entities against, so it changes the ANSWERS, not only the timing.
+DOCKER_ROOT=${DOCKER_ROOT:-$HOME/docker}
+# Folders never to switch off: letsencrypt renews the TLS certificate, harmless to the run and
+# costly to forget.
+SCHEDULED_KEEP=${SCHEDULED_KEEP:-^(letsencrypt)$}
 # Measured, gpt-4o on all five tasks, v1.1.17-1.1.18 (AGENTS.md, "The six LLM tasks").
 COST_PER_1000_GPT4O=50.69
 SECONDS_PER_CALL=8   # 6.04 s mean end to end + TEXT2SQL_EVAL_API_CALL_DELAY_SECONDS (2 s)
@@ -319,20 +329,52 @@ else
     warn "no git clone at $REPO_EVAL_DIR to compare the eval copy against (set REPO_EVAL_DIR)."
 fi
 
-# Other workloads on the VPS, see COMPETING_PATTERN above.
-COMPETING=$(docker ps --format '{{.Names}}' | grep -E "$COMPETING_PATTERN" || true)
-if [ -n "$COMPETING" ]; then
-    warn "these containers are running and will skew the timings (embedding-update, the answers too):"
-    printf '%s\n' "$COMPETING" | sed 's/^/        /'
-    more "recommended before the run:  docker stop $(printf '%s' "$COMPETING" | tr '\n' ' ')"
+# Scheduled workloads, see DOCKER_ROOT above. A task is ARMED when a source of an `mv` line of
+# its off.sh still exists, OFF when every target exists instead.
+ARMED=""; DISARMED=""; UNKNOWN=""; CONTAINER_NAMES=""
+for off in "$DOCKER_ROOT"/*/off.sh; do
+    [ -f "$off" ] || continue
+    dir=$(dirname "$off"); repo=$(basename "$dir")
+    printf '%s\n' "$repo" | grep -Eq "$SCHEDULED_KEEP" && continue
+    state=off; seen=0
+    while read -r src dst; do
+        seen=1
+        CONTAINER_NAMES="$CONTAINER_NAMES|${src%.sh}"
+        if [ -f "$dir/$src" ]; then state=armed
+        elif [ ! -f "$dir/$dst" ] && [ "$state" = off ]; then state=unknown
+        fi
+    done < <(tr -d '\r' < "$off" | awk '$1 == "mv" { print $2, $3 }')
+    [ "$seen" -eq 1 ] || state=unknown
+    CONTAINER_NAMES="$CONTAINER_NAMES|$repo"
+    case "$state" in
+        armed)   ARMED="$ARMED $repo" ;;
+        off)     DISARMED="$DISARMED $repo" ;;
+        *)       UNKNOWN="$UNKNOWN $repo" ;;
+    esac
+done
+if [ -n "$ARMED" ]; then
+    warn "scheduled tasks still ARMED, cron can start them at any minute of the run:"
+    more " $ARMED"
+    more "switch them off first (renames the script cron calls, the crontab is untouched):"
+    more "  for d in$ARMED; do (cd $DOCKER_ROOT/\$d && ./off.sh); done"
+    more "and back on once the campaign is over:"
+    more "  for d in$ARMED; do (cd $DOCKER_ROOT/\$d && ./on.sh); done"
 else
-    echo "  - no competing container running (pattern: $COMPETING_PATTERN)."
+    echo "  - every scheduled task under $DOCKER_ROOT is switched off."
 fi
-# A container stopped now can be relaunched by cron in the middle of a multi-hour run.
-CRON_HITS=$(crontab -l 2>/dev/null | grep -v '^[[:space:]]*#' | grep -E "${COMPETING_PATTERN#^}" || true)
-if [ -n "$CRON_HITS" ]; then
-    warn "cron can relaunch some of them mid-run; comment these lines out (crontab -e) for its duration:"
-    printf '%s\n' "$CRON_HITS" | sed 's/^/        /'
+[ -n "$DISARMED" ] && echo "  - already off:$DISARMED"
+[ -n "$UNKNOWN" ] && warn "state unclear (neither the script nor its -off twin found):$UNKNOWN"
+
+# off.sh only prevents the NEXT launch: a container already running goes on until it ends.
+COMPETING_PATTERN=${COMPETING_PATTERN:-^(${CONTAINER_NAMES#|})}
+COMPETING=""
+[ -n "$CONTAINER_NAMES" ] && COMPETING=$(docker ps --format '{{.Names}}' | grep -E "$COMPETING_PATTERN" || true)
+if [ -n "$COMPETING" ]; then
+    warn "running now, off.sh will not stop them (embedding-update changes the answers, not only the timings):"
+    printf '%s\n' "$COMPETING" | sed 's/^/        /'
+    more "wait for them to finish, or:  docker stop $(printf '%s' "$COMPETING" | tr '\n' ' ')"
+else
+    echo "  - none of those tasks has a container running."
 fi
 
 FREE=$(df -Pm "$SHARED_DIR" 2>/dev/null | awk 'NR==2{print $4}')
