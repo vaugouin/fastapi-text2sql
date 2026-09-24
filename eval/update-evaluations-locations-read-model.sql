@@ -4,7 +4,12 @@
 -- (EVALUATIONS-012)
 -- ============================================================================
 --
--- NOT YET APPLIED. Written 2026-09-24.
+-- APPLIED 2026-09-24 14:23 on vaugouindb, result in
+-- update-evaluations-locations-read-model-20260924.txt: eight rows updated, no error.
+-- Section 2b added the same day, after reading that result: the old 2156 assertion
+-- named Q192017, which is Monument Valley (ID_LOCATION 2474), not a studio, and the
+-- first 2156 list had left it out. Re-run the whole file with -f: every earlier
+-- UPDATE is a no-op, only 2b applies.
 --
 -- THE PROBLEM. Since FASTAPI-TEXT2SQL-247 the API answers location questions from
 -- the locations read-model (T_WC_T2S_LOCATION, T_WC_T2S_MOVIE_LOCATION with
@@ -70,11 +75,12 @@ WHERE ID_T2S_EVALUATION IN (291, 2151, 2155, 2156);
 -- 1. CHECK THE ANCHORS against the data rather than trusting the run export.
 --    1a must show ID_LOCATION 4 = Los Angeles as a NARRATIVE location of Pulp
 --       Fiction (ID_MOVIE 680).
---    1b must show 697, 4957 and 5012 as FILMING locations of 2001: A Space Odyssey
---       (ID_MOVIE 62). The old assertion also named a fourth QID, Q2278256, which
---       the 1.1.19 answer did not return: 1c says whether it exists in the
---       read-model at all. If it exists, is not DELETED and is linked as filming,
---       add its ID_LOCATION to the 2156 list in section 2 before running it.
+--    1b must show 697, 2474, 4957 and 5012 as FILMING locations of 2001: A Space
+--       Odyssey (ID_MOVIE 62).
+--    1c maps the four QIDs of the old 2156 assertion. Measured 2026-09-24: Q1030
+--       Namibia 697, Q192017 Monument Valley 2474, Q2278256 Shepperton Studios 5012,
+--       Q4739371 Amalgamated Studios 4957. All four are filming locations of 2001
+--       and all four were in the 1.1.19 answer.
 --    1d must show the three anchor films linked to Naples as NARRATIVE location.
 -- ---------------------------------------------------------------------------
 SELECT '1a. Pulp Fiction, narrative locations' AS SECTION;
@@ -159,7 +165,8 @@ WHERE ID_T2S_EVALUATION = 2155
   AND (ASSERTIONS_SQL_QUERY IS NULL OR ASSERTIONS_SQL_QUERY = '');
 
 -- 2156 · Where was shot the movie 2001 A Space Odyssey?
---   result: Namibia and the two studios returned in 1.1.19 (see 1b and 1c)
+--   result: the four places of the old QID assertion (see 1c); the first version
+--   of this UPDATE listed three, section 2b adds Monument Valley
 --   SQL:    the filming role
 UPDATE T_WC_T2S_EVALUATION
 SET ASSERTIONS_QUERY_RESULT = 'ID_LOCATION IN (697, 4957, 5012)',
@@ -174,9 +181,19 @@ SET ASSERTIONS_SQL_QUERY = '(?is)\\bLOCATION_ROLE\\s*=\\s*[&#039;&quot;]filming[
 WHERE ID_T2S_EVALUATION = 2156
   AND (ASSERTIONS_SQL_QUERY IS NULL OR ASSERTIONS_SQL_QUERY = '');
 
+-- 2b · 2156, correction of 2026-09-24: Q192017 is Monument Valley (2474), not a
+--   studio. Guarded on the three-place value written above, so it applies once,
+--   right after the first UPDATE of 2156 or on a re-run of the file.
+UPDATE T_WC_T2S_EVALUATION
+SET ASSERTIONS_QUERY_RESULT = 'ID_LOCATION IN (697, 2474, 4957, 5012)',
+    LONG_DESC = CONCAT(COALESCE(LONG_DESC, ''), ' 2026-09-24, correction: Q192017 of the old assertion is Monument Valley (ID_LOCATION 2474), added. The four places are Namibia 697, Monument Valley 2474, Amalgamated Studios 4957, Shepperton Studios 5012.'),
+    TIM_UPDATED = NOW()
+WHERE ID_T2S_EVALUATION = 2156
+  AND ASSERTIONS_QUERY_RESULT = 'ID_LOCATION IN (697, 4957, 5012)';
+
 -- ---------------------------------------------------------------------------
--- 3. AFTER. Eight UPDATE statements, eight rows changed on a first run, zero on a
---    re-run. Expect every ASSERTIONS_QUERY_RESULT on ID_LOCATION or ID_MOVIE,
+-- 3. AFTER. Nine UPDATE statements: nine rows changed on a first run, zero on a
+--    re-run (on 2026-09-24 the first run changed eight, the -f re-run only 2b). Expect every ASSERTIONS_QUERY_RESULT on ID_LOCATION or ID_MOVIE,
 --    and every ASSERTIONS_SQL_QUERY on LOCATION_ROLE. If one still shows ITEM_LABEL,
 --    P840 or a QID, its guard withdrew: compare with section 0.
 -- ---------------------------------------------------------------------------

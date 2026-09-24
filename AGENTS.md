@@ -1031,6 +1031,16 @@ prefer `bash script.sh` over `./script.sh` when a first run must not be about pe
 
 ---
 
+## Applying a `.sql` file on the VPS: `runsqlvaugouindb.sh`, always
+
+Evaluation-bank scripts (`eval/assertions-*.sql`, `eval/update-*.sql`, `eval/new-evaluations-*.sql`, `eval/fix-*.sql`) and `maintenance/*.sql` are applied with the runner of the `tools` repository, never with a hand-built `docker exec ... mariadb` (Philippe, 2026-09-24):
+
+```bash
+~/docker/tools/runsqlvaugouindb.sh <path>/<file>.sql      # result: <path>/<file>-YYYYMMDD.txt, errors included
+```
+
+`-f` overwrites a same-day result, `-e` stops at the first error. Because `~/docker/fastapi-text2sql-blue` and `-green` are mounted by the running containers, do not `pull` them just to get a `.sql`: `git -C ~/docker/fastapi-text2sql-green fetch origin && git -C ~/docker/fastapi-text2sql-green show origin/main:eval/<file>.sql > ~/<file>.sql`, then run the runner on `~/<file>.sql`. After an evaluation-bank change, rescore with Phase 20 (offline, no token). Reference: `tools/AGENTS.md`, "Running a .sql file".
+
 ## SQL handling rules
 
 **Escaping** — SQL-style doubled single quotes, NOT backslash. `entity._sql_escape_literal()` centralizes this:
