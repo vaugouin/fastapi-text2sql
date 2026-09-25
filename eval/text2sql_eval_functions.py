@@ -622,3 +622,168 @@ def format_detailed_results_for_db(detailed_results: list[dict], overall_pass: b
     formatted = "\n".join(lines)
     formatted = formatted.replace("[", "(").replace("]", ")")
     return formatted
+
+
+# ---------------------------------------------------------------------------
+# Translation guards for phases 4-6 (EVALUATIONS-019)
+#
+# On 2026-09-25 fifteen evaluations were found whose French column held a refusal of
+# the translation model ("Je suis desole, je ne peux pas vous aider avec ca.") instead
+# of a question: phase 5 had been asked to translate French text, typed into the
+# English column, into French. And a 2025 film, "Sorry, Baby", came back translated as
+# a phrase. The helpers below keep both from being stored again. They are pure, so the
+# rules can be checked offline against the exported bank.
+# ---------------------------------------------------------------------------
+
+_REFUSAL_PATTERNS = (
+    r"\bje suis d[ée]sol[ée]",
+    r"\bje ne (peux|suis) pas\b",
+    r"\bje ne peux\b",
+    r"\bd[ée]sol[ée], mais\b",
+    r"\bquestions d'[ée]valuation en anglais sont n[ée]cessaires\b",
+    r"\bveuillez fournir\b",
+    r"\bi'?m sorry\b",
+    r"\bi am sorry\b",
+    r"\bi (can(no|')t|am unable to|cannot)\b",
+    r"\bas an ai\b",
+    r"\bplease provide\b",
+)
+
+
+def looks_like_refusal(text: str) -> bool:
+    """True when a translation output reads as a refusal or a request for input."""
+    t = html.unescape(text or "").strip().lower().replace("’", "'")
+    if not t:
+        return True
+    return any(re.search(p, t) for p in _REFUSAL_PATTERNS)
+
+
+# Words that only one of the two languages uses. "film", "films", "photos", "action"
+# and the like are shared and deliberately absent: a question like "Film roofman" or
+# "Movie noroit" must come out as undecided, never as the wrong language.
+_FR_MARKERS = {
+    "le", "la", "les", "des", "du", "une", "et", "est", "avec", "pour", "dans", "sur",
+    "qui", "que", "quel", "quels", "quelle", "quelles", "sont", "ont", "été", "par",
+    "au", "aux", "moi", "donne", "montre", "liste", "listez", "tous", "toutes", "série",
+    "séries", "acteurs", "réalisés", "réalisateur", "réalisateurs", "sortis", "nés",
+    "affiches", "années", "langue", "où", "combien", "à", "d", "l", "qu", "c",
+}
+_EN_MARKERS = {
+    "the", "of", "and", "with", "what", "which", "who", "whose", "show", "list", "all",
+    "movie", "movies", "series", "by", "from", "in", "on", "are", "is", "was", "were",
+    "released", "directed", "starring", "born", "actors", "actor", "pictures", "posters",
+    "give", "me", "how", "many", "where", "when", "did", "does", "about", "that", "their",
+}
+
+
+def guess_language(text: str):
+    """Return 'fr', 'en', or None when the text does not say clearly enough.
+
+    A crude marker count, tuned to fail towards None: it is only used to refuse a
+    translation that is obviously in the wrong language, never to accept one.
+    """
+    t = html.unescape(text or "").lower().replace("’", "'")
+    words = re.findall(r"[a-zàâäçéèêëîïôöùûüœ]+", t)
+    if not words:
+        return None
+    fr = sum(1 for w in words if w in _FR_MARKERS)
+    en = sum(1 for w in words if w in _EN_MARKERS)
+    if re.search(r"[àâçéèêëîïôùûœ]", t):
+        fr += 1
+    if fr >= 2 and fr >= en + 2:
+        return "fr"
+    if en >= 2 and en >= fr + 2:
+        return "en"
+    return None
+
+
+def question_ngrams(question: str, max_words: int = 10) -> list:
+    """Every run of 1 to max_words consecutive words of the question, trimmed of the
+    punctuation that sits around a title ("Pulp Fiction?" -> "Pulp Fiction"), longest
+    first. Punctuation inside a title stays ("The Good, the Bad and the Ugly")."""
+    words = html.unescape(question or "").replace("\r", " ").replace("\n", " ").split()
+    grams = []
+    for n in range(min(max_words, len(words)), 0, -1):
+        for i in range(0, len(words) - n + 1):
+            g = " ".join(words[i:i + n]).strip(" \t?!.;:«»\"'()[]")
+            if g and g not in grams:
+                grams.append(g)
+    return grams
+
+
+_GENERIC_TITLES = {
+    "movie", "movies", "film", "films", "serie", "series", "série", "séries", "the", "a",
+    "list", "show", "all", "who", "what", "which", "actors", "people", "photos", "pictures",
+}
+
+
+def is_title_candidate(gram: str) -> bool:
+    """A word sequence long enough to be looked up as a title. Single short or generic
+    words ("It", "Up", "Her", "Movie") would match titles everywhere and are skipped."""
+    g = gram.strip()
+    if g.lower() in _GENERIC_TITLES or g.isdigit():
+        return False
+    return len(g.split()) >= 2 or len(g) >= 5
+
+
+def assertion_ids(assertion: str) -> dict:
+    """The ID_MOVIE / ID_SERIE lists named in an ASSERTIONS_QUERY_RESULT string."""
+    out = {"movie": set(), "serie": set()}
+    a = html.unescape(assertion or "")
+    for col, key in (("ID_MOVIE", "movie"), ("ID_SERIE", "serie")):
+        for m in re.finditer(col + r"\s+IN\s*\(([\d,\s]+)\)", a):
+            out[key].update(int(x) for x in m.group(1).split(",") if x.strip())
+    return out
+
+
+def build_title_glossary(question: str, rows: list, preferred_ids: dict) -> dict:
+    """Decide which titles of the question the database can translate.
+
+    rows: dicts with keys kind ('movie' or 'serie'), id, src (title in the source
+    language) and dst (title in the target language), as fetched for the question's
+    word sequences. A title is kept only on an EXACT match (case-insensitive) with a
+    sequence of the question, so a deliberate typo ("tron ares") is never corrected
+    into a real title. Homonyms are settled by the assertion ids; when they disagree
+    on the target title and no assertion settles it, the title is left out, and the
+    model is told to copy it verbatim. Longest titles win, and a title inside a
+    longer matched title is dropped.
+
+    Returns {source title as written in the question: target title}.
+    """
+    grams = {g.lower(): g for g in question_ngrams(question)}
+    by_title = {}
+    for r in rows:
+        src = (r.get("src") or "").strip()
+        dst = (r.get("dst") or "").strip()
+        if not src or not dst or src.lower() not in grams or not is_title_candidate(src):
+            continue
+        by_title.setdefault(src.lower(), []).append(r)
+    glossary = {}
+    for key in sorted(by_title, key=len, reverse=True):
+        if any(key in longer.lower() for longer in glossary):
+            continue
+        cands = by_title[key]
+        preferred = [c for c in cands if c["id"] in preferred_ids.get(c["kind"], set())]
+        pool = preferred or cands
+        targets = {(c.get("dst") or "").strip() for c in pool}
+        if len(targets) == 1:
+            glossary[grams[key]] = targets.pop()
+    return glossary
+
+
+def translation_system_prompt(src_lang: str, dst_lang: str, glossary: dict) -> str:
+    """The system prompt of phases 5 and 6: titles and names are never translated by
+    the model; the only translated titles are the ones the database supplies."""
+    names = {"en": "English", "fr": "French"}
+    lines = [
+        f"You translate evaluation questions about movies and TV series from {names[src_lang]} to {names[dst_lang]}.",
+        "Return only the translation, with no explanation or surrounding quotes.",
+        "Never translate the title of a movie, series, collection or any other work, nor a person's name: copy it exactly as written, spelling mistakes and missing accents included.",
+        "Keep the question's own imperfections (typos, lowercase names, missing punctuation): translate the sentence, do not correct it.",
+        "If the text is already in the target language, return it unchanged. Never answer the question and never refuse: always return a translation.",
+    ]
+    if glossary:
+        lines.append("The following titles appear in the question and have an official title in the target language. Use exactly these, and translate no other title:")
+        for src, dst in glossary.items():
+            lines.append(f"- {src} => {dst}")
+    return "\n".join(lines)

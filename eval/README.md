@@ -167,7 +167,7 @@ Phases are defined by `arrprocessscope` at [text2sql-eval.py:107](text2sql-eval.
 
 ### Phase 4 — Translate categories EN→FR
 - Reads `T_WC_T2S_EVALUATION_CATEGORY` rows where `DESCRIPTION` is set and `DESCRIPTION_FR` is empty
-- Calls OpenAI gpt-4o (`translate_question_to_french`) to populate `DESCRIPTION_FR`
+- Calls OpenAI gpt-4o (`translate_question_to_french`) to populate `DESCRIPTION_FR`; a refusal is not stored
 
 ### Phase 5 — Translate questions EN→FR
 - Reads `T_WC_T2S_EVALUATION` rows with `QUESTION` set and `QUESTION_FR` empty
@@ -175,6 +175,15 @@ Phases are defined by `arrprocessscope` at [text2sql-eval.py:107](text2sql-eval.
 
 ### Phase 6 — Translate questions FR→EN
 - Reverse direction: fills `QUESTION` when only `QUESTION_FR` exists
+
+### The guards on phases 4-6 (EVALUATIONS-019, 2026-09-25)
+Fifteen bank rows once stored the translation model's refusal ("Je suis désolé, je ne peux pas vous aider avec ça.") as their French question, because phase 5 had been handed French text typed into the English column; and the 2025 film *Sorry, Baby* came back as "Film désolé bébé". Since then, `guarded_translation()` in `text2sql-eval.py`, with the pure helpers of `text2sql_eval_functions.py`:
+- **skips** a row whose source already reads as the target language (`guess_language()`, a marker count that fails towards "undecided" on short title-only questions), and prints `SKIPPED`: fix those columns by hand;
+- **never stores a refusal** (`looks_like_refusal()`): the column stays empty, `REJECTED` is printed, the row is retried next run;
+- **takes translated titles from the database only**: `fetch_title_rows()` looks up the question's word sequences in `MOVIE_TITLE` / `MOVIE_TITLE_FR` and `SERIE_TITLE` / `SERIE_TITLE_FR` (indexed `IN` lookups), and `build_title_glossary()` keeps a title only on an **exact** match, so a deliberate typo ("tron ares") is never corrected into the real title, which would make one language easier than the other. Homonyms with different target titles are settled by the `ID_MOVIE` / `ID_SERIE` of the row's assertion; unsettled, the title is copied verbatim;
+- tells the model never to translate a title or a name, never to correct the question, and never to refuse.
+
+A translation that still reads as the source language is stored with a `WARNING` line, not rejected: titles skew the guess, and a false rejection would leave a row untranslated for nothing.
 
 ### Phase 10 — Cleanup soft-deleted executions
 - `DELETE FROM T_WC_T2S_EVALUATION_EXECUTION WHERE DELETED = 1`

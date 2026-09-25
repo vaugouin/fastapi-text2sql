@@ -103,32 +103,79 @@ def _is_retryable_quota_error(response=None, response_json=None, error_text: str
     )
 
 
-def translate_question_to_french(question: str) -> str:
+def translate_question(question: str, src_lang: str, dst_lang: str, glossary: dict | None = None) -> str:
+    """Translate an evaluation question with gpt-4o (EVALUATIONS-019).
+
+    The model is told never to translate a title or a name and never to correct the
+    question; the only titles it translates are those of `glossary`, which come from
+    the database (see fetch_title_rows). The caller must still check the output with
+    t2s_eval.looks_like_refusal() before storing it.
+    """
+    client = openai.OpenAI(api_key=openai.api_key)
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": t2s_eval.translation_system_prompt(src_lang, dst_lang, glossary or {})},
+            {"role": "user", "content": question},
+        ],
+        temperature=0,
+    )
+    return response.choices[0].message.content.strip()
+
+
+def translate_question_to_french(question: str, glossary: dict | None = None) -> str:
     """Translate an evaluation question from English to French using OpenAI gpt-4o."""
-    client = openai.OpenAI(api_key=openai.api_key)
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "You translate evaluation questions from English to French. Return only the French translation, with no explanation or surrounding quotes."},
-            {"role": "user", "content": question},
-        ],
-        temperature=0,
-    )
-    return response.choices[0].message.content.strip()
+    return translate_question(question, "en", "fr", glossary)
 
 
-def translate_question_to_english(question: str) -> str:
+def translate_question_to_english(question: str, glossary: dict | None = None) -> str:
     """Translate an evaluation question from French to English using OpenAI gpt-4o."""
-    client = openai.OpenAI(api_key=openai.api_key)
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "You translate evaluation questions from French to English. Return only the English translation, with no explanation or surrounding quotes."},
-            {"role": "user", "content": question},
-        ],
-        temperature=0,
-    )
-    return response.choices[0].message.content.strip()
+    return translate_question(question, "fr", "en", glossary)
+
+
+def fetch_title_rows(cursor, question: str, src_lang: str) -> list:
+    """Movies and series whose title, in the question's language, is EXACTLY one of the
+    question's word sequences, with their title in the other language. Two indexed
+    IN lookups (MOVIE_TITLE / MOVIE_TITLE_FR, SERIE_TITLE / SERIE_TITLE_FR), no scan.
+    The database is the only source of a translated title (EVALUATIONS-019)."""
+    grams = [g for g in t2s_eval.question_ngrams(question) if t2s_eval.is_title_candidate(g)][:200]
+    if not grams:
+        return []
+    placeholders = ", ".join(["%s"] * len(grams))
+    rows = []
+    for kind, table, id_col, en_col, fr_col in (
+        ("movie", "T_WC_T2S_MOVIE", "ID_MOVIE", "MOVIE_TITLE", "MOVIE_TITLE_FR"),
+        ("serie", "T_WC_T2S_SERIE", "ID_SERIE", "SERIE_TITLE", "SERIE_TITLE_FR"),
+    ):
+        src_col, dst_col = (en_col, fr_col) if src_lang == "en" else (fr_col, en_col)
+        cursor.execute(
+            f"SELECT {id_col} AS id, {src_col} AS src, {dst_col} AS dst FROM {table} "
+            f"WHERE {src_col} IN ({placeholders})", grams)
+        rows += [dict(r, kind=kind) for r in cursor.fetchall()]
+    return rows
+
+
+def guarded_translation(cursor, lngid, question: str, src_lang: str, dst_lang: str, assertion: str = ""):
+    """Translate one bank question, or return None and say why (EVALUATIONS-019).
+
+    None is returned, and nothing must be stored, when the source is plainly already in
+    the target language (French typed into the English column caused the fifteen
+    refusals of 2026-09) or when the output reads as a refusal. The column then stays
+    empty and the row is retried at the next run, or fixed by hand."""
+    if t2s_eval.guess_language(question) == dst_lang:
+        print(f"SKIPPED {lngid}: the source text already reads as '{dst_lang}', fix the columns by hand: {question[:80]}")
+        return None
+    glossary = t2s_eval.build_title_glossary(
+        question, fetch_title_rows(cursor, question, src_lang), t2s_eval.assertion_ids(assertion))
+    if glossary:
+        print(f"Title glossary from the database: {glossary}")
+    translated = translate_question(question, src_lang, dst_lang, glossary)
+    if t2s_eval.looks_like_refusal(translated):
+        print(f"REJECTED {lngid}: the translation reads as a refusal, nothing stored: {translated[:80]}")
+        return None
+    if t2s_eval.guess_language(translated) == src_lang:
+        print(f"WARNING {lngid}: the translation still reads as '{src_lang}', stored anyway, check it: {translated[:80]}")
+    return translated
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +432,7 @@ try:
                 elif intindex == 5:
                     strcurrentprocess = f"{intindex}: translating evaluation questions from English to French "
                     strsql = ""
-                    strsql += "SELECT ID_T2S_EVALUATION AS id, QUESTION "
+                    strsql += "SELECT ID_T2S_EVALUATION AS id, QUESTION, ASSERTIONS_QUERY_RESULT "
                     strsql += "FROM T_WC_T2S_EVALUATION "
                     strsql += "WHERE DELETED = 0 "
                     strsql += "AND QUESTION IS NOT NULL "
@@ -396,7 +443,7 @@ try:
                 elif intindex == 6:
                     strcurrentprocess = f"{intindex}: translating evaluation questions from French to English "
                     strsql = ""
-                    strsql += "SELECT ID_T2S_EVALUATION AS id, QUESTION_FR "
+                    strsql += "SELECT ID_T2S_EVALUATION AS id, QUESTION_FR, ASSERTIONS_QUERY_RESULT "
                     strsql += "FROM T_WC_T2S_EVALUATION "
                     strsql += "WHERE DELETED = 0 "
                     strsql += "AND QUESTION_FR IS NOT NULL "
@@ -563,6 +610,9 @@ try:
                             print(strdescription)
                             strdescriptionfr = translate_question_to_french(strdescription)
                             print(strdescriptionfr)
+                            if t2s_eval.looks_like_refusal(strdescriptionfr):
+                                print(f"REJECTED category {lngid}: the translation reads as a refusal, nothing stored")
+                                continue
                             arrtranslationcouples = {}
                             arrtranslationcouples["DESCRIPTION_FR"] = strdescriptionfr
                             strsqltablename = "T_WC_T2S_EVALUATION_CATEGORY"
@@ -571,8 +621,10 @@ try:
                         elif intindex == 5:
                             strquestion = row['QUESTION']
                             print(strquestion)
-                            strquestionfr = translate_question_to_french(strquestion)
+                            strquestionfr = guarded_translation(cursor3, lngid, strquestion, "en", "fr", row.get('ASSERTIONS_QUERY_RESULT') or "")
                             print(strquestionfr)
+                            if strquestionfr is None:
+                                continue
                             arrtranslationcouples = {}
                             arrtranslationcouples["QUESTION_FR"] = strquestionfr
                             strsqltablename = "T_WC_T2S_EVALUATION"
@@ -581,8 +633,10 @@ try:
                         elif intindex == 6:
                             strquestionfr = row['QUESTION_FR']
                             print(strquestionfr)
-                            strquestion = translate_question_to_english(strquestionfr)
+                            strquestion = guarded_translation(cursor3, lngid, strquestionfr, "fr", "en", row.get('ASSERTIONS_QUERY_RESULT') or "")
                             print(strquestion)
+                            if strquestion is None:
+                                continue
                             arrtranslationcouples = {}
                             arrtranslationcouples["QUESTION"] = strquestion
                             strsqltablename = "T_WC_T2S_EVALUATION"
