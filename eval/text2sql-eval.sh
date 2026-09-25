@@ -64,7 +64,11 @@
 # builds the image, runs a read-only pre-flight inside it (what is left to run, what the target
 # API answers, whether the eval copy drifted, which scheduled tasks are still armed), prints it all,
 # and waits for the word "yes". Anything else aborts. With no terminal attached (cron, nohup)
-# it aborts too, unless EVAL_CONFIRM=yes is set, the only way to skip the question.
+# it aborts too, unless EVAL_CONFIRM=yes is set.
+# EXCEPTION, a rescore-only run (Philippe, 2026-09-25): when the pre-flight counts zero API calls
+# left AND zero bank rows to translate, the run spends no LLM token at all. It only purges the
+# soft-deleted executions, rescores (phase 20) and re-exports (phases 30-32), which is exactly
+# what follows an assertion correction. Then it launches without asking.
 #
 # THE DEFAULTS ARE THE BASELINE RUN, AND THAT IS DELIBERATE
 # Five times gpt-4o on 1.1.19, launched with no variable at all: `./text2sql-eval.sh`.
@@ -299,8 +303,9 @@ if [ "$PF_BKTREES" = "False" ]; then
     warn "bktrees_ready is false: the API is still warming up and early latencies will be inflated. Wait."
 fi
 if [ "$PF_REMAINING" = "0" ]; then
-    warn "nothing left to run for this version, models and language: phase 11 will be an empty pass."
-    more "bump API_VERSION, or retire the rows (maintenance/), if a fresh measurement is intended."
+    echo "  - nothing left to run for this version, models and language: phase 11 will be an empty pass."
+    more "this is a rescore-only run if nothing is left to translate either; for a fresh measurement,"
+    more "bump API_VERSION, or retire the rows (maintenance/)."
 fi
 if [ "$RESULT_ENTITY_MODEL" != "gpt-4o" ] || [ "$ANSWER_SINGLE_VALUE_MODEL" != "gpt-4o" ]; then
     warn "you moved a model the execution table has no column for (-234): the run is either"
@@ -386,7 +391,14 @@ echo "==========================================================================
 echo
 
 # --- Confirmation ----------------------------------------------------------------------------
-if [ "${EVAL_CONFIRM:-}" = "yes" ]; then
+# A rescore-only run spends nothing: no API call left (phase 11 empty) and nothing to translate
+# (phases 4-6 empty, the only other LLM calls). It launches without asking. An unreachable
+# database leaves both counters empty, so it never qualifies.
+PF_TRANSLATE=$(pf PF_TRANSLATE)
+if [ "$PF_REMAINING" = "0" ] && [ "$PF_TRANSLATE" = "0" ]; then
+    echo "Rescore-only run: 0 API calls left and 0 rows to translate, no LLM token will be spent."
+    echo "Launching without asking (phase 20 rescores, phases 30-32 re-export)."
+elif [ "${EVAL_CONFIRM:-}" = "yes" ]; then
     echo "EVAL_CONFIRM=yes is set: launching without asking."
 elif [ -t 0 ]; then
     read -r -p "Type 'yes' to launch this campaign ($WARNINGS warning(s) above), anything else aborts: " ANSWER
