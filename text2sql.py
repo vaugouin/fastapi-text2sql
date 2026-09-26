@@ -926,6 +926,76 @@ def f_build_retry_question_from_reasoning(resolved: dict) -> str:
             return ""
 
 
+# FASTAPI-TEXT2SQL-300. Resolver item type -> (identity-pattern first word, placeholder
+# prefix). Only the types whose identity card is a bare title or name: the retry of such a
+# card must reach the pipeline as data, since re-extracting `Serie Sherlock` read "Sherlock"
+# as a character, and a bare `Serie {{Serie_title1}}` was answered with the series' images.
+_IDENTITY_SEED_TYPES = {
+    "movie": ("movie", "Movie_title"),
+    "serie": ("serie", "Serie_title"),
+    "person": ("person", "Person_name"),
+    "topic": ("topic", "Topic_name"),
+    "collection": ("collection", "Collection_name"),
+    "location": ("location", "Location_name"),
+    "company": ("company", "Company_name"),
+    "network": ("network", "Network_name"),
+}
+
+
+def f_build_identity_retry_seed(resolved: dict, retry_question: str) -> "dict | None":
+    """Seed the complex retry with the entity the resolver already typed (FASTAPI-TEXT2SQL-300).
+
+    Returns None unless the retry is an IDENTITY lookup: exactly one item, of a seedable
+    type, and a retry question that starts with that type's pattern word (`Serie Sherlock`
+    for a `serie` item). A relation question (`In which city does Pulp Fiction take place?`)
+    keeps its question form and today's full pipeline.
+
+    The seed is what entity extraction would have returned, built without an LLM call:
+    ``{"result_entity": "serie", "extraction": {"question": "{{Serie_title1}}",
+    "query_mode": "named_entity_query", "Serie_title1": "Sherlock"}}``. A movie keeps its
+    year in parentheses, `{{Movie_title1}} ({{Release_year1}})`, the form that returned the
+    right movie in every riddle of the 2026-09-24 and -25 rounds.
+    """
+    try:
+        if not isinstance(resolved, dict):
+            return None
+        items = [it for it in (resolved.get("items") or []) if isinstance(it, dict)]
+        if len(items) != 1:
+            return None
+        strtype = str(items[0].get("type") or "").strip().lower()
+        if strtype not in _IDENTITY_SEED_TYPES:
+            return None
+        strvalue = str(items[0].get("value") or "").strip()
+        if strvalue == "":
+            return None
+        strpatternword, strprefix = _IDENTITY_SEED_TYPES[strtype]
+        arrwords = str(retry_question or "").strip().split()
+        if not arrwords or arrwords[0].lower() != strpatternword:
+            return None
+        stryear = str(items[0].get("year") or "").strip()
+        if not re.fullmatch(r"\d{4}", stryear):
+            stryear = ""
+        # The item value may already carry the year (`Alien (1979)`): split it off.
+        match_year = re.fullmatch(r"(.+?)\s*\((\d{4})\)", strvalue)
+        if match_year:
+            strvalue = match_year.group(1).strip()
+            stryear = stryear or match_year.group(2)
+
+        strplaceholder = f"{strprefix}1"
+        dctextraction = {"question": "{{" + strplaceholder + "}}", "query_mode": "named_entity_query",
+                         strplaceholder: strvalue}
+        if stryear and strtype == "movie":
+            dctextraction["question"] = "{{Movie_title1}} ({{Release_year1}})"
+            dctextraction["Release_year1"] = stryear
+        elif stryear and strtype == "person":
+            dctextraction["question"] = "{{Person_name1}} born in {{Birth_year1}}"
+            dctextraction["Birth_year1"] = stryear
+        return {"result_entity": strtype, "extraction": dctextraction}
+    except Exception:
+        # A seed that cannot be built leaves the retry on today's path, never breaks it.
+        return None
+
+
 # FASTAPI-TEXT2SQL-263. The entity-card patterns the stronger model is allowed to emit
 # (`data/complex_question.md`). A rewrite that collapses to one of these has stopped asking
 # anything: it identifies a thing. Kept in sync with the prompt's pattern list.
@@ -1084,6 +1154,8 @@ def f_resolve_complex_question_retry_payload(user_question: str, strcomplexquest
     return {
         "resolved": resolved_complex,
         "retry_question": retry_question,
+        # FASTAPI-TEXT2SQL-300: the type the resolver decided, as data, for an identity retry.
+        "identity_seed": f_build_identity_retry_seed(resolved_complex, retry_question),
         "justification": reasoning_justification,
         "has_error": not (isinstance(resolved_complex, dict) and not resolved_complex.get("error")),
         # FASTAPI-TEXT2SQL-221. Distinct from has_error on purpose: this is not a failure,

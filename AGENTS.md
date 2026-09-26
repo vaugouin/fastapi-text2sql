@@ -1241,6 +1241,21 @@ the messages and to `complex_retry_cache_policy`, whose values `README.md` lists
 question stays cached under its own wording by the inner pass, so nothing is lost. Not done:
 marking retry-derived rows, which would need a column in `T_WC_T2S_CACHE`.
 
+## An identity retry carries the resolver's type as data (FASTAPI-TEXT2SQL-300)
+
+When the complex step answers with exactly one typed item and an identity card of that type
+(`Serie Sherlock`, `Movie Alien (1979)`, `Person John Wayne`), `f_build_identity_retry_seed`
+builds the extraction the retry would have needed and `main.py` passes it on
+`retry_request.complex_retry_seed`. The inner pass then skips the LLM extraction, skips the
+SQL caches (exact, anonymized, embeddings), and expects the item's type as `result_entity`,
+with no classifier call. The answer-entity guard regenerates once when the result entity
+differs, **even if the id token is in the SELECT**, because the series' images also project
+`ID_SERIE`. Why: on 2026-09-24 and -25, eighteen riddles came back as zero rows (`Sherlock`
+re-extracted as a character) or as `serie_image` (a bare `Serie {{Serie_title1}}` read as a
+picture request, then served from cache). Relation questions (`In which city…`) and lists get
+no seed and keep the full pipeline. The field is ignored unless `complex_question_already_resolved`
+is true, so a client cannot use it to bypass extraction. A movie keeps its year in parentheses.
+
 ## Cache API-version filtering
 
 Reads and writes take the **formatted** version (`XXX.YYY.ZZZ`), never the raw `strapiversion`;

@@ -1520,6 +1520,10 @@ class Text2SQLRequest(BaseModel):
     image_ref: Optional[str] = None
     complex_question_processing: bool = False
     complex_question_already_resolved: bool = False
+    # FASTAPI-TEXT2SQL-300. Set by the complex retry only, for an identity lookup (`Serie
+    # Sherlock`): the entity the resolver already typed, as the extraction it stands for
+    # plus the expected result entity. Built by text2sql.f_build_identity_retry_seed.
+    complex_retry_seed: Optional[dict] = None
     ui_language: Optional[str] = "en"
 
     @field_validator("ui_language", mode="before")
@@ -2111,6 +2115,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     input_text = None
     input_text_anonymized = None
     entity_extraction = None
+    # FASTAPI-TEXT2SQL-300. Only honoured on the re-entry of the complex retry: a client
+    # cannot use the field to skip extraction on a first pass.
+    dctidentityseed = None
+    if getattr(request, "complex_question_already_resolved", False) and isinstance(request.complex_retry_seed, dict):
+        _seed_extraction = request.complex_retry_seed.get("extraction")
+        _seed_entity = str(request.complex_retry_seed.get("result_entity") or "").strip().lower()
+        if isinstance(_seed_extraction, dict) and _seed_entity in _RESULT_ENTITY_SOURCES:
+            dctidentityseed = {"extraction": dict(_seed_extraction), "result_entity": _seed_entity}
     entity_resolution_plan = None
     entity_resolution_planning_time = 0.0
     # FASTAPI-TEXT2SQL-156, the two signals the no-results retry needs beyond
@@ -2682,8 +2694,17 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         return fast_path_response
     # --- end bare-identifier fast path -----------------------------------------
 
-    # Try to retrieve user question from cache if requested
-    if request.retrieve_from_cache:
+    # Try to retrieve user question from cache if requested.
+    # FASTAPI-TEXT2SQL-300: not for an identity-seeded retry. The rows cached under `Serie
+    # Game of Thrones` before the fix are the series' images, and an exact hit would serve
+    # them again before the seed is ever read.
+    if request.retrieve_from_cache and dctidentityseed:
+        messages.append(TextMessage(
+            position=position_counter,
+            text=f"Identity retry seeded by the complex step ('{dctidentityseed['result_entity']}'); SQL caches skipped (FASTAPI-TEXT2SQL-300)."
+        ))
+        position_counter += 1
+    elif request.retrieve_from_cache:
         messages.append(TextMessage(
             position=position_counter, 
             text="Attempting to retrieve exact question from cache."
@@ -2837,9 +2858,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # does not block the event loop, which is what lets the fork-join below overlap the
         # entity resolution with SQL generation (FASTAPI-TEXT2SQL-201).
         entity_extraction_start_time = time.time()
-        entity_extraction = await asyncio.to_thread(
-            entity.f_entity_extraction, input_text, strentityextractionmodel,
-        )
+        if dctidentityseed:
+            # FASTAPI-TEXT2SQL-300. The complex step already typed the entity; a second LLM
+            # extraction on `Serie Sherlock` read "Sherlock" as a character name.
+            entity_extraction = dict(dctidentityseed["extraction"])
+        else:
+            entity_extraction = await asyncio.to_thread(
+                entity.f_entity_extraction, input_text, strentityextractionmodel,
+            )
         print("Entity extraction:", entity_extraction)
         entity_extraction_end_time = time.time()
         entity_extraction_processing_time = entity_extraction_end_time - entity_extraction_start_time
@@ -2847,7 +2873,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # High-level info
         messages.append(TextMessage(
             position=position_counter,
-            text=f"Processed question with entity extraction and anonymization using LLM model '{strentityextractionmodel}'."
+            text=(
+                "Entity extraction seeded from the complex step's typed item; no LLM extraction (FASTAPI-TEXT2SQL-300)."
+                if dctidentityseed else
+                f"Processed question with entity extraction and anonymization using LLM model '{strentityextractionmodel}'."
+            )
         ))
         position_counter += 1
 
@@ -2893,7 +2923,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 position_counter += 1
         cache_result_anonymized = None
 
-        if request.retrieve_from_cache and not requires_complex_resolution:
+        if request.retrieve_from_cache and not requires_complex_resolution and not dctidentityseed:
             messages.append(TextMessage(
                 position=position_counter, 
                 text="Searching cache for anonymized question."
@@ -3214,7 +3244,17 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             # the original question (still says "directors") and let the guard enforce
             # it. Empty -> fall back to the LLM's own result_entity (legacy behavior).
             expected_result_entity = ""
-            if sql_query and not error_text2sql:
+            if sql_query and not error_text2sql and dctidentityseed:
+                # FASTAPI-TEXT2SQL-300. An identity lookup returns the entity the complex step
+                # typed, never an `*_image` variant; the classifier has nothing to add.
+                expected_result_entity = dctidentityseed["result_entity"]
+                if expected_result_entity != result_entity:
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=f"Answer-entity expectation from the complex step's typed item: '{expected_result_entity}' (LLM proposed '{result_entity or 'none'}')."
+                    ))
+                    position_counter += 1
+            elif sql_query and not error_text2sql:
                 _result_entity_start_time = time.time()
                 expected_result_entity = await asyncio.to_thread(
                     t2s.f_classify_result_entity,
@@ -3245,7 +3285,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 _expected_id, _entity_table = _RESULT_ENTITY_SOURCES[_guard_entity]
                 _select_clause = re.split(r"\bfrom\b", sql_query, maxsplit=1, flags=re.IGNORECASE)[0].upper()
                 _is_union = bool(re.search(r"\bunion\b", sql_query, re.IGNORECASE)) or ("CONTENT_TYPE" in sql_query)
-                if not _is_union and _expected_id not in _select_clause:
+                # FASTAPI-TEXT2SQL-300: on an identity retry the id token is not enough, since
+                # the series' images also project ID_SERIE; the result entity itself must match.
+                _identity_mismatch = bool(dctidentityseed) and result_entity != _guard_entity
+                if not _is_union and (_expected_id not in _select_clause or _identity_mismatch):
                     messages.append(TextMessage(
                         position=position_counter,
                         text=f"Answer-entity guard: query did not return the expected entity '{_guard_entity}' ({_expected_id}); regenerating once."
@@ -3267,7 +3310,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         if _retry_sql.endswith(';'):
                             _retry_sql = _retry_sql[:-1]
                         _retry_select = re.split(r"\bfrom\b", _retry_sql, maxsplit=1, flags=re.IGNORECASE)[0].upper()
-                        if _expected_id in _retry_select:
+                        _retry_entity = (json_content_retry.get('result_entity') or _guard_entity).strip().lower()
+                        if _expected_id in _retry_select and not (_identity_mismatch and _retry_entity != _guard_entity):
                             sql_query = _retry_sql
                             sql_query_anonymized = _retry_sql
                             justification = json_content_retry.get('justification') or justification
@@ -3414,6 +3458,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 retry_request.question = retry_question
                 retry_request.question_hashed = None
                 retry_request.complex_question_already_resolved = True
+                # FASTAPI-TEXT2SQL-300: the resolver's type travels as data, not as the word
+                # "Serie" for the retry to re-interpret. None for a relation question.
+                retry_request.complex_retry_seed = retry_payload.get("identity_seed")
 
                 retry_response = await search_text2sql(retry_request, api_key)
 
