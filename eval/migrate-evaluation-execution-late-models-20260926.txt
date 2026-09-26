@@ -1,0 +1,34 @@
+-- migrate-evaluation-execution-late-models.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-09-26 08:22:00
+--
++------------------------------------------------------------------------+
+| SECTION                                                                |
++------------------------------------------------------------------------+
+| 0. Before: the three model columns, and whether the two new ones exist |
++------------------------------------------------------------------------+
++-------------------------+-------------+
+| COLUMN_NAME             | COLUMN_TYPE |
++-------------------------+-------------+
+| ENTITY_EXTRACTION_MODEL | varchar(50) |
+| TEXT2SQL_MODEL          | varchar(50) |
+| COMPLEX_MODEL           | varchar(50) |
++-------------------------+-------------+
++---------------------------------------------------------------------------+
+| SECTION                                                                   |
++---------------------------------------------------------------------------+
+| 1. After: five model columns; every existing row NULL in the two new ones |
++---------------------------------------------------------------------------+
++---------------------------+-------------+
+| COLUMN_NAME               | COLUMN_TYPE |
++---------------------------+-------------+
+| ENTITY_EXTRACTION_MODEL   | varchar(50) |
+| TEXT2SQL_MODEL            | varchar(50) |
+| COMPLEX_MODEL             | varchar(50) |
+| RESULT_ENTITY_MODEL       | varchar(50) |
+| ANSWER_SINGLE_VALUE_MODEL | varchar(50) |
++---------------------------+-------------+
++------------+--------------------------+--------------------------------+
+| ROWS_TOTAL | RESULT_ENTITY_MODEL_NULL | ANSWER_SINGLE_VALUE_MODEL_NULL |
++------------+--------------------------+--------------------------------+
+|       8621 |                     8621 |                           8621 |
++------------+--------------------------+--------------------------------+
