@@ -115,7 +115,14 @@ REPO_EVAL_DIR=${REPO_EVAL_DIR:-$HOME/docker/fastapi-text2sql-blue/eval}
 # Why it matters: the crawlers and preprocessors share the MariaDB and the CPU with the API and
 # inflate every latency the campaign records, and embedding-update rewrites the ChromaDB
 # collections the API resolves entities against, so it changes the ANSWERS, not only the timing.
+# ONE COMMAND EACH WAY (Philippe, 2026-09-26): ~/docker/off-all.sh runs every off.sh before the
+# campaign, ~/docker/on-all.sh every on.sh after it. `docker stop` alone is NOT a substitute:
+# the next cron tick starts the container again. Order: off-all.sh FIRST, then stop what is
+# still running, and on-all.sh once the LAST campaign of the session has ended (the evaluator
+# runs detached, so nothing reminds you when it finishes except this script's last lines).
 DOCKER_ROOT=${DOCKER_ROOT:-$HOME/docker}
+OFF_ALL=${OFF_ALL:-$DOCKER_ROOT/off-all.sh}
+ON_ALL=${ON_ALL:-$DOCKER_ROOT/on-all.sh}
 # Folders never to switch off: letsencrypt renews the TLS certificate, harmless to the run and
 # costly to forget.
 SCHEDULED_KEEP=${SCHEDULED_KEEP:-^(letsencrypt)$}
@@ -144,6 +151,11 @@ fi
 
 cd "$EVAL_HOME" || { echo "ERROR: $EVAL_HOME not found."; exit 1; }
 # Building costs nothing and the pre-flight needs the image, so it happens before the question.
+# Said first, before anything is built: the scheduled tasks are switched off BEFORE the run,
+# and back on AFTER it. The pre-flight below checks the first half; nothing can check the second.
+echo "Before a campaign: bash $OFF_ALL   (every automated task off; docker stop alone is undone by cron)"
+echo "After the LAST campaign of the session: bash $ON_ALL   (every automated task back on)"
+echo
 echo "Building the evaluator image..."
 docker build -q -t text2sql-eval-python-app . >/dev/null || { echo "ERROR: docker build failed."; exit 1; }
 
@@ -360,10 +372,19 @@ done
 if [ -n "$ARMED" ]; then
     warn "scheduled tasks still ARMED, cron can start them at any minute of the run:"
     more " $ARMED"
-    more "switch them off first (renames the script cron calls, the crontab is untouched):"
-    more "  for d in$ARMED; do (cd $DOCKER_ROOT/\$d && ./off.sh); done"
+    more "switch them off first (renames the script cron calls, the crontab is untouched;"
+    more "docker stop alone is not enough, the next cron tick restarts the container):"
+    if [ -f "$OFF_ALL" ]; then
+        more "  bash $OFF_ALL"
+    else
+        more "  for d in$ARMED; do (cd $DOCKER_ROOT/\$d && ./off.sh); done"
+    fi
     more "and back on once the campaign is over:"
-    more "  for d in$ARMED; do (cd $DOCKER_ROOT/\$d && ./on.sh); done"
+    if [ -f "$ON_ALL" ]; then
+        more "  bash $ON_ALL"
+    else
+        more "  for d in$ARMED; do (cd $DOCKER_ROOT/\$d && ./on.sh); done"
+    fi
 else
     echo "  - every scheduled task under $DOCKER_ROOT is switched off."
 fi
@@ -377,7 +398,8 @@ COMPETING=""
 if [ -n "$COMPETING" ]; then
     warn "running now, off.sh will not stop them (embedding-update changes the answers, not only the timings):"
     printf '%s\n' "$COMPETING" | sed 's/^/        /'
-    more "wait for them to finish, or:  docker stop $(printf '%s' "$COMPETING" | tr '\n' ' ')"
+    more "switch the scheduled tasks off FIRST (above), then wait for them to finish, or:"
+    more "  docker stop $(printf '%s' "$COMPETING" | tr '\n' ' ')"
 else
     echo "  - none of those tasks has a container running."
 fi
@@ -428,4 +450,12 @@ docker run -d --rm --network="host" \
     "$STORE_TO_CACHE" \
     "$COMPLEX_QUESTION_PROCESSING"
 
+echo
+echo "Campaign launched in the detached container 'text2sql-eval' (Ctrl+C leaves the logs, not the run)."
+if [ -f "$ON_ALL" ]; then
+    echo "WHEN THE LAST CAMPAIGN OF THIS SESSION HAS ENDED, switch the scheduled tasks back on:  bash $ON_ALL"
+else
+    echo "WHEN THE LAST CAMPAIGN OF THIS SESSION HAS ENDED, run ./on.sh in every folder you switched off."
+fi
+echo
 docker logs -f text2sql-eval

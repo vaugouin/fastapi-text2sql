@@ -599,6 +599,26 @@ is checked out. `bench-entity-extraction.py` reads the bank from MariaDB and the
 runs where the database is reachable, which is not a developer laptop. Plan the entity work
 on the VPS or behind a tunnel.
 
+## Before and after an evaluation campaign: `off-all.sh`, then `on-all.sh`
+
+Every automated task on the VPS (crawlers, preprocessors, `embedding-update`, ...) is started by
+cron through a script that its folder's `off.sh` renames and `on.sh` restores. `docker stop` alone
+is not enough: the next cron tick starts the container again, in the middle of a multi-hour
+campaign. And those tasks do not only slow the run down: `embedding-update` rewrites the ChromaDB
+collections the API resolves entities against, so it changes the **answers** being measured.
+
+```bash
+bash ~/docker/off-all.sh      # before: every automated task off (one folder: bash ~/docker/<task>/off.sh)
+docker stop <what is still running>   # off.sh only prevents the NEXT launch
+# ... the campaign(s): English, French, the same-day rescore of the baseline ...
+bash ~/docker/on-all.sh       # after the LAST campaign of the session: everything back on
+```
+
+`eval/text2sql-eval.sh` prints this at startup, checks the "off" half in its pre-flight (which
+tasks are still armed, which containers still run), and repeats the `on-all.sh` reminder at
+launch. Nothing can check the "on" half: forgetting it leaves the crawlers and the embeddings
+silently frozen for days. Rule set by Philippe on 2026-09-26.
+
 ## An evaluation declares the path that must resolve it (FASTAPI-TEXT2SQL-257)
 
 `complex_model_used` was an **observation**: it described what happened and could never
