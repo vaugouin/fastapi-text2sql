@@ -430,6 +430,12 @@ try:
             # vers 0 %, "complex" vers 100 %, et l'ecart est le seul chiffre qui dise si le
             # chemin normal se degrade sans que le score global bouge.
             arrresolutionmodestats = {}
+            # FASTAPI-TEXT2SQL-296. Tokens per task over the campaign, from `llm_usage` in
+            # each JSON_RESULT. Rows written before the API returned it contribute nothing and
+            # are counted apart, so a partial sum is never read as a whole one.
+            arrllmusagestats = {}
+            lng_llm_usage_rows = 0
+            lng_llm_usage_missing = 0
             dbl_entity_extraction_processing_time_sum = 0.0
             lng_entity_extraction_processing_time_count = 0
             dbl_text2sql_processing_time_sum = 0.0
@@ -1180,6 +1186,39 @@ try:
                                         break
                             arrevalexeccouples["QUERY_MODE"] = _query_mode
 
+                            # FASTAPI-TEXT2SQL-296. Request totals of the per-task `llm_usage`
+                            # block; the split per task stays in JSON_RESULT. NULL, never 0, when
+                            # the block is absent: those rows were not measured.
+                            _llm_usage = (response_json or {}).get("llm_usage")
+                            _token_columns = {
+                                "LLM_PROMPT_TOKENS": "prompt_tokens",
+                                "LLM_CACHED_TOKENS": "cached_tokens",
+                                "LLM_COMPLETION_TOKENS": "completion_tokens",
+                                "LLM_REASONING_TOKENS": "reasoning_tokens",
+                            }
+                            if isinstance(_llm_usage, dict) and _llm_usage:
+                                lng_llm_usage_rows += 1
+                                for _column, _key in _token_columns.items():
+                                    arrevalexeccouples[_column] = sum(
+                                        int((_entry or {}).get(_key) or 0)
+                                        for _entry in _llm_usage.values() if isinstance(_entry, dict)
+                                    )
+                                for _task, _entry in _llm_usage.items():
+                                    if not isinstance(_entry, dict):
+                                        continue
+                                    _agg = arrllmusagestats.setdefault(_task, {
+                                        "models": set(), "calls": 0, "prompt_tokens": 0,
+                                        "cached_tokens": 0, "completion_tokens": 0, "reasoning_tokens": 0,
+                                    })
+                                    _agg["models"].add(str(_entry.get("model") or "?"))
+                                    for _key in ("calls", "prompt_tokens", "cached_tokens",
+                                                 "completion_tokens", "reasoning_tokens"):
+                                        _agg[_key] += int(_entry.get(_key) or 0)
+                            else:
+                                lng_llm_usage_missing += 1
+                                for _column in _token_columns:
+                                    arrevalexeccouples[_column] = None
+
                             if arrevalexeccouples["ENTITY_EXTRACTION_PROCESSING_TIME"] is not None:
                                 dbl_entity_extraction_processing_time_sum += arrevalexeccouples["ENTITY_EXTRACTION_PROCESSING_TIME"]
                                 lng_entity_extraction_processing_time_count += 1
@@ -1414,6 +1453,12 @@ try:
                                         "no_entity_extracted": row.get('NO_ENTITY_EXTRACTED'),
                                         "entity_match_worst_distance": row.get('ENTITY_MATCH_WORST_DISTANCE'),
                                         "entity_match_worst_fuzz_ratio": row.get('ENTITY_MATCH_WORST_FUZZ_RATIO'),
+                                        # FASTAPI-TEXT2SQL-296, request totals; the per-task split
+                                        # is api_output.llm_usage. None = not measured, not zero.
+                                        "llm_prompt_tokens": row.get('LLM_PROMPT_TOKENS'),
+                                        "llm_cached_tokens": row.get('LLM_CACHED_TOKENS'),
+                                        "llm_completion_tokens": row.get('LLM_COMPLETION_TOKENS'),
+                                        "llm_reasoning_tokens": row.get('LLM_REASONING_TOKENS'),
                                     },
                                     "tim_execution": tim_execution,
                                     "tim_updated": row.get('TIM_UPDATED'),
@@ -1474,6 +1519,18 @@ try:
                         print(f"  {_mode:22s} {_b['lignes']:5d} rows, {_b['escalades']:4d} escalated ({_rate:5.1f} %){_tail}")
                     print("  standard should tend to 0 %, complex to 100 %. A mode not respected does NOT")
                     print("  lower the assertion score: it is reported on its own so campaigns stay comparable.")
+                if lng_llm_usage_rows or lng_llm_usage_missing:
+                    print(f"Tokens per task (FASTAPI-TEXT2SQL-296), {lng_llm_usage_rows} rows measured, "
+                          f"{lng_llm_usage_missing} without llm_usage (written before the API returned it):")
+                    print(f"  {'task':22s} {'model':16s} {'calls':>6s} {'uncached in':>12s} {'cached in':>12s} "
+                          f"{'visible out':>12s} {'reasoning':>10s}")
+                    for _task in sorted(arrllmusagestats, key=lambda t: -arrllmusagestats[t]["prompt_tokens"]):
+                        _a = arrllmusagestats[_task]
+                        print(f"  {_task:22s} {','.join(sorted(_a['models'])):16s} {_a['calls']:6d} "
+                              f"{_a['prompt_tokens'] - _a['cached_tokens']:12d} {_a['cached_tokens']:12d} "
+                              f"{_a['completion_tokens'] - _a['reasoning_tokens']:12d} {_a['reasoning_tokens']:10d}")
+                    print("  Reasoning tokens are billed at the output price. A retried request counts the")
+                    print("  calls of both passes. Multiply by the model's own prices; none are stored here.")
                 print(f"Global score: {dblcumulatedscore}/{dblevalcount} = {dblglobalscore:.2%}")
                 if lng_entity_extraction_processing_time_count > 0:
                     str_entity_extraction_processing_time_sum_duration = cp.convert_seconds_to_duration(

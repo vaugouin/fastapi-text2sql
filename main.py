@@ -1617,6 +1617,14 @@ class Text2SQLResponse(BaseModel):
     # second $0.04 call. Like the five others, it is reported and never cached in
     # T_WC_T2S_CACHE, whose five time columns are write-only and would have to hold 0.0 here.
     vision_identification_processing_time: float = 0.0
+    # FASTAPI-TEXT2SQL-296. Tokens per LLM task for THIS request, summed over its calls:
+    # {task: {model, calls, prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens}}.
+    # prompt_tokens includes cached_tokens and completion_tokens includes reasoning_tokens, as
+    # OpenAI bills them. The timings above say how long each task took; this says what it
+    # cost, and on a reasoning model (GPT-6) the reasoning tokens, billed at the output price,
+    # are the part no timing reveals. A retried request reports both passes. None when no LLM
+    # was called (cache hit) or on a path that returns before the pipeline runs.
+    llm_usage: Optional[dict] = None
     # True only when the vision model was actually invoked on this turn. Read it rather than
     # `llm_model_vision`, which is echoed even when no image was sent, exactly as
     # `complex_model_used` is read rather than `llm_model_complex`.
@@ -2060,6 +2068,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     # the same context and must share the buffer so its LLM calls are captured too.
     if not getattr(request, "complex_question_already_resolved", False):
         t2s.reset_prompt_cache_events()
+        t2s.reset_llm_usage()
 
     # The user's own wording, as everything downstream reads it: the complex-question retry
     # rewrites THIS, and several branches read it without first testing that it exists.
@@ -2264,6 +2273,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             api_version=strapiversion,
             messages=messages,
             result=[],
+            llm_usage=t2s.snapshot_llm_usage(),
         )
         logs.log_usage(
             "text2sql_post",
@@ -3704,6 +3714,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 except Exception:
                     pass
 
+                # FASTAPI-TEXT2SQL-296: the accumulator is shared with the inner pass, so this
+                # snapshot holds the first pass, the simplification call and the retry.
+                try:
+                    retry_response.llm_usage = t2s.snapshot_llm_usage()
+                except Exception:
+                    pass
+
                 # FASTAPI-TEXT2SQL-241: log the request the USER made. The inner pass wrote its
                 # own file (there, request.question is the rewritten question and
                 # complex_question_already_resolved is true); this early return used to skip
@@ -5073,7 +5090,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         ui_language=request.ui_language,
         api_version=strapiversion,
         result=query_results,
-        messages=messages
+        messages=messages,
+        llm_usage=t2s.snapshot_llm_usage(),
     )
     
     # Log the request and response

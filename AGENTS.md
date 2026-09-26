@@ -388,6 +388,21 @@ grep -rho "Prompt cache ([a-z0-9_]*): provider=[a-z]*, model=[^,]*, prompt_token
 Note the `[a-z0-9_]` character class: `text2sql` carries a digit, and a `[a-z_]` class
 silently drops the single most expensive task in the pipeline from the tally.
 
+**Output and reasoning tokens are measured since FASTAPI-TEXT2SQL-296 (2026-09-26).** The
+"Output tok" column below was estimated because the logger threw that half of the usage
+object away. Now every `Prompt cache (…)` message ends with `completion_tokens=` and
+`reasoning_tokens=`, and every response carries **`llm_usage`**, per task:
+`{task: {model, calls, prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens}}`,
+summed over the request's calls, both passes of a retried request included. As OpenAI bills
+them, `prompt_tokens` includes `cached_tokens` and `completion_tokens` includes
+`reasoning_tokens`. The accumulator is a `ContextVar` like the cache buffer, but it is only
+read, never drained, because the inner pass of a retry ends before the outer one. On a
+reasoning model (GPT-6) the reasoning tokens bill at the output price: read them before
+comparing list prices. The evaluator stores the request totals in `LLM_PROMPT_TOKENS`,
+`LLM_CACHED_TOKENS`, `LLM_COMPLETION_TOKENS`, `LLM_REASONING_TOKENS` and prints the per-task
+table at the end of phase 20. Anthropic folds thinking into its output count, so its
+`reasoning_tokens` stays 0 (unknown, not absent); OpenRouter is not counted at all.
+
 | Task | Prompt tok | Cache hit | Uncached in | Output tok |
 |---|---:|---:|---:|---:|
 | `entity_extraction` | 8,555 | 73.9 % | 2,339 | ~25 |

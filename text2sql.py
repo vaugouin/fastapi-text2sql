@@ -8,6 +8,7 @@ import json
 import re
 import base64
 import contextvars
+import threading
 from typing import Optional
 
 import data_watcher
@@ -162,6 +163,69 @@ def drain_prompt_cache_events() -> list:
     return events
 
 
+# FASTAPI-TEXT2SQL-296. Per-request token usage, one entry per task label, summed over the
+# calls that label made. The prompt-cache messages above carried input and cached tokens and
+# threw the rest of the usage object away, so the output bill was unmeasured, and on a
+# reasoning model (GPT-6) the reasoning tokens, billed at the OUTPUT price, were invisible.
+# Same lifecycle as the cache buffer: reset once by the outer request, shared with the
+# complex-question retry, which re-enters the endpoint in the same context, so a retried
+# request reports the calls of both passes. Unlike the cache buffer it is never drained,
+# only read, because the inner pass ends before the outer one and must not empty it.
+_llm_usage: "contextvars.ContextVar" = contextvars.ContextVar("llm_usage", default=None)
+# asyncio.to_thread copies the context, so the worker threads of one request mutate the SAME
+# dict, and two of them can run at once (entity resolution overlaps the text2sql call).
+_llm_usage_lock = threading.Lock()
+
+
+def reset_llm_usage() -> None:
+    """Install a fresh, empty token-usage accumulator for the current request."""
+    _llm_usage.set({})
+
+
+def snapshot_llm_usage() -> Optional[dict]:
+    """Return a copy of the per-task token usage of the current request, None if nothing ran.
+
+    Shape: {task: {"model", "calls", "prompt_tokens", "cached_tokens", "completion_tokens",
+    "reasoning_tokens"}}. prompt_tokens INCLUDES cached_tokens (OpenAI's convention), so the
+    uncached input is the difference. completion_tokens INCLUDES reasoning_tokens, which is how
+    OpenAI bills them: the visible output is the difference. A provider that does not report a
+    figure leaves it at 0, never at a guess.
+    """
+    usage = _llm_usage.get()
+    if not usage:
+        return None
+    with _llm_usage_lock:
+        return {task: dict(entry) for task, entry in usage.items()}
+
+
+def _record_llm_usage(label: str, model_norm: str, *, prompt_tokens=0, cached_tokens=0,
+                      completion_tokens=0, reasoning_tokens=0) -> None:
+    """Add one call's usage to the request accumulator; a no-op outside a request."""
+    usage = _llm_usage.get()
+    if usage is None:
+        return
+    with _llm_usage_lock:
+        _add_llm_usage(usage, label, model_norm, prompt_tokens, cached_tokens,
+                       completion_tokens, reasoning_tokens)
+
+
+def _add_llm_usage(usage, label, model_norm, prompt_tokens, cached_tokens,
+                   completion_tokens, reasoning_tokens) -> None:
+    entry = usage.setdefault(label, {
+        "model": model_norm, "calls": 0, "prompt_tokens": 0, "cached_tokens": 0,
+        "completion_tokens": 0, "reasoning_tokens": 0,
+    })
+    if model_norm not in str(entry["model"]).split(","):
+        # One label, two models: only the Gemini fallback chain can do that. Say so rather
+        # than attribute the second model's tokens to the first.
+        entry["model"] = f"{entry['model']},{model_norm}"
+    entry["calls"] += 1
+    entry["prompt_tokens"] += int(prompt_tokens or 0)
+    entry["cached_tokens"] += int(cached_tokens or 0)
+    entry["completion_tokens"] += int(completion_tokens or 0)
+    entry["reasoning_tokens"] += int(reasoning_tokens or 0)
+
+
 def _record_prompt_cache_event(message_text: str) -> None:
     """Print a prompt-cache observation and record it for the API response messages.
 
@@ -197,12 +261,27 @@ def _log_openai_cache_usage(response, *, model_norm: str, label: str = "text2sql
         cached_tokens = 0
         if details is not None:
             cached_tokens = getattr(details, "cached_tokens", 0) or 0
+        # FASTAPI-TEXT2SQL-296. Output and reasoning, under the same two naming schemes.
+        completion_tokens = getattr(usage, "completion_tokens", None)
+        if completion_tokens is None:
+            completion_tokens = getattr(usage, "output_tokens", None)
+        completion_tokens = completion_tokens or 0
+        out_details = getattr(usage, "completion_tokens_details", None)
+        if out_details is None:
+            out_details = getattr(usage, "output_tokens_details", None)
+        reasoning_tokens = 0
+        if out_details is not None:
+            reasoning_tokens = getattr(out_details, "reasoning_tokens", 0) or 0
         ratio = (cached_tokens / prompt_tokens) if prompt_tokens else 0.0
         _record_prompt_cache_event(
             f"Prompt cache ({label}): provider=openai, model={model_norm}, "
             f"prompt_tokens={prompt_tokens}, cached_tokens={cached_tokens}, "
-            f"hit_ratio={ratio:.1%}."
+            f"hit_ratio={ratio:.1%}, completion_tokens={completion_tokens}, "
+            f"reasoning_tokens={reasoning_tokens}."
         )
+        _record_llm_usage(label, model_norm, prompt_tokens=prompt_tokens or 0,
+                          cached_tokens=cached_tokens, completion_tokens=completion_tokens,
+                          reasoning_tokens=reasoning_tokens)
     except Exception as cache_log_error:
         # Never let cache observability break a request.
         print(f"[prompt-cache][openai][{label}] usage logging failed: {cache_log_error}")
@@ -224,13 +303,18 @@ def _log_anthropic_cache_usage(message, *, model_norm: str, label: str = "text2s
         input_tokens = getattr(usage, "input_tokens", 0) or 0
         cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
         cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+        output_tokens = getattr(usage, "output_tokens", 0) or 0
         total = input_tokens + cache_write + cache_read
         ratio = (cache_read / total) if total else 0.0
         _record_prompt_cache_event(
             f"Prompt cache ({label}): provider=anthropic, model={model_norm}, "
             f"input_tokens={input_tokens}, cache_write={cache_write}, "
-            f"cache_read={cache_read}, hit_ratio={ratio:.1%}."
+            f"cache_read={cache_read}, hit_ratio={ratio:.1%}, output_tokens={output_tokens}."
         )
+        # Anthropic counts thinking inside output_tokens with no separate figure, so reasoning
+        # stays 0 here: unknown, not absent. This pipeline sends no thinking budget anyway.
+        _record_llm_usage(label, model_norm, prompt_tokens=total, cached_tokens=cache_read,
+                          completion_tokens=output_tokens)
     except Exception as cache_log_error:
         print(f"[prompt-cache][anthropic][{label}] usage logging failed: {cache_log_error}")
 
@@ -249,12 +333,20 @@ def _log_gemini_cache_usage(response, *, model_norm: str, label: str = "text2sql
             return
         prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
         cached_tokens = getattr(usage, "cached_content_token_count", 0) or 0
+        # Gemini reports thoughts apart from the candidates; completion is their sum, to keep
+        # OpenAI's convention (completion includes reasoning).
+        thoughts_tokens = getattr(usage, "thoughts_token_count", 0) or 0
+        completion_tokens = (getattr(usage, "candidates_token_count", 0) or 0) + thoughts_tokens
         ratio = (cached_tokens / prompt_tokens) if prompt_tokens else 0.0
         _record_prompt_cache_event(
             f"Prompt cache ({label}): provider=google, model={model_norm}, "
             f"prompt_tokens={prompt_tokens}, cached_tokens={cached_tokens}, "
-            f"hit_ratio={ratio:.1%}."
+            f"hit_ratio={ratio:.1%}, completion_tokens={completion_tokens}, "
+            f"reasoning_tokens={thoughts_tokens}."
         )
+        _record_llm_usage(label, model_norm, prompt_tokens=prompt_tokens,
+                          cached_tokens=cached_tokens, completion_tokens=completion_tokens,
+                          reasoning_tokens=thoughts_tokens)
     except Exception as cache_log_error:
         print(f"[prompt-cache][google][{label}] usage logging failed: {cache_log_error}")
 
