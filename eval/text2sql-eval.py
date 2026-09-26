@@ -103,6 +103,45 @@ def _is_retryable_quota_error(response=None, response_json=None, error_text: str
     )
 
 
+# FASTAPI-TEXT2SQL-234. The two tasks added by -232 (result_entity, answer_single_value)
+# now have their own columns in T_WC_T2S_EVALUATION_EXECUTION. Rows written before the
+# columns existed carry NULL there. NULL does not mean gpt-4o, it means "written before the
+# question arose", so those rows are never backfilled; a run at the default model matches
+# them (the three-model form of every campaign up to 1.1.19), a run at any other model does
+# not. That single rule keeps the old runs readable and gives every new setting its own
+# namespace.
+DEFAULT_TASK_MODEL = "gpt-4o"
+
+
+def task_model_clause(column: str, value: str, prefix: str = "") -> str:
+    """SQL predicate for one of the two late model columns: the default model also matches
+    the NULL of the rows written before the column existed, any other model matches itself."""
+    safe = str(value).replace("'", "''")
+    col = f"{prefix}{column}"
+    if value == DEFAULT_TASK_MODEL:
+        return f"({col} = '{safe}' OR {col} IS NULL)"
+    return f"{col} = '{safe}'"
+
+
+def late_models_clause(result_entity_model: str, answer_single_value_model: str, prefix: str = "") -> str:
+    """Both late columns, ready to append after the three historical ones."""
+    return (f"AND {task_model_clause('RESULT_ENTITY_MODEL', result_entity_model, prefix)} "
+            f"AND {task_model_clause('ANSWER_SINGLE_VALUE_MODEL', answer_single_value_model, prefix)} ")
+
+
+def late_models_suffix(result_entity_model, answer_single_value_model) -> str:
+    """Folder and file-name suffix, read from the ROW, never from the command line: empty
+    when both are the default or NULL, so every folder written so far keeps its name
+    (<version>_<lang>_<ee>_<t2s>_<complex>) and the analysis scripts that build that path
+    keep working unchanged."""
+    parts = []
+    if result_entity_model and result_entity_model != DEFAULT_TASK_MODEL:
+        parts.append("re-" + slug_for_filename(result_entity_model, max_len=40))
+    if answer_single_value_model and answer_single_value_model != DEFAULT_TASK_MODEL:
+        parts.append("asv-" + slug_for_filename(answer_single_value_model, max_len=40))
+    return ("_" + "_".join(parts)) if parts else ""
+
+
 def translate_question(question: str, src_lang: str, dst_lang: str, glossary: dict | None = None) -> str:
     """Translate an evaluation question with gpt-4o (EVALUATIONS-019).
 
@@ -482,6 +521,7 @@ try:
                         f"AND ENTITY_EXTRACTION_MODEL = '{strentityextractionmodeleval}' "
                         f"AND TEXT2SQL_MODEL = '{strtext2sqlmodeleval}' "
                         f"AND COMPLEX_MODEL = '{strcomplexmodeleval}' "
+                        + late_models_clause(strresultentitymodeleval, stranswersinglevaluemodeleval)
                     )
                     if strlanguage == "en":
                         strsql += "AND QUESTION IS NOT NULL AND QUESTION <> '' "
@@ -522,6 +562,7 @@ try:
                     strsql += "WHERE T_WC_T2S_EVALUATION.DELETED = 0 "
                     strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.DELETED = 0 "
                     strsql += "AND API_VERSION = '" + strapiversionevalformatted + "' AND ENTITY_EXTRACTION_MODEL = '" + strentityextractionmodeleval + "' AND TEXT2SQL_MODEL = '" + strtext2sqlmodeleval + "' AND COMPLEX_MODEL = '" + strcomplexmodeleval + "' "
+                    strsql += late_models_clause(strresultentitymodeleval, stranswersinglevaluemodeleval, "T_WC_T2S_EVALUATION_EXECUTION.")
                     if strlanguage != "*":
                         strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.LANG = '" + strlanguage + "' "
                     #strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION IN (1) "
@@ -582,6 +623,7 @@ try:
                     strsql += f"AND EE.ENTITY_EXTRACTION_MODEL = '{strentityextractionmodeleval}' "
                     strsql += f"AND EE.TEXT2SQL_MODEL = '{strtext2sqlmodeleval}' "
                     strsql += f"AND EE.COMPLEX_MODEL = '{strcomplexmodeleval}' "
+                    strsql += late_models_clause(strresultentitymodeleval, stranswersinglevaluemodeleval, "EE.")
                     if strlanguage != "*":
                         strsql += f"AND EE.LANG = '{strlanguage}' "
                     strsql += "ORDER BY EE.ID_ROW ASC "
@@ -663,7 +705,8 @@ try:
                                     "SELECT LANG FROM T_WC_T2S_EVALUATION_EXECUTION "
                                     "WHERE DELETED = 0 AND ID_T2S_EVALUATION = %s "
                                     "AND API_VERSION = %s AND ENTITY_EXTRACTION_MODEL = %s "
-                                    "AND TEXT2SQL_MODEL = %s AND COMPLEX_MODEL = %s",
+                                    "AND TEXT2SQL_MODEL = %s AND COMPLEX_MODEL = %s "
+                                    + late_models_clause(strresultentitymodeleval, stranswersinglevaluemodeleval),
                                     (lngid, strapiversionevalformatted, strentityextractionmodeleval, strtext2sqlmodeleval, strcomplexmodeleval)
                                 )
                                 arralreadydone = {r['LANG'] for r in cursor3.fetchall()}
@@ -819,11 +862,13 @@ try:
                                 arrevalexeccouples["ENTITY_EXTRACTION_MODEL"] = strentityextractionmodeleval
                                 arrevalexeccouples["TEXT2SQL_MODEL"] = strtext2sqlmodeleval
                                 arrevalexeccouples["COMPLEX_MODEL"] = strcomplexmodeleval
+                                arrevalexeccouples["RESULT_ENTITY_MODEL"] = strresultentitymodeleval
+                                arrevalexeccouples["ANSWER_SINGLE_VALUE_MODEL"] = stranswersinglevaluemodeleval
                                 arrevalexeccouples["JSON_RESULT"] = response_text
                                 arrevalexeccouples["TIM_EXECUTION"] = strdatnow
                                 arrevalexeccouples["LANG"] = strevallang
                                 strsqltablename = "T_WC_T2S_EVALUATION_EXECUTION"
-                                strsqlupdatecondition = f"ID_T2S_EVALUATION = {lngid} AND API_VERSION = '{strapiversionevalformatted}' AND ENTITY_EXTRACTION_MODEL = '{strentityextractionmodeleval}' AND TEXT2SQL_MODEL = '{strtext2sqlmodeleval}' AND COMPLEX_MODEL = '{strcomplexmodeleval}' AND LANG = '{strevallang}'"
+                                strsqlupdatecondition = f"ID_T2S_EVALUATION = {lngid} AND API_VERSION = '{strapiversionevalformatted}' AND ENTITY_EXTRACTION_MODEL = '{strentityextractionmodeleval}' AND TEXT2SQL_MODEL = '{strtext2sqlmodeleval}' AND COMPLEX_MODEL = '{strcomplexmodeleval}' AND LANG = '{strevallang}' " + late_models_clause(strresultentitymodeleval, stranswersinglevaluemodeleval)
                                 cp.f_sqlupdatearray(strsqltablename,arrevalexeccouples,strsqlupdatecondition,1)
                         elif intindex == 20:
                             # Processing evaluations results to compute the scoring
@@ -1271,13 +1316,16 @@ try:
                             t2s_slug = slug_for_filename(t2s_model, max_len=40)
                             complex_slug = slug_for_filename(complex_model, max_len=40)
 
+                            row_result_entity_model = row.get('RESULT_ENTITY_MODEL')
+                            row_answer_single_value_model = row.get('ANSWER_SINGLE_VALUE_MODEL')
+                            late_suffix = late_models_suffix(row_result_entity_model, row_answer_single_value_model)
                             run_subfolder = (
                                 f"{api_version_formatted}_{row_lang}_"
-                                f"{ee_slug}_{t2s_slug}_{complex_slug}"
+                                f"{ee_slug}_{t2s_slug}_{complex_slug}{late_suffix}"
                             )
                             filename = (
                                 f"{date_str}_{eval_id}_{api_version_formatted}_{row_lang}_"
-                                f"{ee_slug}_{t2s_slug}_{complex_slug}.json"
+                                f"{ee_slug}_{t2s_slug}_{complex_slug}{late_suffix}.json"
                             )
                             output_dir = ensure_export_dir(
                                 os.path.join("evaluation_execution", run_subfolder)
@@ -1314,17 +1362,13 @@ try:
                                         "entity_extraction_model": ee_model,
                                         "text2sql_model": t2s_model,
                                         "complex_model": complex_model,
-                                        # FASTAPI-TEXT2SQL-234. These two come from the CLI, not
-                                        # from the execution row: T_WC_T2S_EVALUATION_EXECUTION has
-                                        # no column for them yet. So they describe THIS run's
-                                        # configuration, and on a re-export of rows written by an
-                                        # earlier run sharing the same version and model triple they
-                                        # would label those rows with today's setting. Read them as
-                                        # the run's intent until the columns exist; `api_output`
-                                        # carries what the API actually used, per row, and that one
-                                        # never lies.
-                                        "result_entity_model": strresultentitymodeleval,
-                                        "answer_single_value_model": stranswersinglevaluemodeleval,
+                                        # FASTAPI-TEXT2SQL-234. Read from the execution row, never
+                                        # from this run's command line: a re-export must not label
+                                        # an older row with today's setting. None means the row was
+                                        # written before the column existed, not "gpt-4o";
+                                        # `api_output.llm_model_*` tells what the API actually used.
+                                        "result_entity_model": row_result_entity_model,
+                                        "answer_single_value_model": row_answer_single_value_model,
                                         "ui_language": row_lang,
                                     },
                                     "api_output": api_output,

@@ -11,20 +11,13 @@
 # convention asks for anyway once a data/ prompt has changed. Without either, this script
 # reports a suspiciously fast, suspiciously empty pass.
 #
-# THE TWO NEW KNOBS DO NOT OPEN A NAMESPACE, AND THAT IS A TRAP
-# The API takes five model selectors since FASTAPI-TEXT2SQL-232, and this script now passes
-# all five. But T_WC_T2S_EVALUATION_EXECUTION still has columns for only three of them
-# (FASTAPI-TEXT2SQL-234), so the skip rule above and the run folder name are both keyed on
-# ENTITY_EXTRACTION_MODEL / TEXT2SQL_MODEL / COMPLEX_MODEL alone. Two consequences, and both
-# of them look like success:
-#   * A run that changes ONLY RESULT_ENTITY_MODEL or ANSWER_SINGLE_VALUE_MODEL is skipped
-#     entirely, because rows already exist for that version, triple and language. Empty pass,
-#     no error, nothing measured.
-#   * Force it through by retiring those rows and it writes into the SAME folder as the
-#     baseline, indistinguishable from it afterwards.
-# So to move one of those two, bump API_VERSION to open a clean namespace, or do not use this
-# script at all: eval/bench-result-entity.py measures the answer-entity classifier offline,
-# with no execution row and no cache write, which is exactly what it was written for.
+# THE FIVE MODELS EACH OPEN A NAMESPACE (FASTAPI-TEXT2SQL-234, 2026-09-25)
+# RESULT_ENTITY_MODEL and ANSWER_SINGLE_VALUE_MODEL have their own columns in
+# T_WC_T2S_EVALUATION_EXECUTION. The skip rule and the run folder are keyed on all five: a run
+# that moves only one of them is measured in full and lands in its own folder, suffixed
+# _re-<model> and/or _asv-<model>. Rows written before the columns existed carry NULL and count
+# as the default gpt-4o, so the baseline folders keep their three-model names. The migration
+# eval/migrate-evaluation-execution-late-models.sql must have run before this evaluator.
 #
 # BLUE OR GREEN IS DECIDED BY THE VERSION
 # An even patch targets BLUE, an odd one GREEN, in main.py for the MCP and in
@@ -194,9 +187,16 @@ try:
             "(e.ASSERTIONS_QUERY_RESULT <> '' AND e.ASSERTIONS_QUERY_RESULT IS NOT NULL) OR "
             "(e.ASSERTIONS_ENTITY_EXTRACTION <> '' AND e.ASSERTIONS_ENTITY_EXTRACTION IS NOT NULL) OR "
             "(e.ASSERTIONS_SQL_QUERY <> '' AND e.ASSERTIONS_SQL_QUERY IS NOT NULL)) ")
+    def late(col, val):
+        # Same rule as late_models_clause() in text2sql-eval.py (-234): the default model also
+        # matches the NULL of the rows written before the column existed.
+        v = val.replace("'", "''")
+        return f"(x.{col} = '{v}' OR x.{col} IS NULL)" if val == "gpt-4o" else f"x.{col} = '{v}'"
     done = ("SELECT x.ID_T2S_EVALUATION FROM T_WC_T2S_EVALUATION_EXECUTION x WHERE x.DELETED = 0 "
             "AND x.API_VERSION = %s AND x.ENTITY_EXTRACTION_MODEL = %s AND x.TEXT2SQL_MODEL = %s "
-            "AND x.COMPLEX_MODEL = %s AND x.LANG = %s")
+            "AND x.COMPLEX_MODEL = %s AND x.LANG = %s "
+            f"AND {late('RESULT_ENTITY_MODEL', os.environ['PF_RE'])} "
+            f"AND {late('ANSWER_SINGLE_VALUE_MODEL', os.environ['PF_ASV'])}")
     models = (fver, os.environ["PF_EE"], os.environ["PF_T2S"], os.environ["PF_CX"])
     resume = (cp.f_getservervariable("strtext2sqlevalrunevalid", 0) or "").strip()
     total_remaining = 0
@@ -231,6 +231,7 @@ PREFLIGHT=$(printf '%s\n' "$PREFLIGHT_PY" | docker run -i --rm --network="host" 
     --env-file "$EVAL_HOME/.env" \
     -e PF_API_VERSION="$API_VERSION" -e PF_LANGUAGE="$EVAL_LANGUAGE" \
     -e PF_EE="$ENTITY_EXTRACTION_MODEL" -e PF_T2S="$TEXT2SQL_MODEL" -e PF_CX="$COMPLEX_MODEL" \
+    -e PF_RE="$RESULT_ENTITY_MODEL" -e PF_ASV="$ANSWER_SINGLE_VALUE_MODEL" \
     --entrypoint python text2sql-eval-python-app - 2>&1)
 
 pf() { printf '%s\n' "$PREFLIGHT" | sed -n "s/^$1=//p" | head -1; }
@@ -308,8 +309,7 @@ if [ "$PF_REMAINING" = "0" ]; then
     more "bump API_VERSION, or retire the rows (maintenance/)."
 fi
 if [ "$RESULT_ENTITY_MODEL" != "gpt-4o" ] || [ "$ANSWER_SINGLE_VALUE_MODEL" != "gpt-4o" ]; then
-    warn "you moved a model the execution table has no column for (-234): the run is either"
-    more "skipped as already done, or written into the baseline's own folder. See the header."
+    echo "  - result_entity=$RESULT_ENTITY_MODEL, answer_single_value=$ANSWER_SINGLE_VALUE_MODEL: this run gets its own folder (-234)."
 fi
 if [ "$STORE_TO_CACHE" = "--store-to-cache" ]; then
     echo "  - results will be written to the PRODUCTION cache (T_WC_T2S_CACHE, version $API_VERSION)."

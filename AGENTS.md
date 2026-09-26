@@ -89,12 +89,10 @@ A response missing `llm_model_result_entity` is the old container, whatever the 
    evaluator sends `retrieve_from_cache: False` anyway. It would NOT be harmless for a change
    that alters generated SQL: there, reusing the version means serving yesterday's answers from
    cache and concluding the change did nothing.
-2. **The execution folder collides with the baseline.** A run on `1.1.18` moving only
-   `--result-entity-model` writes into the existing
-   `001.001.018_en_gpt-4o_gpt-4o_gpt-4o` folder, because that model is not part of the run
-   signature (FASTAPI-TEXT2SQL-234). Staying on the version makes -234 bite immediately rather
-   than eventually. Measure such a change with an **offline bench**, which writes no execution
-   row at all, not with the evaluator.
+2. **The execution folder no longer collides with the baseline** (FASTAPI-TEXT2SQL-234, closed
+   2026-09-25). A run moving only `--result-entity-model` gets its own folder,
+   `..._gpt-4o_gpt-4o_gpt-4o_re-<model>`, and its own skip namespace. An offline bench stays the
+   cheaper first measure of a classifier, but the evaluator can now carry the full campaign.
 
 ### Verifying the flip actually took
 
@@ -425,17 +423,13 @@ Latency baseline from the same run, for comparing any model swap against:
 | **Claude, via MCP** | the six arguments of `sql_search`, `llm_model_vision` included | all six |
 | **voice-agent** | does not send any; takes the server defaults | unchanged |
 
-**The gap, and it bites the evaluator only.** `T_WC_T2S_EVALUATION_EXECUTION` has columns for
-`ENTITY_EXTRACTION_MODEL`, `TEXT2SQL_MODEL` and `COMPLEX_MODEL`, and none for the two new
-tasks. The execution folder name is built from those columns
-(`<version>_<lang>_<ee>_<t2s>_<complex>`), so **two runs that differ only in
-`--result-entity-model` write into the same folder and cannot be told apart from the path**.
-Until FASTAPI-TEXT2SQL-234 adds the columns, separate such runs by hand and read the per-row
-truth from `api_output.llm_model_result_entity` inside each execution file, which the API now
-returns and which is never wrong. The folder signature was deliberately **not** extended: the
-two extra slugs would have to come from the CLI rather than from the row, which mislabels any
-re-export of rows written by an earlier run sharing the same triple, and it would break
-`eval/claude/*.py`, which hard-code the three-model folder shape.
+**The gap is closed (FASTAPI-TEXT2SQL-234, 2026-09-25).** `T_WC_T2S_EVALUATION_EXECUTION`
+now stores all five models: `RESULT_ENTITY_MODEL` and `ANSWER_SINGLE_VALUE_MODEL` were added by
+`eval/migrate-evaluation-execution-late-models.sql`, which must run before the evaluator of the
+same commit. The folder suffix (`_re-<model>`, `_asv-<model>`) is built from the ROW, never from
+the CLI, and only when the value differs from `gpt-4o`, so a re-export never labels an old row
+with today's setting and the three-model folders keep their names. Rows older than the columns
+hold NULL, matched as the default and exported as null; never backfill them.
 
 ### Measuring a model change on one task
 
