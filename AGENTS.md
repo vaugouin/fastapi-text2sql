@@ -599,6 +599,27 @@ is checked out. `bench-entity-extraction.py` reads the bank from MariaDB and the
 runs where the database is reachable, which is not a developer laptop. Plan the entity work
 on the VPS or behind a tunnel.
 
+## One slow SQL query must not freeze the API (FASTAPI-TEXT2SQL-302)
+
+The generated SQL runs through `_run_generated_sql` (main.py), **never** with a bare
+`cursor.execute` inside the async endpoint. Two reasons, both learned the hard way on
+2026-09-27, when a gpt-6-sol query for "How many movies are there?" (`COUNT(*) OVER ()` over
+~688,000 rows) froze production until it was killed by hand:
+
+- **Off the event loop.** It is called through `asyncio.to_thread`, like every LLM call. A
+  blocking `execute` in the endpoint stops every other request of every client for as long as
+  the query runs.
+- **Capped in time.** It is sent as `SET STATEMENT max_statement_time=N FOR <query>`; MariaDB
+  kills it at N seconds (error 1969), so nothing survives in `PROCESSLIST`. `N` is
+  `SQL_MAX_STATEMENT_TIME` (env, default 60, 0 disables). 60 s was chosen on measurement: the
+  slowest of the 1,739 executions of the 1.1.19 baseline took 23.2 s.
+
+A query interrupted at the cap fails with `sql_execution_failure_code = "sql_timeout"`, the
+response carries `error_code: "sql_timeout"` and an explicit error, and it is **not** sent to
+the SQL regeneration nor to the stronger-model retry: a rewrite of a query that proved too heavy
+can be just as heavy, and would pay the cap a second time. Any new place that executes
+model-written SQL goes through the same helper.
+
 ## Before and after an evaluation campaign: `off-all.sh`, then `on-all.sh`
 
 Every automated task on the VPS (crawlers, preprocessors, `embedding-update`, ...) is started by

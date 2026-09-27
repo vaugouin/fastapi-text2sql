@@ -134,6 +134,47 @@ class EntityFallbackUnmatchable(Exception):
 SQL_GUARD_LEADING_WILDCARD_LIKE = re.compile(r"\bLIKE\s+'%", re.IGNORECASE)
 
 
+# FASTAPI-TEXT2SQL-302. The generated SQL used to run with `cursor.execute` straight inside the
+# async endpoint, with no time limit. A slow query therefore blocked the event loop, and with it
+# every other request of every client: on 2026-09-27 a gpt-6-sol query for "How many movies are
+# there?" (`COUNT(*) OVER ()` over ~688,000 rows, DISTINCT on eleven columns, ORDER BY) froze
+# production until the query was killed by hand. The two -223 queries measured at ~100 s did
+# the same, unnoticed. Two fixes, both needed: the query runs in a worker thread
+# (asyncio.to_thread, like every LLM call), so it only delays its own request; and MariaDB caps
+# it with `SET STATEMENT max_statement_time=N FOR ...`, which kills it server side, so nothing
+# is left running in PROCESSLIST. The statement form scopes the cap to that one query and
+# leaves no session state behind on the shared connection.
+# N = 60 s by default, measured: the slowest of the 1,739 executions of the 1.1.19 baseline
+# took 23.2 s, none reached 30 s, so the cap changes no answer of that baseline. 0 disables it.
+SQL_MAX_STATEMENT_TIME = float(os.getenv("SQL_MAX_STATEMENT_TIME", "60") or 0)
+# MariaDB ER_STATEMENT_TIMEOUT, "Query execution was interrupted (max_statement_time exceeded)".
+_MARIADB_STATEMENT_TIMEOUT = 1969
+
+
+class SqlTimeout(Exception):
+    pass
+
+
+def _run_generated_sql(db_connection, sql_text: str):
+    """Execute generated SQL with the statement-time cap and return every row.
+
+    Blocking: call it through asyncio.to_thread. Raises SqlTimeout when MariaDB interrupts
+    the query at the cap, and lets any other database error through unchanged.
+    """
+    capped = sql_text
+    if SQL_MAX_STATEMENT_TIME > 0:
+        capped = f"SET STATEMENT max_statement_time={SQL_MAX_STATEMENT_TIME:g} FOR {sql_text}"
+    try:
+        with db_connection.cursor() as cur:
+            cur.execute(capped)
+            return cur.fetchall()
+    except pymysql.err.MySQLError as exc:
+        code = exc.args[0] if exc.args else None
+        if code == _MARIADB_STATEMENT_TIMEOUT or "max_statement_time" in str(exc):
+            raise SqlTimeout(f"{SQL_MAX_STATEMENT_TIME:g}") from exc
+        raise
+
+
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
 strapiversion = "1.1.19"
 # Convert API version to XXX.YYY.ZZZ format
@@ -4084,8 +4125,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 ))
                 position_counter += 1
                 print("cursor.execute(sql_query)")
-                cursor.execute(sql_query)
-                raw_results = cursor.fetchall()
+                # FASTAPI-TEXT2SQL-302: off the event loop, capped in time.
+                raw_results = await asyncio.to_thread(_run_generated_sql, connection, sql_query)
                 # Format results with integer index and record data
                 for index, record in enumerate(raw_results):
                     query_results.append({
@@ -4105,6 +4146,23 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         "SQL execution skipped: entity resolution fell back to the raw question "
                         f"words for {e} entity value(s) written in a non-Latin script, which "
                         "cannot match a canonical name column. Going straight to the stronger model."
+                    )
+                ))
+                position_counter += 1
+            except SqlTimeout as e:
+                # FASTAPI-TEXT2SQL-302. A failure of its own kind, NOT routed to the regeneration
+                # or to the stronger model: both would rewrite a query that already proved too
+                # heavy, and could write an equally heavy one, paying the cap a second time.
+                print(f"SQL execution interrupted at max_statement_time={e}s")
+                sql_execution_failed = True
+                sql_execution_failure_code = "sql_timeout"
+                sql_execution_failure_reason = f"interrupted by the database after {e} s (max_statement_time)"
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=(
+                        f"SQL execution interrupted after {e} s (max_statement_time, FASTAPI-TEXT2SQL-302): "
+                        "the generated query was too heavy for the database. No retry: a rewrite could be "
+                        "just as heavy."
                     )
                 ))
                 position_counter += 1
@@ -4238,13 +4296,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         else:
                             _rescue_start_time = time.time()
                             _rescue_rows = []
-                            with connection.cursor() as _rescue_cursor:
-                                _rescue_cursor.execute(_rescued_sql_exec)
-                                for _index, _record in enumerate(_rescue_cursor.fetchall()):
-                                    _rescue_rows.append({
-                                        "index": _index,
-                                        "data": {k: html.unescape(v) if isinstance(v, str) else v for k, v in _record.items()}
-                                    })
+                            # FASTAPI-TEXT2SQL-302: off the event loop, capped in time.
+                            _rescue_raw = await asyncio.to_thread(_run_generated_sql, connection, _rescued_sql_exec)
+                            for _index, _record in enumerate(_rescue_raw):
+                                _rescue_rows.append({
+                                    "index": _index,
+                                    "data": {k: html.unescape(v) if isinstance(v, str) else v for k, v in _record.items()}
+                                })
                             query_execution_time += time.time() - _rescue_start_time
                             # Adopt the rescued SQL whatever the row count: it is the
                             # language-aware form of the same question, so it is what the
@@ -4413,13 +4471,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     else:
                         _regen_rows = []
                         _regen_start = time.time()
-                        with connection.cursor() as _regen_cursor:
-                            _regen_cursor.execute(_regen_exec)
-                            for _index, _record in enumerate(_regen_cursor.fetchall()):
-                                _regen_rows.append({
-                                    "index": _index,
-                                    "data": {k: html.unescape(v) if isinstance(v, str) else v for k, v in _record.items()}
-                                })
+                        # FASTAPI-TEXT2SQL-302: off the event loop, capped in time.
+                        _regen_raw = await asyncio.to_thread(_run_generated_sql, connection, _regen_exec)
+                        for _index, _record in enumerate(_regen_raw):
+                            _regen_rows.append({
+                                "index": _index,
+                                "data": {k: html.unescape(v) if isinstance(v, str) else v for k, v in _record.items()}
+                            })
                         query_execution_time += time.time() - _regen_start
                         # It executed, so it is the query this question deserves, rows or not:
                         # it answers what was asked, where the refused one answered nothing.
@@ -4459,6 +4517,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             can_retry_sql_execution_error = (
                 request.complex_question_processing
                 and sql_execution_failed
+                # FASTAPI-TEXT2SQL-302: a query interrupted at the time cap is not retried.
+                and sql_execution_failure_code != "sql_timeout"
                 and lngpage == 1
                 and bool(request.question)
                 and not getattr(request, "complex_question_already_resolved", False)
@@ -4964,6 +5024,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     if not response_error_text and isinstance(entity_extraction, dict) and entity_extraction.get("error"):
         response_error_text = str(entity_extraction.get("error") or "")
     retry_metadata = _extract_retry_metadata(response_error_text)
+    # FASTAPI-TEXT2SQL-302: a query interrupted at the time cap is an error the client must see,
+    # not an empty result it would read as "nothing matches".
+    if sql_execution_failed and sql_execution_failure_code == "sql_timeout" and not response_error_text:
+        response_error_text = (
+            f"The generated SQL query was interrupted after {SQL_MAX_STATEMENT_TIME:g} s: "
+            "it was too heavy for the database. Try a narrower question."
+        )
+        retry_metadata = {"error_code": "sql_timeout", "is_retryable": False}
 
     # Collapse a repeated franchise/collection descriptor in the final answer/justification
     # ("Star Wars Collection collection" -> "Star Wars Collection"). Applied here, at
