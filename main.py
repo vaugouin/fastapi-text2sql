@@ -134,6 +134,19 @@ class EntityFallbackUnmatchable(Exception):
 SQL_GUARD_LEADING_WILDCARD_LIKE = re.compile(r"\bLIKE\s+'%", re.IGNORECASE)
 
 
+# FASTAPI-TEXT2SQL-303: a window count over the whole result, `COUNT(...) OVER ()`, forces the
+# engine to materialise every matching row before any LIMIT. It is how gpt-6-sol answered "How
+# many movies are there?" on 2026-09-27: the entity columns of ~688,000 movies plus the total on
+# each row, past the 60 s cap of -302, no answer. No question this API serves needs it: a total
+# is `SELECT COUNT(...)`, a per-entity count is `GROUP BY`. Refused before execution, then sent
+# to the one targeted regeneration with the reason, like the leading-wildcard LIKE above.
+SQL_GUARD_WINDOW_COUNT = re.compile(r"\bCOUNT\s*\([^()]*\)\s*OVER\s*\(\s*\)", re.IGNORECASE)
+
+
+class SqlGuardWindowCount(Exception):
+    pass
+
+
 # FASTAPI-TEXT2SQL-302. The generated SQL used to run with `cursor.execute` straight inside the
 # async endpoint, with no time limit. A slow query therefore blocked the event loop, and with it
 # every other request of every client: on 2026-09-27 a gpt-6-sol query for "How many movies are
@@ -4119,6 +4132,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 guard_match = SQL_GUARD_LEADING_WILDCARD_LIKE.search(sql_query or "")
                 if guard_match:
                     raise SqlGuardRejected(sql_query[max(0, guard_match.start() - 60):guard_match.end() + 40])
+                # FASTAPI-TEXT2SQL-303: refuse a whole-result window count before the engine.
+                window_match = SQL_GUARD_WINDOW_COUNT.search(sql_query or "")
+                if window_match:
+                    raise SqlGuardWindowCount(window_match.group(0))
                 messages.append(TextMessage(
                     position=position_counter,
                     text=f"Executing SQL query: {sql_query}"
@@ -4163,6 +4180,28 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         f"SQL execution interrupted after {e} s (max_statement_time, FASTAPI-TEXT2SQL-302): "
                         "the generated query was too heavy for the database. No retry: a rewrite could be "
                         "just as heavy."
+                    )
+                ))
+                position_counter += 1
+            except SqlGuardWindowCount as e:
+                # FASTAPI-TEXT2SQL-303. Coded sql_guard_rejected on purpose: that is the code the
+                # targeted regeneration already accepts, and the reason below is what it hands
+                # back to the model, so the second attempt is told what shape to write.
+                print(f"SQL guard rejected a window count: {e}")
+                sql_execution_failed = True
+                sql_execution_failure_code = "sql_guard_rejected"
+                sql_execution_failure_reason = (
+                    f"rejected before execution, whole-result window count `{e}`: it computes over every "
+                    "row before the LIMIT. For a single total write one cell, SELECT COUNT(DISTINCT <id>) "
+                    "AS <THING>_COUNT FROM ... WHERE ..., with no entity columns, no GROUP BY and no "
+                    "ORDER BY; for a count per entity, GROUP BY the entity"
+                )
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=(
+                        f"Generated SQL rejected before execution: it carries a whole-result window count ({e}), "
+                        "which computes over every row before the LIMIT (FASTAPI-TEXT2SQL-303). Skipping "
+                        "execution and regenerating the SQL once with that reason."
                     )
                 ))
                 position_counter += 1
@@ -4460,12 +4499,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     _regen_exec = re.sub(r"\blimit\b\s+\d+\s*,\s*\d+", "", _regen_exec, flags=re.IGNORECASE)
                     _regen_exec = re.sub(r"\blimit\b\s+\d+", "", _regen_exec, flags=re.IGNORECASE).strip()
                     _regen_exec = f"{_regen_exec} LIMIT {limit}"
-                    _regen_guard = SQL_GUARD_LEADING_WILDCARD_LIKE.search(_regen_exec)
+                    _regen_guard = (SQL_GUARD_LEADING_WILDCARD_LIKE.search(_regen_exec)
+                                    or SQL_GUARD_WINDOW_COUNT.search(_regen_exec))
                     if _regen_guard:
                         sql_regeneration_outcome = "guard_rejected"
                         messages.append(TextMessage(
                             position=position_counter,
-                            text="SQL regeneration: the regenerated query still carries a leading-wildcard LIKE and was refused; the stronger-model question rewrite takes over."
+                            text=f"SQL regeneration: the regenerated query still carries a refused construct ({_regen_guard.group(0)}); the stronger-model question rewrite takes over."
                         ))
                         position_counter += 1
                     else:

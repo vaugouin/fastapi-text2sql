@@ -645,6 +645,14 @@ the SQL regeneration nor to the stronger-model retry: a rewrite of a query that 
 can be just as heavy, and would pay the cap a second time. Any new place that executes
 model-written SQL goes through the same helper.
 
+**A whole-result window count is refused before it reaches MariaDB** (FASTAPI-TEXT2SQL-303).
+`SQL_GUARD_WINDOW_COUNT` rejects `COUNT(...) OVER ()` like the leading-wildcard LIKE of -223,
+with `sql_guard_rejected`, so the targeted regeneration retries once with the reason and the shape
+to write. It is how gpt-6-sol answered "How many movies are there?": the prompt told it that a
+question which counts still returns entity rows. `data/text_to_sql.md` now has "A single total:
+one row, one column", and the aggregation rule says "per entity". A single total is one cell:
+`SELECT COUNT(DISTINCT <id>) AS <X>_COUNT FROM ... [WHERE ...]`.
+
 ## Before and after an evaluation campaign: `off-all.sh`, then `on-all.sh`
 
 Every automated task on the VPS (crawlers, preprocessors, `embedding-update`, ...) is started by

@@ -984,15 +984,31 @@ Phrasings that are commonly mis-targeted — get these right:
 - "I saw / j'ai vu / j'ai aimé `<movie or serie>`, what do you recommend / que me conseilles-tu / what to watch next" → `result_entity = movie` (or `serie`). Return the **recommended** titles from the recommendation junction; the named title is the SOURCE filter, not the result (see "Recommendations from a named film / series").
 - **Pictures / photos / portraits / posters / backdrops OF an entity** — "show `<person>` pictures/photos/portraits", "images of `<person>`", "`<movie>` posters", "backdrops of `<serie>`" → `result_entity = person_image` / `movie_image` / `serie_image`. The **image ROWS are the answer, NOT the entity card**: SELECT from `T_WC_T2S_PERSON_IMAGE` / `T_WC_T2S_MOVIE_IMAGE` / `T_WC_T2S_SERIE_IMAGE`, JOIN the entity table to filter by the named person/movie/serie, and when the request names an image kind filter `TYPE_IMAGE` (`profile` for person portraits, `poster` for posters, `backdrop` for backdrops; omit the filter for a generic "pictures/images" request). `ORDER BY VOTE_AVERAGE DESC`. Return the *Person/Movie/Serie images* columns (which project `ID_ROW` and alias the path `IMAGE_PATH AS POSTER_PATH`). Example: "Show Zendaya pictures" → `SELECT pi.ID_ROW, pi.ID_PERSON, pi.TYPE_IMAGE, pi.LANG, pi.IMAGE_PATH AS POSTER_PATH, pi.VOTE_AVERAGE FROM T_WC_T2S_PERSON_IMAGE pi JOIN T_WC_T2S_PERSON p ON pi.ID_PERSON = p.ID_PERSON WHERE p.PERSON_NAME = '{{Person_name1}}' ORDER BY pi.VOTE_AVERAGE DESC`.
 
-**Self-check before emitting:** the SELECT must project the id column of `result_entity` — `ID_PERSON` for person, `ID_MOVIE` for movie, `ID_SERIE` for serie, etc. (a `movie_serie` UNION projects `ID_CONTENT` + `CONTENT_TYPE`). If the SELECT does not project that id column, you picked the wrong result table — fix it before returning.
+**Self-check before emitting:** the SELECT must project the id column of `result_entity` — `ID_PERSON` for person, `ID_MOVIE` for movie, `ID_SERIE` for serie, etc. (a `movie_serie` UNION projects `ID_CONTENT` + `CONTENT_TYPE`). If the SELECT does not project that id column, you picked the wrong result table — fix it before returning. **The one exception is a single total** ("How many movies are there?"): see *A single total* below, which returns one cell and no id.
 
 ### Result Columns
 
-The lists below are a **contract**, not a suggestion: the client renders a card per row from exactly these columns. A row is unusable to it if one is missing, and the image path (`PROFILE_PATH`, `POSTER_PATH`, `LOGO_PATH`) is the one that shows: without it the card falls back to grey type on a dark background. Project the full list even when the question seems to ask for less.
+The lists below are a **contract**, not a suggestion: the client renders a card per row from exactly these columns. A row is unusable to it if one is missing, and the image path (`PROFILE_PATH`, `POSTER_PATH`, `LOGO_PATH`) is the one that shows: without it the card falls back to grey type on a dark background. Project the full list even when the question seems to ask for less. **A single total is not a list of entities and has no card**: it follows *A single total* below, not this contract.
+
+#### A single total: one row, one column
+
+A question that asks **how many** entities exist, overall or under a filter, wants **one number**, not the entities: "How many movies are there?", "How many documentaries are there?", "How many movie videos are there?", "How many movies did Martin Scorsese direct?", "How many Oscars did Katharine Hepburn win?", "Combien y a-t-il de films ?", "Combien d'images de personnes y a-t-il ?".
+
+- Answer with **exactly one row and one column**: `SELECT COUNT(DISTINCT <table>.<id column>) AS <THING>_COUNT FROM <table> [JOIN ...] [WHERE ...]`. **No** entity columns, **no** `GROUP BY`, **no** `ORDER BY`, **no** `LIMIT`.
+- Count what the question names, in **its own table**: movie videos in `T_WC_T2S_MOVIE_VIDEO`, series images in `T_WC_T2S_SERIE_IMAGE`, person images in `T_WC_T2S_PERSON_IMAGE`. "How many movie videos are there?" is **one** total over the video table, not a count per movie.
+- **Never** `COUNT(*) OVER ()`, and never a total repeated on every entity row. A window count computes over every row of the table before any `LIMIT`: on `T_WC_T2S_MOVIE` it runs past the 60-second limit and the question gets no answer at all.
+- `result_entity` stays the entity counted (`movie`, `serie`, `person`, `movie_image`, `movie_video`, ...).
+
+Examples, the shapes to follow:
+`SELECT COUNT(DISTINCT T_WC_T2S_MOVIE.ID_MOVIE) AS MOVIE_COUNT FROM T_WC_T2S_MOVIE`
+`SELECT COUNT(DISTINCT T_WC_T2S_MOVIE.ID_MOVIE) AS DOCUMENTARY_COUNT FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.IS_DOCUMENTARY = 1`
+`SELECT COUNT(*) AS MOVIE_VIDEO_COUNT FROM T_WC_T2S_MOVIE_VIDEO`
+
+The rule below, entity rows with the aggregate as an extra column, is for a count **per entity** ("which directors have the most films", "how many films per studio"), never for a single total.
 
 #### Aggregated questions: the contract survives `GROUP BY`
 
-A question that **counts, ranks or sums** entities ("which directors have the most films in X", "which companies produced the most movies over 200 million", "which actors appear most often together") still answers with **entity rows**. The aggregate is an extra column, never a replacement for the entity's own columns.
+A question that **counts, ranks or sums per entity** ("which directors have the most films in X", "which companies produced the most movies over 200 million", "which actors appear most often together") still answers with **entity rows**; a single total overall is the case above. The aggregate is an extra column, never a replacement for the entity's own columns.
 
 - **Project the whole Result Columns list of the answer entity**, then add the aggregate with an explicit alias: `COUNT(DISTINCT T_WC_T2S_MOVIE.ID_MOVIE) AS FILM_COUNT`.
 - **`GROUP BY` every non-aggregated column you projected, id first**: `GROUP BY T_WC_T2S_PERSON.ID_PERSON, T_WC_T2S_PERSON.PERSON_NAME, T_WC_T2S_PERSON.PROFILE_PATH, ...`. The id alone already defines the group, so listing the others changes **no** result: they are functionally dependent on it. It only makes the query valid under `ONLY_FULL_GROUP_BY`.
