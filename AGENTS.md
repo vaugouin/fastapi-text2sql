@@ -599,6 +599,31 @@ is checked out. `bench-entity-extraction.py` reads the bank from MariaDB and the
 runs where the database is reachable, which is not a developer laptop. Plan the entity work
 on the VPS or behind a tunnel.
 
+## The provider prompt cache decides the price of a GPT-6 model (PROMPT-CACHING-010)
+
+Every OpenAI call now sends `prompt_cache_key = "t2s-<task label>"` through `extra_body`
+(`OPENAI_PROMPT_CACHE_KEY=0` turns it off), and the usage logger records `cache_write_tokens`
+beside `cached_tokens`, in the `Prompt cache (...)` message and in `llm_usage`. Why it matters:
+from gpt-5.6 on, a cache miss is not an uncached token but a **cache write at 1.25x** the input
+price, and the only retention is 30 minutes (`prompt_cache_options.ttl`, no 24 h option on GPT-6).
+On the 25 K-token text2sql prefix, gpt-6-sol costs about $8 per 1,000 calls when the cache holds
+and $34 to $41 when it misses: the whole saving of the GPT-6 line is the hit rate.
+
+Measured facts, so nobody re-derives them: the 2026-09-27 Sol campaign missed on 57 % of text2sql
+calls, varying from hour to hour; the next day, at the same pace, `eval/bench-prompt-cache.py`
+read 100 % with or without the key. The key has not been shown to help, and is kept because it
+costs nothing. **A `max_completion_tokens` cap made gpt-6-sol miss on every call** (50 of 50): never add one to a
+cached call, and never measure the cache with one. Read the hit rate of every campaign from the
+per-task table of phase 20 before reading its cost.
+
+**The evaluator now stops a run whose cache does not hold** (`PromptCacheGuard` in
+`eval/text2sql-eval.py`, 2026-09-28). After each stored execution it reads `llm_usage`; for every
+cacheable task (>= 1,024 prompt tokens per call) it ignores the first 3 calls, then stops the run
+with exit code 3 when fewer than 70 % of the last 20 calls read at least 90 % of their prompt from
+cache. Rows already written are kept and the same command resumes. Replayed on the 2026-09-27
+gpt-6-sol exports it stops at question 23 in both languages; on gpt-4o it never fires.
+`CACHE_GUARD_MIN_HIT` (script) / `--cache-guard-min-hit` (evaluator), 0 disables it.
+
 ## One slow SQL query must not freeze the API (FASTAPI-TEXT2SQL-302)
 
 The generated SQL runs through `_run_generated_sql` (main.py), **never** with a bare

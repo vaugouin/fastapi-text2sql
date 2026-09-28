@@ -186,7 +186,8 @@ def snapshot_llm_usage() -> Optional[dict]:
     """Return a copy of the per-task token usage of the current request, None if nothing ran.
 
     Shape: {task: {"model", "calls", "prompt_tokens", "cached_tokens", "completion_tokens",
-    "reasoning_tokens"}}. prompt_tokens INCLUDES cached_tokens (OpenAI's convention), so the
+    "reasoning_tokens", "cache_write_tokens"}}. cache_write_tokens (PROMPT-CACHING-010) is the
+    part of the uncached input billed as a cache write, 1.25x on gpt-5.6 and later. prompt_tokens INCLUDES cached_tokens (OpenAI's convention), so the
     uncached input is the difference. completion_tokens INCLUDES reasoning_tokens, which is how
     OpenAI bills them: the visible output is the difference. A provider that does not report a
     figure leaves it at 0, never at a guess.
@@ -199,21 +200,21 @@ def snapshot_llm_usage() -> Optional[dict]:
 
 
 def _record_llm_usage(label: str, model_norm: str, *, prompt_tokens=0, cached_tokens=0,
-                      completion_tokens=0, reasoning_tokens=0) -> None:
+                      completion_tokens=0, reasoning_tokens=0, cache_write_tokens=0) -> None:
     """Add one call's usage to the request accumulator; a no-op outside a request."""
     usage = _llm_usage.get()
     if usage is None:
         return
     with _llm_usage_lock:
         _add_llm_usage(usage, label, model_norm, prompt_tokens, cached_tokens,
-                       completion_tokens, reasoning_tokens)
+                       completion_tokens, reasoning_tokens, cache_write_tokens)
 
 
 def _add_llm_usage(usage, label, model_norm, prompt_tokens, cached_tokens,
-                   completion_tokens, reasoning_tokens) -> None:
+                   completion_tokens, reasoning_tokens, cache_write_tokens=0) -> None:
     entry = usage.setdefault(label, {
         "model": model_norm, "calls": 0, "prompt_tokens": 0, "cached_tokens": 0,
-        "completion_tokens": 0, "reasoning_tokens": 0,
+        "completion_tokens": 0, "reasoning_tokens": 0, "cache_write_tokens": 0,
     })
     if model_norm not in str(entry["model"]).split(","):
         # One label, two models: only the Gemini fallback chain can do that. Say so rather
@@ -224,6 +225,7 @@ def _add_llm_usage(usage, label, model_norm, prompt_tokens, cached_tokens,
     entry["cached_tokens"] += int(cached_tokens or 0)
     entry["completion_tokens"] += int(completion_tokens or 0)
     entry["reasoning_tokens"] += int(reasoning_tokens or 0)
+    entry["cache_write_tokens"] = entry.get("cache_write_tokens", 0) + int(cache_write_tokens or 0)
 
 
 def _record_prompt_cache_event(message_text: str) -> None:
@@ -236,6 +238,23 @@ def _record_prompt_cache_event(message_text: str) -> None:
     buffer = _prompt_cache_events.get()
     if buffer is not None:
         buffer.append({"text": message_text})
+
+
+# PROMPT-CACHING-010. OpenAI routes a request to the machine that holds a cached prefix from a
+# hash of the prompt's first tokens, the machine load, and `prompt_cache_key` when one is sent.
+# The 2026-09-27 Sol campaign read nothing from cache on 57 % of text2sql calls at ~10 requests
+# a minute, where gpt-4o reads 98.7 % at the same pace: the misses are routing, not expiry. The
+# key is sent through `extra_body` so it works whatever the installed SDK version, and is the
+# task label, one per prefix. OPENAI_PROMPT_CACHE_KEY=0 turns it off, which the cache bench
+# (eval/bench-prompt-cache.py) needs to compare with and without.
+OPENAI_PROMPT_CACHE_KEY = os.getenv("OPENAI_PROMPT_CACHE_KEY", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _openai_cache_routing_kwargs(cache_label: str) -> dict:
+    """Extra request arguments that steer OpenAI's prompt-cache routing; empty when disabled."""
+    if not OPENAI_PROMPT_CACHE_KEY:
+        return {}
+    return {"extra_body": {"prompt_cache_key": f"t2s-{cache_label}"}}
 
 
 def _log_openai_cache_usage(response, *, model_norm: str, label: str = "text2sql") -> None:
@@ -259,8 +278,13 @@ def _log_openai_cache_usage(response, *, model_norm: str, label: str = "text2sql
         if details is None:
             details = getattr(usage, "input_tokens_details", None)
         cached_tokens = 0
+        cache_write_tokens = 0
         if details is not None:
             cached_tokens = getattr(details, "cached_tokens", 0) or 0
+            # PROMPT-CACHING-010. From gpt-5.6 on, a prefix written to cache bills at 1.25 times
+            # the uncached input price: a cache miss costs more than an uncached token, and only
+            # this field says how many tokens were billed that way. 0 on older models.
+            cache_write_tokens = getattr(details, "cache_write_tokens", 0) or 0
         # FASTAPI-TEXT2SQL-296. Output and reasoning, under the same two naming schemes.
         completion_tokens = getattr(usage, "completion_tokens", None)
         if completion_tokens is None:
@@ -276,12 +300,12 @@ def _log_openai_cache_usage(response, *, model_norm: str, label: str = "text2sql
         _record_prompt_cache_event(
             f"Prompt cache ({label}): provider=openai, model={model_norm}, "
             f"prompt_tokens={prompt_tokens}, cached_tokens={cached_tokens}, "
-            f"hit_ratio={ratio:.1%}, completion_tokens={completion_tokens}, "
-            f"reasoning_tokens={reasoning_tokens}."
+            f"hit_ratio={ratio:.1%}, cache_write_tokens={cache_write_tokens}, "
+            f"completion_tokens={completion_tokens}, reasoning_tokens={reasoning_tokens}."
         )
         _record_llm_usage(label, model_norm, prompt_tokens=prompt_tokens or 0,
                           cached_tokens=cached_tokens, completion_tokens=completion_tokens,
-                          reasoning_tokens=reasoning_tokens)
+                          reasoning_tokens=reasoning_tokens, cache_write_tokens=cache_write_tokens)
     except Exception as cache_log_error:
         # Never let cache observability break a request.
         print(f"[prompt-cache][openai][{label}] usage logging failed: {cache_log_error}")
@@ -548,6 +572,7 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
             raise RuntimeError("OPENAI_API_KEY not found in environment variables")
         client = openai.OpenAI(api_key=api_key)
         sampling_kwargs = _openai_sampling_kwargs(model_norm, temperature, cache_label, reasoning_effort)
+        sampling_kwargs.update(_openai_cache_routing_kwargs(cache_label))
 
         if _uses_openai_responses_api(model_norm):
             # o-series only. GPT-5.x and GPT-6 are served through chat.completions below, where
@@ -1769,6 +1794,7 @@ def _call_vision_llm(*, model: str, system_prompt: str, user_prompt: str,
     data_url = f"data:{media_type};base64,{base64.b64encode(imagebytes).decode('ascii')}"
     client = openai.OpenAI(api_key=api_key)
     sampling_kwargs = _openai_sampling_kwargs(model_norm, 0, cache_label)
+    sampling_kwargs.update(_openai_cache_routing_kwargs(cache_label))
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": [

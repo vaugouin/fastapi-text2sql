@@ -142,6 +142,65 @@ def late_models_suffix(result_entity_model, answer_single_value_model) -> str:
     return ("_" + "_".join(parts)) if parts else ""
 
 
+class PromptCacheGuard:
+    """Stop a campaign as soon as the provider prompt cache stops holding (PROMPT-CACHING-010).
+
+    Why it exists: on 2026-09-27 a gpt-6-sol campaign read nothing from cache on 57 % of its
+    text2sql calls, 0 % on the first thirty in a row, and ran to the end anyway. On gpt-5.6 and
+    later a miss is a cache write at 1.25x the input price, so the text2sql task cost what gpt-4o
+    costs instead of a quarter of it, and the campaign measured a price nobody would pay. The
+    next day, at the same pace, the same prefix was cached on 100 % of calls: the miss rate
+    depends on the provider at a given hour, which only a live check can catch.
+
+    How it reads: `llm_usage` (FASTAPI-TEXT2SQL-296) on every response. A call is a HIT when at
+    least `HIT_RATIO` of its prompt came from cache. Only tasks whose prompt is cacheable count
+    (>= 1,024 tokens per call: text2sql, entity_extraction, complex_question; result_entity sits
+    below the provider's floor and would read as a permanent miss). The first `warmup` calls of
+    each task are ignored, since a cold prefix is a write by construction. Past that, over the
+    last `window` calls of a task, a hit rate under `min_hit` stops the run.
+
+    Calibration: gpt-4o's text2sql read 98.7 % of the 1.1.19 baseline, entity_extraction 97 % in
+    the Sol run itself; the Sol run would have been stopped after 23 questions. min_hit 0 disables.
+    """
+
+    HIT_RATIO = 0.9
+    MIN_PROMPT_PER_CALL = 1024
+
+    def __init__(self, min_hit: float = 0.7, window: int = 20, warmup: int = 3):
+        self.min_hit = float(min_hit or 0)
+        self.window = max(1, int(window))
+        self.warmup = max(0, int(warmup))
+        self.seen = {}
+        self.recent = {}
+        self.models = {}
+
+    def observe(self, llm_usage):
+        """Record one response; return a stop reason, or None to go on."""
+        if self.min_hit <= 0 or not isinstance(llm_usage, dict):
+            return None
+        for task, entry in llm_usage.items():
+            if not isinstance(entry, dict):
+                continue
+            calls = int(entry.get("calls") or 0)
+            prompt = int(entry.get("prompt_tokens") or 0)
+            if calls <= 0 or prompt / calls < self.MIN_PROMPT_PER_CALL:
+                continue
+            hit = (int(entry.get("cached_tokens") or 0) / prompt) >= self.HIT_RATIO
+            self.seen[task] = self.seen.get(task, 0) + 1
+            self.models[task] = entry.get("model")
+            if self.seen[task] <= self.warmup:
+                continue
+            ring = self.recent.setdefault(task, [])
+            ring.append(hit)
+            del ring[:-self.window]
+            if len(ring) == self.window:
+                rate = sum(ring) / self.window
+                if rate < self.min_hit:
+                    return (f"task {task} on {self.models[task]}: {sum(ring)} of its last {self.window} calls "
+                            f"read the prompt from cache ({rate:.0%}, the floor is {self.min_hit:.0%})")
+        return None
+
+
 def translate_question(question: str, src_lang: str, dst_lang: str, glossary: dict | None = None) -> str:
     """Translate an evaluation question with gpt-4o (EVALUATIONS-019).
 
@@ -375,6 +434,14 @@ _parser.add_argument("--no-complex-question-processing", "--no-complex-model-use
                      help="Forbid the escalation: the API returns the raw error or empty result")
 _parser.set_defaults(store_to_cache=True)
 _parser.set_defaults(complex_question_processing=True)
+_parser.add_argument("--cache-guard-min-hit", type=float, default=0.7,
+                     help="PROMPT-CACHING-010: stop the run when fewer than this share of the last "
+                          "--cache-guard-window calls of a cacheable task read their prompt from "
+                          "the provider cache. 0 disables the guard.")
+_parser.add_argument("--cache-guard-window", type=int, default=20,
+                     help="Calls per task the cache guard looks back over (default 20).")
+_parser.add_argument("--cache-guard-warmup", type=int, default=3,
+                     help="First calls of each task the cache guard ignores, a cold prefix being a write (default 3).")
 _cli_args = _parser.parse_args()
 
 datnow = datetime.now(cp.paris_tz)
@@ -415,6 +482,15 @@ try:
             strlanguage = _cli_args.language
             blnstoretocache = _cli_args.store_to_cache
             blncomplexquestionprocessing = _cli_args.complex_question_processing
+            # PROMPT-CACHING-010: one guard for the whole run, all languages together.
+            objcacheguard = PromptCacheGuard(
+                min_hit=_cli_args.cache_guard_min_hit,
+                window=_cli_args.cache_guard_window,
+                warmup=_cli_args.cache_guard_warmup,
+            )
+            print(f"Prompt-cache guard: stop under {objcacheguard.min_hit:.0%} of cache hits over the last "
+                  f"{objcacheguard.window} calls of a task, after {objcacheguard.warmup} warm-up calls"
+                  + ("" if objcacheguard.min_hit > 0 else " (DISABLED)"))
 
             #arrprocessscope = {11: 'run evals'}
             #arrprocessscope = {20: 'process evals'}
@@ -876,6 +952,25 @@ try:
                                 strsqltablename = "T_WC_T2S_EVALUATION_EXECUTION"
                                 strsqlupdatecondition = f"ID_T2S_EVALUATION = {lngid} AND API_VERSION = '{strapiversionevalformatted}' AND ENTITY_EXTRACTION_MODEL = '{strentityextractionmodeleval}' AND TEXT2SQL_MODEL = '{strtext2sqlmodeleval}' AND COMPLEX_MODEL = '{strcomplexmodeleval}' AND LANG = '{strevallang}' " + late_models_clause(strresultentitymodeleval, stranswersinglevaluemodeleval)
                                 cp.f_sqlupdatearray(strsqltablename,arrevalexeccouples,strsqlupdatecondition,1)
+                                # PROMPT-CACHING-010. Checked AFTER the row is stored, so nothing
+                                # paid for is lost, and BEFORE the next API call, so nothing more
+                                # is paid at the wrong price. The rows written so far are kept: a
+                                # later launch of the same command resumes from the skip rule.
+                                strcachestop = objcacheguard.observe(response_json.get("llm_usage"))
+                                if strcachestop:
+                                    print("")
+                                    print("=" * 78)
+                                    print("STOPPED BY THE PROMPT-CACHE GUARD (PROMPT-CACHING-010)")
+                                    print(f"  {strcachestop}.")
+                                    print(f"  Last evaluation stored: {lngid} [{strevallang}]. Every row written so far is kept;")
+                                    print("  relaunching the same command resumes where this run stopped (skip rule).")
+                                    print("  A miss on gpt-5.6 and later is a cache WRITE at 1.25x the input price: a run")
+                                    print("  in this state measures a cost nobody would pay. Before relaunching, check the")
+                                    print("  cache at the same pace with eval/bench-prompt-cache.py (no output cap).")
+                                    print("  To run anyway: --cache-guard-min-hit 0 (CACHE_GUARD_MIN_HIT=0 with text2sql-eval.sh).")
+                                    print("=" * 78)
+                                    cp.f_setservervariable("strtext2sqlevalcurrentprocess", "", "Current process in the Text2SQL evaluation", 0)
+                                    sys.exit(3)
                         elif intindex == 20:
                             # Processing evaluations results to compute the scoring
                             strassertions_entity_extraction = row.get('ASSERTIONS_ENTITY_EXTRACTION')
@@ -1209,10 +1304,12 @@ try:
                                     _agg = arrllmusagestats.setdefault(_task, {
                                         "models": set(), "calls": 0, "prompt_tokens": 0,
                                         "cached_tokens": 0, "completion_tokens": 0, "reasoning_tokens": 0,
+                                        "cache_write_tokens": 0,
                                     })
                                     _agg["models"].add(str(_entry.get("model") or "?"))
                                     for _key in ("calls", "prompt_tokens", "cached_tokens",
-                                                 "completion_tokens", "reasoning_tokens"):
+                                                 "completion_tokens", "reasoning_tokens",
+                                                 "cache_write_tokens"):
                                         _agg[_key] += int(_entry.get(_key) or 0)
                             else:
                                 lng_llm_usage_missing += 1
@@ -1523,12 +1620,14 @@ try:
                     print(f"Tokens per task (FASTAPI-TEXT2SQL-296), {lng_llm_usage_rows} rows measured, "
                           f"{lng_llm_usage_missing} without llm_usage (written before the API returned it):")
                     print(f"  {'task':22s} {'model':16s} {'calls':>6s} {'uncached in':>12s} {'cached in':>12s} "
-                          f"{'visible out':>12s} {'reasoning':>10s}")
+                          f"{'visible out':>12s} {'reasoning':>10s} {'cache write':>12s}")
                     for _task in sorted(arrllmusagestats, key=lambda t: -arrllmusagestats[t]["prompt_tokens"]):
                         _a = arrllmusagestats[_task]
                         print(f"  {_task:22s} {','.join(sorted(_a['models'])):16s} {_a['calls']:6d} "
                               f"{_a['prompt_tokens'] - _a['cached_tokens']:12d} {_a['cached_tokens']:12d} "
-                              f"{_a['completion_tokens'] - _a['reasoning_tokens']:12d} {_a['reasoning_tokens']:10d}")
+                              f"{_a['completion_tokens'] - _a['reasoning_tokens']:12d} {_a['reasoning_tokens']:10d} "
+                              f"{_a['cache_write_tokens']:12d}")
+                    print("  Cache writes are part of 'uncached in', billed 1.25x on gpt-5.6 and later (PROMPT-CACHING-010).")
                     print("  Reasoning tokens are billed at the output price. A retried request counts the")
                     print("  calls of both passes. Multiply by the model's own prices; none are stored here.")
                 print(f"Global score: {dblcumulatedscore}/{dblevalcount} = {dblglobalscore:.2%}")

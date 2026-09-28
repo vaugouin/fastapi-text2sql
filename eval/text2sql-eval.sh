@@ -98,6 +98,11 @@ STORE_TO_CACHE=${STORE_TO_CACHE:---store-to-cache}
 # not declare, so the default said "no" and the run said "yes". The flag now drives the real
 # switch. The former variable name still works if it is set.
 COMPLEX_QUESTION_PROCESSING=${COMPLEX_QUESTION_PROCESSING:-${COMPLEX_MODEL_USED:---complex-question-processing}}
+# PROMPT-CACHING-010. The evaluator stops the run when fewer than this share of the last 20 calls
+# of a cacheable task read their prompt from the provider cache: the 2026-09-27 gpt-6-sol run
+# missed on 57 % of its text2sql calls and went to the end, measuring a price nobody would pay.
+# 0 disables the guard.
+CACHE_GUARD_MIN_HIT=${CACHE_GUARD_MIN_HIT:-0.7}
 
 EVAL_HOME=${EVAL_HOME:-$HOME/docker/text2sql-eval}
 SHARED_DIR=${SHARED_DIR:-$HOME/docker/shared_data/text2sql-eval}
@@ -276,6 +281,7 @@ echo
 echo "Options:"
 echo "  Escalation  : $COMPLEX_QUESTION_PROCESSING (stronger-model retry, fired on 2.6 % of 001.001.018)"
 echo "  Cache write : $STORE_TO_CACHE (reads are always off: retrieve_from_cache=false)"
+echo "  Cache guard : stops the run under $CACHE_GUARD_MIN_HIT of provider-cache hits over the last 20 calls of a task (0 = off)"
 echo "  Pacing      : TEXT2SQL_EVAL_API_CALL_DELAY_SECONDS and 429 retries, from $EVAL_HOME/.env"
 echo "  Resume from : ID_T2S_EVALUATION >= $(pf PF_RESUME) (server variable strtext2sqlevalrunevalid)"
 echo "  Phases      : 4-6 translate, 10 purge, 11 run, 20 score, 30-32 export to $SHARED_DIR"
@@ -448,7 +454,8 @@ docker run -d --rm --network="host" \
     --api-version "$API_VERSION" \
     --language "$EVAL_LANGUAGE" \
     "$STORE_TO_CACHE" \
-    "$COMPLEX_QUESTION_PROCESSING"
+    "$COMPLEX_QUESTION_PROCESSING" \
+    --cache-guard-min-hit "$CACHE_GUARD_MIN_HIT"
 
 echo
 echo "Campaign launched in the detached container 'text2sql-eval' (Ctrl+C leaves the logs, not the run)."
