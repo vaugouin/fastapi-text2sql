@@ -53,7 +53,18 @@ strcomplexquestionmodeldefault = "gpt-4o"
 # mistakes a filter phrase ("in the Criterion collection") for the answer would wrongly
 # override a correct query. Isolated here so the cost/latency knob is easy to change.
 # See f_classify_result_entity().
-strresultentitymodeldefault = "gpt-4o"
+#
+# `gpt-6-luna` since 2026-09-29, at effort `low` (the gpt-6 "cheapest" rung below). GPT-6-003
+# benched it against gpt-4o on the 001.001.018 ground truth and it passed in both languages
+# (EN 683 correct / 0 abstained / 2 decidable errors against gpt-4o's 654 / 31 / 2; FR +2
+# decidable errors against its own noise floor of 4), unlike GPT-5.6 Luna, which confused the
+# filter with the answer. About $0.06 per 1,000 calls against $1.46, and its 1.5 to 1.9 s
+# median no longer reaches the response since the classifier runs in parallel
+# (FASTAPI-TEXT2SQL-286). Known weak spot, unstable rather than systematic: French
+# "profession + name" questions ("Directeur de la photographie Darius Khondji", "Auteur Mary
+# Shelley") read as `movie` on about one pass in two. Jev was measured and not adopted
+# (FASTAPI-TEXT2SQL-282).
+strresultentitymodeldefault = "gpt-6-luna"
 
 # Vision identification: read a deposited image and say which work or person it points at
 # (FASTAPI-TEXT2SQL-114). Sixth LLM task of the pipeline, and the only one whose input is not

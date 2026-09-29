@@ -388,7 +388,7 @@ Content-Type: application/json
     - `llm_model_entity_extraction` → `gpt-4o`
     - `llm_model_text2sql` → `gpt-4o`
     - `llm_model_complex` → `gpt-4o`
-    - `llm_model_result_entity` → `gpt-4o`
+    - `llm_model_result_entity` → `gpt-6-luna` (since 2026-09-29, GPT-6-003)
     - `llm_model_answer_single_value` → `gpt-4o`
     - `llm_model_vision` → `gpt-6-astra`
 
