@@ -11,11 +11,14 @@ nothing else, without the API server, the database or the evaluator.
 What it sends is what production sends for the text2sql task: the same system prompt, the same
 `data/text_to_sql.md` template with its 25 K-token static prefix, a real anonymized question in
 the dynamic tail, and the same sampling rule (temperature 0 for gpt-4o, reasoning_effort low for
-GPT-6). Output is NOT capped by default, and that is a measured requirement, not a detail: on
-2026-09-28, with `max_completion_tokens=400`, gpt-6-sol read nothing from cache on 50 calls out
-of 50 and wrote the whole prefix every time (so a capped call is not the same cache entry as a
-production call), while the same calls without the cap read 100 %. `--output-cap` keeps the old
-behaviour only to reproduce that finding.
+GPT-6). Output is not capped by default, like production (`--output-cap` adds one; it does
+not change caching, tested 2026-09-29).
+
+READ THIS BEFORE TRUSTING A HIT RATE. On gpt-5.6 and later the implicit cache only reuses an
+IDENTICAL full prompt (FASTAPI-TEXT2SQL-304). This bench draws the same questions in the same
+order at every run, so a run that re-sends questions already sent within 30 minutes hits, and a
+run on new questions misses: that, not the output cap nor any provider "streak", is what the
+2026-09-28/29 runs measured. To measure the production cache, use questions never sent before.
 
 Arms run INTERLEAVED, one call of each arm in turn, so the time of day (OpenAI load, which the
 Sol campaign showed moving the hit rate from 9 % to 69 % from one hour to the next) hits every
@@ -130,8 +133,8 @@ def main():
     ap.add_argument("--rpm", type=float, default=10.0, help="Calls per minute PER ARM.")
     ap.add_argument("--out", default=None)
     ap.add_argument("--output-cap", action="store_true",
-                    help="Cap the output (max_completion_tokens 400 / max_tokens 200). Production sends no cap, "
-                         "and on gpt-6-sol a capped call never reads the production cache entry.")
+                    help="Cap the output (max_completion_tokens 400 / max_tokens 200). Production sends no cap; "
+                         "the cap does not change caching (tested 2026-09-29).")
     ap.add_argument("--same-question", action="store_true",
                     help="Repeat the first question: the whole prompt is identical from call to call.")
     args = ap.parse_args()

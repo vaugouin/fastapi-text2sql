@@ -611,23 +611,29 @@ price, and the only retention is 30 minutes (`prompt_cache_options.ttl`, no 24 h
 On the 25 K-token text2sql prefix, gpt-6-sol costs about $8 per 1,000 calls when the cache holds
 and $34 to $41 when it misses: the whole saving of the GPT-6 line is the hit rate.
 
-Measured facts, so nobody re-derives them: the 2026-09-27 Sol campaign missed on 57 % of text2sql
-calls, varying from hour to hour; the next day, at the same pace, `eval/bench-prompt-cache.py`
-read 100 % with or without the key. The key has not been shown to help, and is kept because it
-costs nothing. **A `max_completion_tokens` cap made gpt-6-sol miss on every call** (50 of 50): never add one to a
-cached call, and never measure the cache with one. Read the hit rate of every campaign from the
-per-task table of phase 20 before reading its cost.
+**Why gpt-6-sol missed, established 2026-09-29 (FASTAPI-TEXT2SQL-304).** From gpt-5.6 on,
+OpenAI's default *implicit* cache writes its entry at the **end of the latest message**, which in
+our requests is the varying question. A later request can only reuse it if the **whole prompt is
+identical**; a new question never reads the 25.7 K static prefix and pays a full-prompt write at
+1.25x. gpt-4o, on the older prefix-interval rule, reads 97-99 % whatever the question. OpenAI's
+guide names the case ("a shared prefix is not always a cached prefix") and the remedy: an explicit
+`prompt_cache_breakpoint` after the static content, with `prompt_cache_options.mode = "explicit"`.
+`_openai_user_content` (text2sql.py) now sends, on gpt-5.6+ and when the prompt has a
+`<!--CACHE_BOUNDARY-->`, a user message in two text parts, the static one carrying the breakpoint;
+older models keep the plain string. Measured on Chat Completions: three new questions each read
+25,729 tokens with 0 written; without it, two new questions wrote the full prompt twice.
+`OPENAI_EXPLICIT_CACHE_BREAKPOINT=0` turns it off. The design note with the sources is
+`t2s-backlog/gpt6-sol-prompt-cache-misses.md` in Nestor.
 
-**Nothing that varies per request should sit above `<!--CACHE_BOUNDARY-->`** (2026-09-29).
-`data/text_to_sql.md` carried `{ui_language}` at line 21 of 1,424, so the English and the French
-prompts shared only their first twenty lines; the language now comes only from the `UI language:`
-line after the boundary. Hygiene, not a proven cure: gpt-4o cached 45 of 45 calls of an EN/FR
-alternating rerun with the old prompt, and gpt-6-sol's misses did not stop with the new one. What
-the bench measured on 2026-09-29, the same day: EN/FR alternating 0 of 20 (old prompt) and 0 of 12
-(new prompt), English alone 6 of 6, then 6 of 8 with the last two missing. **gpt-6-sol's cache
-comes and goes in streaks, from the provider side**, and each miss is a full-prefix write at 1.25x.
-Its cost cannot be planned until that changes; the cache guard is what keeps a campaign from paying
-for it.
+**What the earlier explanations got wrong, so nobody repeats them.** The "streaks", the
+`max_completion_tokens` "effect" and the English/French "eviction" were all the same rule seen
+through a flawed bench: it resent the same questions in the same order, so runs that re-sent
+already-sent questions hit and runs that sent new ones missed. Tested 2026-09-29: a capped call
+wrote, and the uncapped call on the same new prompt read 25,753 tokens; the cap plays no part.
+`prompt_cache_key` changed nothing (OpenAI keeps it for accounting on 5.6+). Keep `{ui_language}`
+and anything else that varies below the boundary: that part of the note still stands. Read the
+hit rate of every campaign from the per-task table of phase 20 before reading its cost, and bench
+the cache with NEW questions only.
 
 **The evaluator now stops a run whose cache does not hold** (`PromptCacheGuard` in
 `eval/text2sql-eval.py`, 2026-09-28). After each stored execution it reads `llm_usage`; for every

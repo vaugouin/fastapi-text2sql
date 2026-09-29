@@ -240,13 +240,11 @@ def _record_prompt_cache_event(message_text: str) -> None:
         buffer.append({"text": message_text})
 
 
-# PROMPT-CACHING-010. OpenAI routes a request to the machine that holds a cached prefix from a
-# hash of the prompt's first tokens, the machine load, and `prompt_cache_key` when one is sent.
-# The 2026-09-27 Sol campaign read nothing from cache on 57 % of text2sql calls at ~10 requests
-# a minute, where gpt-4o reads 98.7 % at the same pace: the misses are routing, not expiry. The
-# key is sent through `extra_body` so it works whatever the installed SDK version, and is the
-# task label, one per prefix. OPENAI_PROMPT_CACHE_KEY=0 turns it off, which the cache bench
-# (eval/bench-prompt-cache.py) needs to compare with and without.
+# PROMPT-CACHING-010. `prompt_cache_key` is the task label, one per prefix, sent through
+# `extra_body` so it works whatever the installed SDK version. On gpt-5.6 and later OpenAI keeps
+# it for cache accounting only; it did not change any hit rate we measured. The misses of the
+# 2026-09-27 Sol campaign were NOT routing: see _openai_explicit_breakpoint below.
+# OPENAI_PROMPT_CACHE_KEY=0 turns it off.
 OPENAI_PROMPT_CACHE_KEY = os.getenv("OPENAI_PROMPT_CACHE_KEY", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
@@ -255,6 +253,61 @@ def _openai_cache_routing_kwargs(cache_label: str) -> dict:
     if not OPENAI_PROMPT_CACHE_KEY:
         return {}
     return {"extra_body": {"prompt_cache_key": f"t2s-{cache_label}"}}
+
+
+# FASTAPI-TEXT2SQL-304 / PROMPT-CACHING-010. From gpt-5.6 on, OpenAI's default (implicit) cache
+# writes its entry at the END of the latest message, which in our requests is the varying
+# question: a later request can only reuse it if the WHOLE prompt is identical. So gpt-6-sol read
+# nothing of the 25.7 K-token text2sql prefix on a new question and paid a full-prompt cache write
+# at 1.25x instead; gpt-4o, on the older prefix-interval rule, reads 97-99 % of the same prefix.
+# OpenAI's guide names the case ("a shared prefix is not always a cached prefix") and its remedy:
+# an explicit `prompt_cache_breakpoint` after the static content, with `mode: "explicit"` so the
+# varying tail is neither written nor billed as a write. Measured 2026-09-29 on Chat Completions:
+# three new questions each read 25,729 tokens from cache with 0 written; without the breakpoint,
+# two new questions wrote the full prompt twice and read nothing. The split point is the prompt's
+# own <!--CACHE_BOUNDARY-->, the one the Anthropic path already uses. Older models keep the plain
+# single-string message, byte for byte. OPENAI_EXPLICIT_CACHE_BREAKPOINT=0 turns it off.
+OPENAI_EXPLICIT_CACHE_BREAKPOINT = os.getenv("OPENAI_EXPLICIT_CACHE_BREAKPOINT", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _openai_breakpoint_generation(model_norm: str) -> bool:
+    """True for gpt-5.6 and later (gpt-5.6-*, gpt-5.7-*, gpt-6-*, ...), the implicit-breakpoint regime."""
+    m = re.match(r"^gpt-(\d+)(?:\.(\d+))?", str(model_norm).strip().lower())
+    if not m:
+        return False
+    major, minor = int(m.group(1)), int(m.group(2) or 0)
+    return (major, minor) >= (5, 6)
+
+
+def _openai_user_content(user_prompt: str, model_norm: str):
+    """User message content, plus the extra request options it needs.
+
+    gpt-5.6+ with a CACHE_BOUNDARY: two text parts, the static one carrying an explicit cache
+    breakpoint, and `prompt_cache_options.mode = "explicit"`. Anything else: the plain string
+    with the marker stripped, exactly as before.
+    """
+    plain = user_prompt.replace(CACHE_BOUNDARY_MARKER, "")
+    if (not OPENAI_EXPLICIT_CACHE_BREAKPOINT or CACHE_BOUNDARY_MARKER not in user_prompt
+            or not _openai_breakpoint_generation(model_norm)):
+        return plain, {}
+    static, dynamic = user_prompt.split(CACHE_BOUNDARY_MARKER, 1)
+    dynamic = dynamic.replace(CACHE_BOUNDARY_MARKER, "")
+    if not static.strip() or not dynamic.strip():
+        return plain, {}
+    content = [
+        {"type": "text", "text": static, "prompt_cache_breakpoint": {"mode": "explicit"}},
+        {"type": "text", "text": dynamic},
+    ]
+    return content, {"prompt_cache_options": {"mode": "explicit", "ttl": "30m"}}
+
+
+def _merge_extra_body(kwargs: dict, extra: dict) -> dict:
+    """Add keys to kwargs['extra_body'] without dropping the ones already there."""
+    if extra:
+        body = dict(kwargs.get("extra_body") or {})
+        body.update(extra)
+        kwargs["extra_body"] = body
+    return kwargs
 
 
 def _log_openai_cache_usage(response, *, model_norm: str, label: str = "text2sql") -> None:
@@ -596,13 +649,15 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
                 # Fallback to chat.completions for environments where Responses API isn't available
                 pass
 
+        # FASTAPI-TEXT2SQL-304: explicit cache breakpoint after the static block on gpt-5.6+.
+        user_content, cache_extra = _openai_user_content(user_prompt, model_norm)
         response = client.chat.completions.create(
             model=model_norm,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt_plain},
+                {"role": "user", "content": user_content},
             ],
-            **sampling_kwargs,
+            **_merge_extra_body(dict(sampling_kwargs), cache_extra),
         )
         _log_openai_cache_usage(response, model_norm=model_norm, label=cache_label)
         if not response.choices or not response.choices[0].message or not response.choices[0].message.content:
