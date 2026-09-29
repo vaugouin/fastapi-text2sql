@@ -1,0 +1,68 @@
+-- fix-counting-totals-303.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-09-28 19:36:28
+--
++-------------------------------------------------------------+
+| SECTION                                                     |
++-------------------------------------------------------------+
+| A0. Before: result assertions of the single-total questions |
++-------------------------------------------------------------+
++-------------------+----------------------------------------------------+---------------------------------------------------------------+---------+---------+------------------------------------------+
+| ID_T2S_EVALUATION | QUESTION                                           | QUESTION_FR                                                   | IS_EVAL | DELETED | ASSERTIONS_QUERY_RESULT                  |
++-------------------+----------------------------------------------------+---------------------------------------------------------------+---------+---------+------------------------------------------+
+|                29 | How many movies were directed by Martin Scorsese?  | Combien de films ont été réalisés par Martin Scorsese ?       |       1 |       0 |                                          |
+|                89 | Nombre de films réalisés par Martin Scorsese       | Combien de films ont été réalisés par Martin Scorsese ?       |       1 |       0 | NULL                                     |
+|               790 | How many movies are there?                         | Combien y a-t-il de films ?                                   |       1 |       0 | COUNT(*) == 1 AND CELL(0, 0) &gt; 500000 |
+|               791 | How many series are there?                         | Combien de séries y a-t-il ?                                  |       1 |       0 | COUNT(*) == 1 AND CELL(0, 0) &gt; 90000  |
+|               792 | How many persons are there?                        | Combien de personnes y a-t-il ?                               |       1 |       0 | COUNT(*) == 1 AND CELL(0, 0) &gt; 300000 |
+|               793 | How many movie images are there?                   | Combien y a-t-il d'images de films ?                          |       1 |       0 | COUNT(*) == 1                            |
+|               867 | How many movies were released this year?           | Combien de films sont sortis cette année ?                    |       1 |       0 | NULL                                     |
+|              2169 | How many movie videos are there?                   | Combien de vidéos de films y a-t-il ?                         |       1 |       0 | COUNT(*) == 1                            |
+|              2170 | How many serie videos are there?                   | Combien y a-t-il de vidéos de séries ?                        |       1 |       0 | COUNT(*) == 1                            |
+|              2171 | How many serie images are there?                   | Combien y a-t-il d&#039;images de séries ?                    |       1 |       0 | COUNT(*) == 1                            |
+|              2172 | How many person images are there?                  | Combien d'images de personnes y a-t-il ?                      |       1 |       0 | COUNT(*) == 1                            |
+|              2247 | How many documentaries are there?                  | Combien y a-t-il de documentaires ?                           |       1 |       0 | CELL(0, 0) &gt; 100000                   |
+|              2313 | How many Academy awards did Katharine Hepburn won? | Combien de prix Oscar Katharine Hepburn a-t-elle remportés ?  |       1 |       0 | COUNT(*) == 1 AND CELL(0, 0) == 4        |
+|              2349 | How many Academy Awards did Walt Disney won?       | Combien de prix Oscar Walt Disney a-t-il remportés ?          |       1 |       0 | COUNT(*) == 1 AND CELL(0, 0) &gt; 10     |
++-------------------+----------------------------------------------------+---------------------------------------------------------------+---------+---------+------------------------------------------+
++-----------+
+| SECTION   |
++-----------+
+| A1. After |
++-----------+
++-------------------+---------+--------------------------------------+
+| ID_T2S_EVALUATION | IS_EVAL | ASSERTIONS_QUERY_RESULT              |
++-------------------+---------+--------------------------------------+
+|                29 |       1 | COUNT(*) == 1 AND CELL(0, 0) &gt; 20 |
+|                89 |       1 | COUNT(*) == 1 AND CELL(0, 0) &gt; 20 |
+|               867 |       1 | COUNT(*) == 1 AND CELL(0, 0) &gt; 0  |
++-------------------+---------+--------------------------------------+
++---------------------------------------------------------------------+
+| SECTION                                                             |
++---------------------------------------------------------------------+
+| B0. Before: executions of API 1.1.19 by text2sql model and language |
++---------------------------------------------------------------------+
++----------------+------+---------+------------+
+| TEXT2SQL_MODEL | LANG | DELETED | ROWS_COUNT |
++----------------+------+---------+------------+
+| gpt-4o         | en   |       0 |        869 |
+| gpt-4o         | fr   |       0 |        869 |
+| gpt-6-sol      | en   |       0 |        869 |
+| gpt-6-sol      | fr   |       0 |        869 |
++----------------+------+---------+------------+
++---------------------------------------------------------------------------------------------------+
+| SECTION                                                                                           |
++---------------------------------------------------------------------------------------------------+
+| B1. After: 25 questions per model and language at DELETED = 1 (fewer where a language had no row) |
++---------------------------------------------------------------------------------------------------+
++----------------+------+---------+------------+
+| TEXT2SQL_MODEL | LANG | DELETED | ROWS_COUNT |
++----------------+------+---------+------------+
+| gpt-4o         | en   |       0 |        844 |
+| gpt-4o         | en   |       1 |         25 |
+| gpt-4o         | fr   |       0 |        844 |
+| gpt-4o         | fr   |       1 |         25 |
+| gpt-6-sol      | en   |       0 |        844 |
+| gpt-6-sol      | en   |       1 |         25 |
+| gpt-6-sol      | fr   |       0 |        844 |
+| gpt-6-sol      | fr   |       1 |         25 |
++----------------+------+---------+------------+

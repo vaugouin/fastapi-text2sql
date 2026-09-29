@@ -19,8 +19,9 @@ behaviour only to reproduce that finding.
 
 Arms run INTERLEAVED, one call of each arm in turn, so the time of day (OpenAI load, which the
 Sol campaign showed moving the hit rate from 9 % to 69 % from one hour to the next) hits every
-arm alike. An arm is `model:key` or `model:nokey`; `key` sends `prompt_cache_key`, the routing
-hint the API now sends by default.
+arm alike. An arm is `model:key` or `model:nokey`, optionally `:en` / `:fr` for the value put in
+`{ui_language}` (default en); `key` sends `prompt_cache_key`, the routing hint the API now sends
+by default. Alternating `:en` and `:fr` arms reproduces what a two-language campaign sends.
 
 Usage:
   uv run --no-project --with openai --with python-dotenv eval/bench-prompt-cache.py \\
@@ -85,8 +86,8 @@ def sampling_kwargs(model):
     return {"temperature": 0, **({"max_tokens": 200} if OUTPUT_CAP else {})}
 
 
-def one_call(client, template, model, key, question):
-    prompt = template.replace("{user_question}", question).replace("{ui_language}", "en")
+def one_call(client, template, model, key, question, lang="en"):
+    prompt = template.replace("{user_question}", question).replace("{ui_language}", lang)
     prompt = prompt.replace(CACHE_BOUNDARY_MARKER, "")
     kwargs = sampling_kwargs(model)
     if key:
@@ -101,7 +102,7 @@ def one_call(client, template, model, key, question):
     d = getattr(u, "prompt_tokens_details", None)
     od = getattr(u, "completion_tokens_details", None)
     return {
-        "model": model, "key": key, "question": question, "t": time.strftime("%H:%M:%S"),
+        "model": model, "key": key, "lang": lang, "question": question, "t": time.strftime("%H:%M:%S"),
         "latency": round(time.time() - t0, 2),
         "prompt_tokens": u.prompt_tokens,
         "cached_tokens": (getattr(d, "cached_tokens", 0) or 0) if d else 0,
@@ -139,8 +140,11 @@ def main():
 
     arms = []
     for a in args.arms.split(","):
-        model, _, k = a.strip().partition(":")
-        arms.append((model, k != "nokey"))
+        parts = a.strip().split(":")
+        model = parts[0]
+        k = parts[1] if len(parts) > 1 else "key"
+        lang = parts[2] if len(parts) > 2 else "en"
+        arms.append((model, k != "nokey", lang))
     template = open(os.path.join(REPO, "data", "text_to_sql.md"), encoding="utf-8").read()
     questions = load_questions(args.n)
     if args.same_question and questions:
@@ -153,13 +157,13 @@ def main():
     print(f"{len(arms)} arms x {args.n} calls, {args.rpm:g}/min per arm, one call every {gap:.1f} s")
     rows = []
     for i in range(args.n):
-        for model, key in arms:
+        for model, key, lang in arms:
             t0 = time.time()
             try:
-                r = one_call(client, template, model, key, questions[i])
+                r = one_call(client, template, model, key, questions[i], lang)
                 rows.append(r)
                 ratio = r["cached_tokens"] / r["prompt_tokens"] if r["prompt_tokens"] else 0
-                print(f"  {i+1:3d} {model:11s} {'key  ' if key else 'nokey'} cached {ratio:6.1%} "
+                print(f"  {i+1:3d} {model:11s} {'key  ' if key else 'nokey'} {lang} cached {ratio:6.1%} "
                       f"write {r['cache_write_tokens']:6d} out {r['completion_tokens']:4d} {r['latency']:5.1f}s")
             except Exception as e:
                 print(f"  {i+1:3d} {model:11s} {'key  ' if key else 'nokey'} ERROR {str(e)[:200]}")
@@ -169,8 +173,8 @@ def main():
 
     print(f"\n{'arm':20s} {'calls':>5s} {'served from cache':>18s} {'cached tokens':>14s} "
           f"{'cache writes':>13s} {'median latency':>15s} {'cost':>8s} {'per 1,000':>10s}")
-    for model, key in arms:
-        rs = [r for r in rows if r["model"] == model and r["key"] == key]
+    for model, key, lang in arms:
+        rs = [r for r in rows if r["model"] == model and r["key"] == key and r["lang"] == lang]
         if not rs:
             continue
         hits = sum(1 for r in rs if r["prompt_tokens"] and r["cached_tokens"] / r["prompt_tokens"] >= 0.9)
@@ -178,7 +182,7 @@ def main():
         ctok = sum(r["cached_tokens"] for r in rs)
         wtok = sum(r["cache_write_tokens"] for r in rs)
         c = cost(rs, model)
-        print(f"{model + (':key' if key else ':nokey'):20s} {len(rs):5d} {hits:9d} ({hits/len(rs):5.1%}) "
+        print(f"{model + (':key' if key else ':nokey') + ':' + lang:20s} {len(rs):5d} {hits:9d} ({hits/len(rs):5.1%}) "
               f"{ctok/ptok:13.1%} {wtok:13d} {statistics.median(r['latency'] for r in rs):14.1f}s "
               f"${c:7.3f} ${c/len(rs)*1000:8.2f}")
     print("\nThe first call of each arm is a write by construction. Prices: see PRICES; gpt-4o's is assumed.")

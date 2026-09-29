@@ -616,6 +616,17 @@ costs nothing. **A `max_completion_tokens` cap made gpt-6-sol miss on every call
 cached call, and never measure the cache with one. Read the hit rate of every campaign from the
 per-task table of phase 20 before reading its cost.
 
+**Nothing that varies per request should sit above `<!--CACHE_BOUNDARY-->`** (2026-09-29).
+`data/text_to_sql.md` carried `{ui_language}` at line 21 of 1,424, so the English and the French
+prompts shared only their first twenty lines; the language now comes only from the `UI language:`
+line after the boundary. Hygiene, not a proven cure: gpt-4o cached 45 of 45 calls of an EN/FR
+alternating rerun with the old prompt, and gpt-6-sol's misses did not stop with the new one. What
+the bench measured on 2026-09-29, the same day: EN/FR alternating 0 of 20 (old prompt) and 0 of 12
+(new prompt), English alone 6 of 6, then 6 of 8 with the last two missing. **gpt-6-sol's cache
+comes and goes in streaks, from the provider side**, and each miss is a full-prefix write at 1.25x.
+Its cost cannot be planned until that changes; the cache guard is what keeps a campaign from paying
+for it.
+
 **The evaluator now stops a run whose cache does not hold** (`PromptCacheGuard` in
 `eval/text2sql-eval.py`, 2026-09-28). After each stored execution it reads `llm_usage`; for every
 cacheable task (>= 1,024 prompt tokens per call) it ignores the first 3 calls, then stops the run
