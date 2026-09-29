@@ -154,7 +154,7 @@ your sentence the user reads.
   Leave it empty rather than guessing: the application widens a year it is given by one year
   on each side, and it can search perfectly well without one.
 - Up to 5 items. Beyond that you are listing, not identifying.
-- `image_answer` is written in the language whose ISO 639-1 code is: {ui_language}
+- `image_answer` is written in the language whose ISO 639-1 code is given at the very end of this prompt (`UI language:`).
 - `justification` is diagnostic prose, read in a log rather than by the user. Write it in
   English: it is stored with the identification, which is reused whatever language the next
   question about the same image comes in.
@@ -162,6 +162,8 @@ your sentence the user reads.
 ---
 
 <!--CACHE_BOUNDARY-->
+UI language: {ui_language}
+
 ## The question the user asked about this image
 
 {user_question}

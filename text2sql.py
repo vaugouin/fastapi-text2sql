@@ -1845,6 +1845,12 @@ def _call_vision_llm(*, model: str, system_prompt: str, user_prompt: str,
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY not found in environment variables")
 
+    # FASTAPI-TEXT2SQL-304: deliberately NOT given the explicit cache breakpoint of the text tasks.
+    # Measured 2026-09-29 on gpt-6-astra with a real film frame: with an image in the message, the
+    # explicit breakpoint produced no cache read at all (0 of 4 calls on new questions), while the
+    # same static block without the image was read at 2,541 tokens; the implicit cache still reuses
+    # an identical request (same image, same question: 4,864 read). Explicit mode would stop that
+    # implicit write, and the recognition cache (-114) already covers the same-photo case.
     user_prompt_plain = user_prompt.replace(CACHE_BOUNDARY_MARKER, "")
     data_url = f"data:{media_type};base64,{base64.b64encode(imagebytes).decode('ascii')}"
     client = openai.OpenAI(api_key=api_key)
