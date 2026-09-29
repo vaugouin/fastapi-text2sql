@@ -58,7 +58,8 @@ LANG_CODE=${LANG_CODE:-en}
 # it do in production", and it moves the comparison bar with it (see COMPARE below). The
 # full pass costs about 48 seconds, so there is little reason to sample at all.
 LIMIT=${LIMIT:-0}
-MODEL=${MODEL:-jev-latest}
+# A versioned id, never the moving `jev-latest` alias (FASTAPI-TEXT2SQL-282).
+MODEL=${MODEL:-jev-1.13.0}
 # gpt-4o's confident-error rate on the FULL verified set, measured 2026-09-21: 2 of 688 on
 # one side, 1 on the other. A percentage, not a count. On a stratified sample the same
 # configuration scores 1 to 2 per 100, so this number does not apply there.

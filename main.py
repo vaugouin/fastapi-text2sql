@@ -690,6 +690,24 @@ _RESULT_ENTITY_SOURCES = {
     "serie_image": ("ID_ROW", "T_WC_T2S_SERIE_IMAGE"),
 }
 
+# FASTAPI-TEXT2SQL-286: the result-entity classifier reads only the original question and
+# the label set, never the SQL, so it is started at request entry and joined just before
+# the answer-entity guard instead of running serially after SQL generation (0.96 s at the
+# median, 12.8 s at p99, measured on 1.1.19). Set RESULT_ENTITY_PARALLEL=0 to fall back to
+# the sequential call (same results, no overlap).
+RESULT_ENTITY_PARALLEL = os.getenv("RESULT_ENTITY_PARALLEL", "1").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _timed_classify_result_entity(question: str, model: str):
+    """Run the classifier in a worker thread and return (label, seconds spent in the call).
+
+    The duration is measured inside the thread so `result_entity_processing_time` keeps
+    meaning the cost of the call, not the time the join happened to wait for it.
+    """
+    started = time.time()
+    label = t2s.f_classify_result_entity(question, list(_RESULT_ENTITY_SOURCES.keys()), model)
+    return label, time.time() - started
+
 # --- Name/title ambiguity detection (FASTAPI-TEXT2SQL-157) --------------------
 # When the generated SQL is *nothing but* an exact-equality match on an entity's
 # name/title column(s) against a SINGLE literal and returns >=2 distinct rows, the
@@ -2224,6 +2242,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             dctidentityseed = {"extraction": dict(_seed_extraction), "result_entity": _seed_entity}
     entity_resolution_plan = None
     entity_resolution_planning_time = 0.0
+    result_entity_task = None  # FASTAPI-TEXT2SQL-286
     # FASTAPI-TEXT2SQL-156, the two signals the no-results retry needs beyond
     # ambiguous_question_for_text2sql. Default 0 / False so a path that never resolves
     # anything (cache hit) cannot accidentally look like a resolution failure.
@@ -2954,6 +2973,24 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         ))
         position_counter += 1
         """
+        # --- Fork: classify the answer type while extraction and SQL generation run ---
+        # (FASTAPI-TEXT2SQL-286) The classifier's only inputs are the original question and
+        # the label set, so nothing makes it wait for the SQL. It holds no DB connection,
+        # which is why, unlike the entity-resolution fork (Gotcha #12), an early return
+        # between here and the join is harmless: the thread finishes on its own and the
+        # label is dropped. Skipped on the identity re-entry of -300, whose expectation
+        # comes from the complex step's typed item and never calls the classifier.
+        if RESULT_ENTITY_PARALLEL and input_text and not dctidentityseed:
+            result_entity_task = asyncio.create_task(asyncio.to_thread(
+                _timed_classify_result_entity, input_text, strresultentitymodel,
+            ))
+            result_entity_task.add_done_callback(_mark_task_exception_retrieved)
+            messages.append(TextMessage(
+                position=position_counter,
+                text="Started result-entity classification in parallel with entity extraction and SQL generation."
+            ))
+            position_counter += 1
+
         # Anonymize question by entity extraction. Runs in a worker thread so the LLM call
         # does not block the event loop, which is what lets the fork-join below overlap the
         # entity resolution with SQL generation (FASTAPI-TEXT2SQL-201).
@@ -3355,13 +3392,33 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     ))
                     position_counter += 1
             elif sql_query and not error_text2sql:
-                _result_entity_start_time = time.time()
-                expected_result_entity = await asyncio.to_thread(
-                    t2s.f_classify_result_entity,
-                    input_text, list(_RESULT_ENTITY_SOURCES.keys()),
-                    strresultentitymodel,
-                )
-                result_entity_processing_time = time.time() - _result_entity_start_time
+                if result_entity_task is not None:
+                    # Join of the -286 fork. A failed call abstains, like the classifier's
+                    # own error path: the guard then falls back to the LLM's result_entity.
+                    _join_start_time = time.time()
+                    try:
+                        expected_result_entity, result_entity_processing_time = await result_entity_task
+                    except Exception as e:
+                        expected_result_entity, result_entity_processing_time = "", 0.0
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"Result-entity classification failed in parallel ({e}); falling back to the LLM's result_entity."
+                        ))
+                        position_counter += 1
+                    result_entity_task = None
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=f"Result-entity classification ran in parallel: {result_entity_processing_time:.2f}s in the call, {time.time() - _join_start_time:.2f}s waited at the join."
+                    ))
+                    position_counter += 1
+                else:
+                    _result_entity_start_time = time.time()
+                    expected_result_entity = await asyncio.to_thread(
+                        t2s.f_classify_result_entity,
+                        input_text, list(_RESULT_ENTITY_SOURCES.keys()),
+                        strresultentitymodel,
+                    )
+                    result_entity_processing_time = time.time() - _result_entity_start_time
                 if expected_result_entity and expected_result_entity != result_entity:
                     messages.append(TextMessage(
                         position=position_counter,

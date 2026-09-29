@@ -56,7 +56,7 @@ Usage:
   uv run eval/bench-result-entity-jev.py --limit 100 --compare-confident-error 4.0
 
 Requires TYPESAFE_API_KEY in the environment (read by the SDK itself) and
-`uv add typesafe-sdk`. FASTAPI-TEXT2SQL-282.
+`uv add typesafe-sdk==0.7.2`. FASTAPI-TEXT2SQL-282.
 """
 
 import argparse
@@ -217,7 +217,14 @@ INSTRUCTIONS_FEWSHOT = INSTRUCTIONS + (
 
 INSTRUCTION_VARIANTS = {"plain": INSTRUCTIONS, "fewshot": INSTRUCTIONS_FEWSHOT}
 
-DEFAULT_MODEL = "jev-latest"
+# A versioned id, not the alias. `jev-latest` follows each new release, so two runs of this
+# bench could be answered by two different models with nothing in our files changing.
+# `models.list()` returns only the aliases, which first read as "no version can be pinned";
+# the API accepts versioned ids all the same (docs.typesafe.ai/models, verified by a real
+# call on 2026-09-29, and an unknown id is refused with a 400). FASTAPI-TEXT2SQL-282.
+DEFAULT_MODEL = "jev-1.13.0"
+# What the SDK sends when `model` is omitted, and so what the TypeError fallback gets.
+SDK_DEFAULT_MODEL = "jev-latest"
 DEFAULT_THRESHOLDS = [0.0, 0.50, 0.60, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95]
 
 
@@ -246,7 +253,7 @@ def build_client():
         from typesafe_sdk import Choice, TypeSafeClient  # noqa: F401
     except ImportError as exc:
         raise SystemExit(
-            "typesafe-sdk is not installed. Run:  uv add typesafe-sdk\n"
+            "typesafe-sdk is not installed. Run:  uv add typesafe-sdk==0.7.2\n"
             f"({exc})"
         )
     if not os.environ.get("TYPESAFE_API_KEY"):
@@ -259,7 +266,11 @@ def build_client():
 
 
 def ask_jev(client, question: str, model: str, instructions: str = INSTRUCTIONS):
-    """One Choice call. Returns (label, confidence, probabilities, error).
+    """One Choice call. Returns (label, confidence, probabilities, served_model, error).
+
+    `served_model` is the version the API says answered (`response.model`), which is what
+    an alias resolved to at the time of the call. It is the only record that can tell a
+    provider-side release from noise when two runs disagree.
 
     Errors are returned rather than raised, for the same reason the production classifier
     swallows its own: one bad question must not abort a bench of hundreds. A call that
@@ -276,21 +287,22 @@ def ask_jev(client, question: str, model: str, instructions: str = INSTRUCTIONS)
             # version would have been answered by whatever the SDK defaults to, and the
             # report would have named the pinned model anyway. Since the fallback IS the
             # SDK default, it is only harmless when that is what was asked for.
-            if model != DEFAULT_MODEL:
-                return "", 0.0, {}, (
+            if model != SDK_DEFAULT_MODEL:
+                return "", 0.0, {}, "", (
                     f"the installed typesafe-sdk does not accept a `model` argument, so "
-                    f"--model {model} cannot be honoured. Upgrade the SDK, or drop --model "
-                    f"and accept the SDK default ({DEFAULT_MODEL})")
+                    f"--model {model} cannot be honoured. Upgrade the SDK, or pass "
+                    f"--model {SDK_DEFAULT_MODEL} and accept the SDK default")
             response = client.system_one(state=question, questions=questions)
         answer = response.answers["result_entity"]
         return (
             str(getattr(answer, "choice", "") or "").strip().lower(),
             float(getattr(answer, "confidence", 0.0) or 0.0),
             dict(getattr(answer, "probabilities", {}) or {}),
+            str(getattr(response, "model", "") or ""),
             None,
         )
     except Exception as exc:  # noqa: BLE001 - reported per question, never fatal
-        return "", 0.0, {}, f"{type(exc).__name__}: {exc}"
+        return "", 0.0, {}, "", f"{type(exc).__name__}: {exc}"
 
 
 # The exact strings `bench-result-entity.classify_outcome` returns. Taken from its CODE,
@@ -346,6 +358,12 @@ def sweep(results, allowed_set, thresholds):
     return rows
 
 
+def served_models(results):
+    """Count the versions the API reports having answered, errored calls left out."""
+    return dict(collections.Counter(r["served_model"] or "(not reported)"
+                                    for r in results if r["error"] is None))
+
+
 def report(results, rows, elapsed, model, min_decidable, compare_confident_error,
            disagreements_only=False, instructions_name="plain"):
     """Print the sweep, the equal-risk read, the per-class table and the verdict."""
@@ -366,6 +384,12 @@ def report(results, rows, elapsed, model, min_decidable, compare_confident_error
         print("2 % of the bank, and the hardest questions in it. Biased by construction, so")
         print("no figure below shares a table with a full-bank figure.")
     print("=" * 78)
+
+    served = served_models(results)
+    print(f"\nServed by: {', '.join(f'{name} x{count}' for name, count in served.items()) or 'none'}")
+    if len(served) > 1:
+        print("*** More than one version answered this run: a provider release landed mid-run,")
+        print("    so the figures below mix two models. Rerun pinned to one versioned id. ***")
 
     if errored:
         print(f"\n{len(errored)} call(s) failed and are excluded from every figure below.")
@@ -550,11 +574,12 @@ def main():
     results = []
 
     def run_one(item):
-        label, confidence, probabilities, error = ask_jev(
+        label, confidence, probabilities, served_model, error = ask_jev(
             client, item["question"], args.model, instructions)
         return {"id": item["id"], "question": item["question"], "truth": item["truth"],
                 "label": label, "confidence": confidence,
-                "probabilities": probabilities, "error": error,
+                "probabilities": probabilities, "served_model": served_model,
+                "error": error,
                 # Empty on a normal run; carried on --disagreements-only so the report can
                 # name what each stage said without re-reading the exports.
                 "text2sql": item.get("text2sql", ""), "classifier": item.get("classifier", ""),
@@ -572,6 +597,7 @@ def main():
     if args.out:
         with open(args.out, "w", encoding="utf-8") as handle:
             json.dump({"model": args.model, "lang": args.lang, "run": args.run,
+                       "served_models": served_models(results),
                        "instructions": args.instructions,
                        "sweep": rows, "results": results}, handle,
                       indent=2, ensure_ascii=False)

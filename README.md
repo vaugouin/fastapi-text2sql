@@ -276,6 +276,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    # Pipeline shape (all read at import time, so a change needs a restart)
    BKTREE_ENABLED=1               # BK-tree index for RapidFuzz matching
    ENTITY_RESOLUTION_PARALLEL=1   # 1: resolve entities while the SQL is being generated
+   RESULT_ENTITY_PARALLEL=1       # 1: classify the answer type from request entry, joined before the guard
    CACHE_EMPTY_RESULTS=0          # 0: never cache a query that returned 0 rows
    ```
 
@@ -607,7 +608,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 **Performance Metrics:**
 - `entity_extraction_processing_time` (float): Time for entity extraction in seconds
 - `text2sql_processing_time` (float): Time for SQL generation in seconds
-- `result_entity_processing_time` (float): Time spent classifying the expected answer entity from the original question
+- `result_entity_processing_time` (float): Time spent classifying the expected answer entity from the original question. Since FASTAPI-TEXT2SQL-286 the call runs in parallel with extraction and SQL generation (`RESULT_ENTITY_PARALLEL`), so this is the duration of the call itself, **overlapped** with the other stages: never add it to them to reconstruct the total
 - `embeddings_processing_time` (float): Time for entity resolution, vector search included, in seconds
 - `embeddings_cache_search_time` (float): Time for embeddings cache lookup in seconds
 - `entity_resolution_planning_time` (float): How much of `embeddings_processing_time` was overlapped with SQL generation by the fork-join. **Already counted inside it**, never add the two. 0.0 on a cache hit or when `ENTITY_RESOLUTION_PARALLEL=0`
@@ -1401,7 +1402,7 @@ fastapi-text2sql/
 - **ChromaDB Integration**: Vector database for entity matching and similarity search with 15 entity collections (`persons`, `movies`, `series`, `companies`, `networks`, `topics`, `t2slocations`, `groups`, `characters`, `lists`, `collections`, `deaths`, `awards`, `nominations`, `movements`) plus a separate `anonymizedqueries` cache collection. `t2slocations` is opened with `get_collection`, never `get_or_create_collection`: its HNSW configuration is fixed at creation by `embedding-update`, and whoever creates the collection first decides it for every reader. The separate `anonymizedqueries` cache collection is disabled by default (`USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE = False` in [main.py](main.py))
 - **Multi-Level Caching**: SQL cache + embeddings cache for performance optimization with automatic cleanup
 - **Entity Extraction**: `entity.py` handles GPT-powered entity recognition and anonymization for supported entity types
-- **Fork-Join Scheduling**: entity resolution runs in a worker thread while the text-to-SQL call is in flight (`ENTITY_RESOLUTION_PARALLEL`), since it depends only on the extraction output
+- **Fork-Join Scheduling**: entity resolution runs in a worker thread while the text-to-SQL call is in flight (`ENTITY_RESOLUTION_PARALLEL`), since it depends only on the extraction output. The result-entity classifier is forked earlier still, at request entry, and joined before the answer-entity guard (`RESULT_ENTITY_PARALLEL`, FASTAPI-TEXT2SQL-286), since it reads only the original question
 - **Unified LLM Dispatch**: `text2sql.py` routes to OpenAI (native SDK), Anthropic (native `anthropic` SDK), or Google Gemini (`google-generativeai`) based on model name
 - **Vision Pre-stage**: with an `image_ref`, `text2sql.py` reads the image (OpenAI route only), the code composes the question deterministically from what was identified, and the ordinary pipeline answers it. The identification is cached on the fingerprint of the bytes (`vision_cache.py`), so the same photo is never read twice
 - **Reasoning Retry Helpers**: `text2sql.py` contains stronger-model calls and retry-question construction helpers
