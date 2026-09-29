@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (969681, 1204680, 1368337, 1288445, 1375646, 1108427, 1386315, 1137844)"
+    "query_result": "ID_MOVIE IN (969681, 1423191, 1101383, 1368337, 1204680, 1032863, 1294189, 1375646)"
   },
   "assertion_refresh_sql": "SELECT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE ORDER BY T_WC_T2S_MOVIE.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-09-11T04:56:25",
+  "assertion_refresh_last": "2026-09-28T02:37:16",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -23,5 +23,6 @@
   "deleted": 0,
   "id_creator": null,
   "id_owner": null,
-  "id_user_updated": 1
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
 }

@@ -6,22 +6,23 @@
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": null,
-    "sql_query": null,
-    "query_result": "ID_MOVIE IN (777, 346, 940, 7857, 147, 648, 10971, 10835, 11782, 36040, 490, 11031, 274, 31372, 31374, 31378, 5336, 26031, 25504, 14924)"
+    "sql_query": "T_WC_T2S_SERIE_COLLECTION",
+    "query_result": "ID_MOVIE IN (777, 346, 940, 7857, 147, 648, 10971, 10835, 11782, 36040, 490, 11031, 274, 31372, 31374, 31378, 5336, 26031, 25504, 14924) OR ID_T2S_COLLECTION IN (5035)"
   },
-  "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.ID_CRITERION IS NOT NULL AND T_WC_T2S_MOVIE.ID_CRITERION &gt; 0 ORDER BY CASE WHEN COALESCE(T_WC_T2S_MOVIE.ID_CRITERION_SPINE, 0) = 0 THEN 1 ELSE 0 END, T_WC_T2S_MOVIE.ID_CRITERION_SPINE ASC LIMIT 20",
-  "assertion_refresh_last": "2026-09-11T04:56:04",
-  "comment": null,
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": "2026-09-16T02:37:10",
+  "comment": "2026-09-16. DEUX REPONSES SONT JUSTES et l&#039;assertion les accepte toutes les deux, par un OR. La question est un nom de collection NU : elle peut demander la FICHE de la collection (ID_T2S_COLLECTION 5035, qui porte MOVIE_COUNT et SERIE_COUNT) ou son CONTENU (les oeuvres). L&#039;API rendait la fiche en francais et les films en anglais, et le francais etait compte faux a tort. Trois evaluations jumelles posent la meme forme de question et attendent la fiche : 1064 Tora San, 2158 James Bond, 444 Flamenco. LISTE FIGEE : ASSERTION_REFRESH_SQL est a NULL volontairement. Ces vingt ID alimentent une ligne defilante de la vitrine voice-agent, un rafraichissement nocturne la ferait bouger sous la demonstration. Ils sont justes, verifie sur le run 1.1.18 du 2026-08-31 : ce sont exactement les vingt PREMIERES lignes rendues, positions 1 a 20, dans l&#039;ordre des tranches Criterion. NE PAS LES RECALCULER. NE PAS AJOUTER D&#039;AUTRE OPERATEUR : l&#039;analyseur d&#039;assertions n&#039;a ni precedence ni parentheses de groupement, voir EVALUATIONS-010 et -011. CE QUE CETTE EVAL NE TESTE PLUS : l&#039;asymetrie EN/FR (FASTAPI-TEXT2SQL-265) et l&#039;absence des onze series (FASTAPI-TEXT2SQL-264), les deux cotes passant desormais au vert. Le temoin de -264 est la paire de questions Criterion sans mot de type, ajoutee le meme jour.",
   "keywords": null,
   "keywords_auto": null,
   "is_eval": 1,
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2025-10-30",
-  "tim_updated": "2026-08-27T16:35:47",
+  "tim_updated": "2026-09-16T17:57:55",
   "is_showcase": 1,
   "deleted": 0,
   "id_creator": 1,
   "id_owner": 1,
-  "id_user_updated": 1
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
 }

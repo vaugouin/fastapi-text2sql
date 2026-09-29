@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2489,
+  "evaluation_category_id": 4,
+  "question_en": "List movies directed by Clint Eastwood where he has also a part",
+  "question_fr": "Liste les films réalisés par Clint Eastwood dans lesquels il interprète égalent un rôle",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (33, 13223, 70, 10747, 688, 9559, 11901, 190859, 8879, 504172, 40374, 112857, 524469, 15393, 37917, 10015, 28761, 66, 10354, 10650, 21866, 20187, 17689, 11707, 5551, 9573, 10724, 6723, 749274)"
+  },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-09-12",
+  "tim_updated": "2026-09-12T22:13:14",
+  "is_showcase": 0,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
+}

@@ -10,7 +10,7 @@
     "query_result": "ID_PERSON IN (2930343, 1459483, 168765, 2939756, 2524771, 1528536, 1744178, 1568125)"
   },
   "assertion_refresh_sql": "SELECT T_WC_T2S_PERSON.ID_PERSON FROM T_WC_T2S_PERSON WHERE T_WC_T2S_PERSON.COUNTRY_OF_BIRTH = 'fr' ORDER BY T_WC_T2S_PERSON.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-09-11T04:56:25",
+  "assertion_refresh_last": "2026-09-28T02:37:16",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -23,5 +23,6 @@
   "deleted": 0,
   "id_creator": null,
   "id_owner": null,
-  "id_user_updated": null
+  "id_user_updated": null,
+  "resolution_mode": "standard"
 }

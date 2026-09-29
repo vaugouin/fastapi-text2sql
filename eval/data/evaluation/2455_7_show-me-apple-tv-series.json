@@ -23,5 +23,6 @@
   "deleted": 0,
   "id_creator": null,
   "id_owner": null,
-  "id_user_updated": null
+  "id_user_updated": null,
+  "resolution_mode": "standard"
 }

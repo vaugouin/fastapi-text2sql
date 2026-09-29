@@ -6,22 +6,23 @@
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Movie_title1&quot;]) AND matches($.Movie_title1, /^Pulp Fiction$/i)",
-    "sql_query": null,
-    "query_result": "ITEM_LABEL == &#039;Los Angeles&#039;"
+    "sql_query": "(?is)\\bLOCATION_ROLE\\s*=\\s*[&#039;&quot;]narrative[&#039;&quot;]",
+    "query_result": "ID_LOCATION IN (4) AND LOCATION_TYPE == &#039;city&#039;"
   },
   "assertion_refresh_sql": null,
   "assertion_refresh_last": null,
-  "comment": null,
+  "comment": "2026-09-24 (EVALUATIONS-012): assertions rewritten for the locations read-model. Result: ID_LOCATION 4 (Los Angeles) and every row a city. SQL: LOCATION_ROLE = narrative, since the setting of a film and the place it was shot are different questions.",
   "keywords": null,
   "keywords_auto": null,
   "is_eval": 1,
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-02-08",
-  "tim_updated": "2026-04-01T21:56:43",
+  "tim_updated": "2026-09-24T14:23:33",
   "is_showcase": null,
   "deleted": 0,
   "id_creator": 1,
   "id_owner": 1,
-  "id_user_updated": 1
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
 }

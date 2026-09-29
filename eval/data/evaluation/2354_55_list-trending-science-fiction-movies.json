@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Movie_genre1&quot;]) AND matches($.Movie_genre1, /^Science Fiction$/i)",
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (969681, 1375646, 1506560, 1560520, 1323244, 1275779, 687163, 1083381)"
+    "query_result": "ID_MOVIE IN (969681, 1423191, 1101383, 1375646, 460458, 1751701, 299534, 1083381)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_MOVIE_GENRE ON T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_GENRE.ID_MOVIE WHERE T_WC_T2S_MOVIE_GENRE.ID_GENRE = 878 ORDER BY T_WC_T2S_MOVIE.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-09-11T04:56:20",
+  "assertion_refresh_last": "2026-09-28T02:37:15",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -23,5 +23,6 @@
   "deleted": 0,
   "id_creator": 1,
   "id_owner": 1,
-  "id_user_updated": 1
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
 }

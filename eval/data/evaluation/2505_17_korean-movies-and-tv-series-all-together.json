@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2505,
+  "evaluation_category_id": 17,
+  "question_en": "Korean movies and TV series, all together",
+  "question_fr": "Films et séries télévisées coréens, tous ensemble",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_SERIE IN (246, 219246, 127532, 94796, 33880, 61664, 96462, 135157, 70593, 197067) AND ID_MOVIE IN (496243, 670, 11423, 290098, 113, 666277, 49797, 1280, 11658, 11178)"
+  },
+  "assertion_refresh_sql": "SELECT U.ID_CONTENT, U.CONTENT_TYPE\r\n  FROM (\r\n        (SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE AS ID_CONTENT, &#039;movie&#039; AS CONTENT_TYPE, T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED AS SORT_KEY\r\n           FROM T_WC_T2S_MOVIE\r\n          JOIN T_WC_T2S_MOVIE_PRODUCTION_COUNTRY ON T_WC_T2S_MOVIE_PRODUCTION_COUNTRY.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE\r\n          WHERE T_WC_T2S_MOVIE_PRODUCTION_COUNTRY.COUNTRY_CODE = &#039;KR&#039;\r\n           AND T_WC_T2S_MOVIE_PRODUCTION_COUNTRY.DELETED = 0\r\n           AND T_WC_T2S_MOVIE.DELETED = 0 AND T_WC_T2S_MOVIE.IS_MOVIE = 1\r\n          ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC\r\n          LIMIT 10)\r\n        UNION ALL\r\n        (SELECT DISTINCT T_WC_T2S_SERIE.ID_SERIE AS ID_CONTENT, &#039;serie&#039; AS CONTENT_TYPE, T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED AS SORT_KEY\r\n           FROM T_WC_T2S_SERIE\r\n          JOIN T_WC_T2S_SERIE_PRODUCTION_COUNTRY ON T_WC_T2S_SERIE_PRODUCTION_COUNTRY.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE\r\n          WHERE T_WC_T2S_SERIE_PRODUCTION_COUNTRY.COUNTRY_CODE = &#039;KR&#039;\r\n           AND T_WC_T2S_SERIE_PRODUCTION_COUNTRY.DELETED = 0\r\n           AND T_WC_T2S_SERIE.DELETED = 0\r\n          ORDER BY T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED DESC\r\n          LIMIT 10)\r\n       ) AS U\r\n ORDER BY U.SORT_KEY DESC \r\nLIMIT 20",
+  "assertion_refresh_last": "2026-09-28T02:37:06",
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-09-18",
+  "tim_updated": "2026-09-23T18:58:37",
+  "is_showcase": 1,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
+}

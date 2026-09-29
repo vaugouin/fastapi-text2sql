@@ -1,19 +1,19 @@
 -- update-evaluations-locations-read-model.sql
--- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-09-24 14:23:33
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-09-24 14:50:50
 --
 +-----------+
 | SECTION   |
 +-----------+
 | 0. Before |
 +-----------+
-+-------------------+----------------------------------------------------+-----------------------------------------------------------------------------------------------------+--------------------------------------------------------------+--------------------------+
-| ID_T2S_EVALUATION | QUESTION                                           | ASSERTIONS_QUERY_RESULT                                                                             | ASSERTIONS_SQL_QUERY                                         | REFRESH_SQL_MUST_BE_NULL |
-+-------------------+----------------------------------------------------+-----------------------------------------------------------------------------------------------------+--------------------------------------------------------------+--------------------------+
-|               291 | Movies happening in Naples                         |                                                                                                     | (?is)(?=.*\bID_PROPERTY\s*=\s*[&#039;&quot;]P840[&#039;&quot | NULL                     |
-|              2151 | In which city the action of movie Pulp Fiction tak | ITEM_LABEL == &#039;Los Angeles&#039;                                                               | NULL                                                         | NULL                     |
-|              2155 | What are the narrative locations of the movie Pulp | ITEM_LABEL == &#039;Los Angeles&#039;                                                               | NULL                                                         | NULL                     |
-|              2156 | Where was shot the movie 2001 A Space Odyssey?     | ID_WIKIDATA IN (&#039;Q1030&#039;, &#039;Q192017&#039;, &#039;Q2278256&#039;, &#039;Q4739371&#039;) |                                                              | NULL                     |
-+-------------------+----------------------------------------------------+-----------------------------------------------------------------------------------------------------+--------------------------------------------------------------+--------------------------+
++-------------------+----------------------------------------------------+----------------------------------------------------------+--------------------------------------------------------------+--------------------------+
+| ID_T2S_EVALUATION | QUESTION                                           | ASSERTIONS_QUERY_RESULT                                  | ASSERTIONS_SQL_QUERY                                         | REFRESH_SQL_MUST_BE_NULL |
++-------------------+----------------------------------------------------+----------------------------------------------------------+--------------------------------------------------------------+--------------------------+
+|               291 | Movies happening in Naples                         | ID_MOVIE IN (722778, 58383, 49687)                       | (?is)\bLOCATION_ROLE\s*=\s*[&#039;&quot;]narrative[&#039;&qu | NULL                     |
+|              2151 | In which city the action of movie Pulp Fiction tak | ID_LOCATION IN (4) AND LOCATION_TYPE == &#039;city&#039; | (?is)\bLOCATION_ROLE\s*=\s*[&#039;&quot;]narrative[&#039;&qu | NULL                     |
+|              2155 | What are the narrative locations of the movie Pulp | ID_LOCATION IN (4)                                       | (?is)\bLOCATION_ROLE\s*=\s*[&#039;&quot;]narrative[&#039;&qu | NULL                     |
+|              2156 | Where was shot the movie 2001 A Space Odyssey?     |  ID_LOCATION IN (697, 2474, 4957, 5012)                  | (?is)\bLOCATION_ROLE\s*=\s*[&#039;&quot;]filming[&#039;&quot |                          |
++-------------------+----------------------------------------------------+----------------------------------------------------------+--------------------------------------------------------------+--------------------------+
 +---------------------------------------+
 | SECTION                               |
 +---------------------------------------+
@@ -85,5 +85,5 @@
 |               291 | ID_MOVIE IN (722778, 58383, 49687)                       | (?is)\bLOCATION_ROLE\s*=\s*[&#039;&quot;]narrative[&#039;&quot;] | NULL           |
 |              2151 | ID_LOCATION IN (4) AND LOCATION_TYPE == &#039;city&#039; | (?is)\bLOCATION_ROLE\s*=\s*[&#039;&quot;]narrative[&#039;&quot;] | NULL           |
 |              2155 | ID_LOCATION IN (4)                                       | (?is)\bLOCATION_ROLE\s*=\s*[&#039;&quot;]narrative[&#039;&quot;] | NULL           |
-|              2156 | ID_LOCATION IN (697, 4957, 5012)                         | (?is)\bLOCATION_ROLE\s*=\s*[&#039;&quot;]filming[&#039;&quot;]   | NULL           |
+|              2156 |  ID_LOCATION IN (697, 2474, 4957, 5012)                  | (?is)\bLOCATION_ROLE\s*=\s*[&#039;&quot;]filming[&#039;&quot;]   |                |
 +-------------------+----------------------------------------------------------+------------------------------------------------------------------+----------------+

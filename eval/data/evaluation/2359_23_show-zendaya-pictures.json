@@ -2,7 +2,7 @@
   "evaluation_id": 2359,
   "evaluation_category_id": 23,
   "question_en": "Show Zendaya pictures",
-  "question_fr": "Je suis désolé, je ne peux pas vous aider avec ça.",
+  "question_fr": "Montre des photos de Zendaya",
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": null,
@@ -18,10 +18,11 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-07-06",
-  "tim_updated": "2026-07-12T18:53:11",
+  "tim_updated": "2026-09-25T16:19:41",
   "is_showcase": 1,
   "deleted": 0,
   "id_creator": 1,
   "id_owner": 1,
-  "id_user_updated": 1
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
 }

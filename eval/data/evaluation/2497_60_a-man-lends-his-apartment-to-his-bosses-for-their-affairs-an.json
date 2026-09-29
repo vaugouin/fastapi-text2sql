@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2497,
+  "evaluation_category_id": 60,
+  "question_en": "A man lends his apartment to his bosses for their affairs and falls in love with the elevator operator",
+  "question_fr": "Un homme prête son appartement à ses patrons pour leurs affaires et tombe amoureux de l'opératrice d'ascenseur.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "COUNT(*) &gt; 0 AND ID_MOVIE IN (284)"
+  },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
+  "comment": "FASTAPI-TEXT2SQL-250 à -254. La première passe ne doit jamais déduire The Apartment de mémoire. La résolution complexe doit identifier le film de Billy Wilder sorti en 1960.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-09-14",
+  "tim_updated": "2026-09-23T18:58:31",
+  "is_showcase": 0,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1,
+  "resolution_mode": "complex"
+}

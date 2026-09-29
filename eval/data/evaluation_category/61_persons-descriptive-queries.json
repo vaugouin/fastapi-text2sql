@@ -1,0 +1,17 @@
+{
+  "evaluation_category_id": 61,
+  "description": "Persons - Descriptive Queries",
+  "description_fr": "Personnes - Requêtes descriptives",
+  "lang": null,
+  "id_parent": 1,
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "display_order": 57,
+  "dat_creat": "2026-09-14",
+  "tim_updated": "2026-09-14T17:43:40",
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1
+}

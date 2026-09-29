@@ -6,22 +6,23 @@
   "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Movie_title1&quot;])",
-    "sql_query": null,
-    "query_result": "ID_WIKIDATA IN (&#039;Q1030&#039;, &#039;Q192017&#039;, &#039;Q2278256&#039;, &#039;Q4739371&#039;)"
+    "sql_query": "(?is)\\bLOCATION_ROLE\\s*=\\s*[&#039;&quot;]filming[&#039;&quot;]",
+    "query_result": "ID_LOCATION IN (697, 2474, 4957, 5012)"
   },
   "assertion_refresh_sql": null,
   "assertion_refresh_last": null,
-  "comment": null,
+  "comment": "2026-09-24 (EVALUATIONS-012): assertions rewritten for the locations read-model. Result: ID_LOCATION 697, 4957, 5012 (Namibia and two studios), replacing four QIDs. SQL: LOCATION_ROLE = filming.",
   "keywords": null,
   "keywords_auto": null,
   "is_eval": 1,
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-02-09",
-  "tim_updated": "2026-04-28T16:23:10",
-  "is_showcase": null,
+  "tim_updated": "2026-09-24T16:48:55",
+  "is_showcase": 0,
   "deleted": 0,
   "id_creator": 1,
   "id_owner": 1,
-  "id_user_updated": 1
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
 }

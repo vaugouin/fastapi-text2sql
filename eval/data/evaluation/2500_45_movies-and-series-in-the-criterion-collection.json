@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2500,
+  "evaluation_category_id": 45,
+  "question_en": "Movies and series in the Criterion Collection",
+  "question_fr": "Films et series de la Collection Criterion",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": "T_WC_T2S_SERIE_COLLECTION",
+    "query_result": null
+  },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
+  "comment": "Controle de la paire FASTAPI-TEXT2SQL-264. La question nomme les deux types, la garde d'entite de reponse n'a donc rien a corriger et l'UNION sort au premier coup. Verifie manuellement le 2026-09-02 dans la recette de -237, jamais note par l'evaluateur avant aujourd'hui. Attendue VERTE : si elle est rouge, le defaut n'est pas celui que -264 decrit.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 0,
+  "display_order": null,
+  "dat_creat": "2026-09-16",
+  "tim_updated": "2026-09-16T15:34:30",
+  "is_showcase": null,
+  "deleted": 0,
+  "id_creator": null,
+  "id_owner": null,
+  "id_user_updated": null,
+  "resolution_mode": null
+}

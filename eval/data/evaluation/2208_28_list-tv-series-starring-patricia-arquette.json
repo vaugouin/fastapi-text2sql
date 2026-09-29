@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_SERIE IN (95396, 1621, 2391, 1431, 4573, 72039, 82883, 14981)"
+    "query_result": "ID_SERIE IN (95396, 1431, 72039, 82883, 14981, 36, 1448, 270734)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT s.ID_SERIE FROM T_WC_T2S_SERIE s JOIN T_WC_T2S_PERSON_SERIE ps ON ps.ID_SERIE = s.ID_SERIE JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON WHERE p.PERSON_NAME = &#039;Patricia Arquette&#039; AND ps.CREDIT_TYPE = &#039;cast&#039; ORDER BY s.IMDB_RATING_WEIGHTED DESC LIMIT 8",
-  "assertion_refresh_last": "2026-09-11T04:56:06",
+  "assertion_refresh_last": "2026-09-28T02:37:05",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -23,5 +23,6 @@
   "deleted": 0,
   "id_creator": 1,
   "id_owner": 1,
-  "id_user_updated": 1
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
 }
