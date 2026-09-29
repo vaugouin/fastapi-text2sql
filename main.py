@@ -611,6 +611,42 @@ _RELATED_IMAGE_SOURCES = {
     "season": ("T_WC_TMDB_SEASON_IMAGE", "ID_SEASON", "poster", "POSTER_PATH"),
 }
 
+# FASTAPI-TEXT2SQL-303: a single total ("How many movies are there?") answers with ONE cell,
+# `SELECT COUNT(...) AS X FROM ... [WHERE ...]`, and projects no id column by design. The
+# answer-entity guard below used to read that as the wrong entity and demand entity rows:
+# gpt-6-sol obeyed and failed (793, 2169-2172, 2313 in the 2026-09-28 rerun), gpt-4o failed to
+# regenerate and kept its count, passing by accident after paying a discarded LLM call.
+# COUNT only, on purpose: "What is the longest movie?" written as SELECT MAX(RUNTIME) is a wrong
+# answer the guard must still correct into the movie row. Widen only on measured cases.
+_AGGREGATE_ITEM = re.compile(r"^COUNT\s*\(", re.IGNORECASE)
+
+
+def _is_single_total_select(sql: str) -> bool:
+    """True when the outer SELECT list is exactly one COUNT(...) and the query has no GROUP BY."""
+    text = (sql or "").strip()
+    head = re.match(r"^\s*SELECT\s+(?:DISTINCT\s+)?", text, re.IGNORECASE)
+    if not head or re.search(r"\bGROUP\s+BY\b", text, re.IGNORECASE):
+        return False
+    depth, items, current, i = 0, [], [], head.end()
+    while i < len(text):
+        ch = text[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif depth == 0 and ch == ",":
+            items.append("".join(current))
+            current = []
+            i += 1
+            continue
+        elif depth == 0 and re.match(r"FROM\b", text[i:i + 5], re.IGNORECASE) and text[i - 1:i].isspace():
+            break
+        current.append(ch)
+        i += 1
+    items.append("".join(current))
+    return len(items) == 1 and bool(_AGGREGATE_ITEM.match(items[0].strip()))
+
+
 # Single source of truth: result_entity -> (id column, primary table).
 # Drives the answer-entity guard (FASTAPI-TEXT2SQL-117/-136) for EVERY entity the
 # text-to-SQL prompt can emit as `result_entity` (see data/text_to_sql.md line 16),
@@ -3352,7 +3388,15 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 # FASTAPI-TEXT2SQL-300: on an identity retry the id token is not enough, since
                 # the series' images also project ID_SERIE; the result entity itself must match.
                 _identity_mismatch = bool(dctidentityseed) and result_entity != _guard_entity
-                if not _is_union and (_expected_id not in _select_clause or _identity_mismatch):
+                # FASTAPI-TEXT2SQL-303: a single total has no id column to project, by design.
+                _single_total = _is_single_total_select(sql_query)
+                if _single_total and _expected_id not in _select_clause:
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=f"Answer-entity guard: single total (one aggregate cell), no '{_guard_entity}' id expected; not regenerated (FASTAPI-TEXT2SQL-303)."
+                    ))
+                    position_counter += 1
+                if not _is_union and not _single_total and (_expected_id not in _select_clause or _identity_mismatch):
                     messages.append(TextMessage(
                         position=position_counter,
                         text=f"Answer-entity guard: query did not return the expected entity '{_guard_entity}' ({_expected_id}); regenerating once."

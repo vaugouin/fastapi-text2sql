@@ -664,6 +664,15 @@ question which counts still returns entity rows. `data/text_to_sql.md` now has "
 one row, one column", and the aggregation rule says "per entity". A single total is one cell:
 `SELECT COUNT(DISTINCT <id>) AS <X>_COUNT FROM ... [WHERE ...]`.
 
+**The answer-entity guard exempts a single total** (FASTAPI-TEXT2SQL-303, 2026-09-29). The guard
+(-117/-136) regenerates any query that does not project the id column of the expected entity. A
+single total projects no id by design, so the guard used to demand entity rows: gpt-6-sol obeyed
+and failed its counts (793, 2169-2172, 2313), gpt-4o failed to regenerate and kept its count,
+passing by accident after a discarded LLM call. `_is_single_total_select` now lets through a query
+whose outer SELECT list is exactly one `COUNT(...)` with no `GROUP BY`. COUNT only, on purpose:
+"What is the longest movie?" written as `SELECT MAX(RUNTIME)` is still a wrong answer the guard
+must turn into the movie row.
+
 ## Before and after an evaluation campaign: `off-all.sh`, then `on-all.sh`
 
 Every automated task on the VPS (crawlers, preprocessors, `embedding-update`, ...) is started by
