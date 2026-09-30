@@ -147,6 +147,59 @@ def check_payload_reading():
             ("payload: old cache entry without known_credits", ok2, repr(old))]
 
 
+def check_phrase():
+    """The credit named in the answer and in a substituted relation question."""
+    rows = [
+        ("phrase: director first", SCORSESE, disc(faces=["Robert De Niro"], directors=["Martin Scorsese"]),
+         "movie", {"en": "directed by Martin Scorsese", "fr": "réalisé par Martin Scorsese"}),
+        ("phrase: face when no director matched", SCORSESE, disc(faces=["Robert De Niro"]),
+         "movie", {"en": "starring Robert De Niro", "fr": "avec Robert De Niro"}),
+        ("phrase: model spelling kept (Serif Goren)", GOREN, disc(directors=["Serif Goren"]),
+         "movie", {"en": "directed by Serif Goren", "fr": "réalisé par Serif Goren"}),
+        ("phrase: series creator", SERIE_B, disc(directors=["Juan Ejemplo"]),
+         "serie", {"en": "created by Juan Ejemplo", "fr": "créée par Juan Ejemplo"}),
+        ("phrase: language win names no credit", GOREN, disc(original_language="tr"),
+         "movie", {"en": "", "fr": ""}),
+        ("phrase: two directors joined", LEO_EN, disc(directors=["Robert Smigel", "David Wachtenheim"]),
+         "movie", {"en": "directed by Robert Smigel and David Wachtenheim",
+                   "fr": "réalisé par Robert Smigel et David Wachtenheim"}),
+    ]
+    return [(n, vi.discriminator_phrase(c, d, t) == want, f"got {vi.discriminator_phrase(c, d, t)}")
+            for n, c, d, t, want in rows]
+
+
+def check_composition():
+    """compose_vision_question appends the credit to the substituted phrase (text2sql.py).
+
+    The vision block of text2sql.py is read from disk and executed, as eval/verif-114.py does,
+    so that the check runs without the API's dependencies.
+    """
+    import io
+    import json
+    import re
+    src = io.open(os.path.join(RACINE, "text2sql.py"), encoding="utf-8").read()
+    space = {"re": re, "json": json}
+    start = src.index("def f_build_retry_question_from_reasoning(")
+    end = src.index("# FASTAPI-TEXT2SQL-263. The entity-card patterns")
+    exec(compile(src[start:end], "text2sql.py", "exec"), space)
+    exec(compile(src[src.index("# Vision identification, the sixth LLM task"):], "text2sql.py", "exec"), space)
+    payload = {"items": [{"type": "movie", "value": "Taxi Driver", "year": "1976", "confidence": 0.98,
+                          "known_credits": {"directors": ["Martin Scorsese"], "lead_cast": [],
+                                            "original_title": "", "original_language": "en"}}]}
+    suffix = {"en": "directed by Martin Scorsese", "fr": "réalisé par Martin Scorsese"}
+    compose = space["compose_vision_question"]
+    got_en = compose(payload, "who is the composer of this film?", "en", subject_suffix=suffix)
+    got_fr = compose(payload, "qui a composé la musique de ce film ?", "fr", subject_suffix=suffix)
+    got_none = compose(payload, "who is the composer of this film?", "en")
+    items = space["_normalize_vision_items"](payload)
+    return [
+        ("compose: suffix in English", "the movie Taxi Driver (1976) directed by Martin Scorsese" in got_en, got_en),
+        ("compose: suffix in French", "le film Taxi Driver (1976) réalisé par Martin Scorsese" in got_fr, got_fr),
+        ("compose: no suffix, unchanged", "directed by" not in got_none, got_none),
+        ("normalize: known_credits kept on a movie", items[0].get("known_credits", {}).get("directors") == ["Martin Scorsese"], repr(items[0])),
+    ]
+
+
 def check_normalization():
     pairs = [("Şerif Gören", "serif goren"), ("Kadir İnanır", "kadir inanir"),
              ("  Robert  De Niro ", "robert de niro"), ("O'Brien", "o brien")]
@@ -167,7 +220,8 @@ def main():
         # Invariant of every case: never an empty result when candidates exist.
         if cands and not got["kept"]:
             results.append((f"{name} (never empty)", False, "kept is empty"))
-    results += check_applies() + check_payload_reading() + check_normalization()
+    results += (check_applies() + check_payload_reading() + check_phrase()
+                + check_composition() + check_normalization())
 
     failed = 0
     for name, ok, detail in results:

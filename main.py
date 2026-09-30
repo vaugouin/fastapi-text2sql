@@ -29,6 +29,7 @@ import logs
 import uploads
 import sql_cache
 import vision_cache
+import vision_identity
 import sql_shapes
 import closed_vocab
 import samples_assertions as sa
@@ -189,7 +190,7 @@ def _run_generated_sql(db_connection, sql_text: str):
 
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.19"
+strapiversion = "1.1.20"
 # Convert API version to XXX.YYY.ZZZ format
 strapiversionformatted = format_api_version(strapiversion)
 
@@ -1154,6 +1155,86 @@ _BARE_ID_PATTERNS = {
     "imdb_title": re.compile(r"^(?:imdb\s+)?(tt\d+)$", re.IGNORECASE),
     "wikidata": re.compile(r"^(?:wikidata\s+)?(Q\d+)$", re.IGNORECASE),
 }
+
+
+# FASTAPI-TEXT2SQL-307. The rows the identity check chooses among: every work sharing the
+# title and the year the vision model read, on the same three title columns the generated SQL
+# compares, so the check sees exactly the namesakes the search would have returned. The decision
+# itself lives in vision_identity.py, pure and pinned by eval/test-vision-homonyms.py.
+_VISION_IDENTITY_SOURCES = {
+    "movie": {
+        "table": "T_WC_T2S_MOVIE", "id": "ID_MOVIE", "year": "RELEASE_YEAR",
+        "titles": ("MOVIE_TITLE", "MOVIE_TITLE_FR", "ORIGINAL_TITLE"),
+        "credits": "T_WC_T2S_PERSON_MOVIE", "maker_job": "Director",
+    },
+    "serie": {
+        "table": "T_WC_T2S_SERIE", "id": "ID_SERIE", "year": "FIRST_AIR_YEAR",
+        "titles": ("SERIE_TITLE", "SERIE_TITLE_FR", "ORIGINAL_TITLE"),
+        "credits": "T_WC_T2S_PERSON_SERIE", "maker_job": "Creator",
+    },
+}
+# Beyond this many namesakes the title is a generic word ("Alone", eight films in 2020); the
+# check still runs, on the first rows only. The harvest of 2026-09-30 found no group above 8.
+_VISION_IDENTITY_MAX_CANDIDATES = 20
+
+
+def _vision_identity_row(r):
+    return {"id": r["ID"], "id_imdb": r.get("ID_IMDB") or "",
+            "original_title": r.get("ORIGINAL_TITLE") or "",
+            "original_language": r.get("ORIGINAL_LANGUAGE") or "",
+            "directors": [], "cast": []}
+
+
+def _fetch_vision_identity_candidates(connection, item_type, title, year):
+    """Return the works sharing ``title`` and ``year``, each with its makers and cast.
+
+    Candidate dicts carry ``id``, ``id_imdb``, ``original_title``, ``original_language``,
+    ``directors`` (creators for a series) and ``cast`` (billing order). Any failure returns
+    ``[]``, which the caller treats as "nothing to decide": the check improves the answer, it
+    is never a reason to fail it.
+    """
+    src = _VISION_IDENTITY_SOURCES.get(item_type)
+    if not src or not str(title or "").strip() or not re.fullmatch(r"\d{4}", str(year or "")):
+        return []
+    title_filter = " OR ".join(f"{c} = %s" for c in src["titles"])
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {src['id']} AS ID, ID_IMDB, ORIGINAL_TITLE, ORIGINAL_LANGUAGE "
+                f"FROM {src['table']} WHERE ({title_filter}) AND {src['year']} = %s "
+                f"ORDER BY {src['id']} LIMIT {_VISION_IDENTITY_MAX_CANDIDATES}",
+                tuple([title] * len(src["titles"])) + (int(year),),
+            )
+            rows = cursor.fetchall() or []
+            if len(rows) < 2:
+                # Nothing to choose among: the credits are not worth a second query.
+                return [_vision_identity_row(r) for r in rows]
+            ids = [r["ID"] for r in rows]
+            placeholders = ", ".join(["%s"] * len(ids))
+            cursor.execute(
+                f"SELECT pc.{src['id']} AS ID, pc.CREDIT_TYPE, pc.CREW_JOB, pc.DISPLAY_ORDER, "
+                f"p.PERSON_NAME FROM {src['credits']} pc "
+                f"JOIN T_WC_T2S_PERSON p ON p.ID_PERSON = pc.ID_PERSON "
+                f"WHERE pc.{src['id']} IN ({placeholders}) "
+                f"AND (pc.CREDIT_TYPE = 'cast' OR (pc.CREDIT_TYPE = 'crew' AND pc.CREW_JOB = %s)) "
+                f"AND (pc.DELETED IS NULL OR pc.DELETED = 0) "
+                f"ORDER BY pc.{src['id']}, pc.DISPLAY_ORDER",
+                tuple(ids) + (src["maker_job"],),
+            )
+            credits = cursor.fetchall() or []
+    except Exception as exc:
+        print(f"[vision-identity] candidate lookup failed, check skipped: {exc}")
+        return []
+    by_id = {r["ID"]: _vision_identity_row(r) for r in rows}
+    for c in credits:
+        cand = by_id.get(c["ID"])
+        name = str(c.get("PERSON_NAME") or "").strip()
+        if cand is None or not name:
+            continue
+        key = "cast" if c.get("CREDIT_TYPE") == "cast" else "directors"
+        if name not in cand[key]:
+            cand[key].append(name)
+    return [by_id[i] for i in ids]
 
 
 def _detect_bare_id(question):
@@ -2328,6 +2409,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     vision_evidence = None
     vision_identification_processing_time = 0.0
     vision_model_used = False
+    # FASTAPI-TEXT2SQL-307. Set when the identity check settles a photo sent alone: the answer
+    # then names the work instead of the bare identifier the question was reduced to.
+    strvisionidentityanswer = ""
 
     def _vision_short_circuit_response(*, answer_text, justification_text, question_text,
                                        error_text="", error_code=None):
@@ -2559,6 +2643,61 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             and t2s.question_targets_the_people_shown(strvisionquestion))
         strvisioncomposed = t2s.compose_vision_question(
             dctvision, strvisionquestion, request.ui_language)
+
+        # FASTAPI-TEXT2SQL-307. Title plus year is not a unique key: two 1976 "Taxi Driver"
+        # share it. When one work dominates, look for its namesakes and let what the image
+        # already said (faces read, credits known) choose among them. Never fewer than one:
+        # without a clear winner the composed question is left as it was.
+        dctidentitycheck = None
+        if not intansweredfromfaces and vision_identity.identity_check_applies(dctvisionselection):
+            _selected = dctvisionselection["selected"]
+            _type = str(_selected.get("type") or "").lower()
+            _candidates = _fetch_vision_identity_candidates(
+                connection, _type, _selected.get("value"), _selected.get("year"))
+            _disc = vision_identity.discriminators_from_vision(
+                _selected, dctvisionselection.get("people"))
+            _decision = vision_identity.pick_vision_identity(_candidates, _disc)
+            dctidentitycheck = {
+                "decision": _decision["decision"],
+                "discriminators": _disc,
+                "candidates": [{k: c[k] for k in ("id", "id_imdb", "original_title",
+                                                   "original_language")} for c in _candidates],
+                "scores": {str(k): v for k, v in _decision["scores"].items()},
+                "kept": _decision["kept"],
+            }
+            if _decision["decision"] == "picked":
+                _winner = next(c for c in _candidates if c["id"] == _decision["kept"][0])
+                _suffix = vision_identity.discriminator_phrase(_winner, _disc, _type)
+                _matches = ", ".join(_decision["scores"][_winner["id"]]["matches"])
+                if not strvisionquestion and _winner["id_imdb"]:
+                    # The bare-identifier fast path (-137) then answers with no LLM call.
+                    strvisioncomposed = _winner["id_imdb"]
+                    _lang = "fr" if request.ui_language == "fr" else "en"
+                    _phrase = t2s.vision_entity_phrase(_selected, _lang)
+                    _credit = f", {_suffix[_lang]}" if _suffix[_lang] else ""
+                    strvisionidentityanswer = (f"Voici {_phrase}{_credit}." if _lang == "fr"
+                                               else f"Here is {_phrase}{_credit}.")
+                elif strvisionquestion:
+                    strvisioncomposed = t2s.compose_vision_question(
+                        dctvision, strvisionquestion, request.ui_language,
+                        subject_suffix=_suffix)
+                dctidentitycheck["winner_id_imdb"] = _winner["id_imdb"]
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=(f"Vision: title and year match {len(_candidates)} {_type} rows; kept "
+                          f"{_winner['id_imdb'] or _winner['id']} on {_matches}; composed "
+                          f"question '{strvisioncomposed}'.")
+                ))
+                position_counter += 1
+            elif len(_candidates) > 1:
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=(f"Vision: title and year match {len(_candidates)} {_type} rows and "
+                          f"what the image said does not single one out "
+                          f"({_decision['decision']}); all of them are searched.")
+                ))
+                position_counter += 1
+
         vision_evidence = {
             "image_ref": strimageref,
             "user_question": strvisionquestion,
@@ -2578,6 +2717,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             "authoritative_empty": bool(dctvision.get("authoritative_empty")),
             "justification": str(dctvision.get("justification") or ""),
             "composed_question": strvisioncomposed,
+            # FASTAPI-TEXT2SQL-307: candidates, scores and decision; None when not run.
+            "identity_check": dctidentitycheck,
             "confidence_thresholds": {
                 "dominant": t2s.VISION_CONFIDENCE_DOMINANT,
                 "margin": t2s.VISION_CONFIDENCE_MARGIN,
@@ -2734,6 +2875,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 answer = f"Voici l'entité ({result_entity_fp}) correspondant à l'identifiant {_id_value}."
             else:
                 answer = f"Here is the {result_entity_fp} matching identifier {_id_value}."
+            if strvisionidentityanswer:
+                # FASTAPI-TEXT2SQL-307: the id came from the image, not from the user, who
+                # never typed it and should read the work's name instead.
+                answer = strvisionidentityanswer
         else:
             messages.append(TextMessage(
                 position=position_counter,

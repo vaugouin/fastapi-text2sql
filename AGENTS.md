@@ -876,6 +876,33 @@ there because a neighbouring combination IS refused (function tools with `reason
 gpt-5.6-sol, see *The reasoning-family block*) and because this repository has never sent a
 `response_format` to the live API before.
 
+### The identity check: namesakes of the same title and year (FASTAPI-TEXT2SQL-307)
+
+Title plus year is not a unique key. On 2026-09-30 a still from Scorsese's *Taxi Driver*,
+recognised at 0.98, returned two cards, because the Turkish *Taksi Şoförü* (1976) carries the
+English title "Taxi Driver" on TMDb. The harvest of that day counts 7,788 such movie groups,
+433 of them with a film of 10,000 votes or more (`eval/harvest-title-year-homonyms-20260930.txt`).
+
+- **The prompt** asks, for every `movie` / `serie` item, a `known_credits` block (directors or
+  creators, up to three leads, original title, original language): what the model KNOWS, never
+  a `person` item. Required in the strict schema, emitted empty for other types, dropped by
+  `_normalize_vision_items` when empty.
+- **The check** runs in the pre-stage when one work dominates (`identity_check_applies`) and the
+  question is not answered from faces. `_fetch_vision_identity_candidates` (main.py) lists the
+  rows sharing the title (the three title columns the generated SQL compares) and the exact year,
+  with their makers and cast; `vision_identity.pick_vision_identity` scores them against the
+  faces read and the known credits. It only chooses among the rows, never returns zero, and
+  never uses popularity.
+- **Photo alone, one winner**: the composed question becomes the winner's `ID_IMDB`, answered by
+  the bare-identifier fast path (-137) with no LLM call, and the answer names the work
+  ("Here is the movie Taxi Driver (1976), directed by Martin Scorsese.").
+  **Photo plus question**: the substituted phrase carries the credit that decided
+  ("the movie Taxi Driver (1976) directed by Martin Scorsese").
+- **Undecided** (no score, or a tie): the composed question is unchanged and all rows come back.
+- Traced in `vision_evidence.identity_check` (decision, discriminators, candidates, scores).
+- Offline check: `uv run eval/test-vision-homonyms.py`. The recognition cache is scoped by API
+  version, so identifications cached before 1.1.20 (without `known_credits`) are not served.
+
 ### The recognition cache (`vision_cache.py`, `T_WC_T2S_VISION_CACHE`)
 
 No tier of `T_WC_T2S_CACHE` indexes bytes: its key is the question. Without this module the

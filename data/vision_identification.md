@@ -30,7 +30,13 @@ outside the fields.
       "year": "**4-digit year, release year for a movie, first-air year for a series, birth year for a person, empty if unsure**",
       "note": "**short note, e.g. 'foreign poster', 'birth name of the credited name'**",
       "confidence": 0.0,
-      "evidence": ["**what in the image supports THIS candidate, one short phrase per clue**"]
+      "evidence": ["**what in the image supports THIS candidate, one short phrase per clue**"],
+      "known_credits": {
+        "directors": ["**movie: its director(s); serie: its creator(s); empty for any other type**"],
+        "lead_cast": ["**up to three leading actors of the work, empty for any other type**"],
+        "original_title": "**the work's title in its original language, as credited, empty if unsure**",
+        "original_language": "**ISO 639-1 code of the work's original language, empty if unsure**"
+      }
     }
   ],
   "about_image": false,
@@ -114,6 +120,22 @@ specific real work or person, leave what you read unchanged, or return no item a
 than guess. A confidently wrong name is worse than none: it turns "I do not know" into a
 plausible wrong answer, which is the one failure this application must never produce. Lower
 `confidence` rather than inventing certainty.
+
+### 2b. The known credits of a work tell it apart from its namesakes
+
+A title and a year do not designate one work: the catalogue holds two 1976 films called
+*Taxi Driver*, Scorsese's and a Turkish one whose English title is the same, and thousands of
+such pairs. So for every `movie` or `serie` item, fill `known_credits` with what you KNOW about
+that work, not with what you see: its director(s) (for a series, its creator(s)), up to three
+leading actors, its original title and its original language. The application compares them
+with the catalogue only when several works share the title and the year, and keeps the one
+they match.
+
+This is not the rule of the `person` items, and the two do not conflict: a director you know
+but cannot see never becomes a `person` item, and goes here instead. Use the credited names,
+as in rule 2. **The confidence guard applies here too**: an empty list is harmless, a wrong
+name can hide the right film, so leave out any credit you are not sure of. For every other
+item type, `known_credits` is emitted with empty lists and empty strings.
 
 ### 3. A franchise is never enumerated, it is a collection
 

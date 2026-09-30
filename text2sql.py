@@ -1582,6 +1582,34 @@ def question_targets_the_image(user_question) -> bool:
     return any(marker in q for marker in _VISION_IMAGE_QUESTION_MARKERS)
 
 
+def _normalize_known_credits(raw) -> dict:
+    """Clean the ``known_credits`` block of one vision item (FASTAPI-TEXT2SQL-307).
+
+    Returns ``{}`` when the block is absent or says nothing, so an empty block and a missing
+    one are the same thing downstream.
+    """
+    if not isinstance(raw, dict):
+        return {}
+
+    def _names(values, cap):
+        if not isinstance(values, list):
+            return []
+        out = []
+        for v in values:
+            s = str(v or "").strip()
+            if s and s not in out:
+                out.append(s)
+        return out[:cap]
+
+    credits = {
+        "directors": _names(raw.get("directors"), 5),
+        "lead_cast": _names(raw.get("lead_cast"), 3),
+        "original_title": str(raw.get("original_title") or "").strip(),
+        "original_language": str(raw.get("original_language") or "").strip().lower()[:2],
+    }
+    return credits if any(credits.values()) else {}
+
+
 def _normalize_vision_items(payload) -> list:
     """Return the payload's candidates as clean dicts, best first.
 
@@ -1615,14 +1643,21 @@ def _normalize_vision_items(payload) -> list:
         raw_evidence = it.get("evidence")
         evidence = ([str(e).strip() for e in raw_evidence if str(e).strip()]
                     if isinstance(raw_evidence, list) else [])
-        cleaned.append({
+        entry = {
             "type": item_type,
             "value": value,
             "year": year,
             "note": str(it.get("note") or "").strip(),
             "confidence": confidence,
             "evidence": evidence,
-        })
+        }
+        # FASTAPI-TEXT2SQL-307. Kept for works only, and only when the model said something:
+        # a person or a collection has no namesake to tell apart by its credits, and an
+        # identification cached before this field existed simply has none.
+        credits = _normalize_known_credits(it.get("known_credits"))
+        if item_type in ("movie", "serie") and credits:
+            entry["known_credits"] = credits
+        cleaned.append(entry)
     # No cap here: the cap is applied per KIND by select_vision_candidates, because a single
     # cap over a confidence-sorted list lets recognised faces evict the work
     # (FASTAPI-TEXT2SQL-281).
@@ -1698,7 +1733,8 @@ def vision_entity_phrase(item, ui_language: str = "en") -> str:
     return f"{phrase} {value}".strip()
 
 
-def compose_vision_question(payload, user_question: str = "", ui_language: str = "en") -> str:
+def compose_vision_question(payload, user_question: str = "", ui_language: str = "en",
+                            subject_suffix=None) -> str:
     """Turn an identification into the question the rest of the pipeline will answer.
 
     Two shapes, one per case of the ticket:
@@ -1714,6 +1750,11 @@ def compose_vision_question(payload, user_question: str = "", ui_language: str =
     With several close candidates AND a user question, the best candidate is substituted: a
     relation question needs one subject. The alternatives are not lost, they travel in
     ``vision_evidence`` and the client can re-ask on another one.
+
+    ``subject_suffix`` (FASTAPI-TEXT2SQL-307) is ``{"en": ..., "fr": ...}``, the credit that
+    told the identified work apart from its namesakes ("directed by Martin Scorsese"). It is
+    appended to the substituted phrase, in the language the phrase is written in, so that a
+    relation question about one of two 1976 *Taxi Driver* is asked about the right one.
 
     Returns "" when nothing was identified; the caller then treats the turn as an
     authoritative empty rather than searching for the user's raw words.
@@ -1744,6 +1785,10 @@ def compose_vision_question(payload, user_question: str = "", ui_language: str =
     phrase = vision_entity_phrase(selection["selected"], langue)
     if phrase == "":
         return question
+    if isinstance(subject_suffix, dict):
+        suffix_text = str(subject_suffix.get(langue) or subject_suffix.get("en") or "").strip()
+        if suffix_text:
+            phrase = f"{phrase} {suffix_text}"
 
     if match:
         substituted = question[:match.start()] + phrase + question[match.end():]
@@ -1797,7 +1842,8 @@ _VISION_RESPONSE_SCHEMA = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["type", "value", "year", "note", "confidence", "evidence"],
+                "required": ["type", "value", "year", "note", "confidence", "evidence",
+                             "known_credits"],
                 "properties": {
                     "type": {"type": "string", "enum": list(_VISION_ITEM_TYPES)},
                     "value": {"type": "string"},
@@ -1805,6 +1851,21 @@ _VISION_RESPONSE_SCHEMA = {
                     "note": {"type": "string"},
                     "confidence": {"type": "number"},
                     "evidence": {"type": "array", "items": {"type": "string"}},
+                    # FASTAPI-TEXT2SQL-307. What the model KNOWS of a work, used only to tell it
+                    # apart from the works sharing its title and year. Emitted empty for every
+                    # type other than movie and serie, as strict mode has no optional field.
+                    "known_credits": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["directors", "lead_cast", "original_title",
+                                     "original_language"],
+                        "properties": {
+                            "directors": {"type": "array", "items": {"type": "string"}},
+                            "lead_cast": {"type": "array", "items": {"type": "string"}},
+                            "original_title": {"type": "string"},
+                            "original_language": {"type": "string"},
+                        },
+                    },
                 },
             },
         },

@@ -169,3 +169,45 @@ def pick_vision_identity(candidates, disc) -> dict:
         return {"decision": "undecided", "kept": ids, "scores": scores}
     winner = next(cid for cid in ids if scores[cid]["score"] == best)
     return {"decision": "picked", "kept": [winner], "scores": scores}
+
+
+def _matched_names(wanted, held) -> list:
+    """The names of ``wanted`` (as the model wrote them) whose folded form is in ``held``."""
+    held_folded = set(_names(held))
+    out = []
+    for name in wanted if isinstance(wanted, (list, tuple)) else []:
+        text = str(name or "").strip()
+        if text and normalize_person_name(text) in held_folded and text not in out:
+            out.append(text)
+    return out
+
+
+def _join(names, conjunction) -> str:
+    if len(names) <= 1:
+        return "".join(names)
+    return ", ".join(names[:-1]) + f" {conjunction} " + names[-1]
+
+
+def discriminator_phrase(candidate, disc, item_type: str = "movie") -> dict:
+    """Phrase the credit that told the winning candidate apart, in English and French.
+
+    ``{"en": "directed by Martin Scorsese", "fr": "réalisé par Martin Scorsese"}``. A matched
+    director (creator for a series) comes first because it is specific to one work; failing
+    that, a matched face or lead actor. A decision won on the title or the language alone
+    yields empty strings: there is no credit to name.
+    """
+    candidate = candidate if isinstance(candidate, dict) else {}
+    disc = disc if isinstance(disc, dict) else {}
+    directors = _matched_names(disc.get("directors"), candidate.get("directors"))
+    if directors:
+        if str(item_type or "").strip().lower() == "serie":
+            return {"en": f"created by {_join(directors, 'and')}",
+                    "fr": f"créée par {_join(directors, 'et')}"}
+        return {"en": f"directed by {_join(directors, 'and')}",
+                "fr": f"réalisé par {_join(directors, 'et')}"}
+    people = list(candidate.get("directors") or []) + list(candidate.get("cast") or [])
+    actors = _matched_names(list(disc.get("faces") or []) + list(disc.get("lead_cast") or []), people)
+    if actors:
+        return {"en": f"starring {_join(actors[:2], 'and')}",
+                "fr": f"avec {_join(actors[:2], 'et')}"}
+    return {"en": "", "fr": ""}
