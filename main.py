@@ -2668,6 +2668,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # already said (faces read, credits known) choose among them. Never fewer than one:
         # without a clear winner the composed question is left as it was.
         dctidentitycheck = None
+        # Appended after the "candidates read" message, so the trace reads in the order the
+        # decisions were made: what the image shows, then which namesake it means.
+        strvisionidentitymessage = ""
         if not intansweredfromfaces and vision_identity.identity_check_applies(dctvisionselection):
             _selected = dctvisionselection["selected"]
             _type = str(_selected.get("type") or "").lower()
@@ -2701,21 +2704,15 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         dctvision, strvisionquestion, request.ui_language,
                         subject_suffix=_suffix)
                 dctidentitycheck["winner_id_imdb"] = _winner["id_imdb"]
-                messages.append(TextMessage(
-                    position=position_counter,
-                    text=(f"Vision: title and year match {len(_candidates)} {_type} rows; kept "
-                          f"{_winner['id_imdb'] or _winner['id']} on {_matches}; composed "
-                          f"question '{strvisioncomposed}'.")
-                ))
-                position_counter += 1
+                strvisionidentitymessage = (
+                    f"Vision: title and year match {len(_candidates)} {_type} rows; kept "
+                    f"{_winner['id_imdb'] or _winner['id']} on {_matches}; composed "
+                    f"question '{strvisioncomposed}'.")
             elif len(_candidates) > 1:
-                messages.append(TextMessage(
-                    position=position_counter,
-                    text=(f"Vision: title and year match {len(_candidates)} {_type} rows and "
-                          f"what the image said does not single one out "
-                          f"({_decision['decision']}); all of them are searched.")
-                ))
-                position_counter += 1
+                strvisionidentitymessage = (
+                    f"Vision: title and year match {len(_candidates)} {_type} rows and "
+                    f"what the image said does not single one out "
+                    f"({_decision['decision']}); all of them are searched.")
 
         vision_evidence = {
             "image_ref": strimageref,
@@ -2771,6 +2768,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                           "so the client can ask which one is meant.")
                 ))
                 position_counter += 1
+
+        if strvisionidentitymessage:
+            messages.append(TextMessage(position=position_counter, text=strvisionidentitymessage))
+            position_counter += 1
 
         # Case 3 of the ticket: the question is about the image itself, which no catalogue can
         # answer. The model answered it from the pixels; nothing is searched.
@@ -2964,6 +2965,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             vision_model_used=vision_model_used,
             image_ref=strimageref,
             vision_evidence=vision_evidence,
+            # FASTAPI-TEXT2SQL-307: a photo settled by the identity check lands here, and its
+            # vision call has to be counted like on any other path (it was null on 2026-09-30).
+            llm_usage=t2s.snapshot_llm_usage(),
             ui_language=request.ui_language,
             api_version=strapiversion,
             result=fast_path_results,
