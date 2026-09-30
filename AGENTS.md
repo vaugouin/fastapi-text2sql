@@ -1617,9 +1617,11 @@ The API/MCP server is built and run as a Docker container via the repo's `Docker
 
 Odd patch means Green, even patch means Blue. The rule itself, the real ports and the four
 clients that have to be repointed are in "Clients of this API" above; the consequence here is
-narrower. After touching a `*.py`, run the restart script for the colour matching the **current**
-version's parity, `restart-green.sh` on an odd patch, `restart-blue.sh` on an even one. Never
-infer the live colour from which script happened to be run last.
+narrower. After touching a `*.py`, run `restart.sh` in the checkout of the colour matching the
+**current** version's parity, `~/docker/fastapi-text2sql-green` on an odd patch,
+`~/docker/fastapi-text2sql-blue` on an even one. The script reads its colour from the folder it
+lives in and refuses to run anywhere else. Never infer the live colour from which checkout
+happened to be restarted last.
 
 ### `logs/` and `uploads/` are shared by every colour, with opposite retentions
 

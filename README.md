@@ -1301,7 +1301,7 @@ docker run -d --rm --network="host" \
   fastapi-text2sql-blue-app
 ```
 
-The provided helper scripts ([restart-blue.sh](restart-blue.sh), [restart-green.sh](restart-green.sh)) already use this pattern — the host env files are expected at `/home/debian/docker/fastapi-text2sql-blue/.env` and `/home/debian/docker/fastapi-text2sql-green/.env` respectively.
+The provided helper script ([restart.sh](restart.sh)) already uses this pattern, deciding the colour from the checkout folder it runs from — the host env files are expected at `/home/debian/docker/fastapi-text2sql-blue/.env` and `/home/debian/docker/fastapi-text2sql-green/.env` respectively.
 
 ### The second mount: one log folder for every colour
 
@@ -1311,7 +1311,7 @@ The first mount carries the code. The second carries the **log corpus**, and it 
 
 Two operational consequences, neither optional:
 
-- **Create the host directory before the first run.** [restart-blue.sh](restart-blue.sh) / [restart-green.sh](restart-green.sh) do it with `mkdir -p`. Left to Docker, the directory appears **root-owned**, and [archive-logs.sh](archive-logs.sh) can then no longer delete the loose originals it has just archived, which is exactly how a log directory reaches 17 842 files.
+- **Create the host directory before the first run.** [restart.sh](restart.sh) does it with `mkdir -p`. Left to Docker, the directory appears **root-owned**, and [archive-logs.sh](archive-logs.sh) can then no longer delete the loose originals it has just archived, which is exactly how a log directory reaches 17 842 files.
 - **The archiver becomes more critical, not less.** One directory now fills at the rate of the three combined, so the monthly cron is what keeps the mirror listing fast. Check that it really runs *after* the switch, not only before.
 
 The one-shot merge of the three historical directories is [migrate-logs-to-shared.sh](migrate-logs-to-shared.sh); see [Archiving old logs](#archiving-old-logs).
@@ -1365,8 +1365,7 @@ fastapi-text2sql/
 ├── .env.example             # Example environment variables template
 ├── .env                     # Environment variables (create from .env.example)
 ├── LICENSE                  # Project license file
-├── restart-blue.sh          # Blue deployment restart script
-├── restart-green.sh         # Green deployment restart script
+├── restart.sh               # Restart script, colour read from the checkout folder (-blue / -green)
 ├── archive-logs.sh           # Monthly log archiver (cron): packs past months into logs/archive/
 ├── migrate-logs-to-shared.sh # One-shot merge of the three old per-stack log dirs
 ├── purge-uploads.sh          # Daily 30-day purge of uploads/vision (cron): deletes, unlike archive-logs.sh
@@ -1640,8 +1639,7 @@ The API supports Blue/Green deployment strategy for zero-downtime updates:
 - Automatic port selection on startup
 
 **Deployment Scripts:**
-- `restart-blue.sh`: Deploys to Blue environment (port 8000)
-- `restart-green.sh`: Deploys to Green environment (port 8001)
+- `restart.sh`: Deploys the colour of the checkout it lives in, Blue from `/home/debian/docker/fastapi-text2sql-blue`, Green from `/home/debian/docker/fastapi-text2sql-green`; stops anywhere else
 
 **Benefits:**
 - Zero-downtime deployments

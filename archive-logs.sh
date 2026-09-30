@@ -14,7 +14,7 @@
 # and the third, colourless deployment each wrote into their own stack dir, because the
 # docker run line mounted only the code, so the corpus was split in three. They now share
 # /home/debian/docker/shared_data/fastapi-text2sql/logs, bind-mounted on /app/logs by
-# restart-blue.sh and restart-green.sh. That makes this script MORE critical, not less:
+# restart.sh (both colours). That makes this script MORE critical, not less:
 # one directory now fills at the rate of the three combined, and the precedent for letting
 # it run unattended is recorded below.
 #

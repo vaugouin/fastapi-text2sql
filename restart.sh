@@ -1,9 +1,25 @@
-echo "=== $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
-docker ps --filter "name=fastapi-text2sql-blue"
+#!/bin/bash
+# Restart the API of the colour this checkout belongs to. The colour is read from the
+# folder the script lives in: /home/debian/docker/fastapi-text2sql-blue restarts Blue,
+# /home/debian/docker/fastapi-text2sql-green restarts Green. Anywhere else it stops,
+# rather than guess a colour and restart the live one by mistake.
+STACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+case "$STACK_DIR" in
+    /home/debian/docker/fastapi-text2sql-blue) COLOR=blue ;;
+    /home/debian/docker/fastapi-text2sql-green) COLOR=green ;;
+    *)
+        echo "ERROR: $STACK_DIR is neither /home/debian/docker/fastapi-text2sql-blue nor /home/debian/docker/fastapi-text2sql-green, nothing restarted."
+        exit 1
+        ;;
+esac
+NAME="fastapi-text2sql-$COLOR"
 
-docker stop fastapi-text2sql-blue 
+echo "=== $(date '+%Y-%m-%d %H:%M:%S %Z') === $NAME"
+docker ps --filter "name=$NAME"
 
-cd /home/debian/docker/fastapi-text2sql-blue
+docker stop "$NAME"
+
+cd "$STACK_DIR" || exit 1
 clear
 # Ensure ChromaDB is healthy before (re)starting the API — main.py connects to
 # Chroma at import time and the container crashes on boot if it is unreachable.
@@ -25,12 +41,12 @@ mkdir -p "$LOGS_DIR/archive" || echo "WARNING: could not create $LOGS_DIR, the c
 # backed up, not mirrored. Write that rule on the folder, never on the shared parent.
 UPLOADS_DIR=/home/debian/docker/shared_data/fastapi-text2sql/uploads
 mkdir -p "$UPLOADS_DIR/vision" || echo "WARNING: could not create $UPLOADS_DIR, the container will start with a root-owned uploads dir."
-docker build -t fastapi-text2sql-blue-app .
+docker build -t "$NAME-app" .
 # Secrets are injected at runtime via --env-file from a host-managed env file
 # kept outside the app source tree (never baked into the image).
-#docker run -it --rm --network="host" --env-file /home/debian/docker/fastapi-text2sql-blue/.env -v $(pwd):/app -v "$LOGS_DIR":/app/logs -v "$UPLOADS_DIR":/app/uploads --name fastapi-text2sql-blue fastapi-text2sql-blue-app
-docker run -d --rm --network="host" --env-file /home/debian/docker/fastapi-text2sql-blue/.env -v $(pwd):/app -v "$LOGS_DIR":/app/logs -v "$UPLOADS_DIR":/app/uploads --name fastapi-text2sql-blue fastapi-text2sql-blue-app
+#docker run -it --rm --network="host" --env-file "$STACK_DIR/.env" -v "$STACK_DIR":/app -v "$LOGS_DIR":/app/logs -v "$UPLOADS_DIR":/app/uploads --name "$NAME" "$NAME-app"
+docker run -d --rm --network="host" --env-file "$STACK_DIR/.env" -v "$STACK_DIR":/app -v "$LOGS_DIR":/app/logs -v "$UPLOADS_DIR":/app/uploads --name "$NAME" "$NAME-app"
 
-docker ps --filter "name=fastapi-text2sql-blue"
-echo "=== $(date '+%Y-%m-%d %H:%M:%S %Z') ==="
-docker logs -f fastapi-text2sql-blue
+docker ps --filter "name=$NAME"
+echo "=== $(date '+%Y-%m-%d %H:%M:%S %Z') === $NAME"
+docker logs -f "$NAME"

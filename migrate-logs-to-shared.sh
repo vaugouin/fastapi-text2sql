@@ -11,7 +11,7 @@
 #   /home/debian/docker/fastapi-text2sql/logs
 #
 # They all become /home/debian/docker/shared_data/fastapi-text2sql/logs, bind-mounted on
-# /app/logs by restart-blue.sh and restart-green.sh.
+# /app/logs by restart.sh (both colours).
 #
 # THE MERGE IS THE WORK, NOT THE MOUNT. Two things collide, one of them destructively:
 #
