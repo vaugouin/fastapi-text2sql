@@ -42,6 +42,27 @@ SERIE_B = {"id": 9002, "original_title": "El muelle", "original_language": "es",
            "directors": ["Juan Ejemplo"], "cast": ["Lucia Prueba", "Diego Muestra"]}
 
 
+# Real groups from eval/harvest-title-year-homonyms-20260930.txt, credits as the database holds
+# them (NULL credits become empty lists).
+# The Message (1976): English and Arabic versions shot together by the SAME director, and the
+# Arabic row has no cast in the database. Only the language can separate them.
+MESSAGE_EN = {"id": 26842, "id_imdb": "tt0074896", "original_title": "The Message", "original_language": "en",
+              "directors": ["Moustapha Akkad"], "cast": ["Anthony Quinn", "Irene Papas"]}
+MESSAGE_AR = {"id": 881210, "id_imdb": "tt0075143", "original_title": "Al-risâlah", "original_language": "ar",
+              "directors": ["Moustapha Akkad"], "cast": []}
+# Leo (2023): two well-known films (75,128 and 47,395 votes) plus a third with no credits. The
+# Tamil original title is in Tamil script, so a model that transliterates it as "Leo" matches
+# the WRONG film on the title; the director and the language must outweigh that.
+LEO_TA = {"id": 949229, "id_imdb": "tt15654328", "original_title": "லியோ", "original_language": "ta",
+          "directors": ["Lokesh Kanagaraj"], "cast": ["Vijay", "Sanjay Dutt"]}
+LEO_EN = {"id": 1075794, "id_imdb": "tt5755238", "original_title": "Leo", "original_language": "en",
+          "directors": ["David Wachtenheim", "Robert Marianetti", "Robert Smigel"],
+          "cast": ["Adam Sandler", "Bill Burr"]}
+LEO_X = {"id": 1169632, "id_imdb": "tt43721254", "original_title": "Leo", "original_language": "en",
+         "directors": [], "cast": []}
+LEO = [LEO_TA, LEO_EN, LEO_X]
+
+
 def disc(**kw):
     base = {"faces": [], "directors": [], "lead_cast": [], "original_title": "", "original_language": ""}
     base.update(kw)
@@ -80,6 +101,20 @@ CASES = [
      [], disc(faces=["Robert De Niro"]), "single", []),
     ("series pair decided by the creator",
      [SERIE_A, SERIE_B], disc(directors=["Juan Ejemplo"]), "picked", [9002]),
+    ("The Message: shared director alone cannot decide",
+     [MESSAGE_EN, MESSAGE_AR], disc(directors=["Moustapha Akkad"]), "undecided", [26842, 881210]),
+    ("The Message, Arabic version: language decides, the face is not in the database",
+     [MESSAGE_EN, MESSAGE_AR], disc(faces=["Abdullah Gaith"], directors=["Moustapha Akkad"], original_language="ar"),
+     "picked", [881210]),
+    ("The Message, English version: Anthony Quinn's face",
+     [MESSAGE_EN, MESSAGE_AR], disc(faces=["Anthony Quinn"], directors=["Moustapha Akkad"]), "picked", [26842]),
+    ("Leo, animated poster: directors decide among three",
+     LEO, disc(directors=["Robert Smigel", "David Wachtenheim"], lead_cast=["Adam Sandler"]), "picked", [1075794]),
+    ("Leo, Tamil film with a transliterated title that matches the wrong rows",
+     LEO, disc(faces=["Vijay"], directors=["Lokesh Kanagaraj"], original_title="Leo", original_language="ta"),
+     "picked", [949229]),
+    ("Leo, title and language alone tie the two English rows",
+     LEO, disc(original_title="Leo", original_language="en"), "undecided", [949229, 1075794, 1169632]),
     ("face counted once when also given as lead cast",
      TAXI, disc(faces=["Robert De Niro"], lead_cast=["Robert De Niro"]), "picked", [103]),
 ]
