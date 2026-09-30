@@ -1071,6 +1071,8 @@ def f_build_retry_question_from_reasoning(resolved: dict) -> str:
                     return f"Person {v0} born in {y0}"
                 return f"Person {v0}"
             if t0 == "serie":
+                if re.fullmatch(r"\d{4}", y0 or ""):
+                    return f"Serie {v0} ({y0})"
                 return f"Serie {v0}"
             if t0 == "topic":
                 return f"Topic {v0}"
@@ -1137,7 +1139,9 @@ def f_build_identity_retry_seed(resolved: dict, retry_question: str) -> "dict | 
     ``{"result_entity": "serie", "extraction": {"question": "{{Serie_title1}}",
     "query_mode": "named_entity_query", "Serie_title1": "Sherlock"}}``. A movie keeps its
     year in parentheses, `{{Movie_title1}} ({{Release_year1}})`, the form that returned the
-    right movie in every riddle of the 2026-09-24 and -25 rounds.
+    right movie in every riddle of the 2026-09-24 and -25 rounds. A series keeps its first-air
+    year the same way, `{{Serie_title1}} ({{First_air_year1}})`: `Serie Friends` alone left
+    four same-title candidates for the voice-agent to disambiguate.
     """
     try:
         if not isinstance(resolved, dict):
@@ -1170,6 +1174,9 @@ def f_build_identity_retry_seed(resolved: dict, retry_question: str) -> "dict | 
         if stryear and strtype == "movie":
             dctextraction["question"] = "{{Movie_title1}} ({{Release_year1}})"
             dctextraction["Release_year1"] = stryear
+        elif stryear and strtype == "serie":
+            dctextraction["question"] = "{{Serie_title1}} ({{First_air_year1}})"
+            dctextraction["First_air_year1"] = stryear
         elif stryear and strtype == "person":
             dctextraction["question"] = "{{Person_name1}} born in {{Birth_year1}}"
             dctextraction["Birth_year1"] = stryear

@@ -119,6 +119,11 @@ A 4-digit year representing a person's year of birth.
 Extract only when the question filters or reasons about a person's birth year (e.g., "actors born in 1962", "directors born in 1899").
 Examples: `1899`, `1962`, `2000`
 
+### First_air_year
+A 4-digit year representing the year a TV series first aired, written in parentheses after a series title to tell apart several series sharing that title.
+Extract only in the `Serie Title (Year)` form described under "Series title with first-air year" below.
+Examples: `1994`, `2005`
+
 ### Death_year
 A 4-digit year representing a person's year of death.
 Extract only when the question filters or reasons about a person's death year (e.g., "directors who died in 1980", "actresses who passed away in 2020").
@@ -297,6 +302,12 @@ Disambiguation:
 When the user writes `Title (Year)`, extract both:
 - `Movie_titleN`: the title without the year
 - `Release_yearN`: the 4-digit year inside parentheses
+
+### Series title with first-air year
+When the user writes `Serie Title (Year)` or `Series Title (Year)`, the title is a TV series and the year is the year it first aired. Extract both:
+- `Serie_titleN`: the title without the year
+- `First_air_yearN`: the 4-digit year inside parentheses
+Never extract that year as `Release_yearN`: a release year belongs to a movie.
 
 ### Topic_name boundaries
 Do not extract as `Topic_name`:
@@ -611,6 +622,15 @@ Output:
   "query_mode": "named_entity_query",
   "Movie_title1": "The Exorcist",
   "Release_year1": "1973"
+}
+
+Input: `Serie Friends (1994)`
+Output:
+{
+  "question": "Serie {{Serie_title1}} ({{First_air_year1}})",
+  "query_mode": "named_entity_query",
+  "Serie_title1": "Friends",
+  "First_air_year1": "1994"
 }
 
 Input: `What movies used the Technicolor technology?`

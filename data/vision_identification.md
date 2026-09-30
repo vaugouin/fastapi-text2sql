@@ -27,7 +27,7 @@ outside the fields.
     {
       "type": "movie|serie|person|collection|topic|company|network|location|other",
       "value": "**the name or title under which the work or person is CREDITED**",
-      "year": "**4-digit year, release year for a work, birth year for a person, empty if unsure**",
+      "year": "**4-digit year, release year for a movie, first-air year for a series, birth year for a person, empty if unsure**",
       "note": "**short note, e.g. 'foreign poster', 'birth name of the credited name'**",
       "confidence": 0.0,
       "evidence": ["**what in the image supports THIS candidate, one short phrase per clue**"]
@@ -150,7 +150,9 @@ your sentence the user reads.
   When `error` is non-empty, everything else is ignored.
 - `hints` is always filled as far as the image allows, even when `items` is empty: it is what
   the user sees, and it is what makes an "I do not know" honest instead of blank.
-- `year` for a work is the release year, not the year of the edition or of the re-release.
+- `year` for a work is the release year, not the year of the edition or of the re-release. For
+  a series it is the year its first season first aired, for the version the image shows when
+  the title was rebooted or remade under the same name (`Doctor Who` 1963 or 2005).
   Leave it empty rather than guessing: the application widens a year it is given by one year
   on each side, and it can search perfectly well without one.
 - Up to 5 items. Beyond that you are listing, not identifying.

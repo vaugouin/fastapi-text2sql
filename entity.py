@@ -15,15 +15,31 @@ import json_guardrails
 import closed_vocab
 
 
-def _extract_year_context(entity_extraction):
-    """Return a plausible release year (int) from a sibling ``Release_year*``
-    placeholder, or None. Used to tighten the embeddings shortlist via a
+# Which sibling year placeholder dates which title placeholder: a movie by its release
+# year, a series by its first-air year. A series title must never borrow a movie's year
+# (or the reverse) when a question names both.
+_YEAR_PREFIX_BY_TITLE_PREFIX = {
+    "Movie_title": "Release_year",
+    "Serie_title": "First_air_year",
+}
+
+
+def _extract_year_context(entity_extraction, placeholder=None):
+    """Return a plausible year (int) from the sibling year placeholder that dates
+    ``placeholder`` (``Release_year*`` for a movie title, ``First_air_year*`` for a
+    series title), or None. Used to tighten the embeddings shortlist via a
     ChromaDB ``where={"year": {...}}`` filter when disambiguating same-title
-    films (voie B / hybrid)."""
+    works (voie B / hybrid). Without a placeholder, falls back to ``Release_year``."""
     if not isinstance(entity_extraction, dict):
         return None
+    strkey = str(placeholder or "").strip("{}")
+    stryearprefix = "Release_year"
+    for strtitleprefix, strcandidate in _YEAR_PREFIX_BY_TITLE_PREFIX.items():
+        if strkey.startswith(strtitleprefix):
+            stryearprefix = strcandidate
+            break
     for k, v in entity_extraction.items():
-        if isinstance(k, str) and k.startswith("Release_year"):
+        if isinstance(k, str) and k.startswith(stryearprefix):
             try:
                 y = int(str(v).strip())
             except (TypeError, ValueError):
@@ -518,6 +534,7 @@ def _sql_escape_literal(v: str) -> str:
 # uses startswith() on the placeholder key (e.g. IMDb_person_ID before IMDb_ID).
 _REGEX_PLACEHOLDER_RULES: list[tuple[str, str, bool]] = [
     ("Release_year",         r"\d{4}", True),
+    ("First_air_year",       r"\d{4}", True),
     ("Birth_year",           r"\d{4}", True),
     ("Death_year",           r"\d{4}", True),
     ("IMDb_person_ID",       r"nm\d+", False),
@@ -1453,13 +1470,14 @@ def plan_entity_resolutions(
                         continue
 
                     # Hybrid (voie B): when this entity carries year metadata and a
-                    # sibling Release_year is present, tighten the shortlist with a
+                    # sibling year is present (Release_year for a movie, First_air_year
+                    # for a series), tighten the shortlist with a
                     # ChromaDB metadata filter. Falls back to an unfiltered search if
                     # the filter yields nothing (e.g. before the year backfill has run,
                     # or for movies whose RELEASE_YEAR is NULL) so behaviour never regresses.
                     results = None
                     if search_cfg.get("year_metadata_filter"):
-                        _year_ctx = _extract_year_context(entity_extraction)
+                        _year_ctx = _extract_year_context(entity_extraction, placeholder)
                         if _year_ctx is not None:
                             try:
                                 _filtered = current_collection.query(

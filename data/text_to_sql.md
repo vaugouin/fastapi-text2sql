@@ -28,7 +28,7 @@ Never include a semicolon at the end of the SQL query.
 
 ## ? Placeholders / Anonymization
 
-The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}, {{Movie_genre1}}, {{Serie_genre1}}, {{Technical_format1}}, {{Department_name1}}, {{Release_year1}}, {{Birth_year1}}, {{Death_year1}}.
+The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}, {{Movie_genre1}}, {{Serie_genre1}}, {{Technical_format1}}, {{Department_name1}}, {{Release_year1}}, {{First_air_year1}}, {{Birth_year1}}, {{Death_year1}}.
 These placeholders represent real entity values that were intentionally replaced earlier. **This list is exhaustive.** Entity extraction produces these names and no others, so a name outside this list cannot exist and must never be written.
 
 Rules:
@@ -823,6 +823,12 @@ CREATE TABLE T_WC_T2S_SERIE_RECOMMENDATION (
   Example:
   Input: The Exorcist (1973)
   SQL: ... WHERE T_WC_T2S_MOVIE.MOVIE_TITLE = 'The Exorcist' AND T_WC_T2S_MOVIE.RELEASE_YEAR BETWEEN 1972 AND 1974
+- The same holds for a series: `Serie <serie_title> (<first_air_year>)` means the user is searching for a series by its title and gives the year it first aired to disambiguate.
+  - Always filter by exact title equality on the series table: T_WC_T2S_SERIE.SERIE_TITLE = '<serie_title>'
+  - Apply the same ±1 tolerance, on FIRST_AIR_YEAR (never on RELEASE_YEAR, which is a movie column).
+  Example:
+  Input: Serie {{Serie_title1}} ({{First_air_year1}})
+  SQL: ... WHERE T_WC_T2S_SERIE.SERIE_TITLE = '{{Serie_title1}}' AND T_WC_T2S_SERIE.FIRST_AIR_YEAR BETWEEN {{First_air_year1}} - 1 AND {{First_air_year1}} + 1
 - Every other year in a question (a lone year, a decade, an interval, a birth or death year) is a **filter**, and its
   bounds are strict. Read the dedicated "Years, decades and date ranges" section below before emitting any year predicate.
 - If the question contains only a template placeholder, for instance '{{Movie_title1}}' without an actual movie title or question, search for this content in the corresponding column of the table related to this placeholder
@@ -895,9 +901,9 @@ Filter on the integer year column, never on the DATE column, and never with `YEA
 
 Read what the year is *doing* in the question.
 
-1. **A year that disambiguates a named title** (the pattern `<title> (<year>)`, or prose such as "the X movie of 1936", "le film X de 1936") is a **discriminant**, not a boundary. Only there: `RELEASE_YEAR BETWEEN (Y - 1) AND (Y + 1)`.
-   **Why this tolerance exists and must not be removed:** a film legitimately carries up to three different dates, the production year in the closing-credits copyright, the year of its first screening (often a festival, sometimes a full year earlier), and the year of first theatrical release, which itself varies by country. The database keeps one of them, the user may remember another. Widening by one year on each side absorbs that gap, and it is what makes `the lower depths (1936)` return Renoir's film rather than nothing, and `The Exorcist (1973)` still match a record dated 1974.
-2. **A year, a decade or an interval used as a filter** (no title to disambiguate) takes **strict bounds, never widened**. The user is stating boundaries and expects them respected. This covers "movies released in 1973", "the seventies", "before 1960", "between 1970 and 1979", and every question about a person or a series.
+1. **A year that disambiguates a named title** (the pattern `<title> (<year>)`, or prose such as "the X movie of 1936", "le film X de 1936", "the X series from 1994") is a **discriminant**, not a boundary. Only there: `RELEASE_YEAR BETWEEN (Y - 1) AND (Y + 1)` for a movie, `FIRST_AIR_YEAR BETWEEN (Y - 1) AND (Y + 1)` for a series.
+   **Why this tolerance exists and must not be removed:** a film legitimately carries up to three different dates, the production year in the closing-credits copyright, the year of its first screening (often a festival, sometimes a full year earlier), and the year of first theatrical release, which itself varies by country. The database keeps one of them, the user may remember another. Widening by one year on each side absorbs that gap, and it is what makes `the lower depths (1936)` return Renoir's film rather than nothing, and `The Exorcist (1973)` still match a record dated 1974. A series has the same gap: a pilot can air months before the series premiere, and the premiere date differs from one country to another.
+2. **A year, a decade or an interval used as a filter** (no title to disambiguate) takes **strict bounds, never widened**. The user is stating boundaries and expects them respected. This covers "movies released in 1973", "the seventies", "before 1960", "between 1970 and 1979", every question about a person, and every question about series that does not name one title.
 
 **Never widen a person's year.** A person has one birth year and one death year: no festival date, no per-country release, nothing to absorb. Widening `BIRTH_YEAR` or `DEATH_YEAR` only adds wrong people.
 
@@ -926,7 +932,7 @@ Never emit `BETWEEN 1969 AND 1980` (nor 1969/1981, nor any other widened pair) f
 
 The same forms apply to `FIRST_AIR_YEAR`, `LAST_AIR_YEAR`, `BIRTH_YEAR` and `DEATH_YEAR`: pick the column from what the question is dating (a release, a first broadcast, a birth, a death). Adding another filter (a genre, a curated list, black and white, a country) never moves the bounds.
 
-Year placeholders follow the same rule: `{{Release_yearN}}` is widened only in the title-disambiguation case above; `{{Birth_yearN}}` and `{{Death_yearN}}` are always compared with equality (`BIRTH_YEAR = '{{Birth_year1}}'`).
+Year placeholders follow the same rule: `{{Release_yearN}}` and `{{First_air_yearN}}` are widened only in the title-disambiguation case above (`{{First_air_yearN}}` always on `FIRST_AIR_YEAR`); `{{Birth_yearN}}` and `{{Death_yearN}}` are always compared with equality (`BIRTH_YEAR = '{{Birth_year1}}'`).
 
 ### Technical format filtering and detail
 

@@ -3743,7 +3743,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 _added_year_keys = []
                 if isinstance(_inner_extraction, dict) and not _original_years:
                     _added_year_keys = sorted(
-                        str(k) for k in _inner_extraction if re.match(r"(?:Release|Birth|Death)_year", str(k))
+                        str(k) for k in _inner_extraction if re.match(r"(?:Release|First_air|Birth|Death)_year", str(k))
                     )
                 _rewrite_added_constraint = ""
                 if _added_years:

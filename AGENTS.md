@@ -1352,8 +1352,8 @@ calls. That row is legitimate when the rewrite repaired a resolution (`Marion Mo
 rewritten "Movie Pour le plaisir (2004)" from the model's memory, and the year-filtered SQL
 served every following "Pour le plaisir" for two days, hiding the 2026 film. Since -242 the
 write is skipped when the rewrite carries a four-digit year absent from the original question,
-or (second belt) when the inner extraction produced a `Release_year` / `Birth_year` /
-`Death_year` placeholder while the original question holds no year. The decision is written to
+or (second belt) when the inner extraction produced a `Release_year` / `First_air_year` /
+`Birth_year` / `Death_year` placeholder while the original question holds no year. The decision is written to
 the messages and to `complex_retry_cache_policy`, whose values `README.md` lists. The rewritten
 question stays cached under its own wording by the inner pass, so nothing is lost. Not done:
 marking retry-derived rows, which would need a column in `T_WC_T2S_CACHE`.

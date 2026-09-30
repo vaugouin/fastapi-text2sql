@@ -11,7 +11,7 @@ Convert the provided natural language question into the following json structure
     {
       "type": "movie|serie|person|collection|topic|company|network|location|other",
       "value": "**item name/title**",
-      "year": "**optional year (4 digits) for movies/person birth year if relevant**",
+      "year": "**optional year (4 digits): movie release year, series first-air year, person birth year, if relevant**",
       "note": "**optional short note**"
     }
   ],
@@ -34,7 +34,7 @@ response is discarded.
 Allowed simple-question patterns. **One per entity the app can resolve — all fourteen, not
 just the first three.** Pick the pattern of the entity the question is actually about:
 - Movie {{MOVIE_TITLE}} ({{YEAR}})
-- Serie {{SERIE_TITLE}}
+- Serie {{SERIE_TITLE}} ({{FIRST_AIR_YEAR}})
 - Person {{PERSON_NAME}} born in {{BIRTH_YEAR}}
 - Topic {{TOPIC_NAME}}
 - Collection {{COLLECTION_NAME}}
@@ -119,11 +119,13 @@ Important:
 Best-effort inference rules:
 - If you can infer several movie candidates, output using the Movie patterns. **Exception:** if those movies all belong to one named franchise / universe / saga / collection, use the single `Collection` pattern above instead of listing titles (see the franchise rule).
 - If you can infer several person candidates (actor/director), output using the Person pattern.
+- A series is identified by its title AND the year its first season first aired, `Serie Friends (1994)`, exactly as a movie carries its release year: several series share a title, and the year is what picks one. When a title was rebooted or remade under the same name (`Doctor Who` 1963 and 2005, `Battlestar Galactica` 1978 and 2004, `The Office` 2001 and 2005), give the first-air year of the version the clues point to, not the year of the first version. If the clues do not say which version, give the year of the most widely known one. Put the same year in the item's `year`. Leave the year out only when you have no idea of it.
 - If there are multiple plausible candidates, pick the 10 best ones for the "question" field.
 - Always provide the most probable candidates first (ranked best-first). Do not include low-confidence guesses if you already have 10 strong candidates.
 - If there are several items (e.g. the user asks for a list, or multiple candidates are plausible), you MUST populate "items" with up to 10 items. If the user expects a list, try to reach 10 items when possible.
 - If you populate "items" with 2 or more items, the "question" element MUST be formulated as a list query that includes all items, for example:
   - Movies Title1 (Year1), Title2 (Year2), Title3 (Year3)
+  - Series Title1 (Year1), Title2 (Year2)
   - Persons Name1, Name2, Name3
   - Topics Topic1, Topic2
 - Do NOT leave the "question" field empty if you have any plausible candidate — EXCEPT for the named-entity-relationship case above, where an empty "question" is REQUIRED so the authoritative database result stands.

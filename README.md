@@ -104,6 +104,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Serie type** (`Documentary`, `Miniseries`, `News`, `Reality`, `Scripted`, `Talk Show`, `Video` — closed vocabulary loaded from `T_WC_T2S_SERIE.SERIE_TYPE`, only with explicit series context) — placeholder `{{Serie_typeN}}`
      - **Department name** (`Art`, `Camera`, `Costume & Make-Up`, `Creator`, `Crew`, `Directing`, `Editing`, `Lighting`, `Production`, `Sound`, `Visual Effects`, `Writing` — **crew-only** closed vocabulary loaded from `CREW_DEPARTMENT` ∪ `KNOWN_FOR_DEPARTMENT` over `T_WC_T2S_PERSON_MOVIE`, `T_WC_T2S_PERSON_SERIE`, `T_WC_T2S_PERSON`, with `'Actors'` / `'Acting'` excluded; cast / actor queries never produce this placeholder — they route via `CREDIT_TYPE = 'cast'` directly) — placeholder `{{Department_nameN}}`
      - **Release year** (extracted alongside a movie title when the user writes `Title (YYYY)`) — placeholder `{{Release_yearN}}`
+     - **First-air year** (extracted alongside a series title when the user writes `Serie Title (YYYY)`) — placeholder `{{First_air_yearN}}`
      - **Birth year / Death year** (4-digit years for person filtering, e.g. "actors born in 1962", "directors who died in 1980") — placeholders `{{Birth_yearN}}` / `{{Death_yearN}}`
      - **Identifiers** (regex-validated, with malformed values rejected): `IMDb_ID` (`tt\d+`), `IMDb_person_ID` (`nm\d+`), `Wikidata_ID` (`Q\d+`), `Wikidata_property_ID` (`P\d+`), `TMDb_ID` (`\d+`), `Criterion_spine_ID` (`\d+`)
    - Replace entities with typed, numbered placeholders (e.g., `{{Person_name1}}`, `{{Movie_title1}}`, `{{Award_name1}}`, `{{Group_name1}}`, `{{Release_year1}}`, `{{Technical_format1}}`)
@@ -152,7 +153,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Status name** (`{{Status_nameN}}`): closed-vocabulary string substitution for `STATUS` (e.g. `Released`, `Canceled`). Canonicals from `DISTINCT STATUS` over `T_WC_T2S_MOVIE` ∪ `T_WC_T2S_SERIE`.
      - **Serie type** (`{{Serie_typeN}}`): closed-vocabulary string substitution for `SERIE_TYPE` (e.g. `Documentary`, `Miniseries`). Canonicals from `DISTINCT SERIE_TYPE` over `T_WC_T2S_SERIE`.
      - **Department name** (`{{Department_nameN}}`): **crew-only** closed-vocabulary string substitution for `CREW_DEPARTMENT` / `KNOWN_FOR_DEPARTMENT` (e.g. `Directing`, `Camera`, `Visual Effects`). Canonicals from a UNION over `T_WC_T2S_PERSON_MOVIE.CREW_DEPARTMENT`, `T_WC_T2S_PERSON_SERIE.CREW_DEPARTMENT`, and `T_WC_T2S_PERSON.KNOWN_FOR_DEPARTMENT`, with `'Actors'` / `'Acting'` explicitly excluded. The text-to-SQL prompt picks the column based on question intent (person-search → `KNOWN_FOR_DEPARTMENT`, crew-of-content → `CREW_DEPARTMENT`); when `CREW_DEPARTMENT` is filtered via the placeholder, the prompt also enforces `CREDIT_TYPE = 'crew'`. Cast / actor queries (`actors in X`, `actresses born in 1962`) never produce this placeholder — they route via `CREDIT_TYPE = 'cast'` (film context) or `KNOWN_FOR_DEPARTMENT = 'Acting'` (person-search) inline.
-     - **Release / Birth / Death years** (`{{Release_yearN}}`, `{{Birth_yearN}}`, `{{Death_yearN}}`): regex `\d{4}`, bare numeric substitution into INT columns.
+     - **Release / First-air / Birth / Death years** (`{{Release_yearN}}`, `{{First_air_yearN}}`, `{{Birth_yearN}}`, `{{Death_yearN}}`): regex `\d{4}`, bare numeric substitution into INT columns.
      - **TMDb / Criterion identifiers** (`{{TMDb_IDN}}`, `{{Criterion_spine_IDN}}`): regex `\d+`, bare numeric substitution into INT primary keys.
      - **IMDb identifiers** (`{{IMDb_IDN}}`, `{{IMDb_person_IDN}}`): regex `tt\d+` / `nm\d+`, quoted SQL string substitution into VARCHAR `ID_IMDB` columns.
      - **Wikidata identifiers** (`{{Wikidata_IDN}}`, `{{Wikidata_property_IDN}}`): regex `Q\d+` / `P\d+`, quoted SQL string substitution into VARCHAR `ID_WIKIDATA` / `ID_PROPERTY` columns.
@@ -1578,7 +1579,7 @@ The system intelligently extracts and replaces entities in natural language ques
 
 | Placeholder prefix | Pattern | Substitution kind | Target column |
 |---|---|---|---|
-| `Release_year` / `Birth_year` / `Death_year` | `\d{4}` | Bare integer | INT (`RELEASE_YEAR` / `BIRTH_YEAR` / `DEATH_YEAR`) |
+| `Release_year` / `First_air_year` / `Birth_year` / `Death_year` | `\d{4}` | Bare integer | INT (`RELEASE_YEAR` / `FIRST_AIR_YEAR` / `BIRTH_YEAR` / `DEATH_YEAR`) |
 | `TMDb_ID` / `Criterion_spine_ID` | `\d+` | Bare integer | INT primary keys (`ID_*`) |
 | `IMDb_ID` / `IMDb_person_ID` | `tt\d+` / `nm\d+` | Quoted SQL string | VARCHAR `ID_IMDB` |
 | `Wikidata_ID` / `Wikidata_property_ID` | `Q\d+` / `P\d+` | Quoted SQL string | VARCHAR `ID_WIKIDATA` / `ID_PROPERTY` |
@@ -1601,7 +1602,7 @@ On 371 logged requests, resolution costs 0.245 s at the median but more than one
 
 The full pipeline is implemented in [entity.py](entity.py) (resolver dispatch, regex-validated placeholders, embeddings, RapidFuzz person resolution, generic fallback replacement) plus [closed_vocab.py](closed_vocab.py) (DB-driven closed-vocabulary lookups for `Movie_genre`, `Serie_genre`, `Technical_format`, `Status_name`, `Serie_type`, `Department_name` with RapidFuzz typo tolerance and JSON-driven alias layering).
 
-If the user provides a disambiguation pattern like `<movie_title> (YYYY)`, entity extraction returns a `{{Release_yearN}}` placeholder alongside the `{{Movie_titleN}}` placeholder so the SQL can disambiguate same-titled films by release year.
+If the user provides a disambiguation pattern like `<movie_title> (YYYY)`, entity extraction returns a `{{Release_yearN}}` placeholder alongside the `{{Movie_titleN}}` placeholder so the SQL can disambiguate same-titled films by release year. A series works the same way: `Serie <serie_title> (YYYY)` yields `{{Serie_titleN}}` and `{{First_air_yearN}}`, filtered on `FIRST_AIR_YEAR` with the same ±1 tolerance.
 
 **Year semantics: one tolerant case, everything else strict.** A year attached to a named title (`<title> (YYYY)`, "the X movie of 1936") is a *discriminant*, and it is the only case where the generated SQL widens the year to `RELEASE_YEAR BETWEEN Y-1 AND Y+1`: a film can legitimately be dated by its closing-credits copyright, by a festival premiere a year earlier, or by a theatrical release that varies per country, and the ±1 absorbs that gap. Every other year is a *filter* and keeps strict bounds. A decade ("the seventies", "les années 70") becomes `BETWEEN 1970 AND 1979` and never 1969/1980, "before 1960" and "after 2010" stay plain inequalities, and person years (`BIRTH_YEAR`, `DEATH_YEAR`) are never widened since a birth date has only one version. The rules, the column map (`RELEASE_YEAR`, `FIRST_AIR_YEAR`, `BIRTH_YEAR`, `DEATH_YEAR`) and the phrasing tables live in the "Years, decades and date ranges" section of [data/text_to_sql.md](data/text_to_sql.md).
 
