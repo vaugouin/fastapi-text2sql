@@ -62,6 +62,23 @@ LEO_X = {"id": 1169632, "id_imdb": "tt43721254", "original_title": "Leo", "origi
          "directors": [], "cast": []}
 LEO = [LEO_TA, LEO_EN, LEO_X]
 
+# Real series groups (same harvest, section 5). The Diplomat (2023): two English series, both
+# known, told apart by their creators. Them (2021): no creator on either row, the face decides.
+# Horimiya (2021): anime and live action, same language AND same original title, no creator:
+# only the cast (voice actors for the anime) separates them.
+DIPLOMAT_US = {"id": 203857, "id_imdb": "tt17491088", "original_title": "The Diplomat", "original_language": "en",
+               "directors": ["Debora Cahn"], "cast": ["Keri Russell", "Rufus Sewell"]}
+DIPLOMAT_UK = {"id": 203762, "id_imdb": "tt17001504", "original_title": "The Diplomat", "original_language": "en",
+               "directors": ["Ben Richards"], "cast": ["Sophie Rundle", "Steven Cree"]}
+THEM_US = {"id": 120462, "id_imdb": "tt9064858", "original_title": "Them", "original_language": "en",
+           "directors": [], "cast": ["Deborah Ayorinde", "Pam Grier"]}
+THEM_FA = {"id": 129709, "id_imdb": "tt14739092", "original_title": "آنها", "original_language": "fa",
+           "directors": [], "cast": []}
+HORIMIYA_ANIME = {"id": 110070, "id_imdb": "tt13103134", "original_title": "ホリミヤ", "original_language": "ja",
+                  "directors": [], "cast": ["Haruka Tomatsu", "Koki Uchiyama"]}
+HORIMIYA_LIVE = {"id": 113980, "id_imdb": "tt13521004", "original_title": "ホリミヤ", "original_language": "ja",
+                 "directors": [], "cast": ["Ouji Suzuka", "Sayu Kubota"]}
+
 
 def disc(**kw):
     base = {"faces": [], "directors": [], "lead_cast": [], "original_title": "", "original_language": ""}
@@ -115,6 +132,18 @@ CASES = [
      "picked", [949229]),
     ("Leo, title and language alone tie the two English rows",
      LEO, disc(original_title="Leo", original_language="en"), "undecided", [949229, 1075794, 1169632]),
+    ("The Diplomat 2023: the creator decides between two English series",
+     [DIPLOMAT_US, DIPLOMAT_UK], disc(directors=["Debora Cahn"], original_language="en"), "picked", [203857]),
+    ("The Diplomat 2023, UK series: Sophie Rundle's face",
+     [DIPLOMAT_US, DIPLOMAT_UK], disc(faces=["Sophie Rundle"]), "picked", [203762]),
+    ("Them 2021: no creator in the database, the face decides",
+     [THEM_US, THEM_FA], disc(faces=["Deborah Ayorinde"], directors=["Little Marvin"]), "picked", [120462]),
+    ("Horimiya 2021 anime poster: only the voice cast separates it",
+     [HORIMIYA_ANIME, HORIMIYA_LIVE], disc(lead_cast=["Haruka Tomatsu"], original_title="ホリミヤ",
+                                           original_language="ja"), "picked", [110070]),
+    ("Horimiya 2021 with no cast known: title and language tie",
+     [HORIMIYA_ANIME, HORIMIYA_LIVE], disc(original_title="ホリミヤ", original_language="ja"),
+     "undecided", [110070, 113980]),
     ("face counted once when also given as lead cast",
      TAXI, disc(faces=["Robert De Niro"], lead_cast=["Robert De Niro"]), "picked", [103]),
 ]
