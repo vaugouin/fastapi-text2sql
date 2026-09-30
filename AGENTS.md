@@ -1181,10 +1181,13 @@ prefer `bash script.sh` over `./script.sh` when a first run must not be about pe
 Evaluation-bank scripts (`eval/assertions-*.sql`, `eval/update-*.sql`, `eval/new-evaluations-*.sql`, `eval/fix-*.sql`) and `maintenance/*.sql` are applied with the runner of the `tools` repository, never with a hand-built `docker exec ... mariadb` (Philippe, 2026-09-24):
 
 ```bash
-~/docker/tools/runsqlvaugouindb.sh <path>/<file>.sql      # result: <path>/<file>-YYYYMMDD.txt, errors included
+cd ~/docker/fastapi-text2sql-green        # the clone of the live colour
+git pull
+~/docker/tools/runsqlvaugouindb.sh ~/docker/fastapi-text2sql-green/eval/<file>.sql
+# result: ~/docker/fastapi-text2sql-green/eval/<file>-YYYYMMDD.txt, errors included
 ```
 
-`-f` overwrites a same-day result, `-e` stops at the first error. Because `~/docker/fastapi-text2sql-blue` and `-green` are mounted by the running containers, do not `pull` them just to get a `.sql`: `git -C ~/docker/fastapi-text2sql-green fetch origin && git -C ~/docker/fastapi-text2sql-green show origin/main:eval/<file>.sql > ~/<file>.sql`, then run the runner on `~/<file>.sql`. After an evaluation-bank change, rescore with Phase 20 (offline, no token). Reference: `tools/AGENTS.md`, "Running a .sql file".
+This is the one procedure to hand Philippe (his template for every repository, 2026-09-30); the former `git fetch` + `git show origin/main:... > ~/<file>.sql` detour is retired. The `.sql` must be pushed first. `-f` overwrites a same-day result, `-e` stops at the first error. The `pull` also stages the code the next restart of that colour will load. After an evaluation-bank change, rescore with Phase 20 (offline, no token). Reference: `tools/AGENTS.md`, "Running a .sql file".
 
 ## SQL handling rules
 
