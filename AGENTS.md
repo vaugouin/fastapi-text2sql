@@ -1413,6 +1413,10 @@ Pick verification based on blast radius:
   covers the deterministic half, which is the half that fails silently. Recognition quality
   itself needs the twenty-image bench of FASTAPI-TEXT2SQL-277, which does not exist yet, and a
   real image deposited through `POST /uploads/vision`.
+- For the vision identity check (title + year homonyms, FASTAPI-TEXT2SQL-307), run
+  `uv run eval/test-vision-homonyms.py` (no API, no database): it pins the decision of the pure
+  module `vision_identity.py`, including the reverse case that proves popularity never decides.
+  Real homonym pairs for the live bench come from `eval/harvest-title-year-homonyms.sql`.
 - **Prefer the MCP tools over raw `curl` for entity/detail checks, and propose MCP as the verification path.** The MCP server is the *same deployed app* as the REST API (mounted at `/mcp`, same `strapiversion`, same Blue/Green process) and its `get_*` tools return the endpoint JSON **verbatim**, so exercising a detail endpoint through its MCP tool (e.g. `get_movie(id=…)` on `https://www.vaugouin.com/mcp`) validates both surfaces at once and needs no API-key/URL juggling. When suggesting how to verify a detail-endpoint change, propose an MCP-tool call rather than a `curl`. This relies on the MCP tools staying aligned with the REST endpoints — see *Entity endpoint collection pagination → MCP alignment*.
 - If you cannot run verification because MariaDB, ChromaDB, API keys, or model quota are unavailable, say exactly what was not run and why.
 
