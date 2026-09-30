@@ -2973,24 +2973,6 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         ))
         position_counter += 1
         """
-        # --- Fork: classify the answer type while extraction and SQL generation run ---
-        # (FASTAPI-TEXT2SQL-286) The classifier's only inputs are the original question and
-        # the label set, so nothing makes it wait for the SQL. It holds no DB connection,
-        # which is why, unlike the entity-resolution fork (Gotcha #12), an early return
-        # between here and the join is harmless: the thread finishes on its own and the
-        # label is dropped. Skipped on the identity re-entry of -300, whose expectation
-        # comes from the complex step's typed item and never calls the classifier.
-        if RESULT_ENTITY_PARALLEL and input_text and not dctidentityseed:
-            result_entity_task = asyncio.create_task(asyncio.to_thread(
-                _timed_classify_result_entity, input_text, strresultentitymodel,
-            ))
-            result_entity_task.add_done_callback(_mark_task_exception_retrieved)
-            messages.append(TextMessage(
-                position=position_counter,
-                text="Started result-entity classification in parallel with entity extraction and SQL generation."
-            ))
-            position_counter += 1
-
         # Anonymize question by entity extraction. Runs in a worker thread so the LLM call
         # does not block the event loop, which is what lets the fork-join below overlap the
         # entity resolution with SQL generation (FASTAPI-TEXT2SQL-201).
@@ -3239,6 +3221,30 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # so Text2SQL is always invoked; when caching is enabled and a hit occurred, this is skipped.
         if not cached_anonymized_question and not cached_anonymized_question_embedding and not requires_complex_resolution:
             text2sql_start_time = time.time()
+
+            # --- Fork: classify the answer type while the SQL is being written ---------
+            # (FASTAPI-TEXT2SQL-286) The classifier's only inputs are the original question and
+            # the label set, so nothing makes it wait for the SQL. It is forked HERE, after the
+            # anonymized-question cache lookup and the complex-question routing, and not at
+            # request entry as first shipped (-306): the join and the answer-entity guard only
+            # run inside this block, so a label computed for a cache hit or a complex escalation
+            # was always dropped (11 wasted calls out of 96 in the logs of 2026-09-29/30). Text2SQL
+            # is the long step, so the overlap it offers is enough to keep the join wait near 0.
+            # The classifier holds no DB connection, which is why, unlike the entity-resolution
+            # fork (Gotcha #12), an early return between here and the join is harmless: the
+            # thread finishes on its own and the label is dropped. Skipped on the identity
+            # re-entry of -300, whose expectation comes from the complex step's typed item and
+            # never calls the classifier.
+            if RESULT_ENTITY_PARALLEL and input_text and not dctidentityseed:
+                result_entity_task = asyncio.create_task(asyncio.to_thread(
+                    _timed_classify_result_entity, input_text, strresultentitymodel,
+                ))
+                result_entity_task.add_done_callback(_mark_task_exception_retrieved)
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text="Started result-entity classification in parallel with SQL generation."
+                ))
+                position_counter += 1
 
             # --- Fork: resolve the entities while the SQL is being written ---------
             # (FASTAPI-TEXT2SQL-201) The resolution loop iterates over the extraction
