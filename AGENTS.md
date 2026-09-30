@@ -900,8 +900,15 @@ English title "Taxi Driver" on TMDb. The harvest of that day counts 7,788 such m
   ("the movie Taxi Driver (1976) directed by Martin Scorsese").
 - **Undecided** (no score, or a tie): the composed question is unchanged and all rows come back.
 - Traced in `vision_evidence.identity_check` (decision, discriminators, candidates, scores).
-- Offline check: `uv run eval/test-vision-homonyms.py`. The recognition cache is scoped by API
-  version, so identifications cached before 1.1.20 (without `known_credits`) are not served.
+- Offline check: `uv run eval/test-vision-homonyms.py`.
+- **Shipped on 1.1.19 without a version bump** (Philippe, 2026-09-30), so the version scope of
+  the recognition cache does not retire the rows written before it. `vision_cache.predates_known_credits`
+  spots them (a movie or serie item without the `known_credits` key) and the pre-stage reads
+  the image again once, the write then replacing the row; if the image is already purged, the
+  old identification is served as before. `identification_payload` stamps an empty block on
+  every new row, so a model that omits it is not re-read on every request.
+- Capability probe, since `api_version` does not move: a vision response carrying
+  `vision_evidence.identity_check` is the new code.
 
 ### The recognition cache (`vision_cache.py`, `T_WC_T2S_VISION_CACHE`)
 

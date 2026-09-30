@@ -109,6 +109,16 @@ def identification_payload(payload: Any) -> dict:
         return {}
     kept = {k: payload[k] for k in _CACHEABLE_KEYS if k in payload}
     kept["authoritative_empty"] = bool(payload.get("authoritative_empty"))
+    # FASTAPI-TEXT2SQL-307. A row written from now on is marked as such even when the model
+    # left the block out (plain-JSON fallback), otherwise `predates_known_credits` would send
+    # the same image back to the model on every request.
+    if isinstance(kept.get("items"), list):
+        kept["items"] = [
+            dict(it, known_credits=it.get("known_credits") or {})
+            if isinstance(it, dict) and str(it.get("type") or "").strip().lower() in ("movie", "serie")
+            else it
+            for it in kept["items"]
+        ]
     return kept
 
 
@@ -127,6 +137,25 @@ def is_cacheable(payload: Any) -> bool:
     if payload.get("items"):
         return True
     return bool(payload.get("authoritative_empty"))
+
+
+def predates_known_credits(identification: Any) -> bool:
+    """True when a cached identification was written before FASTAPI-TEXT2SQL-307.
+
+    Since then the strict schema makes every item carry a ``known_credits`` block, even empty.
+    A stored movie or series item without the key comes from the previous prompt, and the
+    identity check would run on it with the faces alone. 307 shipped on 1.1.19 without a
+    version bump, so the version scope above cannot retire those rows: the caller does.
+    """
+    if not isinstance(identification, dict):
+        return False
+    items = identification.get("items")
+    if not isinstance(items, list):
+        return False
+    return any(isinstance(it, dict)
+               and str(it.get("type") or "").strip().lower() in ("movie", "serie")
+               and "known_credits" not in it
+               for it in items)
 
 
 def search_vision_cache(connection, image_md5: str, api_version: str) -> dict:

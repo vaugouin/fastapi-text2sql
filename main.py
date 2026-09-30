@@ -190,7 +190,7 @@ def _run_generated_sql(db_connection, sql_text: str):
 
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.20"
+strapiversion = "1.1.19"
 # Convert API version to XXX.YYY.ZZZ format
 strapiversionformatted = format_api_version(strapiversion)
 
@@ -2518,6 +2518,25 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                           f"and cannot store it either.")
                 ))
                 position_counter += 1
+            if dctvisioncached.get("found") and vision_cache.predates_known_credits(
+                    dctvisioncached["identification"]):
+                # FASTAPI-TEXT2SQL-307 shipped without a version bump, so rows written before it
+                # are still served for this version and carry no `known_credits`. Such a row is
+                # read again once (the write below replaces it), unless the image is gone, in
+                # which case the old identification is still better than none.
+                try:
+                    uploads.load_vision_image(strimageref)
+                    intvisionreread = True
+                except uploads.UploadUnavailable:
+                    intvisionreread = False
+                if intvisionreread:
+                    dctvisioncached = {"found": False}
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=(f"Vision: the cached identification of {strimagemd5} predates "
+                              f"known_credits (FASTAPI-TEXT2SQL-307); the image is read again.")
+                    ))
+                    position_counter += 1
             if dctvisioncached.get("found"):
                 dctvision = dctvisioncached["identification"]
                 intvisionfromcache = True
