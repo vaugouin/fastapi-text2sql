@@ -471,9 +471,9 @@ The response from `POST /search/text2sql` contains the full pipeline trace along
   "llm_model_entity_extraction": "gpt-4o",
   "llm_model_text2sql": "gpt-4o",
   "llm_model_complex": "gpt-4o",
-  "llm_model_result_entity": "gpt-4o",
+  "llm_model_result_entity": "gpt-6-luna",
   "llm_model_answer_single_value": "gpt-4o",
-  "api_version": "1.1.15",
+  "api_version": "1.1.19",
   "messages": [
     { "position": 1, "text": "Attempting to retrieve exact question from cache." },
     { "position": 2, "text": "Exact question not found in cache." },

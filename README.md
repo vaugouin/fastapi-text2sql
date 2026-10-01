@@ -548,11 +548,11 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "llm_model_entity_extraction": "gpt-4o",
   "llm_model_text2sql": "gpt-4o",
   "llm_model_complex": "gpt-4o",
-  "llm_model_result_entity": "gpt-4o",
+  "llm_model_result_entity": "gpt-6-luna",
   "llm_model_answer_single_value": "gpt-4o",
   "llm_model_vision": "gpt-6-astra",
   "complex_model_used": false,
-  "api_version": "1.1.16",
+  "api_version": "1.1.19",
   "messages": [
     {
       "position": 1,

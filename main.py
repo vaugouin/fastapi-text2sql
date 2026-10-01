@@ -2167,10 +2167,12 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
               complex-question escalation and one-time retry. "default" resolves to gpt-4o.
             - llm_model_result_entity (str, default "default"): LLM for the answer-entity
               classifier, which decides from the ORIGINAL question what kind of thing the
-              rows should be. "default" resolves to gpt-4o. FASTAPI-TEXT2SQL-232.
+              rows should be. "default" resolves to gpt-6-luna (gpt-4o until GPT-6-003,
+              2026-09-29). FASTAPI-TEXT2SQL-232.
             - llm_model_answer_single_value (str, default "default"): LLM asked for a
               direct scalar answer when SQL returned a single cell worth 0. Until -232 it
               borrowed llm_model_complex; it now has its own selector and its own default.
+              "default" resolves to gpt-4o.
             - llm_model_vision (str, default "default"): LLM that reads the image when
               `image_ref` is supplied. "default" resolves to gpt-6-astra, not gpt-4o.
               FASTAPI-TEXT2SQL-114.
@@ -8806,7 +8808,8 @@ async def _mcp_sql_search(
     persons). Use it to ask the user which one they mean before drilling in.
 
     Optional model overrides (each defaults to "default" = the server's configured
-    model, gpt-4o for the five text tasks and gpt-6-astra for the vision one). The
+    model: gpt-4o for four of the five text tasks, gpt-6-luna for the answer-entity
+    classifier, and gpt-6-astra for the vision one). The
     pipeline makes six distinct LLM calls and each has its own selector:
     llm_model_entity_extraction, llm_model_text2sql, llm_model_complex,
     llm_model_result_entity (the answer-entity classifier),
