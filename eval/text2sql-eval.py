@@ -201,8 +201,14 @@ class PromptCacheGuard:
         return None
 
 
+# Model of the Phase 4/5/6 translations, moved from gpt-4o on 2026-10-01. Sol rather than Luna:
+# a translation is stored once and read by every later campaign, and Luna rewrote content it
+# should have passed through in the gpt-5.6-luna result_entity bench (see AGENTS.md).
+TRANSLATION_MODEL = "gpt-6-sol"
+
+
 def translate_question(question: str, src_lang: str, dst_lang: str, glossary: dict | None = None) -> str:
-    """Translate an evaluation question with gpt-4o (EVALUATIONS-019).
+    """Translate an evaluation question with TRANSLATION_MODEL (EVALUATIONS-019).
 
     The model is told never to translate a title or a name and never to correct the
     question; the only titles it translates are those of `glossary`, which come from
@@ -211,23 +217,25 @@ def translate_question(question: str, src_lang: str, dst_lang: str, glossary: di
     """
     client = openai.OpenAI(api_key=openai.api_key)
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model=TRANSLATION_MODEL,
         messages=[
             {"role": "system", "content": t2s_eval.translation_system_prompt(src_lang, dst_lang, glossary or {})},
             {"role": "user", "content": question},
         ],
-        temperature=0,
+        # GPT-6 is a reasoning model: it rejects temperature=0 and takes an effort instead.
+        # "low" is the GPT-6 floor (it has no "none"), as in text2sql._EFFORT_BY_FAMILY.
+        reasoning_effort="low",
     )
     return response.choices[0].message.content.strip()
 
 
 def translate_question_to_french(question: str, glossary: dict | None = None) -> str:
-    """Translate an evaluation question from English to French using OpenAI gpt-4o."""
+    """Translate an evaluation question from English to French with TRANSLATION_MODEL."""
     return translate_question(question, "en", "fr", glossary)
 
 
 def translate_question_to_english(question: str, glossary: dict | None = None) -> str:
-    """Translate an evaluation question from French to English using OpenAI gpt-4o."""
+    """Translate an evaluation question from French to English with TRANSLATION_MODEL."""
     return translate_question(question, "fr", "en", glossary)
 
 
@@ -286,7 +294,7 @@ EXPORT_BASE_DIR = os.getenv("TEXT2SQL_EVAL_EXPORT_DIR", "/shared")
 QUESTION_TRANSLATION_NOTE = (
     "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. "
     "One side is the original input typed by the user; the other is automatically translated by "
-    "gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally "
+    "gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally "
     "high-quality but may differ in wording from a natively-typed equivalent — keep this in mind "
     "when comparing API outputs across languages."
 )
