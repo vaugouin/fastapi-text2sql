@@ -10,7 +10,7 @@
     "query_result": "ID_GROUP IN (2195, 8219, 8204, 8194, 6546, 8201, 394, 3931)"
   },
   "assertion_refresh_sql": "SELECT ID_GROUP FROM T_WC_T2S_GROUP ORDER BY POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-09-28T02:37:24",
+  "assertion_refresh_last": "2026-10-01T04:53:32",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_PERSON IN (35224, 2613700, 1532769, 80717, 2271711, 1847439, 1516704, 1344703)"
+    "query_result": "ID_PERSON IN (1572230, 2204629, 2556819, 1831272, 231874, 1675118, 5823, 194)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_PERSON.ID_PERSON FROM T_WC_T2S_PERSON WHERE T_WC_T2S_PERSON.BIRTH_MONTH = MONTH(CURDATE()) AND T_WC_T2S_PERSON.BIRTH_DAY = DAY(CURDATE()) ORDER BY T_WC_T2S_PERSON.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-09-28T02:37:19",
+  "assertion_refresh_last": "2026-10-01T04:53:22",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

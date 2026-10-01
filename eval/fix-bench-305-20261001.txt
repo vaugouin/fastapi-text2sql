@@ -1,0 +1,141 @@
+-- fix-bench-305.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-10-01 11:59:39
+--
++------------+
+| SECTION    |
++------------+
+| A0. Before |
++------------+
++-------------------+------------------------------------------------------------------------------------------------+-------------------------+
+| ID_T2S_EVALUATION | ASSERTIONS_SQL_QUERY                                                                           | ASSERTIONS_QUERY_RESULT |
++-------------------+------------------------------------------------------------------------------------------------+-------------------------+
+|              2235 | (?is)(?=.*\bRELEASE_YEAR\s+BETWEEN\s+(?:1974\s+AND\s+1976|1975\s*-\s*1\s+AND\s+1975\s*\+\s*1)) | ID_MOVIE == 11326       |
+|              2498 |                                                                                                | ID_CONTENT IN (967)     |
++-------------------+------------------------------------------------------------------------------------------------+-------------------------+
++------------------------------------------------------------+
+| SECTION                                                    |
++------------------------------------------------------------+
+| A1. After: 2235 carries the CAST form, 2498 reads ID_MOVIE |
++------------------------------------------------------------+
++-------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------+
+| ID_T2S_EVALUATION | ASSERTIONS_SQL_QUERY                                                                                                                                                                 | ASSERTIONS_QUERY_RESULT |
++-------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------+
+|              2235 | (?is)(?=.*\bRELEASE_YEAR\s+BETWEEN\s+(?:1974|(?:CAST\(\s*)?\x27?1975\x27?(?:\s+AS\s+\w+\s*\))?\s*-\s*1)\s+AND\s+(?:1976|(?:CAST\(\s*)?\x27?1975\x27?(?:\s+AS\s+\w+\s*\))?\s*\+\s*1)) | ID_MOVIE == 11326       |
+|              2498 |                                                                                                                                                                                      | ID_MOVIE IN (967)       |
++-------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------+
++------------+
+| SECTION    |
++------------+
+| B0. Before |
++------------+
++-------------------+--------------------------------------------------------------+--------------+
+| ID_T2S_EVALUATION | QUESTION                                                     | IDS_EXPECTED |
++-------------------+--------------------------------------------------------------+--------------+
+|                 8 | What movies did Stanley Kubrick direct?                      |           13 |
+|                10 | What movies did Akira Kurosawa write and direct?             |           26 |
+|                26 | Adventure movie with Harrison Ford                           |           24 |
+|                51 | Movies with Edith Head in the crew                           |           50 |
+|                56 | Display Russian posters of movies starring Louis de Funès    |           27 |
+|                58 | List of movies with Terry Southern writing credit            |           12 |
+|                64 | Display Japanese posters of movies directed by Martin Scorce |           25 |
+|                70 | Movies with cinematographer Raoul Coutard                    |           50 |
+|                88 | Martin Scorsese films with Robert De Niro                    |           10 |
+|                92 | Adventure movies with Harrison Ford                          |           25 |
+|                95 | Movies where Steve McQueen is credited in cast or crew       |           46 |
+|               108 | films with John Travolta                                     |           50 |
+|               112 | Films directed by Joachim Trier                              |            9 |
+|               335 | List all movies with David Bowie                             |           35 |
+|               480 | Show me color movies with Cary Grant                         |           13 |
+|               483 | Movie with stan laurel and oliver hardy                      |           49 |
+|               484 | Movie with john cassavetes and gena rowlands                 |            8 |
+|               490 | Movies directed by martin scorcese with leonardo di caprio   |           10 |
+|               505 | List color movies with clark gable                           |           12 |
+|               506 | List color movies with katherine hepburn                     |           21 |
+|               553 | Movies directed by Stanley kubrick                           |           13 |
+|               562 | Movies with james Stewart                                    |           48 |
+|               563 | Movies with John Wayne                                       |           23 |
+|               564 | Movies with anthony perkins                                  |           50 |
+|               565 | Movies with john voigt                                       |           50 |
+|               568 | Stanley Kubrick&#039;s movies                                |           11 |
+|               585 | Movies directed by federico fellini                          |           28 |
+|               593 | List movies by yasujiro ozu                                  |           50 |
+|               634 | Movies directed by Sergio Corbucci                           |           50 |
+|               693 | Display Spanish posters of movies starring Louis de Funès    |           20 |
+|               702 | Movies with cinematographer Darius Khondji                   |           42 |
+|               731 | Polish posters of movies directed by Martin scorcese         |           21 |
+|               768 | Movies directed by Paul thomas anderson                      |            8 |
+|               809 | What are Timothée Chalamet latest movies?                    |            8 |
+|               812 | What are the Most Recent movies by Agnieszka Holland         |            8 |
+|               850 | What are the most recent movies with omar sy?                |           49 |
+|               870 | List movies starring stan laurel and oliver hardy            |           50 |
+|               878 | Give me all the movies with dwayne jonson                    |           45 |
+|               879 | What are the movies with dwayne jonson?                      |           14 |
+|               905 | Movies with Edward g Robinson                                |           45 |
+|               907 | Movies starring Sharon Tate                                  |           17 |
+|               919 | What are the movies directed by Paul Thomas Anderson?        |           20 |
+|               925 | Movies with Hanna Schygulla                                  |           40 |
+|               975 | Movies with Laura Antonelli                                  |           43 |
+|               984 | Films par Andrei konchalovsky                                |           34 |
+|              1081 | Movies directed by Robert Redford                            |            9 |
+|              1116 | Movies with Steve coogan                                     |           50 |
+|              1126 | List movies directed by Martin Scorsese                      |           41 |
+|              1127 | Criterion collection movies starring max Von sydow           |           17 |
++-------------------+--------------------------------------------------------------+--------------+
++------------------------------------------------+
+| SECTION                                        |
++------------------------------------------------+
+| B1. After: at most 20 ids each, no documentary |
++------------------------------------------------+
++-------------------+--------------------------------------------------------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| ID_T2S_EVALUATION | QUESTION                                                     | IDS_EXPECTED | ASSERTIONS_QUERY_RESULT                                                                                                                                                     |
++-------------------+--------------------------------------------------------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|                 8 | What movies did Stanley Kubrick direct?                      |           13 | ID_MOVIE IN (694, 975, 62, 935, 185, 600, 3175, 967, 247, 345, 802, 10056, 10165)                                                                                           |
+|                10 | What movies did Akira Kurosawa write and direct?             |           20 | ID_MOVIE IN (346, 12493, 3782, 11645, 11878, 548, 9764, 3777, 1059, 3780, 11712, 11953, 12516, 30368, 31589, 25858, 33205, 13889, 21490, 20645)                             |
+|                26 | Adventure movie with Harrison Ford                           |           20 | ID_MOVIE IN (1891, 11, 85, 1892, 89, 140607, 87, 222064, 330012, 221373, 16972, 481848, 26659, 11120, 17339, 80274, 335977, 412117, 181812, 217)                            |
+|                51 | Movies with Edith Head in the crew                           |           20 | ID_MOVIE IN (567, 599, 37257, 996, 426, 9277, 705, 642, 11697, 804, 303, 6844, 25364, 571, 28580, 16305, 28571, 983, 6620, 164)                                             |
+|                56 | Display Russian posters of movies starring Louis de Funès    |           20 | ID_MOVIE IN (8290, 2798, 25866, 761, 14257, 4727, 12598, 44532, 44521, 81049, 1871, 57144, 44522, 1870, 19548, 46655, 11912, 11680, 1875, 2462)                             |
+|                58 | List of movies with Terry Southern writing credit            |           12 | ID_MOVIE IN (935, 624, 886, 1401957, 1270147, 16303, 151679, 3052, 91445, 24152, 46498, 8069)                                                                               |
+|                64 | Display Japanese posters of movies directed by Martin Scorce |           20 | ID_MOVIE IN (769, 1422, 106646, 11324, 103, 524, 1578, 398978, 262, 10843, 3131, 2567, 44826, 466420, 11051, 1598, 68730, 16153, 10436, 203)                                |
+|                70 | Movies with cinematographer Raoul Coutard                    |           20 | ID_MOVIE IN (2721, 1626, 269, 1628, 8073, 2786, 266, 1818, 60859, 31522, 1719, 40641, 256, 4191, 50785, 31344, 40652, 8773, 11670, 103692)                                  |
+|                88 | Martin Scorsese films with Robert De Niro                    |           10 | ID_MOVIE IN (769, 103, 524, 1578, 398978, 262, 466420, 1598, 203, 12637)                                                                                                    |
+|                92 | Adventure movies with Harrison Ford                          |           20 | ID_MOVIE IN (1891, 11, 85, 1892, 89, 140607, 87, 222064, 330012, 221373, 16972, 481848, 26659, 11120, 17339, 80274, 335977, 412117, 181812, 217)                            |
+|                95 | Movies where Steve McQueen is credited in cast or crew       |           20 | ID_MOVIE IN (5925, 76203, 5924, 966, 10360, 916, 5923, 5916, 76025, 28000, 886, 39495, 5919, 792929, 358234, 1443230, 259862, 1216256, 268052, 277681)                      |
+|               108 | films with John Travolta                                     |           20 | ID_MOVIE IN (680, 11644, 754, 9953, 139126, 8012, 38299, 1458215, 50677, 11009, 25674, 13053, 9440, 17496, 9422, 55699, 9878, 979275, 474214, 1252)                         |
+|               112 | Films directed by Joachim Trier                              |            9 | ID_MOVIE IN (660120, 1124566, 75233, 12197, 513637, 396634, 162394, 401898, 157827)                                                                                         |
+|               335 | List all movies with David Bowie                             |           20 | ID_MOVIE IN (1124, 11051, 9589, 13597, 1923, 284457, 11948, 34759, 22057, 132781, 145836, 322514, 178311, 145930, 178272, 168348, 32694, 81743, 549, 145926)                |
+|               480 | Show me color movies with Cary Grant                         |           13 | ID_MOVIE IN (213, 4808, 381, 8356, 9660, 197169, 22874, 38720, 1377, 12708, 25767, 52367, 23102)                                                                            |
+|               483 | Movie with stan laurel and oliver hardy                      |           20 | ID_MOVIE IN (44892, 25599, 43128, 43841, 48649, 50927, 42299, 50914, 50912, 50908, 50928, 46026, 48734, 49008, 33810, 48672, 50856, 48755, 50862, 48671)                    |
+|               484 | Movie with john cassavetes and gena rowlands                 |            8 | ID_MOVIE IN (33665, 52109, 15484, 24349, 52105, 45138, 48249, 6883)                                                                                                         |
+|               490 | Movies directed by martin scorcese with leonardo di caprio   |           10 | ID_MOVIE IN (1422, 106646, 11324, 3131, 2567, 466420, 1117319, 1388442, 1422077, 1437372)                                                                                   |
+|               505 | List color movies with clark gable                           |           12 | ID_MOVIE IN (770, 16130, 53230, 121234, 37317, 37311, 83665, 44888, 34269, 43310, 38151, 25009)                                                                             |
+|               506 | List color movies with katherine hepburn                     |           20 | ID_MOVIE IN (1879, 488, 18988, 11816, 24203, 50363, 115507, 56764, 47446, 148159, 223691, 43542, 223694, 38729, 180348, 147135, 85572, 148662, 17538, 40953)                |
+|               553 | Movies directed by Stanley kubrick                           |           13 | ID_MOVIE IN (694, 975, 62, 935, 185, 600, 3175, 967, 247, 345, 802, 10056, 10165)                                                                                           |
+|               562 | Movies with james Stewart                                    |           20 | ID_MOVIE IN (1585, 567, 426, 3083, 1580, 11787, 574, 14551, 10243, 43828, 26038, 20442, 18264, 17729, 21027, 38732, 50941, 37292, 18721, 18776)                             |
+|               563 | Movies with John Wayne                                       |           20 | ID_MOVIE IN (11697, 301, 3114, 3109, 12584, 37347, 15573, 16211, 17664, 11617, 18712, 29244, 986337, 15264, 40686, 6523, 181491, 85531, 121372, 40577)                      |
+|               564 | Movies with anthony perkins                                  |           20 | ID_MOVIE IN (539, 3009, 43258, 30054, 35412, 4479, 107240, 32969, 84119, 263080, 999915, 245787, 305733, 455637, 1381878, 125413, 28179, 43141, 225223, 48110)              |
+|               565 | Movies with john voigt                                       |           20 | ID_MOVIE IN (3116, 10669, 954, 11893, 31657, 25624, 30698, 30702, 431261, 21489, 414790, 1536845, 412296, 137831, 564766, 202869, 85941, 123056, 290745, 172009)            |
+|               568 | Stanley Kubrick&#039;s movies                                |           11 | ID_MOVIE IN (694, 975, 62, 935, 185, 600, 3175, 247, 345, 1401957, 10056)                                                                                                   |
+|               585 | Movies directed by federico fellini                          |           20 | ID_MOVIE IN (422, 439, 19426, 405, 307, 7857, 12548, 8429, 19120, 36102, 11035, 5622, 43361, 42021, 47850, 43389, 42236, 45267, 47715, 42590)                               |
+|               593 | List movies by yasujiro ozu                                  |           20 | ID_MOVIE IN (18148, 20530, 50759, 50247, 28276, 46918, 21967, 55192, 28268, 28272, 28273, 52047, 20531, 55197, 44163, 74126, 27372, 126219, 89462, 55198)                   |
+|               634 | Movies directed by Sergio Corbucci                           |           20 | ID_MOVIE IN (9028, 10772, 38362, 6399, 61044, 11367, 48169, 57796, 445523, 836200, 791305, 889406, 516702, 195411, 78067, 451215, 61800, 290958, 64946, 235193)             |
+|               693 | Display Spanish posters of movies starring Louis de Funès    |           20 | ID_MOVIE IN (760, 25866, 761, 14257, 19178, 4727, 12598, 1871, 4732, 61697, 1870, 4729, 1875, 2462, 11914, 36179, 11913, 4728, 10516, 11915)                                |
+|               702 | Movies with cinematographer Darius Khondji                   |           20 | ID_MOVIE IN (807, 86837, 59436, 1317288, 892, 473033, 902, 387426, 610120, 236028, 347999, 563219, 63659, 534200, 196926, 355097, 66546, 722815, 685691, 4547)              |
+|               731 | Polish posters of movies directed by Martin scorcese         |           20 | ID_MOVIE IN (769, 1422, 106646, 11324, 103, 524, 1578, 398978, 262, 3131, 2567, 466420, 11051, 1598, 68730, 16153, 10436, 203, 11873, 9746)                                 |
+|               768 | Movies directed by Paul thomas anderson                      |            8 | ID_MOVIE IN (7345, 334, 4995, 1054867, 400617, 8051, 610120, 517596)                                                                                                        |
+|               809 | What are Timothée Chalamet latest movies?                    |            5 | ID_MOVIE IN (1317288, 1422562, 1170608, 1385209, 1718699)                                                                                                                   |
+|               812 | What are the Most Recent movies by Agnieszka Holland         |            8 | ID_MOVIE IN (1030183, 1212310, 1309361, 501738, 509598, 1157322, 812025, 1121956)                                                                                           |
+|               850 | What are the most recent movies with omar sy?                |           20 | ID_MOVIE IN (77338, 127585, 1193128, 382591, 323661, 369778, 656191, 50668, 1494244, 455593, 71904, 105698, 52613, 1193115, 515818, 484468, 679989, 135397, 735716, 967874) |
+|               870 | List movies starring stan laurel and oliver hardy            |           20 | ID_MOVIE IN (44892, 25599, 43128, 43841, 48649, 50927, 42299, 50914, 50912, 50908, 50928, 46026, 48734, 49008, 33810, 48672, 50856, 48755, 50862, 48671)                    |
+|               878 | Give me all the movies with dwayne jonson                    |           20 | ID_MOVIE IN (277834, 1139087, 51497, 1084242, 209740, 168259, 1005576, 84682, 58974, 327593, 257747, 99704, 58971, 58966, 84677, 122907, 95061, 1391482, 213047, 125575)    |
+|               879 | What are the movies with dwayne jonson?                      |            9 | ID_MOVIE IN (209740, 95061, 62548, 215445, 215449, 209755, 323088, 323089, 303392)                                                                                          |
+|               905 | Movies with Edward g Robinson                                |           20 | ID_MOVIE IN (996, 6844, 11016, 17058, 17136, 20246, 886, 33931, 108843, 20003, 27899, 52561, 69119, 42669, 52229, 27655, 88192, 45166, 12101, 26387)                        |
+|               907 | Movies starring Sharon Tate                                  |           11 | ID_MOVIE IN (805, 42791, 3053, 260145, 24248, 111683, 3004, 3052, 3051, 3054, 3055)                                                                                         |
+|               919 | What are the movies directed by Paul Thomas Anderson?        |           18 | ID_MOVIE IN (7345, 334, 4995, 1054867, 400617, 8051, 610120, 517596, 68722, 718032, 8052, 182673, 107380, 495449, 107384, 68568, 171274, 536213)                            |
+|               925 | Movies with Hanna Schygulla                                  |           20 | ID_MOVIE IN (661, 10310, 265, 65002, 310519, 1274639, 488768, 1397000, 335816, 711682, 198084, 381878, 294447, 388276, 130644, 612970, 42110, 200008, 396570, 423835)       |
+|               975 | Movies with Laura Antonelli                                  |           20 | ID_MOVIE IN (4286, 42147, 614239, 341680, 410244, 280039, 454597, 164777, 268564, 42224, 71778, 64513, 75293, 73839, 161497, 168040, 58203, 82471, 197343, 79762)           |
+|               984 | Films par Andrei konchalovsky                                |           20 | ID_MOVIE IN (895, 31442, 38311, 587609, 68553, 73100, 48676, 408539, 143887, 72996, 73376, 283703, 753250, 262991, 275253, 289447, 753221, 275255, 753227, 275254)          |
+|              1081 | Movies directed by Robert Redford                            |            9 | ID_MOVIE IN (16619, 11450, 293, 60309, 13482, 547, 4958, 87496, 4515)                                                                                                       |
+|              1116 | Movies with Steve coogan                                     |           20 | ID_MOVIE IN (4638, 205220, 19833, 93456, 127373, 2750, 103332, 411728, 401814, 394741, 7446, 400039, 455644, 1086497, 883, 848486, 137025, 13399, 63578, 494818)            |
+|              1126 | List movies directed by Martin Scorsese                      |           20 | ID_MOVIE IN (769, 1422, 106646, 11324, 103, 524, 1578, 398978, 262, 10843, 3131, 2567, 44826, 466420, 11051, 1598, 68730, 16153, 10436, 45865)                              |
+|              1127 | Criterion collection movies starring max Von sydow           |           17 | ID_MOVIE IN (490, 614, 11656, 29455, 11602, 26372, 40732, 18333, 9065, 42488, 42602, 29453, 60899, 9646, 18650, 10341, 105254)                                              |
++-------------------+--------------------------------------------------------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
