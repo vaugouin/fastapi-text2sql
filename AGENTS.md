@@ -146,7 +146,7 @@ Edit at the right layer; the architecture is intentionally split.
 **[main.py](main.py)** (~2460 lines) — FastAPI app, ChromaDB / DB startup, request orchestration only.
 - Version utilities: `format_api_version()` ([main.py:33](main.py#L33)), `compare_versions()` ([main.py:38](main.py#L38))
 - `strapiversion` lives at [main.py:137](main.py#L137) (also drives Blue/Green port parity and `MCP_INTERNAL_BASE_URL`)
-- `Text2SQLRequest` / `Text2SQLResponse` Pydantic models around [main.py:214-269](main.py#L214-L269)
+- `Text2SQLRequest` / `Text2SQLResponse` Pydantic models around [main.py:214-269](main.py#L214-L269); the response rounds its numbers on serialization through [response_rounding.py](response_rounding.py) (FASTAPI-TEXT2SQL-308), as do the entity endpoints via `RoundedJSONResponse`
 - `POST /search/text2sql` : main pipeline endpoint. Its first stage is the vision pre-stage
   when the request carries an `image_ref` (FASTAPI-TEXT2SQL-114): identify, compose the
   question, then fall through to the ordinary pipeline
@@ -1117,6 +1117,47 @@ into `api_output` in `/shared/evaluation_execution/`. So:
 Rows written before an indicator existed keep `NULL`. That is the point: `NULL` says "not
 measured then", `0` would claim "measured at zero".
 
+A new numeric field is rounded on the way out by its name (next section): a timing ending in
+`_time` gets the millisecond, a distance four decimals, anything else two. Check that the
+default suits it, and add a rule to `response_rounding.py` if it does not.
+
+---
+
+## Numbers are rounded on the way out, and only there (FASTAPI-TEXT2SQL-308)
+
+[response_rounding.py](response_rounding.py) rounds every number of a response at
+serialization time. Two hooks, one function (`round_tree`):
+
+- `Text2SQLResponse` carries a `@field_serializer("*", mode="wrap")`: every field, `result`
+  rows included, is rounded in `model_dump()` and in the JSON. **The attributes keep their raw
+  values**, so the code that reads a response after building it (the complex retry, the
+  first-pass record) still sees exact numbers, and the log, built from `model_dump()`, holds
+  what the client received.
+- The 18 entity endpoints declare `response_class=RoundedJSONResponse`. A new entity endpoint
+  must declare it too; `eval/verif-308.py` counts them and fails otherwise.
+
+Precision by key, case-insensitive: two decimals by default (a non-zero value under 0.1 keeps
+three significant digits instead of collapsing to 0.0), `*_time` / `*_seconds` three,
+`distance` / `*_distance` four, `fuzz_ratio*` one, `BUDGET` / `REVENUE` an integer when whole,
+`FRAME_RATE` three, the Wikidata quantities (`AMOUNT`, `AMOUNT_NORMALIZED`, `LOWER_BOUND`,
+`UPPER_BOUND`) and coordinates converted but never rounded.
+
+**Why not in SQL or in the prompt.** MariaDB sorts on the exact value before anything is
+rounded, so no `ORDER BY` changes; a `ROUND()` asked of the model would be forgotten some of
+the time, would change the shape of cached SQL, and an `ORDER BY` on a rounded alias creates
+ties. The entity-resolution thresholds compare the raw distances, upstream of serialization.
+
+**The `Decimal` trap this also closes.** MariaDB returns `AVG()` and `SUM()` over an integer
+column as `DECIMAL`, PyMySQL hands over a `decimal.Decimal`, and Pydantic v2 serializes a
+`Decimal` found inside `result: List[dict]` as a JSON **string** (`"148.4000"`), while the
+entity endpoints, through `jsonable_encoder`, emitted a number. Both now emit a number (an
+`int` when the value is whole). Do not reintroduce a `Decimal` path that bypasses the two hooks.
+
+**Offline check:** `uv run --with "fastapi>=0.104.1" --with httpx eval/verif-308.py`
+(38 cases, no API, no database). It reads `Text2SQLResponse` out of `main.py` like
+`verif-114.py` does; that script's model namespace now also carries `field_serializer` and
+`round_tree`, and any other script that execs the model block needs the same two names.
+
 ---
 
 ## Run pyflakes before committing Python, and read the "undefined name" lines
@@ -1454,6 +1495,9 @@ Pick verification based on blast radius:
   `uv run eval/test-vision-homonyms.py` (no API, no database): it pins the decision of the pure
   module `vision_identity.py`, including the reverse case that proves popularity never decides.
   Real homonym pairs for the live bench come from `eval/harvest-title-year-homonyms.sql`.
+- For anything that touches how the response is serialized (a new field, a new entity endpoint,
+  a rounding rule), run `uv run --with "fastapi>=0.104.1" --with httpx eval/verif-308.py`
+  (no API, no database), then `uv run eval/verif-114.py`, which execs the same model block.
 - **Prefer the MCP tools over raw `curl` for entity/detail checks, and propose MCP as the verification path.** The MCP server is the *same deployed app* as the REST API (mounted at `/mcp`, same `strapiversion`, same Blue/Green process) and its `get_*` tools return the endpoint JSON **verbatim**, so exercising a detail endpoint through its MCP tool (e.g. `get_movie(id=…)` on `https://www.vaugouin.com/mcp`) validates both surfaces at once and needs no API-key/URL juggling. When suggesting how to verify a detail-endpoint change, propose an MCP-tool call rather than a `curl`. This relies on the MCP tools staying aligned with the REST endpoints — see *Entity endpoint collection pagination → MCP alignment*.
 - If you cannot run verification because MariaDB, ChromaDB, API keys, or model quota are unavailable, say exactly what was not run and why.
 

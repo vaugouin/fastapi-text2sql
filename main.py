@@ -6,7 +6,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import httpx
 from fastmcp import FastMCP
 from auth import get_api_key
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, field_serializer, field_validator, model_validator
 import pandas as pd 
 import numpy as np 
 import text2sql as t2s
@@ -28,6 +28,7 @@ import entity
 import logs
 import uploads
 import sql_cache
+from response_rounding import RoundedJSONResponse, round_tree
 import vision_cache
 import vision_identity
 import sql_shapes
@@ -1745,6 +1746,15 @@ class TextMessage(BaseModel):
     text: str
 
 class Text2SQLResponse(BaseModel):
+    # FASTAPI-TEXT2SQL-308. Every field is rounded on the way out (rows, timings, distances,
+    # vision confidences) and a Decimal becomes a number instead of a JSON string. Only the
+    # serialized copy changes: the attributes keep their raw values for the code that still
+    # reads them after construction, and model_dump() feeds the log the same rounded payload
+    # the client receives. Precision rules live in response_rounding.py.
+    @field_serializer("*", mode="wrap")
+    def _round_numbers(self, value, handler, info):
+        return handler(round_tree(value, info.field_name))
+
     question: str
     question_hashed: Optional[str] = None
     sql_query: str
@@ -5980,7 +5990,7 @@ def _collection_context(cursor, entity_type, entity_id, ui_language="en"):
     )
 
 
-@app.get("/movies/{id}", summary="Movie full detail")
+@app.get("/movies/{id}", summary="Movie full detail", response_class=RoundedJSONResponse)
 async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a movie plus embedded relations: genres, production
     companies, production countries, spoken languages, topics, lists, collections,
@@ -6279,7 +6289,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
         conn.close()
 
 
-@app.get("/series/{id}", summary="TV series full detail")
+@app.get("/series/{id}", summary="TV series full detail", response_class=RoundedJSONResponse)
 async def get_series(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a TV series plus embedded relations: genres, production
     companies, networks, production countries, spoken languages, topics, lists,
@@ -6597,7 +6607,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
         conn.close()
 
 
-@app.get("/seasons/{id_serie}/{season_number}", summary="TV series season full detail")
+@app.get("/seasons/{id_serie}/{season_number}", summary="TV series season full detail", response_class=RoundedJSONResponse)
 async def get_season(id_serie: int, season_number: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a TV series season plus embedded relations: cast, crew,
     posters, backdrops, and a navigation stub for the parent series. The composite
@@ -6881,6 +6891,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
 @app.get(
     "/episodes/{id_serie}/{season_number}/{episode_number}",
     summary="TV series episode full detail",
+    response_class=RoundedJSONResponse,
 )
 async def get_episode(
     id_serie: int,
@@ -7141,7 +7152,7 @@ async def get_episode(
         conn.close()
 
 
-@app.get("/persons/{id}", summary="Person full detail")
+@app.get("/persons/{id}", summary="Person full detail", response_class=RoundedJSONResponse)
 async def get_person(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a person plus embedded relations: movie cast and crew,
     series cast and crew, groups, causes of death, awards, and nominations.
@@ -7324,7 +7335,7 @@ async def get_person(id: int, ui_language: Optional[str] = "en", collection: Opt
         conn.close()
 
 
-@app.get("/companies/{id}", summary="Production company full detail")
+@app.get("/companies/{id}", summary="Production company full detail", response_class=RoundedJSONResponse)
 async def get_company(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a production company plus associated movies and TV series,
     ordered by adjusted IMDb rating. The id is ID_COMPANY.
@@ -7379,7 +7390,7 @@ async def get_company(id: int, ui_language: Optional[str] = "en", collection: Op
         conn.close()
 
 
-@app.get("/networks/{id}", summary="TV network full detail")
+@app.get("/networks/{id}", summary="TV network full detail", response_class=RoundedJSONResponse)
 async def get_network(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a TV network plus associated TV series, ordered by
     adjusted IMDb rating. The id is ID_NETWORK.
@@ -7425,7 +7436,7 @@ async def get_network(id: int, ui_language: Optional[str] = "en", collection: Op
         conn.close()
 
 
-@app.get("/collections/{id}", summary="Film/series collection full detail")
+@app.get("/collections/{id}", summary="Film/series collection full detail", response_class=RoundedJSONResponse)
 async def get_collection(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a named collection (trilogy, saga, universe, franchise) plus
     member movies and TV series ordered by DISPLAY_ORDER. The id is ID_T2S_COLLECTION.
@@ -7507,7 +7518,7 @@ async def get_collection(id: int, ui_language: Optional[str] = "en", collection:
         conn.close()
 
 
-@app.get("/topics/{id}", summary="Topic full detail")
+@app.get("/topics/{id}", summary="Topic full detail", response_class=RoundedJSONResponse)
 async def get_topic(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a topic (theme, keyword, recurring-character collection) plus linked
     movies and TV series ordered by DISPLAY_ORDER. The id is ID_TOPIC.
@@ -7589,7 +7600,7 @@ async def get_topic(id: int, ui_language: Optional[str] = "en", collection: Opti
         conn.close()
 
 
-@app.get("/lists/{id}", summary="Curated list full detail")
+@app.get("/lists/{id}", summary="Curated list full detail", response_class=RoundedJSONResponse)
 async def get_list(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a named curated list plus member movies and TV series
     ordered by DISPLAY_ORDER. The id is ID_T2S_LIST.
@@ -7671,7 +7682,7 @@ async def get_list(id: int, ui_language: Optional[str] = "en", collection: Optio
         conn.close()
 
 
-@app.get("/movements/{id}", summary="Film movement or style full detail")
+@app.get("/movements/{id}", summary="Film movement or style full detail", response_class=RoundedJSONResponse)
 async def get_movement(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a film movement or style plus associated movies and TV series
     ordered by DISPLAY_ORDER. The id is ID_MOVEMENT.
@@ -7753,7 +7764,7 @@ async def get_movement(id: int, ui_language: Optional[str] = "en", collection: O
         conn.close()
 
 
-@app.get("/technicals/{id}", summary="Technical format full detail")
+@app.get("/technicals/{id}", summary="Technical format full detail", response_class=RoundedJSONResponse)
 async def get_technical(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a technical format (sound system, color/film/sound technology,
     or film format) plus associated movies and sibling technicals sharing the same
@@ -7840,7 +7851,7 @@ async def get_technical(id: int, ui_language: Optional[str] = "en", collection: 
         conn.close()
 
 
-@app.get("/genres/{id}", summary="Movie / TV genre full detail")
+@app.get("/genres/{id}", summary="Movie / TV genre full detail", response_class=RoundedJSONResponse)
 async def get_genre(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return the closed-vocabulary genre identified by ID_GENRE (the TMDb genre id,
     e.g. 28 = Action, 878 = Science Fiction) plus its member movies and TV series.
@@ -7911,7 +7922,7 @@ async def get_genre(id: int, ui_language: Optional[str] = "en", collection: Opti
         conn.close()
 
 
-@app.get("/groups/{id}", summary="Person group full detail")
+@app.get("/groups/{id}", summary="Person group full detail", response_class=RoundedJSONResponse)
 async def get_group(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a group (organization, club, musical group) plus associated
     persons ordered by DISPLAY_ORDER. The id is ID_GROUP.
@@ -7985,7 +7996,7 @@ async def get_group(id: int, ui_language: Optional[str] = "en", collection: Opti
         conn.close()
 
 
-@app.get("/deaths/{id}", summary="Cause of death full detail")
+@app.get("/deaths/{id}", summary="Cause of death full detail", response_class=RoundedJSONResponse)
 async def get_death(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a cause or circumstance of death plus associated persons
     ordered by DISPLAY_ORDER. The id is ID_DEATH.
@@ -8059,7 +8070,7 @@ async def get_death(id: int, ui_language: Optional[str] = "en", collection: Opti
         conn.close()
 
 
-@app.get("/awards/{id}", summary="Award full detail")
+@app.get("/awards/{id}", summary="Award full detail", response_class=RoundedJSONResponse)
 async def get_award(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for an award plus associated movies, TV series, and persons,
     all ordered by DISPLAY_ORDER. The id is ID_AWARD.
@@ -8148,7 +8159,7 @@ async def get_award(id: int, ui_language: Optional[str] = "en", collection: Opti
         conn.close()
 
 
-@app.get("/nominations/{id}", summary="Award nomination full detail")
+@app.get("/nominations/{id}", summary="Award nomination full detail", response_class=RoundedJSONResponse)
 async def get_nomination(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for an award nomination plus associated movies, TV series, and
     persons, all ordered by DISPLAY_ORDER. The id is ID_NOMINATION.
@@ -8237,7 +8248,7 @@ async def get_nomination(id: int, ui_language: Optional[str] = "en", collection:
         conn.close()
 
 
-@app.get("/locations/{id}", summary="Location full detail")
+@app.get("/locations/{id}", summary="Location full detail", response_class=RoundedJSONResponse)
 async def get_location(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a location plus movies and series linked to it, ordered by
     adjusted IMDb rating. The id is ID_LOCATION.

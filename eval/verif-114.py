@@ -128,7 +128,8 @@ def charge_modeles_pydantic():
     ChromaDB et la base des son import. Seul le bloc des modeles est execute.
     """
     try:
-        from pydantic import BaseModel, field_validator, model_validator
+        from pydantic import BaseModel, field_serializer, field_validator, model_validator
+        from response_rounding import round_tree  # FASTAPI-TEXT2SQL-308, serialiseur du modele
     except Exception:
         return None
     from typing import List, Optional
@@ -142,6 +143,7 @@ def charge_modeles_pydantic():
         return code if code in ("en", "fr") else "en"
 
     espace_modeles = {"BaseModel": BaseModel, "field_validator": field_validator,
+                      "field_serializer": field_serializer, "round_tree": round_tree,
                       "model_validator": model_validator, "Optional": Optional,
                       "List": List, "normalize_ui_language": normalise_langue}
     exec(compile(texte[debut:fin], source, "exec"), espace_modeles)
