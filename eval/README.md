@@ -126,6 +126,18 @@ The `/shared` mount is now **read-write**. Phases 30/31/32 write JSON exports th
 | `--no-store-to-cache` | `false` | Disable cache writes for the evaluation run |
 | `--complex-model-used` | `false` | Send `complex_model_used=true` in the API input |
 | `--no-complex-model-used` | `false` | Send `complex_model_used=false` in the API input |
+| `--eval-ids` | none | Comma-separated evaluation ids: phases 11 (run), 20 (score) and 32 (export) cover only them (FASTAPI-TEXT2SQL-301). Phases 4-6, 10, 30 and 31 work on the bank and stay whole |
+| `--eval-ids-file` | none | Same, from a file of ids, one per line, `#` comments allowed |
+| `--subset` | none | `escalated`: the questions the baseline run escalated (`COMPLEX_MODEL_USED = 1`) united with those the bank declares `RESOLUTION_MODE = 'complex'`. The baseline is this run's configuration with `--complex-model` replaced by `--subset-baseline-complex-model`, so only the complex model differs and the first pass that decides who escalates is the same. Combined with `--eval-ids`, the intersection. Phase 20 then ends on a head-to-head |
+| `--subset-baseline-complex-model` | `gpt-4o` | Complex model of the baseline the `escalated` subset is read from and compared against |
+
+**Measuring the complex model on the escalated questions only (FASTAPI-TEXT2SQL-301, GPT-6-007).** A full campaign replays the whole bank (869 questions per language) to exercise the complex model on the one in ten that escalates. The subset runs only those. Three runs, in this order:
+
+1. **The baseline, in full**, on the configuration production serves, complex model included: `COMPLEX_MODEL=gpt-4o ./text2sql-eval.sh`. The subset is read from its rows, so it must exist on the same version, models and language.
+2. **The baseline subset**, `COMPLEX_MODEL=gpt-4o EVAL_SUBSET=escalated ./text2sql-eval.sh`: nothing to call, it rescores the baseline rows of the subset on today's assertions. Skip it if the baseline was scored the same day.
+3. **The challenger**, `COMPLEX_MODEL=gpt-6-sol EVAL_SUBSET=escalated ./text2sql-eval.sh`. Phase 20 prints the head-to-head: pass rate of both on the pairs both runs escalated, the questions won and lost, the median total and complex-step times, and, counted apart, the pairs one side did not escalate. The escalation is never forced: a question escalates or not by the first pass, as in production, and a large "not escalated" count means the first pass moved, not the complex model.
+
+The challenger's rows are ordinary rows of its configuration: a full campaign launched later with the same models skips them. Its global score covers only the subset and says so; read the head-to-head instead.
 
 ### Required environment variables
 
@@ -676,6 +688,7 @@ ASSERTIONS_ENTITY_EXTRACTION: PASS
 |---|---|
 | [text2sql-eval.py](text2sql-eval.py) | Main runner — phase dispatch, API calls, DB I/O, scoring loop |
 | [text2sql_eval_functions.py](text2sql_eval_functions.py) | `evaluate_dataframe_assertions()`, `_evaluate_*_assertion()` helpers, `format_detailed_results_for_db()`, `safe_json_loads()`, `format_api_version()` |
+| [test-subset-301.py](test-subset-301.py) | Offline checks of the subset helpers of FASTAPI-TEXT2SQL-301 (`parse_eval_ids`, `ids_in_clause`, `escalated_subset`, `head_to_head`), no database, no API: `uv run --no-project --with pandas eval/test-subset-301.py` |
 | [entity_extraction_eval_functions.py](entity_extraction_eval_functions.py) | `ee_eval_two_layer()` + DSL helpers (`_placeholders`, `_entity_keys`, `_eval_layer2`, …) |
 | [citizenphil.py](citizenphil.py) | Shared DB / server-variable / SQL-update helpers (`f_getconnection`, `f_getservervariable`, `f_setservervariable`, `f_sqlupdatearray`, `convert_seconds_to_duration`, `paris_tz`) |
 | [test-name-ambiguity.py](test-name-ambiguity.py) | Standalone non-regression battery for the `name_ambiguity` flag (FASTAPI-TEXT2SQL-157). Integration test: calls the live `/search/text2sql`, no DB. Reads `eval/.env` (`TEXT2SQL_API_URL` + `API_PORT_GREEN`/`BLUE` + `TEXT2SQL_API_KEY`). Run `python eval/test-name-ambiguity.py [--color blue] [--base-url URL] [--verbose]`; exit 0 = all pass. 20 cases: 1-row/list/narrowed → no flag; duplicate movie **and TV-series** titles & homonym persons (incl. high-count clusters) → flag with `count == distinct ID_IMDB`; comma/colon/apostrophe literals; page-1-only guard. Extend via the `CASES` list; the module docstring carries the `GROUP BY … HAVING COUNT(*)>1` queries used to find duplicate candidates per entity |

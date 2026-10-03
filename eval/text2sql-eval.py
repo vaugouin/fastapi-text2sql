@@ -454,6 +454,22 @@ _parser.add_argument("--cache-guard-window", type=int, default=20,
                      help="Calls per task the cache guard looks back over (default 20).")
 _parser.add_argument("--cache-guard-warmup", type=int, default=3,
                      help="First calls of each task the cache guard ignores, a cold prefix being a write (default 3).")
+# FASTAPI-TEXT2SQL-301. Restrict phases 11 (run), 20 (score) and 32 (export) to a subset of the
+# bank. Phases 4-6 (bank translations), 10 (purge), 30 and 31 (bank exports) stay whole: they
+# work on the bank, not on a run. Rows a subset run writes are ordinary rows of their
+# configuration, so a full campaign launched later on the same configuration skips them.
+_parser.add_argument("--eval-ids", default="",
+                     help="Comma-separated evaluation ids: run, score and export only those")
+_parser.add_argument("--eval-ids-file", default="",
+                     help="File of evaluation ids, one per line (# comments allowed), same effect as --eval-ids")
+_parser.add_argument("--subset", default="", choices=["", "escalated"],
+                     help="Preset subset. 'escalated': the questions the baseline run escalated, plus "
+                          "those the bank declares RESOLUTION_MODE='complex'. The baseline is this "
+                          "run's configuration with --complex-model replaced by "
+                          "--subset-baseline-complex-model. Combined with --eval-ids, the intersection.")
+_parser.add_argument("--subset-baseline-complex-model", default="gpt-4o",
+                     help="Complex model of the baseline run the 'escalated' subset is read from and "
+                          "compared against (default: gpt-4o)")
 _cli_args = _parser.parse_args()
 
 datnow = datetime.now(cp.paris_tz)
@@ -503,6 +519,45 @@ try:
             print(f"Prompt-cache guard: stop under {objcacheguard.min_hit:.0%} of cache hits over the last "
                   f"{objcacheguard.window} calls of a task, after {objcacheguard.warmup} warm-up calls"
                   + ("" if objcacheguard.min_hit > 0 else " (DISABLED)"))
+
+            # FASTAPI-TEXT2SQL-301: the subset, computed once, before any phase. None = whole bank.
+            arrsubsetids = None
+            strsubsetdesc = ""
+            arrsubsetlangs = ["en", "fr"] if strlanguage == "*" else [strlanguage]
+            strsubsetbaselinecomplexmodel = _cli_args.subset_baseline_complex_model
+            strsubsetidstext = _cli_args.eval_ids or ""
+            if _cli_args.eval_ids_file:
+                with open(_cli_args.eval_ids_file, encoding="utf-8") as fh:
+                    strsubsetidstext += "\n" + fh.read()
+            if strsubsetidstext.strip():
+                arrsubsetids = t2s_eval.parse_eval_ids(strsubsetidstext)
+                strsubsetdesc = f"{len(arrsubsetids)} id(s) given"
+            if _cli_args.subset == "escalated":
+                dictsubset = t2s_eval.escalated_subset(
+                    cursor, t2s_eval.format_api_version(strapiversioneval),
+                    strentityextractionmodeleval, strtext2sqlmodeleval, strsubsetbaselinecomplexmodel,
+                    late_models_clause(strresultentitymodeleval, stranswersinglevaluemodeleval, "x."),
+                    arrsubsetlangs,
+                )
+                strpresetdesc = (f"escalated: {dictsubset['escalated']} escalated by the baseline "
+                                 f"(complex={strsubsetbaselinecomplexmodel}) + {dictsubset['declared_not_escalated']} "
+                                 f"declared complex that did not escalate = {len(dictsubset['ids'])}")
+                if arrsubsetids is None:
+                    arrsubsetids = dictsubset["ids"]
+                    strsubsetdesc = strpresetdesc
+                else:
+                    arrsubsetids = sorted(set(arrsubsetids) & set(dictsubset["ids"]))
+                    strsubsetdesc += f", intersected with the preset ({strpresetdesc}): {len(arrsubsetids)} left"
+                if dictsubset["escalated"] == 0:
+                    print("WARNING (-301): the baseline run escalated nothing on this configuration, or does not exist "
+                          f"(version {strapiversioneval}, ee={strentityextractionmodeleval}, t2s={strtext2sqlmodeleval}, "
+                          f"complex={strsubsetbaselinecomplexmodel}, language {strlanguage}). The subset holds only the "
+                          "declared-complex questions. Run the baseline in full first.")
+                if strcomplexmodeleval == strsubsetbaselinecomplexmodel:
+                    print("NOTE (-301): --complex-model equals the baseline complex model: this is the baseline "
+                          "itself, the head-to-head will compare the run with itself.")
+            if arrsubsetids is not None:
+                print(f"Subset (FASTAPI-TEXT2SQL-301): {strsubsetdesc}. Phases 11, 20 and 32 are limited to it.")
 
             #arrprocessscope = {11: 'run evals'}
             #arrprocessscope = {20: 'process evals'}
@@ -638,6 +693,8 @@ try:
                         strsql += strnotinbase + "AND LANG = 'fr' "
                         strsql += ")) "
                         strsql += ") "
+                    if arrsubsetids is not None:
+                        strsql += t2s_eval.ids_in_clause("ID_T2S_EVALUATION", arrsubsetids)
                     #strrunevalidold = "486"
                     if strrunevalidold != "":
                         strsql += "AND ID_T2S_EVALUATION >= " + strrunevalidold + " "
@@ -659,6 +716,8 @@ try:
                     strsql += late_models_clause(strresultentitymodeleval, stranswersinglevaluemodeleval, "T_WC_T2S_EVALUATION_EXECUTION.")
                     if strlanguage != "*":
                         strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.LANG = '" + strlanguage + "' "
+                    if arrsubsetids is not None:
+                        strsql += t2s_eval.ids_in_clause("T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION", arrsubsetids)
                     #strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION IN (1) "
                     #strsql += "AND T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 20, 13, 14, 2139) "
                     strsql += "ORDER BY T_WC_T2S_EVALUATION_EXECUTION.ID_T2S_EVALUATION ASC "
@@ -720,6 +779,8 @@ try:
                     strsql += late_models_clause(strresultentitymodeleval, stranswersinglevaluemodeleval, "EE.")
                     if strlanguage != "*":
                         strsql += f"AND EE.LANG = '{strlanguage}' "
+                    if arrsubsetids is not None:
+                        strsql += t2s_eval.ids_in_clause("EE.ID_T2S_EVALUATION", arrsubsetids)
                     strsql += "ORDER BY EE.ID_ROW ASC "
                     lng_export_wrote = 0
                     lng_export_skipped = 0
@@ -1603,6 +1664,54 @@ try:
             cp.f_setservervariable("strtext2sqlevaltotalruntime",readable_duration,strtotalruntimedesc,0)
             print(f"Total runtime: {strtotalruntime} seconds ({readable_duration})")
 
+            # FASTAPI-TEXT2SQL-301: head-to-head on the subset, baseline against this run, on the
+            # same (id, language) pairs. The global score below covers only the subset, so it
+            # cannot be read alone; this is the number to read. Scores are the ones stored: to
+            # compare both runs on today's assertions, run the baseline configuration with the
+            # same --subset first (rescore-only, it calls nothing) and this one after.
+            if _cli_args.subset == "escalated" and 20 in arrprocessscope and arrsubsetids:
+                strh2hcols = ("SELECT ID_T2S_EVALUATION, LANG, ASSERTIONS_TOTAL_SCORE, COMPLEX_MODEL_USED, "
+                              "TOTAL_PROCESSING_TIME, COMPLEX_QUESTION_PROCESSING_TIME "
+                              "FROM T_WC_T2S_EVALUATION_EXECUTION x WHERE x.DELETED = 0 "
+                              "AND x.API_VERSION = %s AND x.ENTITY_EXTRACTION_MODEL = %s AND x.TEXT2SQL_MODEL = %s "
+                              "AND x.COMPLEX_MODEL = %s "
+                              + late_models_clause(strresultentitymodeleval, stranswersinglevaluemodeleval, "x.")
+                              + f"AND x.LANG IN ({', '.join(['%s'] * len(arrsubsetlangs))}) "
+                              + t2s_eval.ids_in_clause("x.ID_T2S_EVALUATION", arrsubsetids))
+                arrh2hrows = {}
+                for strside, strcx in (("baseline", strsubsetbaselinecomplexmodel), ("challenger", strcomplexmodeleval)):
+                    cursor.execute(strh2hcols, (t2s_eval.format_api_version(strapiversioneval), strentityextractionmodeleval,
+                                                strtext2sqlmodeleval, strcx, *arrsubsetlangs))
+                    arrh2hrows[strside] = cursor.fetchall()
+                h2h = t2s_eval.head_to_head(arrh2hrows["baseline"], arrh2hrows["challenger"])
+                def _fmt_keys(keys):
+                    return ", ".join(f"{i} {l}" for i, l in keys) or "none"
+                def _fmt_time(values):
+                    m = t2s_eval.median(values)
+                    return "n/a" if m is None else f"{m:.1f} s"
+                n = len(h2h["compared"])
+                print("==========================================")
+                print(f"Head-to-head on the escalated subset (FASTAPI-TEXT2SQL-301), language {strlanguage}")
+                print(f"  baseline   complex={strsubsetbaselinecomplexmodel}   challenger complex={strcomplexmodeleval}")
+                print(f"  common to ee={strentityextractionmodeleval}, t2s={strtext2sqlmodeleval}, version {strapiversioneval}")
+                print("==========================================")
+                print(f"  Compared (both runs scored and escalated): {n}")
+                if n:
+                    print(f"  Pass: baseline {h2h['baseline_pass']}/{n} ({h2h['baseline_pass'] / n:.1%}), "
+                          f"challenger {h2h['challenger_pass']}/{n} ({h2h['challenger_pass'] / n:.1%}), "
+                          f"net {len(h2h['won']) - len(h2h['lost']):+d}")
+                print(f"  Won by the challenger ({len(h2h['won'])}): {_fmt_keys(h2h['won'])}")
+                print(f"  Lost by the challenger ({len(h2h['lost'])}): {_fmt_keys(h2h['lost'])}")
+                print(f"  Median total time: baseline {_fmt_time(h2h['baseline_total_time'])}, challenger {_fmt_time(h2h['challenger_total_time'])}")
+                print(f"  Median complex-step time: baseline {_fmt_time(h2h['baseline_complex_time'])}, challenger {_fmt_time(h2h['challenger_complex_time'])}")
+                print("  Out of the comparison, counted apart:")
+                print(f"    not escalated in the baseline ({len(h2h['not_escalated_baseline'])}): {_fmt_keys(h2h['not_escalated_baseline'])}")
+                print(f"    not escalated in the challenger ({len(h2h['not_escalated_challenger'])}): {_fmt_keys(h2h['not_escalated_challenger'])}")
+                print(f"    not scored on one side ({len(h2h['unscored'])}): {_fmt_keys(h2h['unscored'])}")
+                print(f"    run by the baseline only ({len(h2h['only_baseline'])}), by the challenger only ({len(h2h['only_challenger'])})")
+                print("  The escalation is not forced: a question escalates or not by the first pass, as in")
+                print("  production. A large 'not escalated' count means the first pass itself moved.")
+
             # Global-score summary — printed last so it stays at the bottom of the
             # script output regardless of which processes ran in arrprocessscope.
             # Gated on dblevalcount > 0: skipped silently when process 20 was not
@@ -1617,6 +1726,8 @@ try:
                 print(f"Text2SQL model: {strtext2sqlmodeleval}")
                 print(f"Complex model: {strcomplexmodeleval}")
                 print(f"Language: {strlanguage}")
+                if arrsubsetids is not None:
+                    print(f"Subset (-301): {strsubsetdesc}. The global score below covers ONLY this subset.")
                 print(f"Store to cache: {blnstoretocache}")
                 print(f"Complex question processing (escalation allowed): {blncomplexquestionprocessing}")
                 if arrresolutionmodestats:

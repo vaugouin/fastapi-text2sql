@@ -108,6 +108,17 @@ COMPLEX_QUESTION_PROCESSING=${COMPLEX_QUESTION_PROCESSING:-${COMPLEX_MODEL_USED:
 # missed on 57 % of its text2sql calls and went to the end, measuring a price nobody would pay.
 # 0 disables the guard.
 CACHE_GUARD_MIN_HIT=${CACHE_GUARD_MIN_HIT:-0.7}
+# FASTAPI-TEXT2SQL-301. Limit phases 11, 20 and 32 to a subset of the bank.
+#   EVAL_SUBSET=escalated   the questions the baseline escalated, plus the declared-complex ones.
+#                           The baseline is THIS configuration with COMPLEX_MODEL replaced by
+#                           SUBSET_BASELINE_COMPLEX_MODEL (default gpt-4o); it must exist in full.
+#   EVAL_IDS=12,57,301      explicit ids;  EVAL_IDS_FILE=path  one id per line on the host (# comments).
+# Example, GPT-6-007 (complex question on Sol, everything else as production):
+#   COMPLEX_MODEL=gpt-6-sol EVAL_SUBSET=escalated EVAL_LANGUAGE=en ./text2sql-eval.sh
+EVAL_SUBSET=${EVAL_SUBSET:-}
+EVAL_IDS=${EVAL_IDS:-}
+EVAL_IDS_FILE=${EVAL_IDS_FILE:-}
+SUBSET_BASELINE_COMPLEX_MODEL=${SUBSET_BASELINE_COMPLEX_MODEL:-gpt-4o}
 
 EVAL_HOME=${EVAL_HOME:-$HOME/docker/text2sql-eval}
 SHARED_DIR=${SHARED_DIR:-$HOME/docker/shared_data/text2sql-eval}
@@ -148,6 +159,19 @@ case "$STORE_TO_CACHE" in
     --store-to-cache|--no-store-to-cache) ;;
     *) echo "ERROR: STORE_TO_CACHE must be --store-to-cache or --no-store-to-cache."; exit 1 ;;
 esac
+case "$EVAL_SUBSET" in
+    ''|escalated) ;;
+    *) echo "ERROR: EVAL_SUBSET must be empty or 'escalated' (got '$EVAL_SUBSET')."; exit 1 ;;
+esac
+# The file is read here, on the host, so the container needs no extra mount: its ids join EVAL_IDS.
+if [ -n "$EVAL_IDS_FILE" ]; then
+    [ -f "$EVAL_IDS_FILE" ] || { echo "ERROR: EVAL_IDS_FILE $EVAL_IDS_FILE not found."; exit 1; }
+    FILE_IDS=$(sed 's/#.*//' "$EVAL_IDS_FILE" | tr -s ' \t\r\n;' ',' | sed 's/^,*//; s/,*$//')
+    EVAL_IDS=$(printf '%s' "${EVAL_IDS:+$EVAL_IDS,}$FILE_IDS" | sed 's/^,*//; s/,*$//')
+fi
+if [ -n "$EVAL_IDS" ] && ! printf '%s' "$EVAL_IDS" | grep -Eq '^[0-9]+(,[0-9]+)*$'; then
+    echo "ERROR: EVAL_IDS must be comma-separated evaluation ids (got '$EVAL_IDS')."; exit 1
+fi
 case "$COMPLEX_QUESTION_PROCESSING" in
     --complex-question-processing|--no-complex-question-processing|--complex-model-used|--no-complex-model-used) ;;
     *) echo "ERROR: COMPLEX_QUESTION_PROCESSING must be --complex-question-processing or --no-complex-question-processing."; exit 1 ;;
@@ -221,11 +245,31 @@ try:
             f"AND {late('ANSWER_SINGLE_VALUE_MODEL', os.environ['PF_ASV'])}")
     models = (fver, os.environ["PF_EE"], os.environ["PF_T2S"], os.environ["PF_CX"])
     resume = (cp.f_getservervariable("strtext2sqlevalrunevalid", 0) or "").strip()
+    # FASTAPI-TEXT2SQL-301: the same subset the evaluator will compute, by the same function.
+    subset = None
+    import text2sql_eval_functions as t2s_eval
+    if os.environ.get("PF_IDS"):
+        subset = set(t2s_eval.parse_eval_ids(os.environ["PF_IDS"]))
+        print(f"PF_SUBSET_IDS={len(subset)} id(s) given")
+    if os.environ.get("PF_SUBSET") == "escalated":
+        late_x = (f"AND {late('RESULT_ENTITY_MODEL', os.environ['PF_RE'])} "
+                  f"AND {late('ANSWER_SINGLE_VALUE_MODEL', os.environ['PF_ASV'])}")
+        ds = t2s_eval.escalated_subset(cur, fver, os.environ["PF_EE"], os.environ["PF_T2S"],
+                                       os.environ["PF_BASE_CX"], late_x,
+                                       ["en", "fr"] if lang == "*" else [lang])
+        subset = set(ds["ids"]) if subset is None else subset & set(ds["ids"])
+        print(f"PF_SUBSET_ESC={ds['escalated']} escalated by the baseline (complex={os.environ['PF_BASE_CX']}) "
+              f"+ {ds['declared_not_escalated']} declared complex not escalated = {len(ds['ids'])}")
+        if ds["escalated"] == 0:
+            print("PF_SUBSET_NOBASE=1")
+    if subset is not None:
+        print(f"PF_SUBSET_SIZE={len(subset)}")
+    in_subset = "" if subset is None else t2s_eval.ids_in_clause("e.ID_T2S_EVALUATION", subset)
     total_remaining = 0
     for l, col in (("en", "QUESTION"), ("fr", "QUESTION_FR")):
         if lang not in (l, "*"):
             continue
-        base_q = elig + f"AND e.{col} IS NOT NULL AND e.{col} <> '' "
+        base_q = elig + f"AND e.{col} IS NOT NULL AND e.{col} <> '' " + in_subset
         cur.execute("SELECT COUNT(*) AS n " + base_q)
         eligible = cur.fetchone()["n"]
         q = "SELECT COUNT(*) AS n " + base_q + f"AND e.ID_T2S_EVALUATION NOT IN ({done}) "
@@ -254,6 +298,7 @@ PREFLIGHT=$(printf '%s\n' "$PREFLIGHT_PY" | docker run -i --rm --network="host" 
     -e PF_API_VERSION="$API_VERSION" -e PF_LANGUAGE="$EVAL_LANGUAGE" \
     -e PF_EE="$ENTITY_EXTRACTION_MODEL" -e PF_T2S="$TEXT2SQL_MODEL" -e PF_CX="$COMPLEX_MODEL" \
     -e PF_RE="$RESULT_ENTITY_MODEL" -e PF_ASV="$ANSWER_SINGLE_VALUE_MODEL" \
+    -e PF_SUBSET="$EVAL_SUBSET" -e PF_IDS="$EVAL_IDS" -e PF_BASE_CX="$SUBSET_BASELINE_COMPLEX_MODEL" \
     --entrypoint python text2sql-eval-python-app - 2>&1)
 
 pf() { printf '%s\n' "$PREFLIGHT" | sed -n "s/^$1=//p" | head -1; }
@@ -290,6 +335,12 @@ echo "  Cache guard : stops the run under $CACHE_GUARD_MIN_HIT of provider-cache
 echo "  Pacing      : TEXT2SQL_EVAL_API_CALL_DELAY_SECONDS and 429 retries, from $EVAL_HOME/.env"
 echo "  Resume from : ID_T2S_EVALUATION >= $(pf PF_RESUME) (server variable strtext2sqlevalrunevalid)"
 echo "  Phases      : 4-6 translate, 10 purge, 11 run, 20 score, 30-32 export to $SHARED_DIR"
+if [ -n "$EVAL_SUBSET$EVAL_IDS" ]; then
+    echo "  Subset      : phases 11, 20 and 32 limited to $(pf PF_SUBSET_SIZE) question(s) (FASTAPI-TEXT2SQL-301)"
+    [ -n "$(pf PF_SUBSET_IDS)" ] && echo "                ids given: $(pf PF_SUBSET_IDS)"
+    [ -n "$(pf PF_SUBSET_ESC)" ] && echo "                escalated preset: $(pf PF_SUBSET_ESC)"
+    [ -n "$EVAL_SUBSET" ] && echo "                phase 20 ends on a head-to-head, complex=$SUBSET_BASELINE_COMPLEX_MODEL against complex=$COMPLEX_MODEL"
+fi
 echo
 echo "Work:"
 printf '%s\n' "$PREFLIGHT" | sed -n 's/^PF_LANG_\(..\)=/  \1 : /p'
@@ -325,6 +376,15 @@ if [ -n "$PF_API_VERSION_SEEN" ] && [ "$PF_API_VERSION_SEEN" != "$API_VERSION" ]
 fi
 if [ "$PF_BKTREES" = "False" ]; then
     warn "bktrees_ready is false: the API is still warming up and early latencies will be inflated. Wait."
+fi
+if [ "$(pf PF_SUBSET_NOBASE)" = "1" ]; then
+    warn "EVAL_SUBSET=escalated: no baseline run escalated anything on this configuration with"
+    more "complex=$SUBSET_BASELINE_COMPLEX_MODEL, so the subset holds only the declared-complex questions."
+    more "Run the baseline in full first: COMPLEX_MODEL=$SUBSET_BASELINE_COMPLEX_MODEL, no EVAL_SUBSET."
+fi
+if [ -n "$EVAL_SUBSET" ] && [ "$COMPLEX_MODEL" = "$SUBSET_BASELINE_COMPLEX_MODEL" ]; then
+    echo "  - COMPLEX_MODEL equals the baseline complex model: this run IS the baseline subset (a rescore,"
+    more "or the refresh of its scores before a challenger), and the head-to-head compares it with itself."
 fi
 if [ "$PF_REMAINING" = "0" ]; then
     echo "  - nothing left to run for this version, models and language: phase 11 will be an empty pass."
@@ -444,6 +504,10 @@ else
     exit 1
 fi
 
+SUBSET_ARGS=()
+[ -n "$EVAL_SUBSET" ] && SUBSET_ARGS+=(--subset "$EVAL_SUBSET" --subset-baseline-complex-model "$SUBSET_BASELINE_COMPLEX_MODEL")
+[ -n "$EVAL_IDS" ] && SUBSET_ARGS+=(--eval-ids "$EVAL_IDS")
+
 # Secrets are injected at runtime via --env-file from a host-managed env file kept outside
 # the app source tree (never baked into the image).
 docker run -d --rm --network="host" \
@@ -460,7 +524,8 @@ docker run -d --rm --network="host" \
     --language "$EVAL_LANGUAGE" \
     "$STORE_TO_CACHE" \
     "$COMPLEX_QUESTION_PROCESSING" \
-    --cache-guard-min-hit "$CACHE_GUARD_MIN_HIT"
+    --cache-guard-min-hit "$CACHE_GUARD_MIN_HIT" \
+    ${SUBSET_ARGS[@]+"${SUBSET_ARGS[@]}"}
 
 echo
 echo "Campaign launched in the detached container 'text2sql-eval' (Ctrl+C leaves the logs, not the run)."

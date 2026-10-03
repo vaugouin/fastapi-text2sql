@@ -787,3 +787,130 @@ def translation_system_prompt(src_lang: str, dst_lang: str, glossary: dict) -> s
         for src, dst in glossary.items():
             lines.append(f"- {src} => {dst}")
     return "\n".join(lines)
+
+
+
+# ---------------------------------------------------------------------------
+# FASTAPI-TEXT2SQL-301: run and score a subset of the bank, and compare two runs
+# on it. Shared by text2sql-eval.py and the pre-flight of text2sql-eval.sh, so
+# the count announced before a campaign is the set the campaign runs.
+# ---------------------------------------------------------------------------
+
+SUBSET_PRESETS = ("escalated",)
+
+
+def parse_eval_ids(text: str) -> list:
+    """Evaluation ids from a comma, space or newline separated text. Blank lines and
+    `#` comments are ignored, so a file of ids can carry its own explanation."""
+    ids = []
+    for line in str(text or "").splitlines():
+        line = line.split("#", 1)[0]
+        for token in re.split(r"[\s,;]+", line):
+            if not token:
+                continue
+            if not token.isdigit():
+                raise ValueError(f"not an evaluation id: {token!r}")
+            ids.append(int(token))
+    return sorted(set(ids))
+
+
+def ids_in_clause(column: str, ids) -> str:
+    """`AND <column> IN (...)` for a subset; an empty subset matches nothing, never everything."""
+    ids = sorted({int(i) for i in ids})
+    if not ids:
+        return f"AND {column} IN (-1) "
+    return f"AND {column} IN ({', '.join(str(i) for i in ids)}) "
+
+
+def escalated_subset(cursor, api_version_formatted: str, ee_model: str, t2s_model: str,
+                     baseline_complex_model: str, late_clause: str, languages) -> dict:
+    """Ids of the `escalated` preset, with the size of each half.
+
+    The questions the baseline run escalated (COMPLEX_MODEL_USED = 1), united with the
+    ones the bank declares RESOLUTION_MODE = 'complex': a declared-complex question that
+    did not escalate in the baseline is exactly a case to watch. The baseline is the
+    challenger's own configuration with only the complex model swapped, so the subset is
+    the set production escalates with the same first pass (text2sql decides who
+    escalates, and the retry goes back through it). `late_clause` is the caller's
+    late-models predicate on alias `x`, starting with AND, as late_models_clause() returns
+    it, so this function does not duplicate its rule. `cursor` must return dict rows.
+    """
+    langs = [l for l in languages if l in ("en", "fr")] or ["en", "fr"]
+    cursor.execute(
+        "SELECT DISTINCT x.ID_T2S_EVALUATION AS id FROM T_WC_T2S_EVALUATION_EXECUTION x "
+        "INNER JOIN T_WC_T2S_EVALUATION e ON e.ID_T2S_EVALUATION = x.ID_T2S_EVALUATION "
+        "WHERE x.DELETED = 0 AND e.DELETED = 0 AND x.COMPLEX_MODEL_USED = 1 "
+        "AND x.API_VERSION = %s AND x.ENTITY_EXTRACTION_MODEL = %s AND x.TEXT2SQL_MODEL = %s "
+        f"AND x.COMPLEX_MODEL = %s {late_clause.strip()} "
+        f"AND x.LANG IN ({', '.join(['%s'] * len(langs))})",
+        (api_version_formatted, ee_model, t2s_model, baseline_complex_model, *langs),
+    )
+    escalated = {int(r["id"]) for r in cursor.fetchall()}
+    cursor.execute(
+        "SELECT ID_T2S_EVALUATION AS id FROM T_WC_T2S_EVALUATION "
+        "WHERE DELETED = 0 AND IS_EVAL = 1 AND RESOLUTION_MODE = 'complex'"
+    )
+    declared = {int(r["id"]) for r in cursor.fetchall()}
+    return {
+        "ids": sorted(escalated | declared),
+        "escalated": len(escalated),
+        "declared": len(declared),
+        "declared_not_escalated": len(declared - escalated),
+    }
+
+
+def head_to_head(baseline_rows, challenger_rows) -> dict:
+    """Compare two runs question by question on the same (id, lang) pairs.
+
+    Each row: ID_T2S_EVALUATION, LANG, ASSERTIONS_TOTAL_SCORE, COMPLEX_MODEL_USED,
+    TOTAL_PROCESSING_TIME, COMPLEX_QUESTION_PROCESSING_TIME. A pair counts in the
+    comparison only when both runs scored it AND both escalated it: where the complex
+    model was not called, it did nothing, and the pair would only measure the noise of
+    the first pass. Those pairs are counted apart, per side, never dropped silently.
+    """
+    def index(rows):
+        return {(int(r["ID_T2S_EVALUATION"]), r["LANG"]): r for r in rows}
+
+    base, chal = index(baseline_rows), index(challenger_rows)
+    out = {
+        "only_baseline": sorted(set(base) - set(chal)),
+        "only_challenger": sorted(set(chal) - set(base)),
+        "not_escalated_baseline": [], "not_escalated_challenger": [], "unscored": [],
+        "compared": [], "won": [], "lost": [],
+        "baseline_pass": 0, "challenger_pass": 0,
+        "baseline_total_time": [], "challenger_total_time": [],
+        "baseline_complex_time": [], "challenger_complex_time": [],
+    }
+    for key in sorted(set(base) & set(chal)):
+        b, c = base[key], chal[key]
+        if b.get("ASSERTIONS_TOTAL_SCORE") is None or c.get("ASSERTIONS_TOTAL_SCORE") is None:
+            out["unscored"].append(key)
+            continue
+        b_esc, c_esc = b.get("COMPLEX_MODEL_USED") == 1, c.get("COMPLEX_MODEL_USED") == 1
+        if not b_esc:
+            out["not_escalated_baseline"].append(key)
+        if not c_esc:
+            out["not_escalated_challenger"].append(key)
+        if not (b_esc and c_esc):
+            continue
+        out["compared"].append(key)
+        b_ok, c_ok = int(b["ASSERTIONS_TOTAL_SCORE"]) == 1, int(c["ASSERTIONS_TOTAL_SCORE"]) == 1
+        out["baseline_pass"] += b_ok
+        out["challenger_pass"] += c_ok
+        if c_ok and not b_ok:
+            out["won"].append(key)
+        elif b_ok and not c_ok:
+            out["lost"].append(key)
+        for side, row in (("baseline", b), ("challenger", c)):
+            for field, name in (("TOTAL_PROCESSING_TIME", "total"), ("COMPLEX_QUESTION_PROCESSING_TIME", "complex")):
+                if row.get(field) is not None:
+                    out[f"{side}_{name}_time"].append(float(row[field]))
+    return out
+
+
+def median(values):
+    values = sorted(values)
+    if not values:
+        return None
+    mid = len(values) // 2
+    return values[mid] if len(values) % 2 else (values[mid - 1] + values[mid]) / 2
