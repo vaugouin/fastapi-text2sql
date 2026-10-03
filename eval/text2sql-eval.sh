@@ -95,7 +95,9 @@ TEXT2SQL_MODEL=${TEXT2SQL_MODEL:-gpt-6-sol}
 COMPLEX_MODEL=${COMPLEX_MODEL:-gpt-4o}
 # FASTAPI-TEXT2SQL-232: the answer-entity classifier and the single-value answerer. Read the
 # header before changing either on a version that already carries executions.
-RESULT_ENTITY_MODEL=${RESULT_ENTITY_MODEL:-gpt-4o}
+# LLM-TASKS-003 (2026-10-03): follows the API default (gpt-6-luna, GPT-6-003). gpt-4o baseline:
+# RESULT_ENTITY_MODEL=gpt-4o.
+RESULT_ENTITY_MODEL=${RESULT_ENTITY_MODEL:-gpt-6-luna}
 ANSWER_SINGLE_VALUE_MODEL=${ANSWER_SINGLE_VALUE_MODEL:-gpt-4o}
 STORE_TO_CACHE=${STORE_TO_CACHE:---store-to-cache}
 # FASTAPI-TEXT2SQL-256. True, because that is what the run has always done: the evaluator

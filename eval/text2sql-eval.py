@@ -419,8 +419,11 @@ _parser.add_argument("--complex-model", default="gpt-4o",
 # FASTAPI-TEXT2SQL-232 gave the answer-entity classifier and the single-value answerer their
 # own selectors. They are the third and fifth LLM tasks of the pipeline, and until then the
 # evaluator could not move either one, so a per-task model campaign was not expressible here.
-_parser.add_argument("--result-entity-model", default="gpt-4o",
-                     help="LLM model for the answer-entity classifier (default: gpt-4o)")
+# LLM-TASKS-003 (Philippe, 2026-10-03): follows the API default, gpt-6-luna since GPT-6-003, so a
+# bare campaign measures production. Runs on it land in their own folder (_re-gpt-6-luna, -234);
+# DEFAULT_TASK_MODEL stays gpt-4o, it only describes the NULL of the rows written before -234.
+_parser.add_argument("--result-entity-model", default="gpt-6-luna",
+                     help="LLM model for the answer-entity classifier (default: gpt-6-luna, the API default)")
 _parser.add_argument("--answer-single-value-model", default="gpt-4o",
                      help="LLM model for the direct scalar answer (default: gpt-4o)")
 _parser.add_argument("--api-version", default="1.1.14",
