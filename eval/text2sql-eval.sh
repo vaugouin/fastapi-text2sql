@@ -63,7 +63,10 @@
 # soft-deleted executions, rescores (phase 20) and re-exports (phases 30-32), which is exactly
 # what follows an assertion correction. Then it launches without asking.
 #
-# THE DEFAULTS ARE THE BASELINE RUN, AND THAT IS DELIBERATE
+# THE DEFAULTS WERE THE BASELINE RUN UNTIL 2026-10-03
+# Since LLM-TASKS-010, entity extraction and text-to-SQL default to gpt-6-sol like the API, so a
+# bare run measures production. The baseline below is now launched with
+# ENTITY_EXTRACTION_MODEL=gpt-4o TEXT2SQL_MODEL=gpt-4o. What follows is the 2026-09-14 reasoning.
 # Five times gpt-4o on 1.1.19, launched with no variable at all: `./text2sql-eval.sh`.
 # It is owed for two reasons at once. The prompts moved a lot since the 001.001.018
 # reference (data/text_to_sql.md +10.5 % over 6 commits, data/entity_extraction.md +18.9 %
@@ -85,8 +88,10 @@ elif [ "${LANGUAGE:-}" = "en" ] || [ "${LANGUAGE:-}" = "fr" ] || [ "${LANGUAGE:-
 else
     EVAL_LANGUAGE='*'
 fi
-ENTITY_EXTRACTION_MODEL=${ENTITY_EXTRACTION_MODEL:-gpt-4o}
-TEXT2SQL_MODEL=${TEXT2SQL_MODEL:-gpt-4o}
+# LLM-TASKS-010 (2026-10-03): the first two follow the API defaults (gpt-6-sol). For the gpt-4o
+# baseline: ENTITY_EXTRACTION_MODEL=gpt-4o TEXT2SQL_MODEL=gpt-4o ./text2sql-eval.sh
+ENTITY_EXTRACTION_MODEL=${ENTITY_EXTRACTION_MODEL:-gpt-6-sol}
+TEXT2SQL_MODEL=${TEXT2SQL_MODEL:-gpt-6-sol}
 COMPLEX_MODEL=${COMPLEX_MODEL:-gpt-4o}
 # FASTAPI-TEXT2SQL-232: the answer-entity classifier and the single-value answerer. Read the
 # header before changing either on a version that already carries executions.
@@ -276,7 +281,7 @@ echo "  2 text2sql             $TEXT2SQL_MODEL"
 echo "  3 result_entity        $RESULT_ENTITY_MODEL"
 echo "  4 complex_question     $COMPLEX_MODEL"
 echo "  5 answer_single_value  $ANSWER_SINGLE_VALUE_MODEL"
-echo "  + gpt-4o, called by the evaluator itself to translate untranslated bank rows (phases 4-6)"
+echo "  + gpt-6-sol, called by the evaluator itself to translate untranslated bank rows (phases 4-6)"
 echo
 echo "Options:"
 echo "  Escalation  : $COMPLEX_QUESTION_PROCESSING (stronger-model retry, fired on 2.6 % of 001.001.018)"

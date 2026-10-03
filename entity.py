@@ -82,7 +82,9 @@ def _collapse_repeated_descriptor(text: str) -> str:
 
 strentityextractionprompttemplate = "entity_extraction.md"
 strentityresolutionconfigfile = "entity_resolution.json"
-strentityextractionmodeldefault = "gpt-4o"
+# LLM-TASKS-010 (2026-10-03, Philippe's decision): gpt-6-sol, switched without a Sol bench of
+# this task (GPT-6-004 measured Luna only, a HOLD). gpt-4o stays selectable per request.
+strentityextractionmodeldefault = "gpt-6-sol"
 
 # Populated synchronously by data_watcher.register() below and refreshed
 # automatically whenever the underlying files change on disk.

@@ -406,10 +406,14 @@ def write_json_if_changed(output_dir, filename, payload):
 # CLI arguments (all optional; defaults match the previous hardcoded values)
 # ---------------------------------------------------------------------------
 _parser = argparse.ArgumentParser(description="Text2SQL evaluation runner")
-_parser.add_argument("--entity-extraction-model", default="gpt-4o",
-                     help="LLM model for entity extraction (default: gpt-4o)")
-_parser.add_argument("--text2sql-model", default="gpt-4o",
-                     help="LLM model for text-to-SQL (default: gpt-4o)")
+# LLM-TASKS-010 (2026-10-03): the first two defaults follow the API, which serves gpt-6-sol on
+# both tasks, so a campaign without flags measures production. The gpt-4o baseline stays one
+# flag away (--entity-extraction-model gpt-4o --text2sql-model gpt-4o). DEFAULT_TASK_MODEL above
+# does not move: it describes the NULL of the two late columns, written by gpt-4o runs.
+_parser.add_argument("--entity-extraction-model", default="gpt-6-sol",
+                     help="LLM model for entity extraction (default: gpt-6-sol, the API default)")
+_parser.add_argument("--text2sql-model", default="gpt-6-sol",
+                     help="LLM model for text-to-SQL (default: gpt-6-sol, the API default)")
 _parser.add_argument("--complex-model", default="gpt-4o",
                      help="LLM model for complex question processing (default: gpt-4o)")
 # FASTAPI-TEXT2SQL-232 gave the answer-entity classifier and the single-value answerer their

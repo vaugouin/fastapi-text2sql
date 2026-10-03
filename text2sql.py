@@ -41,7 +41,10 @@ dblavailableram=memory_info.available / (1024 ** 3)
 
 # Text-to-SQL feature
 strtext2sqlprompttemplate = "text_to_sql.md"
-strtext2sqlmodeldefault = "gpt-4o"
+# LLM-TASKS-010 (2026-10-03, Philippe's decision): gpt-6-sol, switched before the -305 rerun
+# that GPT-6-006 was waiting for (last measured: -19 EN / -14 FR against gpt-4o, before the
+# -305 prompt fixes). Also serves SQL regeneration and the answer-entity guard retry.
+strtext2sqlmodeldefault = "gpt-6-sol"
 
 # Complex question feature (stronger model)
 strcomplexquestionprompttemplate = "complex_question.md"

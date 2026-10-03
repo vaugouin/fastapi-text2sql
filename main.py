@@ -2160,9 +2160,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             - retrieve_from_cache (bool, default True): Whether to consult the SQL cache.
             - store_to_cache (bool, default True): Whether to write results to the SQL cache.
             - llm_model_entity_extraction (str, default "default"): LLM for entity
-              extraction. "default" resolves to gpt-4o.
+              extraction. "default" resolves to gpt-6-sol (gpt-4o until LLM-TASKS-010,
+              2026-10-03).
             - llm_model_text2sql (str, default "default"): LLM for SQL generation.
-              "default" resolves to gpt-4o.
+              "default" resolves to gpt-6-sol (gpt-4o until LLM-TASKS-010, 2026-10-03).
             - llm_model_complex (str, default "default"): Stronger LLM used for
               complex-question escalation and one-time retry. "default" resolves to gpt-4o.
             - llm_model_result_entity (str, default "default"): LLM for the answer-entity
@@ -8808,8 +8809,9 @@ async def _mcp_sql_search(
     persons). Use it to ask the user which one they mean before drilling in.
 
     Optional model overrides (each defaults to "default" = the server's configured
-    model: gpt-4o for four of the five text tasks, gpt-6-luna for the answer-entity
-    classifier, and gpt-6-astra for the vision one). The
+    model: gpt-6-sol for entity extraction and text-to-SQL, gpt-4o for the complex
+    question and the single-value answer, gpt-6-luna for the answer-entity classifier,
+    and gpt-6-astra for the vision one). The
     pipeline makes six distinct LLM calls and each has its own selector:
     llm_model_entity_extraction, llm_model_text2sql, llm_model_complex,
     llm_model_result_entity (the answer-entity classifier),

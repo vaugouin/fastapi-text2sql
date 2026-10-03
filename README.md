@@ -5,7 +5,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 ## 🚀 Features
 
 ### Core Capabilities
-- **Natural Language to SQL**: Convert plain English questions into SQL queries using OpenAI GPT-4o (default), Anthropic Claude, or Google Gemini
+- **Natural Language to SQL**: Convert plain English questions into SQL queries using OpenAI GPT-6 Sol (default since 2026-10-03), GPT-4o, Anthropic Claude, or Google Gemini
 - **FastAPI Framework**: High-performance, modern Python web framework with automatic API documentation
 - **API Key Authentication**: Secure access with API key validation using constant-time comparison
 - **ChromaDB Vector Search**: Advanced similarity search for entity matching and query optimization
@@ -386,8 +386,8 @@ Content-Type: application/json
 - `default`
   - Uses the module default for the corresponding stage
   - Current defaults:
-    - `llm_model_entity_extraction` → `gpt-4o`
-    - `llm_model_text2sql` → `gpt-4o`
+    - `llm_model_entity_extraction` → `gpt-6-sol` (since 2026-10-03, LLM-TASKS-010)
+    - `llm_model_text2sql` → `gpt-6-sol` (since 2026-10-03, LLM-TASKS-010)
     - `llm_model_complex` → `gpt-4o`
     - `llm_model_result_entity` → `gpt-6-luna` (since 2026-09-29, GPT-6-003)
     - `llm_model_answer_single_value` → `gpt-4o`
@@ -545,8 +545,8 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "cached_anonymized_question": false,
   "cached_anonymized_question_embedding": false,
   "ambiguous_question_for_text2sql": false,
-  "llm_model_entity_extraction": "gpt-4o",
-  "llm_model_text2sql": "gpt-4o",
+  "llm_model_entity_extraction": "gpt-6-sol",
+  "llm_model_text2sql": "gpt-6-sol",
   "llm_model_complex": "gpt-4o",
   "llm_model_result_entity": "gpt-6-luna",
   "llm_model_answer_single_value": "gpt-4o",
