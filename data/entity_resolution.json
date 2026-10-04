@@ -303,7 +303,6 @@
         "default_field": "COLLECTION_NAME",
         "order_by": null,
         "min_fuzz_ratio": 73.5,
-        "rescue_normalizations": ["apostrophes", "accents", "punctuation"],
         "languages": {
           "en": "COLLECTION_NAME",
           "fr": "COLLECTION_NAME_FR",

@@ -677,9 +677,27 @@ one row, one column", and the aggregation rule says "per entity". A single total
 single total projects no id by design, so the guard used to demand entity rows: gpt-6-sol obeyed
 and failed its counts (793, 2169-2172, 2313), gpt-4o failed to regenerate and kept its count,
 passing by accident after a discarded LLM call. `_is_single_total_select` now lets through a query
-whose outer SELECT list is exactly one `COUNT(...)` with no `GROUP BY`. COUNT only, on purpose:
-"What is the longest movie?" written as `SELECT MAX(RUNTIME)` is still a wrong answer the guard
-must turn into the movie row.
+whose outer SELECT list is exactly one `COUNT(...)` with no `GROUP BY`. Not MIN or MAX, on
+purpose: "What is the longest movie?" written as `SELECT MAX(RUNTIME)` is still a wrong answer the
+guard must turn into the movie row.
+
+**Extended by FASTAPI-TEXT2SQL-311 (2026-10-04)**, on two measured cases (evaluations 2524 and
+2525): the generator wrote the right shape and the guard rewrote it wrong. "The average runtime of
+Christopher Nolan movies", one `AVG` cell, became one average per technical format; "the average
+IMDb rating of Kubrick movies per decade", grouped by decade, became one row per film.
+
+- The single total now also takes `AVG` and `SUM` (no single row can carry them), `ROUND()`
+  around the aggregate included. Still not `MIN` / `MAX`.
+- `_is_statistics_table_select` lets through a **statistics table**: a `GROUP BY` whose keys are
+  all attributes (decade, year, language), keys resolved through aliases and ordinals, every
+  projected column a key or an aggregate, no window function, no `UNION`. A key that is an
+  identity (`ID_*`, `*_NAME`, `*_TITLE`, `DESCRIPTION`) disqualifies it: "directors with the most
+  films" grouped on `PERSON_NAME` alone is exactly what the guard must still turn into person rows.
+- **Offline check:** `uv run eval/verif-311.py` (23 cases, both directions). **Replayed** on the
+  11,477 SQL statements of the 5,502 executions of the 1.1.19 campaigns: no `AVG`/`SUM` total and
+  no statistics table among them, and the 266 `GROUP BY` queries all project an entity id and are
+  all rejected by the new rule. So -311 changes no decision on the existing bank; its only
+  coverage is 2524 and 2525.
 
 ## Before and after an evaluation campaign: `off-all.sh`, then `on-all.sh`
 
@@ -1353,7 +1371,7 @@ Normalising brings near-homonyms closer together, so the pass must compare them.
 |---|---|---|
 | `Movie_title`, `Serie_title`, `Network_name`, `Group_name`, `Location_name`, `Topic_name` | all four | rescues right; the only "errors" were homonyms (two *S.O.S. Fantômes*, two *E!*) and *Prête à tout*, fixed by the best-score rule |
 | `Company_name` | apostrophes, accents, dashes | punctuation took "Warner Bros" to *Warner Bros. China* (75.9 to 78.6, threshold 77.5) |
-| `Collection_name` | apostrophes, accents, punctuation | dashes took "Collection Dracula" to *Dracula 2000 - Saga* (66.7 to 73.7, threshold 73.5) |
+| `Collection_name` | none | no right rescue in any stage, two wrong ones: dashes took "Collection Dracula" to *Dracula 2000 - Saga* (66.7 to 73.7, threshold 73.5); without dashes, accents took "Miss Detective - Saga" to *Détective K - Saga* (69.0 to 75.9), the right collection not being among the ten candidates. The ` - Saga` documents and the low threshold make any normaliser risky here |
 | `Award_name`, `Death_name`, `List_name`, `Movement_name`, `Nomination_name` | none | no rescue measured, so no evidence either way |
 
 **Deliberately not normalised:** leading articles (they raise every score carrying one, so they
@@ -1580,6 +1598,8 @@ Pick verification based on blast radius:
   `uv run eval/test-vision-homonyms.py` (no API, no database): it pins the decision of the pure
   module `vision_identity.py`, including the reverse case that proves popularity never decides.
   Real homonym pairs for the live bench come from `eval/harvest-title-year-homonyms.sql`.
+- For any change to the answer-entity guard or its exemptions, run `uv run eval/verif-311.py`
+  (no API, no database): it checks both directions, what must pass and what must still regenerate.
 - For anything that touches how the response is serialized (a new field, a new entity endpoint,
   a rounding rule), run `uv run --with "fastapi>=0.104.1" --with httpx eval/verif-308.py`
   (no API, no database), then `uv run eval/verif-114.py`, which execs the same model block.

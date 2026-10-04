@@ -212,8 +212,7 @@ for t in ("Movie_title", "Serie_title", "Network_name", "Group_name", "Location_
     check(f"{t}: all four", cfg.get(t), [full])
 check("Company_name: no punctuation (Warner Bros. China)", cfg.get("Company_name"),
       [["apostrophes", "accents", "dashes"]])
-check("Collection_name: no dashes (Dracula 2000 - Saga)", cfg.get("Collection_name"),
-      [["apostrophes", "accents", "punctuation"]])
+check("Collection_name: no rescue (Dracula 2000 - Saga, Detective K - Saga)", cfg.get("Collection_name"), [None])
 for t in ("Award_name", "Death_name", "List_name", "Movement_name", "Nomination_name"):
     check(f"{t}: no rescue, nothing measured", cfg.get(t), [None])
 
