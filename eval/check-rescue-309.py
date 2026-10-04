@@ -127,6 +127,21 @@ check("possessive unchanged", n("schindler's list"), "schindler's list")
 check("no apostrophe, unchanged", n("la haine"), "la haine")
 check("idempotent", n(n("l’ avventura")), n("l’ avventura"))
 
+a = rapidfuzz_query.apply_rescue_normalizers
+check("accents folded", a("amélie", ["accents"]), "amelie")
+check("dashes become a space", a("spider-man", ["dashes"]), "spider man")
+check("punctuation dropped", a("mission: impossible!", ["punctuation"]), "mission impossible")
+check("canonical order: the acute accent is an apostrophe, not a diacritic",
+      a("bell´ antonio", ["accents", "apostrophes"]), "bell'antonio")
+check("full stage, the whole list", rapidfuzz_query.RESCUE_STAGES["full"],
+      ["apostrophes", "accents", "dashes", "punctuation"])
+try:
+    a("x", ["accent"])
+    raised = False
+except KeyError:
+    raised = True
+check("unknown normaliser raises", raised, True)
+
 print("\n2. Eval 475, English spelling: the first pass refuses, the rescue accepts rank 1")
 joined, score = run("Bell' Antonio")
 check("typographic rescue fired", "typographic rescue (apostrophes) accepted rank 1" in joined, True)
@@ -136,6 +151,7 @@ check("first-pass score recorded, below the threshold", score.get("fuzz_ratio_fi
 check("rescued score recorded", score.get("fuzz_ratio"), 88.9)
 check("rescue recorded in match_scores", score.get("rescue_normalizations"), ["apostrophes"])
 check("not counted as rejected", score.get("rejected"), False)
+check("candidate id recorded", score.get("candidate_id"), "movieid_76157_it")
 
 print("\n3. The French spelling, no space: the first pass decides, the rescue never runs")
 joined, score = run("Bell'Antonio")

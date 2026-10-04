@@ -274,16 +274,72 @@ def normalize_apostrophes(s: str) -> str:
     return _APOSTROPHE_SPACING_RE.sub("'", _APOSTROPHE_VARIANTS_RE.sub("'", s))
 
 
+def normalize_accents(s: str) -> str:
+    """Diacritics removed: "amélie" -> "amelie", "fenêtre" -> "fenetre". Measured: "amelie"
+    against "amélie" scores 83.3 on fuzz.ratio, refused by the movie threshold of 85.85. Typed
+    without accents by French users on an English keyboard, and by voice transcription. Same
+    folding as `_fold_ascii`, which the franchise word lists already use."""
+    if not s:
+        return s
+    return "".join(c for c in _unicodedata.normalize("NFKD", s) if not _unicodedata.combining(c))
+
+
+# Hyphen, non-breaking hyphen, figure dash, en dash, em dash, minus sign, underscore.
+_DASHES_RE = re.compile("[\\-‐‑‒–—−_]+")
+_MULTISPACE_RE = re.compile(r"\s+")
+
+
+def normalize_dashes(s: str) -> str:
+    """Every dash becomes a space: "spider-man" and "spider man" compare equal."""
+    if not s:
+        return s
+    return _MULTISPACE_RE.sub(" ", _DASHES_RE.sub(" ", s)).strip()
+
+
+# Punctuation that carries no identity in a title typed from memory. NOT the apostrophe (its own
+# normaliser keeps it, since "l'avventura" and "lavventura" are different spellings), NOT "&"
+# ("and" or "et" depending on the language), NOT digits.
+_PUNCTUATION_RE = re.compile("[.,:;!?¡¿\"«»“”„()\\[\\]{}*…/]+")
+
+
+def normalize_punctuation(s: str) -> str:
+    """Punctuation removed: "mission: impossible" -> "mission impossible", "e.t." -> "et",
+    "mother!" -> "mother". The last one is the collision to watch: *mother!* (2017) and *Mother*
+    (2009) both exist, which the exact-match stage protects only when the title is typed exactly."""
+    if not s:
+        return s
+    return _MULTISPACE_RE.sub(" ", _PUNCTUATION_RE.sub(" ", s)).strip()
+
+
 RESCUE_NORMALIZERS = {
     "apostrophes": normalize_apostrophes,
+    "accents": normalize_accents,
+    "dashes": normalize_dashes,
+    "punctuation": normalize_punctuation,
+}
+
+# The order they are applied in, whatever the order of the configuration list. It matters:
+# the acute accent "´" is an apostrophe form, and folding accents first would turn it into a
+# space plus a combining mark instead.
+_RESCUE_ORDER = ("apostrophes", "accents", "dashes", "punctuation")
+
+# The stages of the -309 evaluation, so the eval script and the configuration share one name.
+RESCUE_STAGES = {
+    "none": [],
+    "apostrophes": ["apostrophes"],
+    "full": list(_RESCUE_ORDER),
 }
 
 
 def apply_rescue_normalizers(s: str, names) -> str:
-    """Apply the named normalisers in order. An unknown name raises: a typo in the configuration
-    must not silently disable the rescue it was meant to switch on."""
-    for name in names or ():
-        s = RESCUE_NORMALIZERS[name](s)
+    """Apply the named normalisers, in the canonical order. An unknown name raises: a typo in the
+    configuration must not silently disable the rescue it was meant to switch on."""
+    wanted = set(names or ())
+    for name in wanted:
+        RESCUE_NORMALIZERS[name]  # raises KeyError on an unknown name
+    for name in _RESCUE_ORDER:
+        if name in wanted:
+            s = RESCUE_NORMALIZERS[name](s)
     return s
 
 

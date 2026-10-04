@@ -1770,6 +1770,12 @@ def plan_entity_resolutions(
                         "table": search_cfg.get("strtablename"),
                         "sought": raw_value,
                         "candidate": chosen_doc if isinstance(chosen_doc, str) else "",
+                        # FASTAPI-TEXT2SQL-309: the ChromaDB id of that candidate
+                        # (`movieid_76157_it`), so an evaluation can say right or wrong by
+                        # identifier instead of comparing titles, which homonyms defeat.
+                        "candidate_id": (
+                            str(ids[matched_result_position]) if matched_result_position < len(ids) else None
+                        ),
                         "distance": chosen_distance,
                         "fuzz_ratio": round(float(chosen_ratio), 1),
                         "fuzz_ratio_raw": round(float(chosen_ratio_raw), 1),
