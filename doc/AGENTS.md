@@ -12,7 +12,6 @@ moving either would break that convention.
 | [entity-resolution-thresholds.md](entity-resolution-thresholds.md) | **you are about to change a `min_fuzz_ratio`, or to add a new entity that needs one.** Method, data, traps and the exact bench commands |
 | [MCP.md](MCP.md) | working on the MCP server: tool code, resource reference, client setup, bearer token, end-to-end flow |
 | [RAPIDFUZZ.md](RAPIDFUZZ.md) | touching the RapidFuzz path: setup, and the `*_NORM` / `*_KEY` generated columns and FULLTEXT indexes it requires |
-| [SEASONS_AND_EPISODES.md](SEASONS_AND_EPISODES.md) | working on the seasons or episodes endpoints, their source tables, and the read-model swap still pending |
 | [EXTEND_T2S_TECHNICAL.md](EXTEND_T2S_TECHNICAL.md) | extending `Technical_format`: schema, prompt and resolver changes, and the retired `Aspect_ratio` history |
 | [closed-vocab-entity-plan.md](closed-vocab-entity-plan.md) | adding a closed-vocabulary entity, the rollout pattern and its checklist |
 | [sql/](sql/) | reference DDL for the canonical tables. **Read-only** unless a task explicitly says otherwise |

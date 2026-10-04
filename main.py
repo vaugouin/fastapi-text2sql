@@ -604,13 +604,13 @@ def apply_localized_text(entity: dict, conn, table: str, id_column: str, id_valu
 #   kind -> (image_table, id_column, type_image, path_key)
 # Each nested row carries id_column + path_key but not its own image array, so the
 # localized main image is fetched in one batched query per kind (see
-# apply_localized_related_images). The `season` kind reads the TMDb source image
-# table, matching the /seasons endpoint's own poster source.
+# apply_localized_related_images). The `season` kind reads T_WC_T2S_SEASON_IMAGE, the
+# /seasons endpoint's own poster source (FASTAPI-TEXT2SQL-179).
 _RELATED_IMAGE_SOURCES = {
     "movie": ("T_WC_T2S_MOVIE_IMAGE", "ID_MOVIE", "poster", "POSTER_PATH"),
     "serie": ("T_WC_T2S_SERIE_IMAGE", "ID_SERIE", "poster", "POSTER_PATH"),
     "person": ("T_WC_T2S_PERSON_IMAGE", "ID_PERSON", "profile", "PROFILE_PATH"),
-    "season": ("T_WC_TMDB_SEASON_IMAGE", "ID_SEASON", "poster", "POSTER_PATH"),
+    "season": ("T_WC_T2S_SEASON_IMAGE", "ID_SEASON", "poster", "POSTER_PATH"),
 }
 
 # FASTAPI-TEXT2SQL-303: a single total ("How many movies are there?") answers with ONE cell,
@@ -1437,7 +1437,7 @@ def _run_bare_id_fast_path(connection, kind, id_value, lngpage, lngrowsperpage):
         # series and return the series fiche (seasons/episodes have ID_IMDB + ID_SERIE
         # but no result_entity of their own).
         if kind == "imdb_title":
-            for src_table, src_label in (("T_WC_TMDB_SEASON", "season"), ("T_WC_TMDB_EPISODE", "episode")):
+            for src_table, src_label in (("T_WC_T2S_SEASON", "season"), ("T_WC_T2S_EPISODE", "episode")):
                 checked.append(src_label)
                 try:
                     cursor.execute(
@@ -5832,11 +5832,13 @@ def _build_data_freshness(cursor, row, record_source, ui_language="en"):
     }
 
 
+# TMDb-sourced videos, read from their T2S copies (tmdb-movie-preprocess Processes 25, 26,
+# 34, 35; same columns as the TMDb tables). FASTAPI-TEXT2SQL-179.
 _TMDB_VIDEO_SOURCE_TABLES = {
-    "movie": ("T_WC_TMDB_MOVIE_VIDEO", "ID_MOVIE"),
-    "serie": ("T_WC_TMDB_SERIE_VIDEO", "ID_SERIE"),
-    "season": ("T_WC_TMDB_SEASON_VIDEO", "ID_SEASON"),
-    "episode": ("T_WC_TMDB_EPISODE_VIDEO", "ID_EPISODE"),
+    "movie": ("T_WC_T2S_MOVIE_VIDEO", "ID_MOVIE"),
+    "serie": ("T_WC_T2S_SERIE_VIDEO", "ID_SERIE"),
+    "season": ("T_WC_T2S_SEASON_VIDEO", "ID_SEASON"),
+    "episode": ("T_WC_T2S_EPISODE_VIDEO", "ID_EPISODE"),
 }
 
 
@@ -6185,7 +6187,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
     this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
     attribution pointing at the exact article the prose came from.
 
-    The videos list merges TMDb-sourced videos (T_WC_TMDB_MOVIE_VIDEO) and
+    The videos list merges TMDb-sourced videos (T_WC_T2S_MOVIE_VIDEO) and
     Wikidata-sourced videos (T_WC_WIKIDATA_MEDIA_RESOURCE with RESOURCE_KIND='video',
     joined via ID_WIKIDATA). Each element exposes a unified shape: SOURCE
     ('tmdb' / 'wikidata'), VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG,
@@ -6481,16 +6483,17 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
     this URL from ID_WIKIDATA, and it needs it: displaying wikipedia_content requires CC BY-SA
     attribution pointing at the exact article the prose came from.
 
-    The seasons list contains every season of this series from T_WC_TMDB_SEASON,
-    ordered by SEASON_NUMBER ASC; each element carries ID_SEASON, SEASON_NUMBER, TITLE,
+    The seasons list contains every season of this series from T_WC_T2S_SEASON,
+    ordered by SEASON_NUMBER ASC; each element carries ID_SEASON, SEASON_NUMBER, SEASON_TITLE
+    (TITLE, deprecated duplicate),
     OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH, AIR_DAY, POSTER_PATH, EPISODE_COUNT,
     VOTE_AVERAGE, ID_IMDB, ID_WIKIDATA, ID_TVDB, plus IMDB_RATING and
-    IMDB_RATED_EPISODES LEFT JOINed from T_WC_T2S_SEASON. That rating is DERIVED, the
+    IMDB_RATED_EPISODES. That rating is DERIVED, the
     plain mean of the season's rated episodes rolled up by tmdb-movie-preprocess
     Process 28: IMDb rates titles and episodes but never seasons, so never present it as
     IMDb's own verdict on a season. NULL until the rollup has run.
 
-    The videos list merges TMDb-sourced videos (T_WC_TMDB_SERIE_VIDEO) and
+    The videos list merges TMDb-sourced videos (T_WC_T2S_SERIE_VIDEO) and
     Wikidata-sourced videos (T_WC_WIKIDATA_MEDIA_RESOURCE with RESOURCE_KIND='video',
     joined via ID_WIKIDATA). Each element exposes a unified shape: SOURCE
     ('tmdb' / 'wikidata'), VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG,
@@ -6607,20 +6610,19 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
             # episodes by tmdb-movie-preprocess Process 28 (IMDb rates titles and episodes,
             # never seasons). IMDB_RATED_EPISODES is its honest denominator: a running
             # season is scored on the episodes that have aired, and summing episode votes
-            # would count the same viewers several times. LEFT JOIN, same reasoning as the
-            # episode endpoints: T_WC_TMDB_SEASON stays the row source so the returned
-            # scope does not change.
+            # would count the same viewers several times.
+            # FASTAPI-TEXT2SQL-179: rows come from T_WC_T2S_SEASON. SEASON_TITLE is the T2S name;
+            # TITLE is a deprecated duplicate kept until VOICE-AGENT-199 reads SEASON_TITLE.
             "seasons": ("""
-                SELECT s.ID_SEASON, s.SEASON_NUMBER, s.TITLE, s.OVERVIEW, s.DAT_AIR,
+                SELECT s.ID_SEASON, s.SEASON_NUMBER, s.SEASON_TITLE, s.SEASON_TITLE AS TITLE, s.OVERVIEW, s.DAT_AIR,
                        s.AIR_YEAR, s.AIR_MONTH, s.AIR_DAY, s.POSTER_PATH, s.EPISODE_COUNT,
                        s.VOTE_AVERAGE, s.ID_IMDB, s.ID_WIKIDATA, s.ID_TVDB,
-                       t2s.IMDB_RATING,
+                       s.IMDB_RATING,
                        (SELECT COUNT(*) FROM T_WC_T2S_EPISODE e
                          WHERE e.ID_SEASON = s.ID_SEASON AND e.IMDB_RATING IS NOT NULL
                        ) AS IMDB_RATED_EPISODES,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_TMDB_SEASON s
-                LEFT JOIN T_WC_T2S_SEASON t2s ON t2s.ID_SEASON = s.ID_SEASON
+                FROM T_WC_T2S_SEASON s
                 WHERE s.ID_SERIE = %s
                 ORDER BY CASE WHEN s.SEASON_NUMBER = 0 THEN 1 ELSE 0 END,
                          s.SEASON_NUMBER ASC
@@ -6740,10 +6742,10 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     CREW_JOB comma-joined across their credits. Each element carries PROFILE_PATH
     for the person plus CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, CREW_JOB,
     TOTAL_EPISODE_COUNT (the max across their credits), and DISPLAY_ORDER from
-    T_WC_TMDB_PERSON_SEASON, ordered by the person's best (minimum) DISPLAY_ORDER.
+    T_WC_T2S_PERSON_SEASON, ordered by the person's best (minimum) DISPLAY_ORDER.
 
     The posters and backdrops lists each contain every image of the matching type
-    available for this season from T_WC_TMDB_SEASON_IMAGE (TYPE_IMAGE = 'poster' for
+    available for this season from T_WC_T2S_SEASON_IMAGE (TYPE_IMAGE = 'poster' for
     posters, 'backdrop' for backdrops), ordered by DISPLAY_ORDER; each element
     exposes ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE,
     VOTE_COUNT, DISPLAY_ORDER. When ui_language is not the default 'en', the
@@ -6754,9 +6756,9 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     The series object is a navigation stub with ID_SERIE, SERIE_TITLE, POSTER_PATH
     so the frontend can render breadcrumbs without a second /series/{id} round trip.
 
-    The episodes list contains every episode of this season from T_WC_TMDB_EPISODE,
+    The episodes list contains every episode of this season from T_WC_T2S_EPISODE,
     ordered by EPISODE_NUMBER ASC. Each element is a summary row that carries
-    ID_EPISODE, EPISODE_NUMBER, TITLE, OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH,
+    ID_EPISODE, EPISODE_NUMBER, EPISODE_TITLE (TITLE, deprecated duplicate), OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH,
     AIR_DAY, RUNTIME, EPISODE_TYPE, STILL_PATH, ID_IMDB,
     ID_WIKIDATA, and ID_TVDB. Episode cast/crew, additional stills, and Wikipedia
     payloads live on /episodes/{id_serie}/{season_number}/{episode_number} to keep
@@ -6781,7 +6783,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     attribution pointing at the exact article the prose came from.
 
     The videos list contains TMDb-sourced videos for this season from
-    T_WC_TMDB_SEASON_VIDEO (no Wikidata media is modeled at the season level). Each
+    T_WC_T2S_SEASON_VIDEO (no Wikidata media is modeled at the season level). Each
     element exposes the unified shape: SOURCE='tmdb', VIDEO_KEY, VIDEO_NAME,
     VIDEO_SITE, VIDEO_TYPE, LANG, OFFICIAL, DAT_PUBLISHED, WATCH_URL, EMBED_URL,
     THUMBNAIL_URL, DISPLAY_ORDER. WATCH/EMBED/THUMBNAIL URLs are synthesized from
@@ -6805,12 +6807,11 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     the same viewers once per episode). IMDB_RATING is NULL until the rollup has run for
     that season, or when none of its episodes carry a rating.
 
-    Note: the row sources are still T_WC_TMDB_SEASON, T_WC_TMDB_PERSON_SEASON,
-    T_WC_TMDB_SEASON_IMAGE and T_WC_TMDB_EPISODE. T_WC_T2S_EPISODE now exists and is
-    LEFT JOINed for the IMDb fields only, deliberately not used as the row source: it
-    holds only episodes whose parent serie AND season are themselves in T2S, so
-    switching would silently narrow this endpoint. Full migration remains a
-    registered site in doc/SEASONS_AND_EPISODES.md section 6.1.
+    Every row comes from the T2S read-model (FASTAPI-TEXT2SQL-179): T_WC_T2S_SEASON,
+    T_WC_T2S_PERSON_SEASON, T_WC_T2S_SEASON_IMAGE, T_WC_T2S_SEASON_VIDEO and
+    T_WC_T2S_EPISODE. A season whose series is not in T_WC_T2S_SERIE returns 404, like the
+    series itself. The title is SEASON_TITLE (episodes: EPISODE_TITLE); TITLE is still sent
+    as a deprecated duplicate until the front-end reads the T2S names (VOICE-AGENT-199).
 
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It
@@ -6833,14 +6834,18 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                 # IMDB_RATING is rolled up from the season's episodes, IMDB_RATED_EPISODES is
                 # how many of them carry a rating, which is the honest denominator for a
                 # season still airing.
+                # FASTAPI-TEXT2SQL-179: T_WC_T2S_SEASON is the row source. The ORDER BY makes
+                # the pick deterministic on the 14 (ID_SERIE, SEASON_NUMBER) keys TMDb holds
+                # twice (TMDB-CRAWLER-032): a live row first, then the oldest id.
                 """
-                SELECT s.*, t2s.IMDB_RATING,
+                SELECT s.*, s.SEASON_TITLE AS TITLE,
                        (SELECT COUNT(*) FROM T_WC_T2S_EPISODE e
                          WHERE e.ID_SEASON = s.ID_SEASON AND e.IMDB_RATING IS NOT NULL
                        ) AS IMDB_RATED_EPISODES
-                FROM T_WC_TMDB_SEASON s
-                LEFT JOIN T_WC_T2S_SEASON t2s ON t2s.ID_SEASON = s.ID_SEASON
+                FROM T_WC_T2S_SEASON s
                 WHERE s.ID_SERIE = %s AND s.SEASON_NUMBER = %s
+                ORDER BY COALESCE(s.DELETED, 0) ASC, s.ID_SEASON ASC
+                LIMIT 1
                 """,
                 (id_serie, season_number),
             )
@@ -6861,7 +6866,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                        MAX(ps.TOTAL_EPISODE_COUNT) AS TOTAL_EPISODE_COUNT,
                        MIN(ps.DISPLAY_ORDER) AS DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_TMDB_PERSON_SEASON ps
+                FROM T_WC_T2S_PERSON_SEASON ps
                 JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON
                 WHERE ps.ID_SEASON = %s AND ps.CREDIT_TYPE = 'cast'
                 GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
@@ -6876,28 +6881,24 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                        MAX(ps.TOTAL_EPISODE_COUNT) AS TOTAL_EPISODE_COUNT,
                        MIN(ps.DISPLAY_ORDER) AS DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_TMDB_PERSON_SEASON ps
+                FROM T_WC_T2S_PERSON_SEASON ps
                 JOIN T_WC_T2S_PERSON p ON ps.ID_PERSON = p.ID_PERSON
                 WHERE ps.ID_SEASON = %s AND ps.CREDIT_TYPE = 'crew'
                 GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
                 ORDER BY MIN(ps.DISPLAY_ORDER) ASC, p.ID_PERSON ASC
             """, (id_season,), "person"),
-            # FASTAPI-TEXT2SQL-177: IMDb rating / vote count come from the T2S read-model
-            # (T_WC_T2S_EPISODE, populated by tmdb-movie-preprocess Process 28); the TMDb
-            # source table carries no IMDb rating. LEFT JOIN, not a switch of row source:
-            # T_WC_T2S_EPISODE only holds episodes whose parent serie AND season are
-            # themselves in T2S, so reading from it would silently narrow this endpoint.
-            # Unmatched rows keep NULL ratings, which is the correct answer for an episode
-            # that has not aired yet.
+            # FASTAPI-TEXT2SQL-177 / -179: rows and IMDb fields both come from T_WC_T2S_EPISODE
+            # (tmdb-movie-preprocess Process 28). A NULL rating is the correct answer for an
+            # episode that has not aired yet. EPISODE_TITLE is the T2S name; TITLE is a
+            # deprecated duplicate kept until VOICE-AGENT-199 reads EPISODE_TITLE.
             "episodes": ("""
-                SELECT e.ID_EPISODE, e.EPISODE_NUMBER, e.TITLE, e.OVERVIEW, e.DAT_AIR,
+                SELECT e.ID_EPISODE, e.EPISODE_NUMBER, e.EPISODE_TITLE, e.EPISODE_TITLE AS TITLE, e.OVERVIEW, e.DAT_AIR,
                        e.AIR_YEAR, e.AIR_MONTH, e.AIR_DAY, e.RUNTIME, e.EPISODE_TYPE,
                        e.STILL_PATH, e.VOTE_AVERAGE, e.VOTE_COUNT,
                        e.ID_IMDB, e.ID_WIKIDATA, e.ID_TVDB,
-                       t2s.IMDB_RATING, t2s.IMDB_VOTES,
+                       e.IMDB_RATING, e.IMDB_VOTES,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_TMDB_EPISODE e
-                LEFT JOIN T_WC_T2S_EPISODE t2s ON t2s.ID_EPISODE = e.ID_EPISODE
+                FROM T_WC_T2S_EPISODE e
                 WHERE e.ID_SEASON = %s
                 ORDER BY e.EPISODE_NUMBER ASC
             """, (id_season,), None),
@@ -6911,18 +6912,17 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
             # left first: they are real content, but opening a show on "Specials" as the
             # leading card makes no sense. Same CASE ordering as the Criterion spine rule.
             "seasons": ("""
-                SELECT s.ID_SEASON, s.SEASON_NUMBER, s.TITLE, s.OVERVIEW, s.DAT_AIR,
+                SELECT s.ID_SEASON, s.SEASON_NUMBER, s.SEASON_TITLE, s.SEASON_TITLE AS TITLE, s.OVERVIEW, s.DAT_AIR,
                        s.AIR_YEAR, s.AIR_MONTH, s.AIR_DAY, s.POSTER_PATH, s.EPISODE_COUNT,
                        s.VOTE_AVERAGE, s.ID_IMDB, s.ID_WIKIDATA, s.ID_TVDB,
                        s.ID_SERIE,
-                       t2s.IMDB_RATING,
+                       s.IMDB_RATING,
                        (SELECT COUNT(*) FROM T_WC_T2S_EPISODE e
                          WHERE e.ID_SEASON = s.ID_SEASON AND e.IMDB_RATING IS NOT NULL
                        ) AS IMDB_RATED_EPISODES,
                        (s.ID_SEASON = %s) AS IS_CURRENT,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_TMDB_SEASON s
-                LEFT JOIN T_WC_T2S_SEASON t2s ON t2s.ID_SEASON = s.ID_SEASON
+                FROM T_WC_T2S_SEASON s
                 WHERE s.ID_SERIE = %s
                 ORDER BY CASE WHEN s.SEASON_NUMBER = 0 THEN 1 ELSE 0 END,
                          s.SEASON_NUMBER ASC
@@ -6934,7 +6934,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                 cursor.execute("""
                     SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
                            VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
-                    FROM T_WC_TMDB_SEASON_IMAGE
+                    FROM T_WC_T2S_SEASON_IMAGE
                     WHERE ID_SEASON = %s AND TYPE_IMAGE = 'poster'
                     ORDER BY DISPLAY_ORDER ASC
                 """, (id_season,))
@@ -6942,7 +6942,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                 cursor.execute("""
                     SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
                            VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
-                    FROM T_WC_TMDB_SEASON_IMAGE
+                    FROM T_WC_T2S_SEASON_IMAGE
                     WHERE ID_SEASON = %s AND TYPE_IMAGE = 'backdrop'
                     ORDER BY DISPLAY_ORDER ASC
                 """, (id_season,))
@@ -6964,8 +6964,8 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                 # excluded from the chain entirely: "the season after the specials" means
                 # nothing, so both neighbours are null when viewing season 0.
                 cursor.execute("""
-                    SELECT ID_SEASON, SEASON_NUMBER, TITLE, POSTER_PATH, ID_SERIE
-                    FROM T_WC_TMDB_SEASON
+                    SELECT ID_SEASON, SEASON_NUMBER, SEASON_TITLE, SEASON_TITLE AS TITLE, POSTER_PATH, ID_SERIE
+                    FROM T_WC_T2S_SEASON
                     WHERE ID_SERIE = %s AND SEASON_NUMBER > 0
                     ORDER BY SEASON_NUMBER ASC
                 """, (id_serie,))
@@ -7032,17 +7032,17 @@ async def get_episode(
 
     Episodes carry their canonical frame as `STILL_PATH` directly on the base row
     (no separate poster table); the `stills` list exposes additional frames stored
-    in T_WC_TMDB_EPISODE_IMAGE.
+    in T_WC_T2S_EPISODE_IMAGE.
 
     Cast/crew are grouped one row per person: a person crediting several
     characters or jobs appears once, with CAST_CHARACTER, CREW_DEPARTMENT and
     CREW_JOB comma-joined across their credits. Each element carries PROFILE_PATH
     for the person plus CREDIT_TYPE, CAST_CHARACTER, CREW_DEPARTMENT, CREW_JOB, and
-    DISPLAY_ORDER from T_WC_TMDB_PERSON_EPISODE, ordered by the person's best
+    DISPLAY_ORDER from T_WC_T2S_PERSON_EPISODE, ordered by the person's best
     (minimum) DISPLAY_ORDER.
 
     The stills list contains every image attached to this episode from
-    T_WC_TMDB_EPISODE_IMAGE, ordered by DISPLAY_ORDER; each element exposes ID_ROW,
+    T_WC_T2S_EPISODE_IMAGE, ordered by DISPLAY_ORDER; each element exposes ID_ROW,
     TYPE_IMAGE, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT, VOTE_AVERAGE,
     VOTE_COUNT, DISPLAY_ORDER. TMDb episodes typically only have still frames, but
     any other TYPE_IMAGE rows present upstream are returned as-is.
@@ -7074,7 +7074,7 @@ async def get_episode(
     attribution pointing at the exact article the prose came from.
 
     The videos list contains TMDb-sourced videos for this episode from
-    T_WC_TMDB_EPISODE_VIDEO (no Wikidata media is modeled at the episode level). Each
+    T_WC_T2S_EPISODE_VIDEO (no Wikidata media is modeled at the episode level). Each
     element exposes the unified shape: SOURCE='tmdb', VIDEO_KEY, VIDEO_NAME,
     VIDEO_SITE, VIDEO_TYPE, LANG, OFFICIAL, DAT_PUBLISHED, WATCH_URL, EMBED_URL,
     THUMBNAIL_URL, DISPLAY_ORDER. WATCH/EMBED/THUMBNAIL URLs are synthesized from
@@ -7095,12 +7095,11 @@ async def get_episode(
     at each end: they never cross into another season, since "the episode after the finale"
     would silently change context.
 
-    Note: the row source is still T_WC_TMDB_EPISODE, plus T_WC_TMDB_PERSON_EPISODE
-    and T_WC_TMDB_EPISODE_IMAGE. T_WC_T2S_EPISODE now exists and is LEFT JOINed for
-    the IMDb fields only, deliberately not used as the row source: it holds only
-    episodes whose parent serie AND season are themselves in T2S, so switching would
-    silently narrow what this endpoint returns. Full migration remains a registered
-    site in doc/SEASONS_AND_EPISODES.md section 6.1.
+    Every row comes from the T2S read-model (FASTAPI-TEXT2SQL-179): T_WC_T2S_EPISODE,
+    T_WC_T2S_PERSON_EPISODE, T_WC_T2S_EPISODE_IMAGE, T_WC_T2S_EPISODE_VIDEO and
+    T_WC_T2S_SEASON. An episode whose series or season is not in T2S returns 404. The
+    title is EPISODE_TITLE; TITLE is still sent as a deprecated duplicate until the
+    front-end reads the T2S name (VOICE-AGENT-199).
 
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It
@@ -7119,11 +7118,14 @@ async def get_episode(
     try:
         with conn.cursor() as cursor:
             cursor.execute(
+                # FASTAPI-TEXT2SQL-179: T_WC_T2S_EPISODE is the row source. The ORDER BY makes
+                # the pick deterministic on the 140 keys TMDb holds twice (TMDB-CRAWLER-032).
                 """
-                SELECT e.*, t2s.IMDB_RATING, t2s.IMDB_VOTES
-                FROM T_WC_TMDB_EPISODE e
-                LEFT JOIN T_WC_T2S_EPISODE t2s ON t2s.ID_EPISODE = e.ID_EPISODE
+                SELECT e.*, e.EPISODE_TITLE AS TITLE
+                FROM T_WC_T2S_EPISODE e
                 WHERE e.ID_SERIE = %s AND e.SEASON_NUMBER = %s AND e.EPISODE_NUMBER = %s
+                ORDER BY COALESCE(e.DELETED, 0) ASC, e.ID_EPISODE ASC
+                LIMIT 1
                 """,
                 (id_serie, season_number, episode_number),
             )
@@ -7147,7 +7149,7 @@ async def get_episode(
                        GROUP_CONCAT(DISTINCT pe.CREW_JOB SEPARATOR ', ') AS CREW_JOB,
                        MIN(pe.DISPLAY_ORDER) AS DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_TMDB_PERSON_EPISODE pe
+                FROM T_WC_T2S_PERSON_EPISODE pe
                 JOIN T_WC_T2S_PERSON p ON pe.ID_PERSON = p.ID_PERSON
                 WHERE pe.ID_EPISODE = %s AND pe.CREDIT_TYPE = 'cast'
                 GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
@@ -7161,7 +7163,7 @@ async def get_episode(
                        GROUP_CONCAT(DISTINCT pe.CREW_JOB SEPARATOR ', ') AS CREW_JOB,
                        MIN(pe.DISPLAY_ORDER) AS DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_TMDB_PERSON_EPISODE pe
+                FROM T_WC_T2S_PERSON_EPISODE pe
                 JOIN T_WC_T2S_PERSON p ON pe.ID_PERSON = p.ID_PERSON
                 WHERE pe.ID_EPISODE = %s AND pe.CREDIT_TYPE = 'crew'
                 GROUP BY p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH
@@ -7175,16 +7177,15 @@ async def get_episode(
             # alike far more than film posters do, so without the marker a rail of lookalike
             # frames leaves the viewer unsure where they are.
             "episodes": ("""
-                SELECT e.ID_EPISODE, e.EPISODE_NUMBER, e.TITLE, e.OVERVIEW, e.DAT_AIR,
+                SELECT e.ID_EPISODE, e.EPISODE_NUMBER, e.EPISODE_TITLE, e.EPISODE_TITLE AS TITLE, e.OVERVIEW, e.DAT_AIR,
                        e.AIR_YEAR, e.AIR_MONTH, e.AIR_DAY, e.RUNTIME, e.EPISODE_TYPE,
                        e.STILL_PATH, e.VOTE_AVERAGE, e.VOTE_COUNT,
                        e.ID_IMDB, e.ID_WIKIDATA, e.ID_TVDB,
                        e.ID_SERIE, e.SEASON_NUMBER,
-                       t2s.IMDB_RATING, t2s.IMDB_VOTES,
+                       e.IMDB_RATING, e.IMDB_VOTES,
                        (e.ID_EPISODE = %s) AS IS_CURRENT,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_TMDB_EPISODE e
-                LEFT JOIN T_WC_T2S_EPISODE t2s ON t2s.ID_EPISODE = e.ID_EPISODE
+                FROM T_WC_T2S_EPISODE e
                 WHERE e.ID_SEASON = %s
                 ORDER BY e.EPISODE_NUMBER ASC
             """, (id_episode, id_season), None),
@@ -7195,14 +7196,14 @@ async def get_episode(
                 cursor.execute("""
                     SELECT ID_ROW, TYPE_IMAGE, IMAGE_PATH, LANG, ASPECT_RATIO,
                            WIDTH, HEIGHT, VOTE_AVERAGE, VOTE_COUNT, DISPLAY_ORDER
-                    FROM T_WC_TMDB_EPISODE_IMAGE
+                    FROM T_WC_T2S_EPISODE_IMAGE
                     WHERE ID_EPISODE = %s
                     ORDER BY DISPLAY_ORDER ASC
                 """, (id_episode,))
                 stills = cursor.fetchall()
                 cursor.execute("""
-                    SELECT ID_SEASON, SEASON_NUMBER, TITLE, POSTER_PATH
-                    FROM T_WC_TMDB_SEASON WHERE ID_SEASON = %s
+                    SELECT ID_SEASON, SEASON_NUMBER, SEASON_TITLE, SEASON_TITLE AS TITLE, POSTER_PATH
+                    FROM T_WC_T2S_SEASON WHERE ID_SEASON = %s
                 """, (id_season,))
                 season = cursor.fetchone()
                 cursor.execute("""
@@ -7222,8 +7223,8 @@ async def get_episode(
                 # season boundary, "the episode after the finale" belongs to another season
                 # and would make the arrows jump context without warning.
                 cursor.execute("""
-                    SELECT ID_EPISODE, EPISODE_NUMBER, TITLE, STILL_PATH, ID_SERIE, SEASON_NUMBER
-                    FROM T_WC_TMDB_EPISODE
+                    SELECT ID_EPISODE, EPISODE_NUMBER, EPISODE_TITLE, EPISODE_TITLE AS TITLE, STILL_PATH, ID_SERIE, SEASON_NUMBER
+                    FROM T_WC_T2S_EPISODE
                     WHERE ID_SEASON = %s
                     ORDER BY EPISODE_NUMBER ASC
                 """, (id_season,))
@@ -9075,7 +9076,7 @@ async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[
     T_WC_T2S_MOVIE_IMAGE), wikipedia_images
     (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)), wikipedia_content (Wikipedia section in the requested ui_language,
     title/content pairs from T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA,
-    and a unified videos list merging TMDb-sourced videos (T_WC_TMDB_MOVIE_VIDEO)
+    and a unified videos list merging TMDb-sourced videos (T_WC_T2S_MOVIE_VIDEO)
     and Wikidata-sourced videos (T_WC_WIKIDATA_MEDIA_RESOURCE, RESOURCE_KIND='video');
     each video exposes SOURCE, VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG,
     OFFICIAL, DAT_PUBLISHED, DURATION_SECONDS, and WATCH_URL/EMBED_URL/FILE_URL/
@@ -9114,7 +9115,7 @@ async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional
     TMDb neighbour series, each with ID_SERIE, localized SERIE_TITLE, DAT_FIRST_AIR,
     IMDB_RATING_WEIGHTED, and POSTER_PATH, ordered by DISPLAY_ORDER; similar is
     content-based, recommendations is behaviour-based), and seasons (every season from
-    T_WC_TMDB_SEASON with SEASON_NUMBER, TITLE, DAT_AIR, POSTER_PATH, EPISODE_COUNT,
+    T_WC_T2S_SEASON with SEASON_NUMBER, SEASON_TITLE, DAT_AIR, POSTER_PATH, EPISODE_COUNT,
     VOTE_AVERAGE, and IMDb/Wikidata/TVDB IDs). collection_name and collection_movies give
     the series' T2S collection and all its members in chronological order; a T2S collection
     is cross-type (holds both series AND movies, e.g. Star Trek), each item carrying
@@ -9128,7 +9129,7 @@ async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional
     images from T_WC_T2S_SERIE_IMAGE), wikipedia_images (ui_language-specific Wikipedia image
     metadata), wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
     T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off ID_WIKIDATA, and a unified videos
-    list merging TMDb-sourced videos (T_WC_TMDB_SERIE_VIDEO) and Wikidata-sourced
+    list merging TMDb-sourced videos (T_WC_T2S_SERIE_VIDEO) and Wikidata-sourced
     videos (T_WC_WIKIDATA_MEDIA_RESOURCE, RESOURCE_KIND='video'); each video exposes
     SOURCE, VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG, OFFICIAL,
     DAT_PUBLISHED, DURATION_SECONDS, and WATCH_URL/EMBED_URL/FILE_URL/THUMBNAIL_URL.
