@@ -92,6 +92,17 @@ Usage:
   uv run eval/bench-entity-resolution.py --build-only          # corpus alone, needs no database
   uv run eval/bench-entity-resolution.py --limit-per-type 40
   uv run eval/bench-entity-resolution.py --types Network_name,Collection_name
+  uv run eval/bench-entity-resolution.py --types Movie_title,Serie_title --no-rescue --out before.json
+  uv run eval/bench-entity-resolution.py --types Movie_title,Serie_title --out after.json
+
+BEFORE AND AFTER A RESCUE (FASTAPI-TEXT2SQL-309)
+`--no-rescue` removes `rescue_normalizations` from the configuration loaded in memory, so the same
+deployed code measures the gate with and without its typographic second pass, on the same corpus
+(the seed is fixed). For every type that declares a rescue, the corpus gains a positive class,
+`positive-catalogue-typography`: catalogue titles carrying an apostrophe, typed with a space after
+it and with a curly apostrophe, which is the spelling the rescue exists for. The outcome table
+printed at the end gives, per type and class, accepted, rejected, rescued and accepted on another
+title: the bar of the ticket is zero more negatives accepted after than before.
 
 Reads DB_*, CHROMADB_* and the LLM keys from the repository .env, like the rest of the stack.
 """
@@ -308,6 +319,53 @@ def sample_from_catalogue(connection, collections_by_name, types_filter, per_typ
     return drawn
 
 
+def _rescue_types():
+    """Types whose embeddings strategy declares a rescue, read from the FILE and not from memory,
+    so that `--no-rescue` measures the same corpus as the run with the rescue on."""
+    try:
+        config = json.load(io.open(os.path.join(REPO, "data/entity_resolution.json"), encoding="utf-8"))
+    except Exception:
+        return {}
+    found = {}
+    for entry in config:
+        for strategy in entry.get("search_list") or []:
+            if strategy.get("search_mode") == "embeddings" and strategy.get("rescue_normalizations"):
+                found[entry.get("placeholder_prefix")] = strategy
+    return found
+
+
+def sample_apostrophe_titles(collections_by_name, types_filter, per_type, rng):
+    """FASTAPI-TEXT2SQL-309. Catalogue titles that carry an apostrophe, the only population the
+    apostrophe rescue can act on. A random draw of forty popular titles holds one or two at best,
+    which measures nothing, so they are drawn on purpose with a document filter."""
+    wanted = set(types_filter or SCORED_TYPES)
+    drawn = {}
+    for etype, strategy in _rescue_types().items():
+        if etype not in wanted:
+            continue
+        collection = (collections_by_name or {}).get(strategy.get("collection"))
+        if collection is None:
+            continue
+        try:
+            got = collection.get(where_document={"$contains": "'"}, limit=max(per_type * 5, 50),
+                                 include=["documents"])
+        except Exception as collection_error:
+            print(f"[warn] collection {strategy.get('collection')} : tirage des apostrophes impossible : {collection_error}")
+            continue
+        titles = sorted({d.strip() for d in (got.get("documents") or []) if isinstance(d, str) and "'" in d})
+        rng.shuffle(titles)
+        drawn[etype] = titles[:per_type]
+    return drawn
+
+
+def typography_variants(title):
+    """The spellings the rescue exists for: a space typed after the apostrophe, and a curly one."""
+    spaced = re.sub(r"'(?=\w)", "' ", title)
+    if spaced == title:
+        return []
+    return [spaced, spaced.replace("'", "\u2019")]
+
+
 def mutate(value, rng):
     """Introduce one realistic typo: swap two adjacent letters, substitute one, or drop one.
 
@@ -334,7 +392,7 @@ def mutate(value, rng):
     return "".join(chars)
 
 
-def build_corpus(limit_per_type, types_filter, seed, use_pool_as_positive, catalogue=None):
+def build_corpus(limit_per_type, types_filter, seed, use_pool_as_positive, catalogue=None, apostrophes=None):
     """Assemble the classes. Without `catalogue` this reads files only and needs no database."""
     rng = random.Random(seed)
     positives, suspects, pool, archived = harvest_pairs()
@@ -366,6 +424,16 @@ def build_corpus(limit_per_type, types_filter, seed, use_pool_as_positive, catal
             if typo != value:
                 catalogue_cases.append({"type": etype, "value": typo, "source": source,
                                         "klass": "positive-catalogue-typo", "expected": value})
+
+    # FASTAPI-TEXT2SQL-309: the typographic positives, expected to resolve to the title they
+    # were derived from.
+    for etype, titles in (apostrophes or {}).items():
+        if etype not in wanted:
+            continue
+        for title in titles:
+            for variant in typography_variants(title):
+                catalogue_cases.append({"type": etype, "value": variant, "expected": title,
+                                        "klass": "positive-catalogue-typography"})
 
     # Thin types have no scored positives at all. Falling back to the unscored pool is a weaker
     # ground truth (nothing says the answer was right) but it beats not measuring them, and the
@@ -519,6 +587,8 @@ def run_cases(cases, connection, collections_by_name):
             case["stopwords_applied"] = best.get("stopwords_applied")
             case["exact_match"] = best.get("exact_match")
             case["rejected_by_current_threshold"] = best.get("rejected")
+            case["rescue_normalizations"] = best.get("rescue_normalizations") or []
+            case["fuzz_ratio_first_pass"] = best.get("fuzz_ratio_first_pass")
         if index % 100 == 0:
             print("   %d/%d cas resolus" % (index, len(cases)), flush=True)
     return cases
@@ -723,6 +793,34 @@ def report(cases):
     return out
 
 
+def outcomes(cases):
+    """FASTAPI-TEXT2SQL-309. What the gate DID, per type and class, which is what a before/after
+    compares: accepted, rejected, accepted through the rescue, and, for a positive that names the
+    title it expects, accepted on another title. A negative accepted is a false acceptance."""
+    table = collections.defaultdict(collections.Counter)
+    for c in cases:
+        if "scores" not in c:
+            continue
+        row = table[(c["type"], c["klass"])]
+        row["cases"] += 1
+        if c.get("rejected_by_current_threshold"):
+            row["rejected"] += 1
+            continue
+        row["accepted"] += 1
+        if c.get("rescue_normalizations"):
+            row["rescued"] += 1
+        expected = c.get("expected") or (c["value"] if c["klass"] == "positive-catalogue" else None)
+        candidate = (c.get("candidate") or "").strip().lower()
+        if expected and candidate and candidate != expected.strip().lower():
+            row["accepted_other_title"] += 1
+    print("\n=== Ce que la porte a fait (FASTAPI-TEXT2SQL-309) ===")
+    print("   %-16s %-34s %6s %8s %8s %8s %11s" % ("type", "classe", "cas", "admis", "refuses", "sauves", "autre_titre"))
+    for (etype, klass), row in sorted(table.items()):
+        print("   %-16s %-34s %6d %8d %8d %8d %11d" % (etype[:16], klass[:34], row["cases"], row["accepted"],
+              row["rejected"], row["rescued"], row["accepted_other_title"]))
+    return {f"{t}|{k}": dict(v) for (t, k), v in table.items()}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--limit-per-type", type=int, default=40,
@@ -738,6 +836,9 @@ def main():
                              "positives there are, and the only cure for a type nobody asks about: "
                              "Network_name shows 7 distinct values across 24040 archived requests")
     parser.add_argument("--out", default=os.path.join(REPO, "eval/data/bench-entity-resolution.json"))
+    parser.add_argument("--no-rescue", action="store_true",
+                        help="measure without the typographic rescue (FASTAPI-TEXT2SQL-309): the 'before' "
+                             "of a before/after, on the same deployed code and the same corpus")
     args = parser.parse_args()
 
     types_filter = [t.strip() for t in args.types.split(",") if t.strip()]
@@ -745,6 +846,7 @@ def main():
     # The catalogue draw needs the database, so --build-only skips it and falls back to the
     # file-only corpus. That is the honest degradation: fewer positives, same method.
     catalogue = {}
+    apostrophes = {}
     connection = None
     api = None
     if not args.build_only and args.catalogue_per_type:
@@ -757,9 +859,14 @@ def main():
             args.catalogue_per_type, random.Random(args.seed))
         print("Catalogue : " + ", ".join(
             "%s=%d" % (k, len(v)) for k, v in sorted(catalogue.items())) or "vide")
+        apostrophes = sample_apostrophe_titles(
+            api.CHROMADB_COLLECTIONS_BY_NAME, types_filter, args.catalogue_per_type,
+            random.Random(args.seed))
+        print("Titres a apostrophe : " + (", ".join(
+            "%s=%d" % (k, len(v)) for k, v in sorted(apostrophes.items())) or "aucun"))
 
     cases, suspects, weak, archived = build_corpus(
-        args.limit_per_type, types_filter, args.seed, not args.no_unscored, catalogue)
+        args.limit_per_type, types_filter, args.seed, not args.no_unscored, catalogue, apostrophes)
 
     counts = collections.Counter(c["klass"] for c in cases)
     print("Corpus : " + ", ".join("%s=%d" % (k, v) for k, v in sorted(counts.items())))
@@ -776,6 +883,12 @@ def main():
             import main as api  # module-level startup connects ChromaDB and loads the collections
         if connection is None:
             connection = get_db_connection()
+        if args.no_rescue:
+            import entity
+            for entry in entity.ENTITY_RESOLUTION_CONFIG:
+                for strategy in entry.get("search_list") or []:
+                    strategy.pop("rescue_normalizations", None)
+            print("Rescue typographique DESACTIVEE pour ce passage (--no-rescue)")
         try:
             cases = run_cases(cases, connection, api.CHROMADB_COLLECTIONS_BY_NAME)
         finally:
@@ -784,7 +897,8 @@ def main():
             except Exception:
                 pass
         payload = {"cases": cases, "suspects": suspects, "weakly_grounded": weak,
-                   "report": report(cases)}
+                   "report": report(cases), "outcomes": outcomes(cases),
+                   "rescue": not args.no_rescue}
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with io.open(args.out, "w", encoding="utf-8", newline="\n") as handle:

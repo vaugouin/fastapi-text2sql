@@ -68,7 +68,8 @@
           "fr": "MOVIE_TITLE_FR",
           "*": "ORIGINAL_TITLE"
         },
-        "min_fuzz_ratio": 85.85
+        "min_fuzz_ratio": 85.85,
+        "rescue_normalizations": ["apostrophes"]
       }
     ]
   },
@@ -88,7 +89,8 @@
           "fr": "SERIE_TITLE_FR",
           "*": "ORIGINAL_TITLE"
         },
-        "min_fuzz_ratio": 87.85
+        "min_fuzz_ratio": 87.85,
+        "rescue_normalizations": ["apostrophes"]
       }
     ]
   },

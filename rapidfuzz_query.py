@@ -238,6 +238,55 @@ def strip_franchise_words(norm: str, words=None) -> str:
     return stripped if stripped else norm
 
 
+# ---- Typographic rescue of the embeddings gate (FASTAPI-TEXT2SQL-309, 2026-10-04) -------------
+#
+# WHY. The gate scores `fuzz.ratio` on lowercased strings, and that counts as edits differences
+# that carry no identity. Measured on eval 475: "Bell' Antonio" against the catalogued
+# "Il bell'Antonio" scores 85.7 for a movie threshold of 85.85, the right film sitting at rank 1 of
+# the shortlist (distance 0.361). One of the four characters counted against it is the space typed
+# after the elision apostrophe; the French spelling of the same eval, "Bell'Antonio", scores 88.9.
+#
+# WHAT. These functions normalise BOTH sides for a second scoring pass only, run when the gate has
+# already rejected every candidate (see entity.py). They never touch what is written into the SQL,
+# which stays the stored title. Each one is opt-in per strategy through `rescue_normalizations` in
+# entity_resolution.json, by its key in RESCUE_NORMALIZERS.
+#
+# NOT HERE, ON PURPOSE. Leading articles ("il", "the", "die"): they raise every score carrying one,
+# so they loosen the gate, and several are words in another language (Die Hard, Las Vegas). Accents
+# and hyphens: candidates to measure, each shipped on its own figures (see the ticket).
+
+# Every form an apostrophe takes in typed or pasted text: right and left single quotation marks,
+# modifier letter apostrophe, acute accent, grave accent (backtick), prime.
+_APOSTROPHE_VARIANTS_RE = re.compile("[’‘ʼ´`′]")
+# Spaces on either side of an apostrophe: "bell' antonio", "l' avventura", "rock 'n' roll".
+_APOSTROPHE_SPACING_RE = re.compile(r"\s*'\s*")
+
+
+def normalize_apostrophes(s: str) -> str:
+    """One apostrophe form, and no space around it. "Bell’ Antonio" -> "Bell'Antonio".
+
+    Two different titles can only become equal here if they differ by nothing but an apostrophe
+    form or the spaces around it, which makes them the same title. Possessives ("schindler's
+    list") have no space and come out unchanged. Idempotent.
+    """
+    if not s:
+        return s
+    return _APOSTROPHE_SPACING_RE.sub("'", _APOSTROPHE_VARIANTS_RE.sub("'", s))
+
+
+RESCUE_NORMALIZERS = {
+    "apostrophes": normalize_apostrophes,
+}
+
+
+def apply_rescue_normalizers(s: str, names) -> str:
+    """Apply the named normalisers in order. An unknown name raises: a typo in the configuration
+    must not silently disable the rescue it was meant to switch on."""
+    for name in names or ():
+        s = RESCUE_NORMALIZERS[name](s)
+    return s
+
+
 def normalize_collection_name(s: str) -> str:
     """normalize_name() + franchise-stopword neutralization (collections only).
 

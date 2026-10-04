@@ -1313,6 +1313,52 @@ clients although the data is present.
 
 ---
 
+## Typographic rescue of the gate (`rescue_normalizations`, FASTAPI-TEXT2SQL-309)
+
+**What it fixes.** Eval 475, "Movie Bell' Antonio": the vector search put *Il bell'Antonio* (TMDb
+76157) at rank 1 of the shortlist, distance 0.361, and the gate refused it at `fuzz.ratio` **85.7**
+for a movie threshold of **85.85**. One of the four characters counted against it is the space typed
+after the elision apostrophe; the French spelling of the same eval, `Bell'Antonio`, scores 88.9 and
+passes. The question then escalated to the complex model, which on gpt-4o returned it unchanged.
+
+**How.** A **second pass** over the same shortlist, reached only when the first pass (gate plus the
+-224 walk) has refused **every** candidate. Same thresholds, same `score_stopwords`; only the strings
+compared are normalised, on both sides, by the normalisers the strategy names in
+`rescue_normalizations` (registry: `RESCUE_NORMALIZERS` in [rapidfuzz_query.py](rapidfuzz_query.py)).
+Three properties follow, and they are why it was built as a second pass and not as a change to the
+gate:
+
+- A value that resolves today never reaches the new code, so **no current answer can change**. Only
+  today's raw fallbacks can, and those are already failures (0 rows, then the complex model).
+- The first pass computes exactly what it computed before: `_score_candidate` only normalises when
+  the second pass passes it normalisers.
+- What is written into the SQL is the stored document, never the normalised form.
+
+**Configured on** `Movie_title` and `Serie_title`, with `["apostrophes"]`: every apostrophe form
+(`’ ‘ ʼ ´` backtick, prime) becomes `'`, and the spaces around it are removed. Possessives have no
+space and come out unchanged. An unknown normaliser name is refused when the configuration loads,
+so a typo keeps the previous configuration instead of reaching a request.
+
+**Deliberately not normalised:** leading articles (they raise every score carrying one, so they
+loosen the gate, and *Die*, *Las*, *El*, *Le* are words in other titles), accents and hyphens
+(candidates, each to ship on its own before/after). Do not lower a threshold to get the same effect:
+that widens -299, where the gate already accepts wrong candidates.
+
+**Reading it.** The trace says `typographic rescue (apostrophes) accepted rank N '...'` with both
+scores; `match_scores` carries `rescue_normalizations` (empty when the first pass decided) and
+`fuzz_ratio_first_pass`. Tests and measurement:
+
+```bash
+uv run eval/check-rescue-309.py      # the real branch, no database: 475 rescued, first pass untouched
+uv run eval/replay-rescue-309.py     # every gate refusal in the exports, scored again offline
+uv run eval/bench-entity-resolution.py --types Movie_title,Serie_title --no-rescue --out before.json
+uv run eval/bench-entity-resolution.py --types Movie_title,Serie_title --out after.json
+```
+
+The replay of 2026-10-04 over the 17 runs then on disk: 230 refusals of a title resolver, **one**
+distinct rescue (*Bell' Antonio*, 14 rows), no wrong acceptance. It reads only the first five
+candidates the trace prints, so it is a lower bound.
+
 ## Entity-resolution config schema (`data/entity_resolution.json`)
 
 Each entry has a `placeholder_prefix` and a `search_list`. Each search entry can define:
@@ -1327,6 +1373,7 @@ Each entry has a `placeholder_prefix` and a `search_list`. Each search entry can
 **Confidence gating (opt-in, per strategy).** By default both search modes always substitute their best candidate — a degraded shortlist or a near-miss then produces a *confidently wrong* entity rather than an error. Three optional keys make a strategy fail safe (fall through to the next strategy, then to raw fallback / ambiguous) instead:
 - `min_fuzz_ratio` (embeddings): reject the chosen candidate when `fuzz.ratio(query, candidate) < min_fuzz_ratio`. Uses `fuzz.ratio` (edit distance), **not** `WRatio` — titles sharing a suffix (e.g. "… Collection") inflate WRatio's token_set component and let unrelated entries through. An exact normalized document match always passes. When rejected, a diagnostic message logs the chosen candidate and the top-5 shortlist with distances.
 - `max_distance` (embeddings): reject when the ChromaDB distance of the chosen candidate exceeds this. Weak discriminator for short proper nouns (near-duplicates sit at similar distances), so prefer `min_fuzz_ratio`; combine both only when distances are meaningful for that collection.
+- `rescue_normalizations` (embeddings): a list of normaliser names (`["apostrophes"]`) for a second scoring pass when the gate has refused every candidate; see *Typographic rescue of the gate* above (FASTAPI-TEXT2SQL-309).
 - `require_confident` (rapidfuzz): only accept an exact / high-confidence auto-correct (`auto` True); a low-confidence lexical guess falls through. Off by default so `Person_name` keeps always-resolve behaviour.
 
 `Collection_name` uses both: a `require_confident` **rapidfuzz** strategy first (exact-normalized DB match — robust and independent of ChromaDB/RAM state), then the gated **embeddings** strategy (`min_fuzz_ratio: 72`) as a semantic/French fallback. The rapidfuzz strategy needs the generated columns in [doc/sql/T2S_COLLECTION-rapidfuzz.sql](doc/sql/T2S_COLLECTION-rapidfuzz.sql); until that migration runs it no-ops and only the embeddings strategy is active.

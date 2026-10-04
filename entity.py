@@ -241,6 +241,20 @@ def _validate_entity_resolution_config(config: Any) -> list[dict]:
             raise ValueError("Each entity resolution config entry must be an object.")
         if not isinstance(config_item.get("search_list"), list):
             raise ValueError("Each entity resolution config entry must contain a search_list array.")
+        # FASTAPI-TEXT2SQL-309. Checked here, at load, so that a misspelt normaliser keeps the
+        # previous configuration with a message, instead of reaching a request.
+        for search_cfg in config_item["search_list"]:
+            names = (search_cfg or {}).get("rescue_normalizations")
+            if names is None:
+                continue
+            if not isinstance(names, list):
+                raise ValueError("rescue_normalizations must be a list of normaliser names.")
+            unknown = [n for n in names if n not in rapidfuzz_query.RESCUE_NORMALIZERS]
+            if unknown:
+                raise ValueError(
+                    f"rescue_normalizations names unknown normaliser(s) {unknown}; "
+                    f"known: {sorted(rapidfuzz_query.RESCUE_NORMALIZERS)}"
+                )
     return config
 
 
@@ -1632,7 +1646,7 @@ def plan_entity_resolutions(
                     # FASTAPI-TEXT2SQL-224. Scoring moved into a function because it is now
                     # applied to more than one candidate. Same computation as before, to the
                     # letter; only the number of candidates it is called on changes.
-                    def _score_candidate(pos):
+                    def _score_candidate(pos, normalizers=None):
                         _doc = documents[pos] if pos < len(documents) else ""
                         _doc_norm = _doc.strip().lower() if isinstance(_doc, str) else ""
                         # Certaines collections indexent "nom<sep>description", ce qui aide beaucoup
@@ -1676,6 +1690,11 @@ def plan_entity_resolutions(
                             except Exception as _exc:
                                 planned.note(f"Entity resolution: {placeholder} descriptor neutralisation failed at rank {pos + 1} ({type(_exc).__name__}: {_exc}); scored on the raw strings, which INFLATES a shared descriptor")
                                 _sought_s, _cand_s = target_value_norm, _doc_norm
+                        # FASTAPI-TEXT2SQL-309. Only the second pass passes normalisers, so the
+                        # first pass computes exactly what it computed before, to the letter.
+                        if normalizers:
+                            _sought_s = rapidfuzz_query.apply_rescue_normalizers(_sought_s, normalizers)
+                            _cand_s = rapidfuzz_query.apply_rescue_normalizers(_cand_s, normalizers)
                         _ratio = fuzz.ratio(_sought_s, _cand_s) if _cand_s else 0.0
                         # Kept for calibration: what the score would have been without stripping, so
                         # the bench can weigh the two and the effect stays auditable.
@@ -1712,6 +1731,31 @@ def plan_entity_resolutions(
                                 matched_result_position = _pos
                                 break
 
+                    # FASTAPI-TEXT2SQL-309. Typographic rescue: a SECOND pass over the same
+                    # shortlist, reached only when the gate has refused every candidate, so a value
+                    # that resolves today never gets here and no current answer can change. Same
+                    # thresholds; only the strings compared are normalised (apostrophe forms and the
+                    # spaces around them), on both sides. Measured on eval 475: "Bell' Antonio"
+                    # against the rank-1 "Il bell'Antonio" scored 85.7 for a threshold of 85.85, and
+                    # 88.9 once the space typed after the elision is removed. What is written into
+                    # the SQL stays the stored document, never the normalised form. Walked in rank
+                    # order, rerank pick first, like the shortlist walk above.
+                    _rescue_norms = search_cfg.get("rescue_normalizations") or []
+                    _rescue_first_pass = None
+                    if not found_match and not _chosen["passes"] and _rescue_norms:
+                        _order = [matched_result_position] + [
+                            _p for _p in range(len(documents)) if _p != matched_result_position
+                        ]
+                        for _pos in _order:
+                            _try = _score_candidate(_pos, _rescue_norms)
+                            if _try["passes"]:
+                                # The first-pass score of the same candidate, kept for the trace:
+                                # the gap between the two IS the effect of the normalisation.
+                                _rescue_first_pass = _score_candidate(_pos)
+                                _chosen = _try
+                                matched_result_position = _pos
+                                break
+
                     chosen_doc = _chosen["doc"]
                     chosen_distance = _chosen["distance"]
                     chosen_ratio = _chosen["ratio"]
@@ -1738,7 +1782,25 @@ def plan_entity_resolutions(
                         # None when it was the first. The bench needs it to answer the only
                         # question that matters here, how often the right answer was NOT first.
                         "rescued_rank": _rescued_rank,
+                        # FASTAPI-TEXT2SQL-309: the normalisers that made the accepted candidate
+                        # pass, empty when the first pass decided. With `fuzz_ratio_first_pass`, the
+                        # score the same candidate had without them, so bench and logs can count
+                        # the rescues and audit each one.
+                        "rescue_normalizations": list(_rescue_norms) if _rescue_first_pass else [],
+                        "fuzz_ratio_first_pass": (
+                            round(float(_rescue_first_pass["ratio"]), 1) if _rescue_first_pass else None
+                        ),
                     })
+
+                    if _rescue_first_pass is not None:
+                        planned.note(
+                            f"Entity resolution: {placeholder} -> every candidate refused by the gate; "
+                            f"typographic rescue ({', '.join(_rescue_norms)}) accepted rank "
+                            f"{matched_result_position + 1} '{_doc_short(chosen_doc)}' "
+                            f"(fuzz_ratio={chosen_ratio:.1f} after normalisation, "
+                            f"{_rescue_first_pass['ratio']:.1f} before, min_fuzz_ratio={min_fuzz_ratio}, "
+                            f"distance={chosen_distance})"
+                        )
 
                     if _rescued_rank is not None:
                         planned.note(
@@ -1752,7 +1814,7 @@ def plan_entity_resolutions(
                     # l'asymetrie qui coute : un refus disait pourquoi, une acceptation ne disait
                     # rien. Or la question « de combien est-on passe » se pose autant dans un cas
                     # que dans l'autre, et c'est elle qui permet de regler un seuil sans deviner.
-                    if _rescued_rank is None and not rejected and not found_match:
+                    if _rescued_rank is None and _rescue_first_pass is None and not rejected and not found_match:
                         _bits = [f"fuzz_ratio={chosen_ratio:.0f}"]
                         if min_fuzz_ratio is not None:
                             _bits.append(f"min={min_fuzz_ratio}")
