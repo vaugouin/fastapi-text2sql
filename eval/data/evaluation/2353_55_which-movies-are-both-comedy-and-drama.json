@@ -1,9 +1,9 @@
 {
   "evaluation_id": 2353,
   "evaluation_category_id": 55,
-  "question_en": "which movies are both comedy and drama?",
-  "question_fr": "quels films sont à la fois des comédies et des drames ?",
-  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "question_en": "Which movies are both comedy and drama?",
+  "question_fr": "Quels films sont à la fois des comédies et des drames ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Movie_genre1&quot;,&quot;Movie_genre2&quot;]) AND matches($.Movie_genre1, /^Comedy$/i) AND matches($.Movie_genre2, /^Drama$/i)",
     "sql_query": null,
@@ -18,7 +18,7 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-07-04",
-  "tim_updated": "2026-07-12T18:53:06",
+  "tim_updated": "2026-10-03T09:13:54",
   "is_showcase": 1,
   "deleted": 0,
   "id_creator": 1,

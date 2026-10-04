@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2523,
+  "evaluation_category_id": 45,
+  "question_en": "Criterion Collection films with the highest spine numbers",
+  "question_fr": "Les films de la Criterion Collection avec les numéros de Spine les plus élevés",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (20334, 501, 409, 9549, 26782, 1887, 483, 803796, 1062722, 48131, 9589, 35867, 1254808, 1220564, 41326, 47504, 88527, 11386, 24748, 16153, 1456349, 14262, 11054, 37636, 271858, 27094, 1124566, 375914, 107199, 14412, 26039, 42845, 42726, 21259, 466420, 10778, 10774, 11703, 10740, 16905, 39507, 668800, 5683, 45129, 345, 43344, 22301, 16094, 597208, 47007)"
+  },
+  "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE AS ID_CONTENT, &#039;movie&#039; AS CONTENT_TYPE, T_WC_T2S_MOVIE.MOVIE_TITLE AS CONTENT_TITLE, T_WC_T2S_MOVIE.DAT_RELEASE AS DAT_FIRST_AIR, T_WC_T2S_MOVIE.DAT_RELEASE AS DAT_LAST_AIR, T_WC_T2S_MOVIE.ID_IMDB, T_WC_T2S_MOVIE.IMDB_RATING, T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED, T_WC_T2S_MOVIE.IMDB_VOTES, T_WC_T2S_MOVIE.POSTER_PATH, T_WC_T2S_MOVIE.RUNTIME, T_WC_T2S_MOVIE.TAGLINE, NULL AS NUMBER_OF_SEASONS, NULL AS NUMBER_OF_EPISODES, T_WC_T2S_MOVIE.ID_CRITERION_SPINE FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_MOVIE_COLLECTION ON T_WC_T2S_MOVIE_COLLECTION.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE JOIN T_WC_T2S_COLLECTION ON T_WC_T2S_COLLECTION.ID_T2S_COLLECTION = T_WC_T2S_MOVIE_COLLECTION.ID_T2S_COLLECTION WHERE T_WC_T2S_COLLECTION.COLLECTION_NAME = &#039;The Criterion Collection&#039; AND T_WC_T2S_MOVIE.ID_CRITERION_SPINE IS NOT NULL AND T_WC_T2S_MOVIE.ID_CRITERION_SPINE &gt; 0 UNION SELECT DISTINCT T_WC_T2S_SERIE.ID_SERIE AS ID_CONTENT, &#039;serie&#039; AS CONTENT_TYPE, T_WC_T2S_SERIE.SERIE_TITLE AS CONTENT_TITLE, T_WC_T2S_SERIE.DAT_FIRST_AIR, T_WC_T2S_SERIE.DAT_LAST_AIR, T_WC_T2S_SERIE.ID_IMDB, T_WC_T2S_SERIE.IMDB_RATING, T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED, T_WC_T2S_SERIE.IMDB_VOTES, T_WC_T2S_SERIE.POSTER_PATH, NULL AS RUNTIME, T_WC_T2S_SERIE.TAGLINE, T_WC_T2S_SERIE.NUMBER_OF_SEASONS, T_WC_T2S_SERIE.NUMBER_OF_EPISODES, T_WC_T2S_SERIE.ID_CRITERION_SPINE FROM T_WC_T2S_SERIE JOIN T_WC_T2S_SERIE_COLLECTION ON T_WC_T2S_SERIE_COLLECTION.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE JOIN T_WC_T2S_COLLECTION ON T_WC_T2S_COLLECTION.ID_T2S_COLLECTION = T_WC_T2S_SERIE_COLLECTION.ID_T2S_COLLECTION WHERE T_WC_T2S_COLLECTION.COLLECTION_NAME = &#039;The Criterion Collection&#039; AND T_WC_T2S_SERIE.ID_CRITERION_SPINE IS NOT NULL AND T_WC_T2S_SERIE.ID_CRITERION_SPINE &gt; 0 ORDER BY ID_CRITERION_SPINE DESC LIMIT 50",
+  "assertion_refresh_last": "2026-10-04T02:31:58",
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-10-02",
+  "tim_updated": "2026-10-03T16:49:07",
+  "is_showcase": 1,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
+}

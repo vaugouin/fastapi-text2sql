@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2517,
+  "evaluation_category_id": 8,
+  "question_en": "Movies filmed in Iceland but set somewhere else",
+  "question_fr": "Des films tournés W Islandii mais dont l’intrigue se déroule ailleurs",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (157336, 935, 272, 791373, 271110, 1251, 140607, 54138, 18, 2270, 116745, 1563, 493529, 62204, 3683)"
+  },
+  "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_MOVIE_LOCATION filming_link ON filming_link.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE JOIN T_WC_T2S_LOCATION filming_location ON filming_location.ID_LOCATION = filming_link.ID_LOCATION WHERE filming_location.LOCATION_NAME = &#039;Iceland&#039; AND filming_location.DELETED = 0 AND filming_link.LOCATION_ROLE = &#039;filming&#039; AND EXISTS (SELECT 1 FROM T_WC_T2S_MOVIE_LOCATION narrative_link JOIN T_WC_T2S_LOCATION narrative_location ON narrative_location.ID_LOCATION = narrative_link.ID_LOCATION WHERE narrative_link.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE AND narrative_link.LOCATION_ROLE = &#039;narrative&#039; AND narrative_location.DELETED = 0 AND narrative_location.ID_LOCATION != filming_location.ID_LOCATION) ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC LIMIT 15;",
+  "assertion_refresh_last": "2026-10-04T02:32:07",
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-10-02",
+  "tim_updated": "2026-10-03T16:48:55",
+  "is_showcase": 1,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
+}

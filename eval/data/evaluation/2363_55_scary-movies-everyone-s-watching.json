@@ -3,14 +3,14 @@
   "evaluation_category_id": 55,
   "question_en": "Scary movies everyone's watching",
   "question_fr": "Films d'horreur que tout le monde regarde",
-  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Movie_genre1&quot;]) AND matches($.Movie_genre1, /^Horror$/i)",
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (1423191, 1375646, 1339713, 460458, 1477712, 1232569, 1224993, 1469930)"
+    "query_result": "ID_MOVIE IN (1423191, 1375646, 460458, 1339713, 1232569, 1422011, 1477712, 1224993)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_MOVIE_GENRE ON T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_GENRE.ID_MOVIE WHERE T_WC_T2S_MOVIE_GENRE.ID_GENRE = 27 ORDER BY T_WC_T2S_MOVIE.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-10-01T04:53:20",
+  "assertion_refresh_last": "2026-10-04T02:32:09",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

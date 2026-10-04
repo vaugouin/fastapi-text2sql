@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2524,
+  "evaluation_category_id": 12,
+  "question_en": "What is the average runtime of Christopher Nolan movies?",
+  "question_fr": "Quelle est la durée moyenne des films de Christopher Nolan ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": "(?is)\\A(?=.*\\bAVG\\s*\\(\\s*(?:DISTINCT\\s+)?(?:\\w+\\.)?RUNTIME\\b)(?=.*\\b(?:Director|Directing)\\b)(?!.*\\bGROUP\\s+BY\\b)(?!.*\\bCREDIT_TYPE\\s*=\\s*\\x27cast\\x27)",
+    "query_result": "COUNT(*) == 1"
+  },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
+  "comment": "An average over one person&#039;s films is a single number: one row, no GROUP BY. Grouping by another entity (observed: one average per technical format, 29 rows) answers a question nobody asked. The films are those he directed, not every film he worked on as crew.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-10-04",
+  "tim_updated": "2026-10-04T12:17:19",
+  "is_showcase": 0,
+  "deleted": 0,
+  "id_creator": null,
+  "id_owner": null,
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
+}

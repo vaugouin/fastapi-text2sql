@@ -3,14 +3,14 @@
   "evaluation_category_id": 17,
   "question_en": "Movies and TV series starring Nicole Kidman",
   "question_fr": "Films et séries télévisées avec Nicole Kidman",
-  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": null
+    "query_result": "ID_SERIE IN (66292, 113962, 1220, 83851, 46638, 5738, 245318, 106081, 40238, 5736, 498, 204999, 23608) AND ID_MOVIE IN (334543, 553, 1933, 345, 824, 590, 30416, 116149, 834027, 2289, 15325, 440472, 127560, 40620, 21828, 639933, 399057, 292374, 689705, 79583, 1016753, 58608, 398788, 673124, 615529, 441863, 1113682, 715922, 1241073, 521399, 809891, 975388, 1229177, 393076, 294656, 765522, 36718)"
   },
-  "assertion_refresh_sql": null,
-  "assertion_refresh_last": null,
+  "assertion_refresh_sql": "SELECT U.ID_CONTENT, U.CONTENT_TYPE\r\n  FROM (\r\n        SELECT T_WC_T2S_MOVIE.ID_MOVIE AS ID_CONTENT, &#039;movie&#039; AS CONTENT_TYPE,\r\n               T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED AS SORT_KEY\r\n          FROM T_WC_T2S_MOVIE\r\n          JOIN T_WC_T2S_PERSON_MOVIE ON T_WC_T2S_PERSON_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE\r\n          JOIN T_WC_T2S_PERSON ON T_WC_T2S_PERSON.ID_PERSON = T_WC_T2S_PERSON_MOVIE.ID_PERSON\r\n         WHERE T_WC_T2S_PERSON.PERSON_NAME = &#039;Nicole Kidman&#039;\r\n           AND T_WC_T2S_PERSON_MOVIE.CREDIT_TYPE = &#039;cast&#039;\r\n           AND (T_WC_T2S_MOVIE.IS_DOCUMENTARY = 1\r\n                OR COALESCE(T_WC_T2S_PERSON_MOVIE.CAST_CHARACTER, &#039;&#039;) NOT IN (&#039;Self&#039;, &#039;Himself&#039;, &#039;Herself&#039;, &#039;(archive footage)&#039;, &#039;Self (archive footage)&#039;, &#039;Self (archive footage) (uncredited)&#039;, &#039;Self (uncredited)&#039;))\r\n        UNION\r\n        SELECT T_WC_T2S_SERIE.ID_SERIE AS ID_CONTENT, &#039;serie&#039; AS CONTENT_TYPE,\r\n               T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED AS SORT_KEY\r\n          FROM T_WC_T2S_SERIE\r\n          JOIN T_WC_T2S_PERSON_SERIE ON T_WC_T2S_PERSON_SERIE.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE\r\n          JOIN T_WC_T2S_PERSON ON T_WC_T2S_PERSON.ID_PERSON = T_WC_T2S_PERSON_SERIE.ID_PERSON\r\n         WHERE T_WC_T2S_PERSON.PERSON_NAME = &#039;Nicole Kidman&#039;\r\n           AND T_WC_T2S_PERSON_SERIE.CREDIT_TYPE = &#039;cast&#039;\r\n           AND COALESCE(T_WC_T2S_PERSON_SERIE.CAST_CHARACTER, &#039;&#039;) NOT IN (&#039;Self&#039;, &#039;Himself&#039;, &#039;Herself&#039;, &#039;(archive footage)&#039;, &#039;Self (archive footage)&#039;, &#039;Self (archive footage) (uncredited)&#039;, &#039;Self (uncredited)&#039;)\r\n       ) AS U\r\n ORDER BY U.SORT_KEY DESC, U.CONTENT_TYPE, U.ID_CONTENT\r\n LIMIT 50",
+  "assertion_refresh_last": "2026-10-04T02:32:06",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -18,7 +18,7 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-09-26",
-  "tim_updated": "2026-09-26T10:27:15",
+  "tim_updated": "2026-10-01T20:09:25",
   "is_showcase": 1,
   "deleted": 0,
   "id_creator": 1,

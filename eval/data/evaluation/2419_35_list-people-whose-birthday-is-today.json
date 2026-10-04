@@ -3,14 +3,14 @@
   "evaluation_category_id": 35,
   "question_en": "List people whose birthday is today",
   "question_fr": "Listez les personnes dont l'anniversaire est aujourd'hui.",
-  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_PERSON IN (1572230, 2204629, 2556819, 1831272, 231874, 1675118, 5823, 194)"
+    "query_result": "ID_PERSON IN (2934265, 1679682, 1634607, 1843353, 981188, 1604387, 1301228, 5588)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_PERSON.ID_PERSON FROM T_WC_T2S_PERSON WHERE T_WC_T2S_PERSON.BIRTH_MONTH = MONTH(CURDATE()) AND T_WC_T2S_PERSON.BIRTH_DAY = DAY(CURDATE()) ORDER BY T_WC_T2S_PERSON.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-10-01T04:53:22",
+  "assertion_refresh_last": "2026-10-04T02:32:15",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

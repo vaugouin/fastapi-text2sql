@@ -3,14 +3,14 @@
   "evaluation_category_id": 7,
   "question_en": "What companies produced movies with budgets over $200 million?",
   "question_fr": "Quelles sociétés ont produit des films avec des budgets de plus de 200 millions de dollars ?",
-  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": null,
     "sql_query": "(?i)\\bBUDGET\\s*&gt;\\s*200000000\\b",
     "query_result": "ID_COMPANY IN (174, 11565, 76907, 128064, 216687, 9996, 33, 11)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT c.ID_COMPANY FROM T_WC_T2S_COMPANY c JOIN T_WC_T2S_MOVIE_COMPANY mc ON mc.ID_COMPANY = c.ID_COMPANY JOIN T_WC_T2S_MOVIE m ON m.ID_MOVIE = mc.ID_MOVIE WHERE m.BUDGET &gt; 200000000 LIMIT 8",
-  "assertion_refresh_last": "2026-10-01T04:52:47",
+  "assertion_refresh_last": "2026-10-04T02:31:54",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

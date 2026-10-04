@@ -3,14 +3,14 @@
   "evaluation_category_id": 3,
   "question_en": "Which movies were filmed in 70mm format?",
   "question_fr": "Quels films ont été tournés en format 70 mm ?",
-  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Technical_format1&quot;])",
     "sql_query": null,
     "query_result": "ID_MOVIE IN (947, 12445, 9552, 14002, 273248, 11202, 9764, 12444)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_MOVIE_TECHNICAL ON T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_TECHNICAL.ID_MOVIE WHERE T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL = 54 ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC LIMIT 8",
-  "assertion_refresh_last": "2026-10-01T04:52:46",
+  "assertion_refresh_last": "2026-10-04T02:31:53",
   "comment": "Excluding documentaries in the valid set",
   "keywords": null,
   "keywords_auto": null,

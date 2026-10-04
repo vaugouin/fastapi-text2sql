@@ -3,14 +3,14 @@
   "evaluation_category_id": 40,
   "question_en": "Best crime series from the 2010s",
   "question_fr": "Meilleures séries policières des années 2010",
-  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": null,
     "sql_query": "(?is)(?=.*\\bFIRST_AIR_YEAR\\s+BETWEEN\\s+2010\\s+AND\\s+2019\\b)",
     "query_result": "ID_SERIE IN (19885, 60059, 60622, 60574, 70523, 63351, 61889, 67744)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_SERIE.ID_SERIE FROM T_WC_T2S_SERIE JOIN T_WC_T2S_SERIE_GENRE ON T_WC_T2S_SERIE.ID_SERIE = T_WC_T2S_SERIE_GENRE.ID_SERIE WHERE T_WC_T2S_SERIE_GENRE.ID_GENRE = 80 AND YEAR(T_WC_T2S_SERIE.DAT_FIRST_AIR) BETWEEN 2010 AND 2019 ORDER BY T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED DESC LIMIT 8",
-  "assertion_refresh_last": "2026-10-01T04:53:29",
+  "assertion_refresh_last": "2026-10-04T02:32:14",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

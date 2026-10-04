@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2344,
+  "evaluation_category_id": 16,
+  "question_en": "Who's trending right now?",
+  "question_fr": "Quelles sont les personnes en vogue ces jours-ci ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_PERSON IN (1247604, 18270, 22303, 1438183, 20652, 1183234, 22066, 27020, 550876, 2209233, 3012621, 17146, 2568605, 1744300, 1172973)"
+  },
+  "assertion_refresh_sql": "SELECT ID_PERSON FROM T_WC_T2S_PERSON ORDER BY POPULARITY DESC LIMIT 15",
+  "assertion_refresh_last": "2026-10-04T02:32:01",
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-05-12",
+  "tim_updated": "2026-10-03T09:09:45",
+  "is_showcase": 1,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
+}

@@ -3,14 +3,14 @@
   "evaluation_category_id": 17,
   "question_en": "Movies and TV series set during World War II",
   "question_fr": "Films et séries télévisées se déroulant pendant la Seconde Guerre mondiale",
-  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": null
+    "query_result": "ID_SERIE IN (4613, 751, 156249, 16997, 33189, 46849, 2211, 3163, 93870) AND ID_MOVIE IN (424, 857, 637, 423, 289, 12477, 16869, 914, 387, 11324, 872585, 613, 5925, 25237, 821, 324786, 15121, 826, 205596, 45269, 783, 515001, 887, 803, 733740, 374720, 17909, 13016, 198, 11202, 4347, 11902, 1251, 149870, 38360, 31442, 632, 1396, 14574, 15244, 1786)"
   },
-  "assertion_refresh_sql": null,
-  "assertion_refresh_last": null,
+  "assertion_refresh_sql": "SELECT U.ID_CONTENT, U.CONTENT_TYPE\r\n  FROM (\r\n        SELECT T_WC_T2S_MOVIE.ID_MOVIE AS ID_CONTENT, &#039;movie&#039; AS CONTENT_TYPE,\r\n               T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED AS SORT_KEY\r\n          FROM T_WC_T2S_MOVIE\r\n          JOIN T_WC_T2S_MOVIE_TOPIC ON T_WC_T2S_MOVIE_TOPIC.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE\r\n          JOIN T_WC_T2S_TOPIC ON T_WC_T2S_TOPIC.ID_TOPIC = T_WC_T2S_MOVIE_TOPIC.ID_TOPIC\r\n         WHERE T_WC_T2S_TOPIC.TOPIC_NAME = &#039;world war ii&#039;\r\n        UNION\r\n        SELECT T_WC_T2S_SERIE.ID_SERIE AS ID_CONTENT, &#039;serie&#039; AS CONTENT_TYPE,\r\n               T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED AS SORT_KEY\r\n          FROM T_WC_T2S_SERIE\r\n          JOIN T_WC_T2S_SERIE_TOPIC ON T_WC_T2S_SERIE_TOPIC.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE\r\n          JOIN T_WC_T2S_TOPIC ON T_WC_T2S_TOPIC.ID_TOPIC = T_WC_T2S_SERIE_TOPIC.ID_TOPIC\r\n         WHERE T_WC_T2S_TOPIC.TOPIC_NAME = &#039;world war ii&#039;\r\n       ) AS U\r\n ORDER BY U.SORT_KEY DESC, U.CONTENT_TYPE, U.ID_CONTENT\r\n LIMIT 50",
+  "assertion_refresh_last": "2026-10-04T02:32:06",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -18,7 +18,7 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-09-25",
-  "tim_updated": "2026-09-26T10:27:14",
+  "tim_updated": "2026-10-01T20:07:59",
   "is_showcase": 1,
   "deleted": 0,
   "id_creator": 1,

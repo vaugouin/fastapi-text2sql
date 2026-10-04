@@ -3,7 +3,7 @@
   "evaluation_category_id": 45,
   "question_en": "Who are the directors with the most movies in the Criterion Collection and give the count of movies for each one",
   "question_fr": "Quels sont les réalisateurs avec le plus de films dans la collection Criterion et indique le nombre de films pour chacun",
-  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Department_name1&quot;, &quot;Collection_name1&quot;])",
     "sql_query": "(?is)(?=.*\\bCOUNT\\s*\\()(?=.*\\bGROUP\\s+BY\\b)(?=.*\\bID_PERSON\\b)(?=.*\\bPROFILE_PATH\\b)",

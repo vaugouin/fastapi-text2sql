@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2525,
+  "evaluation_category_id": 10,
+  "question_en": "What is the average IMDb rating of Stanley Kubrick movies per decade?",
+  "question_fr": "Quelle est la note IMDb moyenne des films de Stanley Kubrick par décennie ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": "(?is)\\A(?=.*\\bAVG\\s*\\(\\s*(?:DISTINCT\\s+)?(?:\\w+\\.)?IMDB_RATING\\b)(?=.*\\b(?:Director|Directing)\\b)(?!.*\\bCREDIT_TYPE\\s*=\\s*\\x27cast\\x27)",
+    "query_result": "COUNT(*) &gt;= 5 AND COUNT(*) &lt;= 6"
+  },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
+  "comment": "A director&#039;s movies are the films he directed: searched as cast, Kubrick brings his cameos and every documentary about him, decades 1940 to 2020. Per decade means one row per decade, not the decade average repeated on every film.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-10-04",
+  "tim_updated": "2026-10-04T12:16:54",
+  "is_showcase": 0,
+  "deleted": 0,
+  "id_creator": null,
+  "id_owner": null,
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
+}

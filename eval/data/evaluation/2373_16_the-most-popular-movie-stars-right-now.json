@@ -3,14 +3,14 @@
   "evaluation_category_id": 16,
   "question_en": "The most popular movie stars right now",
   "question_fr": "Les stars de cinéma les plus populaires en ce moment",
-  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
     "query_result": "ID_PERSON IN (1247604, 18270, 22303, 1438183, 20652, 1183234, 22066, 27020)"
   },
   "assertion_refresh_sql": "SELECT T_WC_T2S_PERSON.ID_PERSON FROM T_WC_T2S_PERSON ORDER BY T_WC_T2S_PERSON.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-10-01T04:53:28",
+  "assertion_refresh_last": "2026-10-04T02:32:14",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -18,11 +18,11 @@
   "is_sample": 1,
   "display_order": 923,
   "dat_creat": "2026-07-06",
-  "tim_updated": null,
-  "is_showcase": 1,
+  "tim_updated": "2026-10-01T19:55:21",
+  "is_showcase": 0,
   "deleted": 0,
   "id_creator": null,
   "id_owner": null,
-  "id_user_updated": null,
+  "id_user_updated": 1,
   "resolution_mode": "standard"
 }

@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2522,
+  "evaluation_category_id": 10,
+  "question_en": "Which other movies were released the same year as Pulp Fiction?",
+  "question_fr": "Quels Other films sont sortis la même année que Pulp Fiction ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (278, 13, 101, 8587, 110, 11104, 14275, 58128, 522, 31439, 2292, 527, 11010, 31414, 109)"
+  },
+  "assertion_refresh_sql": "SELECT DISTINCT other.ID_MOVIE FROM T_WC_T2S_MOVIE AS source JOIN T_WC_T2S_MOVIE AS other ON other.RELEASE_YEAR = source.RELEASE_YEAR AND other.ID_MOVIE &lt;&gt; source.ID_MOVIE WHERE (source.MOVIE_TITLE = &#039;Pulp Fiction&#039; OR source.MOVIE_TITLE_FR = &#039;Pulp Fiction&#039; OR source.ORIGINAL_TITLE = &#039;Pulp Fiction&#039;) ORDER BY other.IMDB_RATING_WEIGHTED DESC LIMIT 15",
+  "assertion_refresh_last": "2026-10-04T02:32:02",
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 0,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-10-02",
+  "tim_updated": "2026-10-03T16:49:04",
+  "is_showcase": 1,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
+}

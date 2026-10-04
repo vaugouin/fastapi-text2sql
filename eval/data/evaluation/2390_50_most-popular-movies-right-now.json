@@ -3,14 +3,14 @@
   "evaluation_category_id": 50,
   "question_en": "Most popular movies right now",
   "question_fr": "Films les plus populaires en ce moment",
-  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (969681, 1423191, 1204680, 1368337, 1101383, 1032863, 1377237, 1294189)"
+    "query_result": "ID_MOVIE IN (969681, 1599191, 1423191, 1368337, 1204680, 1377237, 1228834, 1101383)"
   },
   "assertion_refresh_sql": "SELECT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE ORDER BY T_WC_T2S_MOVIE.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-10-01T04:53:29",
+  "assertion_refresh_last": "2026-10-04T02:32:14",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -18,8 +18,8 @@
   "is_sample": 1,
   "display_order": 945,
   "dat_creat": "2026-07-06",
-  "tim_updated": "2026-07-11T16:48:39",
-  "is_showcase": 1,
+  "tim_updated": "2026-10-01T19:53:09",
+  "is_showcase": 0,
   "deleted": 0,
   "id_creator": null,
   "id_owner": null,

@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2436,
+  "evaluation_category_id": 35,
+  "question_en": "List people who died in a car accident",
+  "question_fr": "Dressez la liste des personnes décédées dans un accident de voiture",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": "seteq(entity_keys($), [&quot;Death_name1&quot;])",
+    "sql_query": null,
+    "query_result": "ID_PERSON IN (2948491, 2749, 98040, 9906, 45001, 45469, 55069, 1306064)"
+  },
+  "assertion_refresh_sql": "SELECT DISTINCT p.ID_PERSON FROM T_WC_T2S_PERSON p JOIN T_WC_T2S_PERSON_DEATH pd ON p.ID_PERSON = pd.ID_PERSON JOIN T_WC_T2S_DEATH d ON pd.ID_DEATH = d.ID_DEATH WHERE d.DEATH_NAME_FR = &#039;accident de voiture&#039; ORDER BY pd.DISPLAY_ORDER ASC LIMIT 8",
+  "assertion_refresh_last": "2026-08-18T05:32:17",
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 0,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-07-14",
+  "tim_updated": "2026-10-03T09:09:22",
+  "is_showcase": 1,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
+}

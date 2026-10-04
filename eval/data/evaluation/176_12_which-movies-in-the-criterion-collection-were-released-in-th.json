@@ -3,7 +3,7 @@
   "evaluation_category_id": 12,
   "question_en": "Which movies in the Criterion Collection were released in the 1950s?",
   "question_fr": "Quels films de la collection Criterion ont été sortis dans les années 1950 ?",
-  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": null,
     "sql_query": "(?is)(?=.*\\bRELEASE_YEAR\\s+BETWEEN\\s+1950\\s+AND\\s+1959\\b)",

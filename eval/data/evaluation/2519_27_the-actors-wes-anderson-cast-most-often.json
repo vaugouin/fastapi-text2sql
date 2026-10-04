@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2519,
+  "evaluation_category_id": 27,
+  "question_en": "The actors Wes Anderson cast most often",
+  "question_fr": "Les acteurs que Wes Anderson a le plus souvent choisis pour ses films",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_PERSON IN (1532, 887, 5657, 5667, 5293, 1332415, 4785, 36422, 112, 1776, 5659, 52842, 10297, 11090, 1461, 71555, 8690, 5950, 17881, 39012, 11115, 64948, 6588, 1243, 5664, 1248, 230436, 45138, 1284, 15762, 4971, 5671, 5779, 193, 5301, 168874, 5656, 368, 5658, 124748, 56209, 208519, 1245, 1303037, 12052, 1540615, 35159, 3388, 138, 17039)"
+  },
+  "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_PERSON.ID_PERSON, COUNT(DISTINCT pm_other.ID_MOVIE) AS SHARED_MOVIE_COUNT FROM T_WC_T2S_PERSON p_named JOIN T_WC_T2S_PERSON_MOVIE pm_named ON pm_named.ID_PERSON = p_named.ID_PERSON JOIN T_WC_T2S_PERSON_MOVIE pm_other ON pm_other.ID_MOVIE = pm_named.ID_MOVIE JOIN T_WC_T2S_PERSON ON T_WC_T2S_PERSON.ID_PERSON = pm_other.ID_PERSON JOIN T_WC_T2S_MOVIE ON T_WC_T2S_MOVIE.ID_MOVIE = pm_named.ID_MOVIE WHERE p_named.PERSON_NAME = &#039;Wes Anderson&#039; AND pm_named.CREDIT_TYPE = &#039;cast&#039; AND pm_other.CREDIT_TYPE = &#039;cast&#039; AND pm_other.ID_PERSON &lt;&gt; p_named.ID_PERSON AND (T_WC_T2S_MOVIE.IS_DOCUMENTARY = 1 OR pm_named.CAST_CHARACTER NOT IN (&#039;Self&#039;, &#039;Himself&#039;, &#039;Herself&#039;, &#039;(archive footage)&#039;, &#039;Self (archive footage)&#039;, &#039;Self (archive footage) (uncredited)&#039;, &#039;Self (uncredited)&#039;)) AND (T_WC_T2S_MOVIE.IS_DOCUMENTARY = 1 OR pm_other.CAST_CHARACTER NOT IN (&#039;Self&#039;, &#039;Himself&#039;, &#039;Herself&#039;, &#039;(archive footage)&#039;, &#039;Self (archive footage)&#039;, &#039;Self (archive footage) (uncredited)&#039;, &#039;Self (uncredited)&#039;)) GROUP BY T_WC_T2S_PERSON.ID_PERSON, T_WC_T2S_PERSON.PERSON_NAME, T_WC_T2S_PERSON.POPULARITY, T_WC_T2S_PERSON.KNOWN_FOR_DEPARTMENT, T_WC_T2S_PERSON.BIRTH_YEAR, T_WC_T2S_PERSON.DEATH_YEAR, T_WC_T2S_PERSON.PROFILE_PATH ORDER BY SHARED_MOVIE_COUNT DESC LIMIT 50;",
+  "assertion_refresh_last": "2026-10-04T02:32:07",
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-10-02",
+  "tim_updated": "2026-10-03T16:48:58",
+  "is_showcase": 1,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
+}

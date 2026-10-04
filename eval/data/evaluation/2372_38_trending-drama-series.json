@@ -3,14 +3,14 @@
   "evaluation_category_id": 38,
   "question_en": "Trending drama series",
   "question_fr": "Séries dramatiques en vogue",
-  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Serie_genre1&quot;]) AND matches($.Serie_genre1, /^Drama$/i)",
     "sql_query": null,
-    "query_result": "ID_SERIE IN (91759, 2734, 275102, 549, 5920, 113962, 4614, 1622)"
+    "query_result": "ID_SERIE IN (91759, 549, 70998, 2734, 275102, 5920, 1416, 4614)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_SERIE.ID_SERIE FROM T_WC_T2S_SERIE JOIN T_WC_T2S_SERIE_GENRE ON T_WC_T2S_SERIE.ID_SERIE = T_WC_T2S_SERIE_GENRE.ID_SERIE WHERE T_WC_T2S_SERIE_GENRE.ID_GENRE = 18 ORDER BY T_WC_T2S_SERIE.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-10-01T04:53:28",
+  "assertion_refresh_last": "2026-10-04T02:32:14",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

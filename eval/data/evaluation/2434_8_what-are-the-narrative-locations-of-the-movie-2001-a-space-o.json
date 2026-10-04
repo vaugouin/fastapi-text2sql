@@ -3,14 +3,14 @@
   "evaluation_category_id": 8,
   "question_en": "What are the narrative locations of the movie 2001 A space odyssey?",
   "question_fr": "Quels sont les lieux narratifs du film 2001, l'Odyssée de l'espace ?",
-  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Movie_title1&quot;])",
     "sql_query": null,
-    "query_result": null
+    "query_result": "ID_LOCATION IN (19, 341, 410, 1407, 2401, 4074)"
   },
-  "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_ITEM.ID_WIKIDATA FROM T_WC_T2S_MOVIE JOIN T_WC_WIKIDATA_ITEM_PROPERTY ON T_WC_T2S_MOVIE.ID_WIKIDATA = T_WC_WIKIDATA_ITEM_PROPERTY.ID_WIKIDATA JOIN T_WC_T2S_ITEM ON T_WC_WIKIDATA_ITEM_PROPERTY.ID_ITEM = T_WC_T2S_ITEM.ID_WIKIDATA WHERE (T_WC_T2S_MOVIE.MOVIE_TITLE = &#039;2001: A Space Odyssey&#039; OR T_WC_T2S_MOVIE.MOVIE_TITLE_FR = &#039;2001: A Space Odyssey&#039; OR T_WC_T2S_MOVIE.ORIGINAL_TITLE = &#039;2001: A Space Odyssey&#039;) AND T_WC_WIKIDATA_ITEM_PROPERTY.ID_PROPERTY = &#039;P840&#039; LIMIT 8",
-  "assertion_refresh_last": null,
+  "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_LOCATION.ID_LOCATION, T_WC_T2S_LOCATION.LOCATION_NAME, T_WC_T2S_LOCATION.LOCATION_TYPE, T_WC_T2S_LOCATION.LOCATION_SOURCE, T_WC_T2S_LOCATION.POSTER_PATH, T_WC_T2S_LOCATION.WIKIPEDIA_IMAGE_PATH, T_WC_T2S_LOCATION.OVERVIEW, T_WC_T2S_LOCATION.MOVIE_COUNT, T_WC_T2S_LOCATION.SERIE_COUNT, T_WC_T2S_LOCATION.IMDB_RATING FROM T_WC_T2S_LOCATION JOIN T_WC_T2S_MOVIE_LOCATION ON T_WC_T2S_MOVIE_LOCATION.ID_LOCATION = T_WC_T2S_LOCATION.ID_LOCATION JOIN T_WC_T2S_MOVIE ON T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_LOCATION.ID_MOVIE WHERE (T_WC_T2S_MOVIE.MOVIE_TITLE = &#039;2001: A Space Odyssey&#039; OR T_WC_T2S_MOVIE.MOVIE_TITLE_FR = &#039;2001: A Space Odyssey&#039; OR T_WC_T2S_MOVIE.ORIGINAL_TITLE = &#039;2001: A Space Odyssey&#039;) AND T_WC_T2S_MOVIE_LOCATION.LOCATION_ROLE = &#039;narrative&#039; AND T_WC_T2S_LOCATION.DELETED = 0 ORDER BY T_WC_T2S_LOCATION.MOVIE_COUNT DESC LIMIT 15",
+  "assertion_refresh_last": "2026-10-04T02:32:02",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
@@ -18,7 +18,7 @@
   "is_sample": 1,
   "display_order": null,
   "dat_creat": "2026-07-14",
-  "tim_updated": "2026-08-17T09:18:54",
+  "tim_updated": "2026-10-02T09:27:30",
   "is_showcase": 1,
   "deleted": 0,
   "id_creator": 1,

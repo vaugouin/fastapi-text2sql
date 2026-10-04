@@ -3,14 +3,14 @@
   "evaluation_category_id": 47,
   "question_en": "List popular movie collections with exactly 3 movies",
   "question_fr": "Liste des collections de films populaires avec exactement 3 films",
-  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_T2S_COLLECTION IN (67, 70, 2286, 3298, 1875, 71, 2876, 3839)"
+    "query_result": "ID_T2S_COLLECTION IN (2286, 67, 70, 2876, 71, 1875, 3298, 716)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT c.ID_T2S_COLLECTION FROM T_WC_T2S_COLLECTION c WHERE c.MOVIE_COUNT = 3 ORDER BY c.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-10-01T04:53:30",
+  "assertion_refresh_last": "2026-10-04T02:32:17",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,
