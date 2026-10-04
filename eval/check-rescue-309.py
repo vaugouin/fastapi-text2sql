@@ -40,6 +40,10 @@ _MOVIE_ROWS = {
               "ORIGINAL_TITLE": "Il bell'Antonio"},
     "284204": {"ID_MOVIE": 284204, "MOVIE_TITLE": "Mister Antonio", "MOVIE_TITLE_FR": "Mister Antonio",
                "ORIGINAL_TITLE": "Mister Antonio"},
+    "204765": {"ID_MOVIE": 204765, "MOVIE_TITLE": "Prêt à tout", "MOVIE_TITLE_FR": "Prêt à tout",
+               "ORIGINAL_TITLE": "Prêt à tout"},
+    "577": {"ID_MOVIE": 577, "MOVIE_TITLE": "To Die For", "MOVIE_TITLE_FR": "Prête à tout",
+            "ORIGINAL_TITLE": "To Die For"},
     "1088829": {"ID_MOVIE": 1088829, "MOVIE_TITLE": "Antonio", "MOVIE_TITLE_FR": "Antonio",
                 "ORIGINAL_TITLE": "Antonio"},
 }
@@ -99,6 +103,17 @@ class _Strangers(_Movies):
         }
 
 
+class _NearHomonyms(_Movies):
+    """eval-309, 2026-10-04: "Prête à tout" typed without accents. Two French titles one letter
+    apart once accents are folded, the wrong one ranked first by the vector search."""
+    def query(self, query_texts=None, n_results=10, where=None):
+        return {
+            "documents": [["Prêt à tout", "Prête à tout", "Antonio"]],
+            "ids": [["movieid_204765_fr", "movieid_577_fr", "movieid_1088829_en"]],
+            "distances": [[0.358, 0.402, 0.80]],
+        }
+
+
 def run(value, collection=None):
     result = entity.plan_entity_resolutions(
         connection=_Connection(),
@@ -144,12 +159,12 @@ check("unknown normaliser raises", raised, True)
 
 print("\n2. Eval 475, English spelling: the first pass refuses, the rescue accepts rank 1")
 joined, score = run("Bell' Antonio")
-check("typographic rescue fired", "typographic rescue (apostrophes) accepted rank 1" in joined, True)
+check("typographic rescue fired", "typographic rescue (" in joined and "accepted rank 1" in joined, True)
 check("resolves to Il bell'Antonio", "-> Il bell'Antonio (lang=" in joined, True)
 check("no raw fallback", "raw fallback" in joined, False)
 check("first-pass score recorded, below the threshold", score.get("fuzz_ratio_first_pass"), 85.7)
 check("rescued score recorded", score.get("fuzz_ratio"), 88.9)
-check("rescue recorded in match_scores", score.get("rescue_normalizations"), ["apostrophes"])
+check("rescue recorded in match_scores", "apostrophes" in (score.get("rescue_normalizations") or []), True)
 check("not counted as rejected", score.get("rejected"), False)
 check("candidate id recorded", score.get("candidate_id"), "movieid_76157_it")
 
@@ -183,7 +198,26 @@ joined, score = run("Zorglub l' Ancien", _Strangers())
 check("rescue did not fire", "typographic rescue" in joined, False)
 check("raw fallback", "raw fallback" in joined, True)
 
-print("\n7. A misspelt normaliser is refused at load, never at request time")
+print("\n7. The rescue takes the BEST normalised score, not the first passing candidate")
+joined, score = run("Prete a tout", _NearHomonyms())
+check("resolves to Prête à tout (577), not Prêt à tout (204765)", score.get("candidate_id"), "movieid_577_fr")
+check("its normalised score is 100", score.get("fuzz_ratio"), 100.0)
+
+print("\n8. The configuration of 2026-10-04, type by type")
+cfg = {e["placeholder_prefix"]: [st.get("rescue_normalizations") for st in e["search_list"]
+                                 if st.get("search_mode") == "embeddings"]
+       for e in entity.ENTITY_RESOLUTION_CONFIG}
+full = ["apostrophes", "accents", "dashes", "punctuation"]
+for t in ("Movie_title", "Serie_title", "Network_name", "Group_name", "Location_name", "Topic_name"):
+    check(f"{t}: all four", cfg.get(t), [full])
+check("Company_name: no punctuation (Warner Bros. China)", cfg.get("Company_name"),
+      [["apostrophes", "accents", "dashes"]])
+check("Collection_name: no dashes (Dracula 2000 - Saga)", cfg.get("Collection_name"),
+      [["apostrophes", "accents", "punctuation"]])
+for t in ("Award_name", "Death_name", "List_name", "Movement_name", "Nomination_name"):
+    check(f"{t}: no rescue, nothing measured", cfg.get(t), [None])
+
+print("\n9. A misspelt normaliser is refused at load, never at request time")
 bad = copy.deepcopy(saved)
 bad[0]["search_list"][0]["rescue_normalizations"] = ["apostrophe"]
 try:

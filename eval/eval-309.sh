@@ -13,6 +13,8 @@
 #   none          the gate before -309, no second pass
 #   apostrophes   the first fix
 #   full          apostrophes, accents, dashes, punctuation
+#   configured    each type with the list data/entity_resolution.json gives it, which is what the
+#                 API runs after its restart: the stage that decides the deployment
 #
 # and `compare` lists every value whose outcome changed between the latest run of two stages,
 # with the count of NEW WRONG ACCEPTANCES, which must be 0 for a stage to be switched on.
@@ -33,7 +35,8 @@
 #   ./eval-309.sh none
 #   ./eval-309.sh apostrophes
 #   ./eval-309.sh full
-#   ./eval-309.sh compare                 # none -> apostrophes, apostrophes -> full, none -> full
+#   ./eval-309.sh configured              # the per-type configuration, before restarting the API
+#   ./eval-309.sh compare                 # none -> apostrophes, apostrophes -> full, none -> full, none -> configured
 #   TYPES=Movie_title,Serie_title PER_TYPE=60 ./eval-309.sh full
 #   NORMALIZERS=accents ./eval-309.sh custom   # one normaliser alone, to isolate its effect
 #
@@ -55,8 +58,8 @@ OUT_DIR="$SHARED_DIR/eval-309"
 fail() { echo "ERROR: $*" >&2; exit 1; }
 
 case "$STAGE" in
-    none|apostrophes|full|custom|compare) ;;
-    *) fail "usage: $0 none|apostrophes|full|custom|compare" ;;
+    none|apostrophes|full|configured|custom|compare) ;;
+    *) fail "usage: $0 none|apostrophes|full|configured|custom|compare" ;;
 esac
 
 [ -f "$API_HOME/eval/eval-309.py" ] || fail \
@@ -83,11 +86,11 @@ run_in_container() {
 latest() { ls -t "$OUT_DIR"/"$1"-*.json 2>/dev/null | head -1; }
 
 if [ "$STAGE" = "compare" ]; then
-    NONE=$(latest none); APOS=$(latest apostrophes); FULL=$(latest full)
+    NONE=$(latest none); APOS=$(latest apostrophes); FULL=$(latest full); CONF=$(latest configured)
     STAMP=$(date +%Y%m%d-%H%M%S)
     {
         echo "=== $(date '+%Y-%m-%d %H:%M:%S %Z') === FASTAPI-TEXT2SQL-309 comparison"
-        for pair in "$NONE $APOS" "$APOS $FULL" "$NONE $FULL"; do
+        for pair in "$NONE $APOS" "$APOS $FULL" "$NONE $FULL" "$NONE $CONF"; do
             set -- $pair
             [ $# -eq 2 ] || { echo "(skipped: a stage has not been run yet)"; continue; }
             echo ""; echo "--- $(basename "$1") -> $(basename "$2")"

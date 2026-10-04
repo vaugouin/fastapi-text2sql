@@ -69,7 +69,7 @@
           "*": "ORIGINAL_TITLE"
         },
         "min_fuzz_ratio": 85.85,
-        "rescue_normalizations": ["apostrophes"]
+        "rescue_normalizations": ["apostrophes", "accents", "dashes", "punctuation"]
       }
     ]
   },
@@ -90,7 +90,7 @@
           "*": "ORIGINAL_TITLE"
         },
         "min_fuzz_ratio": 87.85,
-        "rescue_normalizations": ["apostrophes"]
+        "rescue_normalizations": ["apostrophes", "accents", "dashes", "punctuation"]
       }
     ]
   },
@@ -107,7 +107,8 @@
         "languages": {
           "*": "COMPANY_NAME"
         },
-        "min_fuzz_ratio": 77.5
+        "min_fuzz_ratio": 77.5,
+        "rescue_normalizations": ["apostrophes", "accents", "dashes"]
       }
     ]
   },
@@ -124,7 +125,8 @@
         "languages": {
           "*": "NETWORK_NAME"
         },
-        "min_fuzz_ratio": 78.45
+        "min_fuzz_ratio": 78.45,
+        "rescue_normalizations": ["apostrophes", "accents", "dashes", "punctuation"]
       }
     ]
   },
@@ -149,7 +151,8 @@
           "saga",
           "collection"
         ],
-        "min_fuzz_ratio": 69.1
+        "min_fuzz_ratio": 69.1,
+        "rescue_normalizations": ["apostrophes", "accents", "dashes", "punctuation"]
       }
     ]
   },
@@ -300,6 +303,7 @@
         "default_field": "COLLECTION_NAME",
         "order_by": null,
         "min_fuzz_ratio": 73.5,
+        "rescue_normalizations": ["apostrophes", "accents", "punctuation"],
         "languages": {
           "en": "COLLECTION_NAME",
           "fr": "COLLECTION_NAME_FR",
@@ -385,7 +389,8 @@
           "*": "LOCATION_NAME"
         },
         "document_name_separator": ": ",
-        "min_fuzz_ratio": 71.8
+        "min_fuzz_ratio": 71.8,
+        "rescue_normalizations": ["apostrophes", "accents", "dashes", "punctuation"]
       }
     ]
   },
@@ -404,7 +409,8 @@
           "fr": "GROUP_NAME_FR",
           "*": "GROUP_NAME"
         },
-        "min_fuzz_ratio": 77.5
+        "min_fuzz_ratio": 77.5,
+        "rescue_normalizations": ["apostrophes", "accents", "dashes", "punctuation"]
       }
     ]
   },

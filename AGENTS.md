@@ -1341,8 +1341,20 @@ scores 83.3, refused at 85.85), `dashes` (every dash becomes a space), `punctuat
 quotes, brackets removed; NOT the apostrophe, NOT `&`, NOT digits). An unknown name is refused when
 the configuration loads, so a typo keeps the previous configuration instead of reaching a request.
 
-**Configured today** on `Movie_title` and `Serie_title`, with `["apostrophes"]`. Which normalisers
-go on which type is decided by the stage evaluation below, type by type, never by intuition.
+**The second pass takes the best normalised score**, not the first candidate that passes; a tie
+keeps the walk order. Measured by eval-309 on 2026-10-04: "Prete a tout" (accents dropped) took
+*Prêt à tout* first in rank order at 95.7, while *Prête à tout*, further down, scored 100.
+Normalising brings near-homonyms closer together, so the pass must compare them.
+
+**Configured per type, from the eval-309 run of 2026-10-04** (3,557 values; `none` to `full`:
+46 changes, read one by one), never by intuition:
+
+| Type | `rescue_normalizations` | Why |
+|---|---|---|
+| `Movie_title`, `Serie_title`, `Network_name`, `Group_name`, `Location_name`, `Topic_name` | all four | rescues right; the only "errors" were homonyms (two *S.O.S. Fantômes*, two *E!*) and *Prête à tout*, fixed by the best-score rule |
+| `Company_name` | apostrophes, accents, dashes | punctuation took "Warner Bros" to *Warner Bros. China* (75.9 to 78.6, threshold 77.5) |
+| `Collection_name` | apostrophes, accents, punctuation | dashes took "Collection Dracula" to *Dracula 2000 - Saga* (66.7 to 73.7, threshold 73.5) |
+| `Award_name`, `Death_name`, `List_name`, `Movement_name`, `Nomination_name` | none | no rescue measured, so no evidence either way |
 
 **Deliberately not normalised:** leading articles (they raise every score carrying one, so they
 loosen the gate, and *Die*, *Las*, *El*, *Le* are words in other titles), `&` ("and" or "et"),
@@ -1366,7 +1378,8 @@ cp eval/* ~/docker/text2sql-eval && cd ~/docker/text2sql-eval
 ./eval-309.sh none            # the gate as it was: no second pass
 ./eval-309.sh apostrophes     # the first fix
 ./eval-309.sh full            # apostrophes, accents, dashes, punctuation
-./eval-309.sh compare         # what changed between stages, and NEW WRONG ACCEPTANCES
+./eval-309.sh configured      # each type with its list from entity_resolution.json: what the restart deploys
+./eval-309.sh compare         # what changed between stages: NEW WRONG, UNKNOWN and HOMONYM acceptances
 NORMALIZERS=accents ./eval-309.sh custom   # one normaliser alone, to isolate it
 ```
 

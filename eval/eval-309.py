@@ -15,6 +15,8 @@ THE STAGES, ON THE SAME CODE AND THE SAME CORPUS
                 old code by eval/check-rescue-309.py, case 5)
   apostrophes   the first fix: apostrophe forms and the spaces around them
   full          apostrophes, accents, dashes, punctuation
+  configured    each type with the list data/entity_resolution.json gives it: what production
+                runs after its restart, the stage that decides the deployment
 or any list with --normalizers. The stage is set IN MEMORY, on every embeddings strategy of the
 types measured, whatever data/entity_resolution.json says; production is not touched. Same seed,
 same corpus: the outcome of a value can only differ between two stages because of the stage.
@@ -263,7 +265,23 @@ def resolve(entity_module, connection, collections_by_name, case):
         out["outcome"] = "accepted-right" if found_id in case["expected_ids"] else "accepted-wrong"
     else:
         out["outcome"] = "accepted-unknown"
+    out["outcome"] = effective_outcome(case, out)
     return out
+
+
+def effective_outcome(case, result):
+    """`accepted-homonym` for a positive accepted on ANOTHER id that carries the SAME title: two
+    films "S.O.S. Fantômes" (1984, 2016), two networks "E!". The gate cannot tell them apart and is
+    not meant to (the year does that, downstream), so counting them as wrong acceptances raised two
+    false alarms in the run of 2026-10-04. Applied when reading too, so older files benefit."""
+    outcome = result.get("outcome")
+    if outcome != "accepted-wrong" or case.get("klass", "").startswith("negative"):
+        return outcome
+    expected_title = case.get("source_value") or (case.get("value") if case.get("klass") == "positive-catalogue" else None)
+    candidate = (result.get("candidate") or "").strip().lower()
+    if expected_title and candidate and candidate == expected_title.strip().lower():
+        return "accepted-homonym"
+    return outcome
 
 
 def summarise(cases):
@@ -275,12 +293,12 @@ def summarise(cases):
         row[r.get("outcome", "error")] += 1
         if r.get("rescued") and str(r.get("outcome", "")).startswith("accepted"):
             row["rescued"] += 1
-    print("\n   %-16s %-32s %5s %7s %7s %7s %7s %7s" % (
-        "type", "class", "cases", "right", "WRONG", "unknown", "refused", "rescued"))
+    print("\n   %-16s %-32s %5s %7s %7s %8s %7s %7s %7s" % (
+        "type", "class", "cases", "right", "WRONG", "homonym", "unknown", "refused", "rescued"))
     for (etype, klass), row in sorted(table.items()):
-        print("   %-16s %-32s %5d %7d %7d %7d %7d %7d" % (
+        print("   %-16s %-32s %5d %7d %7d %8d %7d %7d %7d" % (
             etype[:16], klass[:32], row["cases"], row["accepted-right"], row["accepted-wrong"],
-            row["accepted-unknown"], row["refused"], row["rescued"]))
+            row["accepted-homonym"], row["accepted-unknown"], row["refused"], row["rescued"]))
     return {f"{t}|{k}": dict(v) for (t, k), v in table.items()}
 
 
@@ -288,29 +306,38 @@ def compare(paths):
     runs = []
     for p in paths:
         data = json.load(io.open(p, encoding="utf-8"))
-        runs.append((data.get("stage"), {(c["type"], c["klass"], c["value"]): c.get("result") or {}
-                                         for c in data["cases"]}))
+        runs.append((data.get("stage"), {(c["type"], c["klass"], c["value"]): c for c in data["cases"]}))
     base_name, base = runs[0]
     for name, other in runs[1:]:
         print(f"\n=== {base_name} -> {name}: values whose outcome changed ===")
         changed = collections.Counter()
         for key in sorted(set(base) & set(other)):
-            a, b = base[key].get("outcome"), other[key].get("outcome")
+            ra, rb = base[key].get("result") or {}, other[key].get("result") or {}
+            a, b = effective_outcome(base[key], ra), effective_outcome(other[key], rb)
             if a != b:
                 changed[(key[0], key[1], a, b)] += 1
                 print(f"   {key[0]:<16} {key[1]:<32} {key[2][:40]:<40} {a} -> {b} "
-                      f"[{other[key].get('candidate')!s:.40}] r={other[key].get('fuzz_ratio')} "
-                      f"(first pass {other[key].get('fuzz_ratio_first_pass')})")
+                      f"[{rb.get('candidate')!s:.40}] id={rb.get('candidate_id')} r={rb.get('fuzz_ratio')} "
+                      f"(first pass {rb.get('fuzz_ratio_first_pass')})")
         print("\n   summary of changes:")
         for (t, k, a, b), n in sorted(changed.items()):
             print(f"   {t:<16} {k:<32} {a} -> {b}: {n}")
         wrong = sum(n for (t, k, a, b), n in changed.items() if b == "accepted-wrong")
+        unknown = sum(n for (t, k, a, b), n in changed.items() if b == "accepted-unknown")
+        homonym = sum(n for (t, k, a, b), n in changed.items() if b == "accepted-homonym")
         print(f"\n   NEW WRONG ACCEPTANCES: {wrong}  (the bar: 0 for a type to adopt the stage)")
+        # The unknowns are values the gate refused in production and no assertion arbitrates. They
+        # are where the 2026-10-04 run hid its two real errors (Warner Bros. China, Dracula 2000 -
+        # Saga), so they are counted apart and must be READ, never assumed right.
+        print(f"   NEW UNKNOWN ACCEPTANCES: {unknown}  (no assertion: read each one above)")
+        print(f"   NEW HOMONYM ACCEPTANCES: {homonym}  (same title, another id: not a gate error)")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--stage", choices=["none", "apostrophes", "full"], default=None)
+    parser.add_argument("--stage", choices=["none", "apostrophes", "full", "configured"], default=None,
+                        help="configured: each type keeps the rescue_normalizations of data/entity_resolution.json, "
+                             "what production will run after its restart")
     parser.add_argument("--normalizers", default=None, help="comma-separated list, instead of --stage")
     parser.add_argument("--types", default="", help="comma-separated types (default: every gated embeddings type)")
     parser.add_argument("--per-type", type=int, default=40)
@@ -336,7 +363,7 @@ def main():
         stage = "+".join(normalizers) or "none"
     else:
         stage = args.stage or "none"
-        normalizers = rapidfuzz_query.RESCUE_STAGES[stage]
+        normalizers = None if stage == "configured" else rapidfuzz_query.RESCUE_STAGES[stage]
 
     print(f"=== FASTAPI-TEXT2SQL-309 evaluation, stage '{stage}' {normalizers} ===", flush=True)
     import main as api  # connects ChromaDB and MariaDB like the API does at startup
@@ -353,7 +380,13 @@ def main():
     cases = build_corpus(plain, probed, refused, strategies, rng)
     print("Corpus: " + ", ".join(f"{k}={v}" for k, v in sorted(collections.Counter(c["klass"] for c in cases).items())), flush=True)
 
-    set_stage(entity, set(strategies), normalizers)
+    if normalizers is None:
+        # `configured`: no override, each type runs the list its configuration declares.
+        normalizers = {t: s.get("rescue_normalizations") or [] for t, s in sorted(strategies.items())}
+        for t, n in normalizers.items():
+            print(f"   {t}: {n or 'no rescue'}", flush=True)
+    else:
+        set_stage(entity, set(strategies), normalizers)
     connection = api.get_db_connection() if hasattr(api, "get_db_connection") else api.connection
     for n, case in enumerate(cases, 1):
         case["result"] = resolve(entity, connection, api.CHROMADB_COLLECTIONS_BY_NAME, case)

@@ -1738,23 +1738,31 @@ def plan_entity_resolutions(
                     # spaces around them), on both sides. Measured on eval 475: "Bell' Antonio"
                     # against the rank-1 "Il bell'Antonio" scored 85.7 for a threshold of 85.85, and
                     # 88.9 once the space typed after the elision is removed. What is written into
-                    # the SQL stays the stored document, never the normalised form. Walked in rank
-                    # order, rerank pick first, like the shortlist walk above.
+                    # the SQL stays the stored document, never the normalised form. Every candidate
+                    # is scored; the best passing score wins, ties going to the walk order (rerank
+                    # pick first, then rank order, like the shortlist walk above).
                     _rescue_norms = search_cfg.get("rescue_normalizations") or []
                     _rescue_first_pass = None
                     if not found_match and not _chosen["passes"] and _rescue_norms:
                         _order = [matched_result_position] + [
                             _p for _p in range(len(documents)) if _p != matched_result_position
                         ]
+                        # The BEST normalised score wins, not the first passing candidate; a tie
+                        # keeps the walk order. Measured by eval-309 on 2026-10-04: "Prete a tout"
+                        # (accents dropped) took "Prêt à tout" at rank order, 95.7, while "Prête à
+                        # tout", further down, scored 100. Normalising brings near-homonyms closer
+                        # together, so the walk must compare them instead of stopping at the first.
+                        _best = None
                         for _pos in _order:
                             _try = _score_candidate(_pos, _rescue_norms)
-                            if _try["passes"]:
-                                # The first-pass score of the same candidate, kept for the trace:
-                                # the gap between the two IS the effect of the normalisation.
-                                _rescue_first_pass = _score_candidate(_pos)
-                                _chosen = _try
-                                matched_result_position = _pos
-                                break
+                            if _try["passes"] and (_best is None or _try["ratio"] > _best["ratio"]):
+                                _best = _try
+                        if _best is not None:
+                            # The first-pass score of the same candidate, kept for the trace:
+                            # the gap between the two IS the effect of the normalisation.
+                            _rescue_first_pass = _score_candidate(_best["pos"])
+                            _chosen = _best
+                            matched_result_position = _best["pos"]
 
                     chosen_doc = _chosen["doc"]
                     chosen_distance = _chosen["distance"]
