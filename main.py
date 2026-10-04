@@ -618,13 +618,16 @@ _RELATED_IMAGE_SOURCES = {
 # answer-entity guard below used to read that as the wrong entity and demand entity rows:
 # gpt-6-sol obeyed and failed (793, 2169-2172, 2313 in the 2026-09-28 rerun), gpt-4o failed to
 # regenerate and kept its count, passing by accident after paying a discarded LLM call.
-# COUNT only, on purpose: "What is the longest movie?" written as SELECT MAX(RUNTIME) is a wrong
-# answer the guard must still correct into the movie row. Widen only on measured cases.
-_AGGREGATE_ITEM = re.compile(r"^COUNT\s*\(", re.IGNORECASE)
+# COUNT, AVG and SUM only, on purpose: "What is the longest movie?" written as SELECT MAX(RUNTIME)
+# is a wrong answer the guard must still correct into the movie row, whereas no single row can
+# carry an average or a sum. AVG and SUM added by FASTAPI-TEXT2SQL-311 on a measured case: "the
+# average runtime of Christopher Nolan movies", first written as one AVG cell, was regenerated
+# into one average per technical format (29 rows). ROUND() around the aggregate is accepted.
+_AGGREGATE_ITEM = re.compile(r"^(?:ROUND\s*\(\s*)?(?:COUNT|AVG|SUM)\s*\(", re.IGNORECASE)
 
 
 def _is_single_total_select(sql: str) -> bool:
-    """True when the outer SELECT list is exactly one COUNT(...) and the query has no GROUP BY."""
+    """True when the outer SELECT list is exactly one COUNT/AVG/SUM(...) and the query has no GROUP BY."""
     text = (sql or "").strip()
     head = re.match(r"^\s*SELECT\s+(?:DISTINCT\s+)?", text, re.IGNORECASE)
     if not head or re.search(r"\bGROUP\s+BY\b", text, re.IGNORECASE):
@@ -647,6 +650,117 @@ def _is_single_total_select(sql: str) -> bool:
         i += 1
     items.append("".join(current))
     return len(items) == 1 and bool(_AGGREGATE_ITEM.match(items[0].strip()))
+
+
+# FASTAPI-TEXT2SQL-311: a statistics table ("the average IMDb rating of Kubrick movies per
+# decade") answers with one row per value of an ATTRIBUTE (a decade, a year, a language) and
+# projects no entity id by design, exactly like the single total above. The guard used to
+# regenerate it into one row per film. It is let through only when every grouping key is an
+# attribute, never an identity: a GROUP BY on PERSON_NAME alone ("directors with the most
+# films" without ID_PERSON or PROFILE_PATH) is the very shape the guard and the aggregated-
+# questions rule of the prompt exist to turn into entity rows, and it must still regenerate.
+_ANY_AGGREGATE_CALL = re.compile(r"\b(?:COUNT|AVG|SUM|MIN|MAX)\s*\(", re.IGNORECASE)
+_IDENTITY_KEY = re.compile(r"\bID_\w+|\.ID_\w+|\w+_NAME\b|\w+_TITLE\b|\bDESCRIPTION\b|\bNAME\b|\bTITLE\b", re.IGNORECASE)
+_TOP_LEVEL_CLAUSE = re.compile(
+    r"\b(SELECT|FROM|WHERE|GROUP\s+BY|HAVING|ORDER\s+BY|LIMIT|UNION|WINDOW)\b", re.IGNORECASE)
+
+
+def _mask_nested(sql: str) -> str:
+    """Same length as `sql`, with string literals and parenthesised content blanked out, so
+    that keywords and commas found in the mask are top-level ones."""
+    out, depth, quote = [], 0, ""
+    for ch in sql:
+        if quote:
+            out.append(" ")
+            if ch == quote:
+                quote = ""
+            continue
+        if ch in ("'", '"', "`"):
+            quote = ch
+            out.append(" ")
+        elif ch == "(":
+            depth += 1
+            out.append(" ")
+        elif ch == ")":
+            depth = max(0, depth - 1)
+            out.append(" ")
+        else:
+            out.append(" " if depth else ch)
+    return "".join(out)
+
+
+def _split_top_level(segment: str) -> list[str]:
+    masked = _mask_nested(segment)
+    parts, start = [], 0
+    for i, ch in enumerate(masked):
+        if ch == ",":
+            parts.append(segment[start:i].strip())
+            start = i + 1
+    parts.append(segment[start:].strip())
+    return [p for p in parts if p]
+
+
+def _strip_alias(item: str) -> tuple[str, str]:
+    """(expression, alias) of a SELECT item; alias is "" when absent."""
+    m = re.match(r"^(.*?)\s+(?:AS\s+)?([A-Za-z_]\w*)$", item.strip(), re.IGNORECASE | re.DOTALL)
+    if m and _mask_nested(m.group(1)).strip() and not m.group(1).rstrip().endswith((".", "*", "+", "-", "/")):
+        return m.group(1).strip(), m.group(2)
+    return item.strip(), ""
+
+
+def _normalise_expr(expr: str) -> str:
+    return re.sub(r"\s+", "", expr).upper()
+
+
+def _is_statistics_table_select(sql: str) -> bool:
+    """True when the outer query groups by attributes only and projects only its grouping keys
+    and aggregates: one row per decade, year or language, no entity row to demand."""
+    text = (sql or "").strip().rstrip(";")
+    masked = _mask_nested(text)
+    clauses = [(m.group(1).upper().split()[0], m.start(), m.end()) for m in _TOP_LEVEL_CLAUSE.finditer(masked)]
+    if not clauses or clauses[0][0] != "SELECT" or any(c[0] == "UNION" for c in clauses):
+        return False
+
+    def body(name):
+        for idx, (kw, _start, end) in enumerate(clauses):
+            if kw == name:
+                stop = clauses[idx + 1][1] if idx + 1 < len(clauses) else len(text)
+                return text[end:stop]
+        return None
+
+    select_body, group_body = body("SELECT"), body("GROUP")
+    if select_body is None or group_body is None:
+        return False
+    select_body = re.sub(r"^\s*DISTINCT\s+", "", select_body, flags=re.IGNORECASE)
+    items = [_strip_alias(i) for i in _split_top_level(select_body)]
+    keys = _split_top_level(group_body)
+    if not items or not keys:
+        return False
+
+    # Resolve each key to the SELECT expression it names: by alias, by ordinal, or itself.
+    by_alias = {alias.upper(): expr for expr, alias in items if alias}
+    resolved = []
+    for key in keys:
+        if key.isdigit():
+            pos = int(key) - 1
+            if not 0 <= pos < len(items):
+                return False
+            resolved.append(items[pos][0])
+        else:
+            resolved.append(by_alias.get(key.upper(), key))
+    if any(_IDENTITY_KEY.search(k) for k in resolved):
+        return False
+
+    key_forms = {_normalise_expr(k) for k in resolved}
+    has_aggregate = False
+    for expr, alias in items:
+        if _ANY_AGGREGATE_CALL.search(expr) and not re.search(r"\bOVER\s*\(", expr, re.IGNORECASE):
+            has_aggregate = True
+            continue
+        if _normalise_expr(expr) in key_forms or (alias and alias.upper() in {k.upper() for k in keys}):
+            continue
+        return False  # a projected column that is neither a grouping key nor an aggregate
+    return has_aggregate
 
 
 # Single source of truth: result_entity -> (id column, primary table).
@@ -3640,7 +3754,15 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         text=f"Answer-entity guard: single total (one aggregate cell), no '{_guard_entity}' id expected; not regenerated (FASTAPI-TEXT2SQL-303)."
                     ))
                     position_counter += 1
-                if not _is_union and not _single_total and (_expected_id not in _select_clause or _identity_mismatch):
+                # FASTAPI-TEXT2SQL-311: one row per attribute value, no entity row to demand.
+                _statistics_table = not _single_total and _is_statistics_table_select(sql_query)
+                if _statistics_table and _expected_id not in _select_clause:
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=f"Answer-entity guard: statistics table (aggregates grouped by attributes only), no '{_guard_entity}' id expected; not regenerated (FASTAPI-TEXT2SQL-311)."
+                    ))
+                    position_counter += 1
+                if not _is_union and not _single_total and not _statistics_table and (_expected_id not in _select_clause or _identity_mismatch):
                     messages.append(TextMessage(
                         position=position_counter,
                         text=f"Answer-entity guard: query did not return the expected entity '{_guard_entity}' ({_expected_id}); regenerating once."
