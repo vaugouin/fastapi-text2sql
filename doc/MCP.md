@@ -153,6 +153,23 @@ async def _mcp_get_series(id: int) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
+@mcp.tool(name="get_season")
+async def _mcp_get_season(id_serie: int, season_number: int) -> str:
+    """Get all fields for one season of a TV series plus its episodes, cast, crew, images,
+    videos and Wikipedia block. Keyed by (id_serie, season_number): SEASON_NUMBER comes from
+    the `seasons` array of get_series. The season IMDB_RATING is derived (mean of its rated
+    episodes), never an IMDb figure. A season outside the scope returns
+    {"error": ..., "status_code": 404}."""
+    return await _mcp_get(f"/seasons/{id_serie}/{season_number}")
+
+@mcp.tool(name="get_episode")
+async def _mcp_get_episode(id_serie: int, season_number: int, episode_number: int) -> str:
+    """Get all fields for one episode plus its cast, crew, stills, videos and Wikipedia
+    block. Keyed by (id_serie, season_number, episode_number): EPISODE_NUMBER comes from the
+    `episodes` array of get_season. An episode outside the scope returns
+    {"error": ..., "status_code": 404}."""
+    return await _mcp_get(f"/episodes/{id_serie}/{season_number}/{episode_number}")
+
 @mcp.tool(name="get_person")
 async def _mcp_get_person(id: int) -> str:
     """Get all fields for a person (name, biography, birth/death dates, gender, country of

@@ -1780,7 +1780,7 @@ CREATE TABLE `T_WC_T2S_PERSON_ALSO_KNOWN_AS` (
   `ID_OWNER` int(5) DEFAULT NULL,
   `TIM_UPDATED` datetime DEFAULT NULL,
   `ID_USER_UPDATED` int(5) DEFAULT NULL,
-  `PERSON_NAME_NORM` varchar(255) GENERATED ALWAYS AS (lcase(regexp_replace(regexp_replace(`PERSON_NAME`,'[^\\p{L}\\p{N} ]+',' '),' +',' '))) STORED,
+  `PERSON_NAME_NORM` varchar(255) GENERATED ALWAYS AS (lcase(regexp_replace(regexp_replace(`PERSON_NAME`,'[^\\p{L}\\p{M}\\p{N} ]+',' '),' +',' '))) STORED,
   `PERSON_NAME_KEY` varchar(255) GENERATED ALWAYS AS (replace(`PERSON_NAME_NORM`,' ','')) STORED,
   PRIMARY KEY (`ID_ROW`),
   UNIQUE KEY `UQ_T2S_PERSON_ALSO_KNOWN_AS_PERSON_NAME` (`ID_PERSON`,`PERSON_NAME`),

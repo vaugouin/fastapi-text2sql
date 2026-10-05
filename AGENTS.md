@@ -153,7 +153,7 @@ Edit at the right layer; the architecture is intentionally split.
 - `POST /uploads/vision` / `GET /uploads/vision/{image_ref}` : the binary deposit and its
   replay read (FASTAPI-TEXT2SQL-275), the only routes in this repo that carry bytes
 - 18 entity detail endpoints (movies, series, seasons, episodes, persons, companies, networks, collections, topics, lists, movements, technicals, genres, groups, deaths, awards, nominations, locations). `seasons` and `episodes` are keyed on composite paths (`/seasons/{id_serie}/{season_number}`, `/episodes/{id_serie}/{season_number}/{episode_number}`) and read from the T2S read-model (`T_WC_T2S_SEASON`, `T_WC_T2S_EPISODE` and their credit, image and video tables) since FASTAPI-TEXT2SQL-179. `genres` reads the closed-vocabulary reference table `T_WC_T2S_GENRE` (PK `ID_GENRE`, no `ID_WIKIDATA`, so no Wikipedia arrays) since FASTAPI-TEXT2SQL-313; the API no longer reads `T_WC_TMDB_GENRE`, `T_WC_TMDB_GENRE_LANG` or `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`.
-- FastMCP instance + 17 MCP tools (`sql_search` + 16 entity tools), 1 resource (`context://database-scope`), bearer-token middleware, `app.mount("", mcp_app)` at root. The `seasons` and `episodes` HTTP endpoints do not yet have MCP wrappers
+- FastMCP instance + 20 MCP tools (`sql_search`, 18 entity tools, `list_samples`), 1 resource (`context://database-scope`), bearer-token middleware, `app.mount("", mcp_app)` at root. Every detail endpoint has its `get_*` wrapper; `get_season` and `get_episode` (FASTAPI-TEXT2SQL-314) take the composite keys of their HTTP paths (`id_serie`, `season_number`, `episode_number`), not `ID_SEASON` / `ID_EPISODE`. `_mcp_get` turns an HTTP error into `{"error": <endpoint detail>, "status_code": <code>}`
 
 **[text2sql.py](text2sql.py)** — core LLM logic.
 - `_call_chat_llm()` — unified multi-provider dispatcher (OpenAI / Anthropic / Google). Routes on prefix: `gpt-*`/`o1*`/`o3*` → OpenAI; `claude-*` → Anthropic; `gemini-*` → Google.
@@ -250,7 +250,7 @@ file does not say, and that bite an agent:
 - **`OPENAI_API_KEY` is required at startup even when no OpenAI model is selected**: `main.py`
   initializes the OpenAI embedding function for ChromaDB before it serves anything.
 - **`MCP_API_KEY` empty means `/mcp` is open**, not weakly protected. `_verify_mcp_bearer` only
-  enforces a bearer `if MCP_API_KEY:`, so `sql_search` and the 16 entity tools answer anyone who
+  enforces a bearer `if MCP_API_KEY:`, so `sql_search` and the 18 entity tools answer anyone who
   reaches the port. Verified 2026-08-23: both colours and the public NGINX route returned 200 to
   `tools/list` with no token and with a wrong one. Startup logs a warning, the only signal there is.
 - **`UPLOADS_FOLDER`, `UPLOAD_RETENTION_DAYS` (30) and `MAX_UPLOAD_IMAGE_BYTES` (25 MB)** are not

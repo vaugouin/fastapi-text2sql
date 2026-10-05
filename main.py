@@ -9045,6 +9045,14 @@ async def _mcp_get(path: str, ui_language: str = "en", collection: Optional[str]
             )
             r.raise_for_status()
             return r.text
+    except httpx.HTTPStatusError as e:
+        # FASTAPI-TEXT2SQL-314: hand the client the endpoint's own message ("Season 9 of
+        # series 1399 not found") rather than httpx's text, which names the internal URL.
+        try:
+            detail = e.response.json().get("detail")
+        except Exception:
+            detail = None
+        return json.dumps({"error": detail or str(e), "status_code": e.response.status_code})
     except Exception as e:
         return json.dumps({"error": str(e)})
 
@@ -9155,6 +9163,73 @@ async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
     requires CC BY-SA attribution pointing at this url."""
     return await _mcp_get(f"/series/{id}", ui_language, collection, page, rows_per_page)
+
+
+@mcp.tool(name="get_season")
+async def _mcp_get_season(id_serie: int, season_number: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+    """Get all fields for one season of a TV series plus its episodes, cast, crew, posters,
+    backdrops, videos and Wikipedia block. A season has no id of its own here: it is keyed
+    by the pair (id_serie, season_number), where id_serie is the TMDb ID_SERIE and
+    season_number is a SEASON_NUMBER taken from the `seasons` array of get_series (season 0
+    is the specials season when the series has one).
+
+    The season row carries SEASON_TITLE (TITLE is a deprecated duplicate), OVERVIEW,
+    DAT_AIR, POSTER_PATH, EPISODE_COUNT, IMDb/Wikidata/TVDB ids, IMDB_RATING and
+    IMDB_RATED_EPISODES. IMDb never rates seasons: this IMDB_RATING is DERIVED, the plain
+    mean of the season's rated episodes, and IMDB_RATED_EPISODES is how many episodes back
+    it. Present it as such, never as "IMDb's rating for this season"; it is null when no
+    episode is rated.
+
+    episodes lists every episode of the season ordered by EPISODE_NUMBER, each with
+    ID_EPISODE, EPISODE_NUMBER, EPISODE_TITLE, OVERVIEW, DAT_AIR, RUNTIME, EPISODE_TYPE,
+    STILL_PATH, IMDB_RATING and IMDB_VOTES (the episode's own IMDb figures, null when it
+    has none). Pass one of these EPISODE_NUMBER values to get_episode to open an episode.
+    cast and crew are grouped one row per person. series is a stub (ID_SERIE, SERIE_TITLE,
+    POSTER_PATH) for navigating back; seasons lists every season of the same series with
+    IS_CURRENT marking this one (specials last), and season_previous / season_next are its
+    neighbours (null at either end, and both null for the specials season).
+
+    Embedded lists (cast, crew, episodes, seasons) are paginated: by default each is capped
+    to its first page and a top-level `pagination` block reports each list's total. Set
+    `collection` to one list's name with `page` / `rows_per_page` to get just that page.
+
+    A series outside the database scope, or a season number it does not have, returns an
+    error object ({"error": ..., "status_code": 404}), not a payload. data_freshness and
+    wikipedia_page work as in get_series (quoting wikipedia_content requires CC BY-SA
+    attribution pointing at wikipedia_page.url); data_freshness is absent from a
+    ?collection= targeted page."""
+    return await _mcp_get(f"/seasons/{id_serie}/{season_number}", ui_language, collection, page, rows_per_page)
+
+
+@mcp.tool(name="get_episode")
+async def _mcp_get_episode(id_serie: int, season_number: int, episode_number: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+    """Get all fields for one episode of a TV series plus its cast, crew (directors,
+    writers, guest stars), stills, videos and Wikipedia block. An episode has no id of its
+    own here: it is keyed by the triple (id_serie, season_number, episode_number), where
+    id_serie is the TMDb ID_SERIE, season_number comes from the `seasons` array of
+    get_series, and episode_number is an EPISODE_NUMBER from the `episodes` array of
+    get_season.
+
+    The episode row carries EPISODE_TITLE (TITLE is a deprecated duplicate), OVERVIEW,
+    DAT_AIR, RUNTIME, EPISODE_TYPE, STILL_PATH, IMDb/Wikidata/TVDB ids, and IMDB_RATING /
+    IMDB_VOTES, the episode's own IMDb rating and vote count (null when the episode has no
+    IMDb id or has not been rated yet, typically before it airs). season (ID_SEASON,
+    SEASON_NUMBER, SEASON_TITLE, POSTER_PATH) and series (ID_SERIE, SERIE_TITLE,
+    POSTER_PATH) are stubs for navigating back. episodes lists every episode of the same
+    season, each with IS_CURRENT marking this one; episode_previous / episode_next are its
+    neighbours within the season and are null at either end (they never cross into another
+    season).
+
+    Embedded lists (cast, crew, episodes) are paginated: by default each is capped to its
+    first page and a top-level `pagination` block reports each list's total. Set
+    `collection` to one list's name with `page` / `rows_per_page` to get just that page.
+
+    A series outside the database scope, or a season or episode number it does not have,
+    returns an error object ({"error": ..., "status_code": 404}), not a payload.
+    data_freshness and wikipedia_page work as in get_series (quoting wikipedia_content
+    requires CC BY-SA attribution pointing at wikipedia_page.url); data_freshness is absent
+    from a ?collection= targeted page."""
+    return await _mcp_get(f"/episodes/{id_serie}/{season_number}/{episode_number}", ui_language, collection, page, rows_per_page)
 
 
 @mcp.tool(name="get_person")
