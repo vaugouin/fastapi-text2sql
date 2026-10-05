@@ -59,21 +59,21 @@ ORDER BY series DESC;
 --    A high pct_of_type_covered_by_genre licenses the disjunction. A low one
 --    forbids it.
 -- ===========================================================================
-SELECT g.name                                                  AS shared_value,
-       SUM(s.SERIE_TYPE = g.name)                              AS by_type,
+SELECT g.GENRE_NAME                                            AS shared_value,
+       SUM(s.SERIE_TYPE = g.GENRE_NAME)                        AS by_type,
        SUM(sg.ID_SERIE IS NOT NULL)                            AS by_genre,
-       SUM(s.SERIE_TYPE = g.name AND sg.ID_SERIE IS NOT NULL)  AS by_both,
-       ROUND(100 * SUM(s.SERIE_TYPE = g.name AND sg.ID_SERIE IS NOT NULL)
-             / NULLIF(SUM(s.SERIE_TYPE = g.name), 0), 1)       AS pct_of_type_covered_by_genre
-FROM T_WC_TMDB_GENRE g
+       SUM(s.SERIE_TYPE = g.GENRE_NAME AND sg.ID_SERIE IS NOT NULL) AS by_both,
+       ROUND(100 * SUM(s.SERIE_TYPE = g.GENRE_NAME AND sg.ID_SERIE IS NOT NULL)
+             / NULLIF(SUM(s.SERIE_TYPE = g.GENRE_NAME), 0), 1) AS pct_of_type_covered_by_genre
+FROM T_WC_T2S_GENRE g
 CROSS JOIN T_WC_T2S_SERIE s
 LEFT JOIN T_WC_T2S_SERIE_GENRE sg
-       ON sg.ID_SERIE = s.ID_SERIE AND sg.ID_GENRE = g.id
+       ON sg.ID_SERIE = s.ID_SERIE AND sg.ID_GENRE = g.ID_GENRE
       AND (sg.DELETED IS NULL OR sg.DELETED = 0)
 WHERE g.APPLIES_TO_SERIE = 1
-  AND g.name IN ('Documentary', 'News', 'Reality', 'Talk')
-GROUP BY g.name
-ORDER BY g.name;
+  AND g.GENRE_NAME IN ('Documentary', 'News', 'Reality', 'Talk')
+GROUP BY g.GENRE_NAME
+ORDER BY g.GENRE_NAME;
 
 
 -- ===========================================================================
@@ -91,12 +91,12 @@ ORDER BY series DESC;
 -- 4. Counter-check on Miniseries. If they spread across every genre, then no
 --    genre can stand in for the format, which is the argument for keeping it.
 -- ===========================================================================
-SELECT g.name AS genre, COUNT(*) AS miniseries
+SELECT g.GENRE_NAME AS genre, COUNT(*) AS miniseries
 FROM T_WC_T2S_SERIE s
 JOIN T_WC_T2S_SERIE_GENRE sg ON sg.ID_SERIE = s.ID_SERIE
                             AND (sg.DELETED IS NULL OR sg.DELETED = 0)
-JOIN T_WC_TMDB_GENRE g ON g.id = sg.ID_GENRE
+JOIN T_WC_T2S_GENRE g ON g.ID_GENRE = sg.ID_GENRE
 WHERE s.SERIE_TYPE = 'Miniseries'
-GROUP BY g.name
+GROUP BY g.GENRE_NAME
 ORDER BY miniseries DESC
 LIMIT 12;

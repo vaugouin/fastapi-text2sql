@@ -6,11 +6,11 @@ multilingual DB table, and exposes a typo-tolerant matcher built on RapidFuzz.
 
 Design:
 - Canonical values come from the database (Status, Serie_type, Genre) so the
-  source code never hard-codes a list. Genre id<->name uses T_WC_TMDB_GENRE,
+  source code never hard-codes a list. Genre id<->name uses T_WC_T2S_GENRE,
   split into Movie_genre / Serie_genre via APPLIES_TO_MOVIE / APPLIES_TO_SERIE
   flags so a query against the movie junction cannot resolve to a TV-only
   genre and vice versa.
-- Multilingual genre aliases come from T_WC_TMDB_GENRE_LANG (currently French;
+- Multilingual genre aliases come from T_WC_T2S_GENRE_LANG (currently French;
   extensible to any LANG code by adding rows), filtered by the same flags.
 - Additional English colloquialisms and per-entity synonyms come from a JSON
   file watched by ``data_watcher`` so editors can add aliases ("annule" ->
@@ -160,22 +160,22 @@ _DEPARTMENT_QUERY = (
     "WHERE KNOWN_FOR_DEPARTMENT IS NOT NULL AND KNOWN_FOR_DEPARTMENT NOT IN ('Actors', 'Acting')"
 )
 _MOVIE_GENRE_CANONICALS_QUERY = (
-    "SELECT id, name FROM T_WC_TMDB_GENRE "
-    "WHERE name IS NOT NULL AND APPLIES_TO_MOVIE = 1"
+    "SELECT ID_GENRE AS id, GENRE_NAME AS name FROM T_WC_T2S_GENRE "
+    "WHERE GENRE_NAME IS NOT NULL AND APPLIES_TO_MOVIE = 1"
 )
 _SERIE_GENRE_CANONICALS_QUERY = (
-    "SELECT id, name FROM T_WC_TMDB_GENRE "
-    "WHERE name IS NOT NULL AND APPLIES_TO_SERIE = 1"
+    "SELECT ID_GENRE AS id, GENRE_NAME AS name FROM T_WC_T2S_GENRE "
+    "WHERE GENRE_NAME IS NOT NULL AND APPLIES_TO_SERIE = 1"
 )
 _MOVIE_GENRE_DB_ALIASES_QUERY = (
-    "SELECT l.id, l.name FROM T_WC_TMDB_GENRE_LANG l "
-    "JOIN T_WC_TMDB_GENRE g ON g.id = l.id "
-    "WHERE l.name IS NOT NULL AND g.APPLIES_TO_MOVIE = 1"
+    "SELECT l.ID_GENRE AS id, l.GENRE_NAME AS name FROM T_WC_T2S_GENRE_LANG l "
+    "JOIN T_WC_T2S_GENRE g ON g.ID_GENRE = l.ID_GENRE "
+    "WHERE l.GENRE_NAME IS NOT NULL AND g.APPLIES_TO_MOVIE = 1"
 )
 _SERIE_GENRE_DB_ALIASES_QUERY = (
-    "SELECT l.id, l.name FROM T_WC_TMDB_GENRE_LANG l "
-    "JOIN T_WC_TMDB_GENRE g ON g.id = l.id "
-    "WHERE l.name IS NOT NULL AND g.APPLIES_TO_SERIE = 1"
+    "SELECT l.ID_GENRE AS id, l.GENRE_NAME AS name FROM T_WC_T2S_GENRE_LANG l "
+    "JOIN T_WC_T2S_GENRE g ON g.ID_GENRE = l.ID_GENRE "
+    "WHERE l.GENRE_NAME IS NOT NULL AND g.APPLIES_TO_SERIE = 1"
 )
 _TECHNICAL_CANONICALS_QUERY = (
     "SELECT ID_TECHNICAL AS id, DESCRIPTION AS name FROM T_WC_T2S_TECHNICAL "
@@ -304,7 +304,7 @@ def _singularize(value: Any) -> str:
 def _resolve_genre_for(entity: str, raw_value: Any) -> int | None:
     """Resolve a genre name to its integer ID for a given side ("Movie_genre"
     or "Serie_genre"). The canonical map is filtered to the genres that apply
-    to that side via APPLIES_TO_MOVIE / APPLIES_TO_SERIE on T_WC_TMDB_GENRE,
+    to that side via APPLIES_TO_MOVIE / APPLIES_TO_SERIE on T_WC_T2S_GENRE,
     so a query against the movie junction cannot resolve to a TV-only genre
     and vice versa.
 
@@ -329,7 +329,7 @@ def _resolve_genre_for(entity: str, raw_value: Any) -> int | None:
 def resolve_movie_genre(raw_value: Any) -> int | None:
     """Resolve a genre name to its integer ID, restricted to movie-applicable
     genres (TMDb /genre/movie/list). Multilingual aliases come from
-    T_WC_TMDB_GENRE_LANG joined against APPLIES_TO_MOVIE; English colloquialisms
+    T_WC_T2S_GENRE_LANG joined against APPLIES_TO_MOVIE; English colloquialisms
     ("scifi", "biopic", "rom-com", ...) live under "Movie_genre" in
     data/closed_vocabularies.json. DB and JSON aliases are merged (JSON wins on
     conflict) and run through the same RapidFuzz-backed resolver as the other

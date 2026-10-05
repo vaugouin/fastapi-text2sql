@@ -26,7 +26,7 @@ ALIAS = next(
     for e in CFG
     if e["placeholder_prefix"] == "Person_name"
     for s in e["search_list"]
-    if s["strtablename"] == "T_WC_TMDB_PERSON_ALSO_KNOWN_AS"
+    if s["strtablename"] == "T_WC_T2S_PERSON_ALSO_KNOWN_AS"
 )
 METRIC = ALIAS.get("score_metric")
 EXTRA = ALIAS.get("max_extra_tokens", rq.DEFAULT_MAX_EXTRA_TOKENS)
@@ -114,7 +114,7 @@ auto, best, reason = rq.decide_autocorrect(rank("maurice micklewhite", caine))
 check("the reason quotes a WRatio-scale score", "95.0" in reason, True)
 
 print("\n8. The SELECT head keeps the join key it used to get by accident")
-sql = rq.build_select_prefix("T_WC_TMDB_PERSON_ALSO_KNOWN_AS", "ID_ROW", "PERSON_NAME",
+sql = rq.build_select_prefix("T_WC_T2S_PERSON_ALSO_KNOWN_AS", "ID_ROW", "PERSON_NAME",
                              "PERSON_NAME_NORM", "POPULARITY", ALIAS.get("popularity_join"))
 check("joins T_WC_T2S_PERSON", "LEFT JOIN `T_WC_T2S_PERSON`" in sql, True)
 check("selects ID_PERSON", "`t`.`ID_PERSON`" in sql, True)

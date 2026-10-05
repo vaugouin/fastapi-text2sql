@@ -22,7 +22,7 @@
       },
       {
         "search_mode": "rapidfuzz",
-        "strtablename": "T_WC_TMDB_PERSON_ALSO_KNOWN_AS",
+        "strtablename": "T_WC_T2S_PERSON_ALSO_KNOWN_AS",
         "strtableid": "ID_ROW",
         "collection": "persons",
         "default_field": "PERSON_NAME",

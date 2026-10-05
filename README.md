@@ -11,9 +11,9 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **ChromaDB Vector Search**: Advanced similarity search for entity matching and query optimization
 - **Entity Extraction & Anonymization**: Intelligent extraction of entities (persons, movies, series, companies, networks, characters, locations, topics, lists, awards, nominations, collections, movements, groups, deaths, genres, technical formats, statuses, series types, release/birth/death years, IMDb / Wikidata / TMDb / Criterion identifiers) with placeholder replacement
 - **Config-driven Entity Resolution**: Entity resolution is configured via `data/entity_resolution.json` (embeddings and RapidFuzz strategies), plus a closed-vocabulary layer (`closed_vocab.py` + `data/closed_vocabularies.json`) for `Movie_genre`, `Serie_genre`, `Technical_format` (including aspect ratios), `Status_name`, `Serie_type`, and `Department_name`, and a regex-validated layer in `entity.py` for years and ID-style placeholders
-- **DB-driven Canonicals with Hot-Reloaded Aliases**: `Movie_genre`, `Serie_genre`, and `Technical_format` canonicals load at startup from reference tables (`T_WC_TMDB_GENRE` + `T_WC_TMDB_GENRE_LANG`, filtered by `APPLIES_TO_MOVIE` / `APPLIES_TO_SERIE` flags; `T_WC_T2S_TECHNICAL`); `Status_name`, `Serie_type`, and `Department_name` load via DISTINCT queries; format / typo / multilingual aliases live in `data/closed_vocabularies.json` and hot-reload within ~5 seconds
+- **DB-driven Canonicals with Hot-Reloaded Aliases**: `Movie_genre`, `Serie_genre`, and `Technical_format` canonicals load at startup from reference tables (`T_WC_T2S_GENRE` + `T_WC_T2S_GENRE_LANG`, filtered by `APPLIES_TO_MOVIE` / `APPLIES_TO_SERIE` flags; `T_WC_T2S_TECHNICAL`); `Status_name`, `Serie_type`, and `Department_name` load via DISTINCT queries; format / typo / multilingual aliases live in `data/closed_vocabularies.json` and hot-reload within ~5 seconds
 - **Hot-Reloaded `data/` Files**: Prompt templates and entity-resolution configuration under `data/` are reloaded automatically when they change
-- **RapidFuzz Person Matching (language-family aware)**: Person resolution uses `guess_language_family()` to route Latin names to `T_WC_T2S_PERSON` and non-Latin names to `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`, while keeping SQL replacement canonical when needed
+- **RapidFuzz Person Matching (language-family aware)**: Person resolution uses `guess_language_family()` to route Latin names to `T_WC_T2S_PERSON` and non-Latin names to `T_WC_T2S_PERSON_ALSO_KNOWN_AS`, while keeping SQL replacement canonical when needed
 - **Multi-Level Caching**: Sophisticated three-tier caching system (exact questions, anonymized questions, vector embeddings)
 - **Comprehensive Logging**: Automatic logging of all API requests and responses with detailed timing metrics
 - **Memory Monitoring**: Built-in system memory usage tracking and reporting
@@ -97,8 +97,8 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Movement names** (film movements / stylistic schools, e.g., "Film Noir", "French New Wave", "New Hollywood") — placeholder `{{Movement_nameN}}`
      - **Group names** (organizations, publications, musical/comedy groups associated with persons, e.g., "The Beatles", "Les Cahiers du Cinéma") — placeholder `{{Group_nameN}}`
      - **Death names** (medical or legal cause/circumstance of a person's death, e.g., "liver cirrhosis", "car collision", "homicide") — placeholder `{{Death_nameN}}`
-     - **Movie genres** (closed vocabulary backed by `T_WC_TMDB_GENRE` filtered by `APPLIES_TO_MOVIE = 1` + matching multilingual aliases in `T_WC_TMDB_GENRE_LANG`) — placeholder `{{Movie_genreN}}`
-     - **Series genres** (closed vocabulary backed by `T_WC_TMDB_GENRE` filtered by `APPLIES_TO_SERIE = 1` + matching multilingual aliases in `T_WC_TMDB_GENRE_LANG`) — placeholder `{{Serie_genreN}}`
+     - **Movie genres** (closed vocabulary backed by `T_WC_T2S_GENRE` filtered by `APPLIES_TO_MOVIE = 1` + matching multilingual aliases in `T_WC_T2S_GENRE_LANG`) — placeholder `{{Movie_genreN}}`
+     - **Series genres** (closed vocabulary backed by `T_WC_T2S_GENRE` filtered by `APPLIES_TO_SERIE = 1` + matching multilingual aliases in `T_WC_T2S_GENRE_LANG`) — placeholder `{{Serie_genreN}}`
      - **Technical formats** (sound systems, color/film/sound technologies, film formats, movie classifications, and **aspect ratios** — closed vocabulary backed by `T_WC_T2S_TECHNICAL`, e.g. `IMAX`, `Technicolor`, `35mm`, `Dolby`, `1.85`, `Academy ratio`, `widescreen`, `4:3`, `16:9`) — placeholder `{{Technical_formatN}}`
      - **Status name** (`Canceled`, `In Production`, `Planned`, `Post Production`, `Released`, `Rumored` — closed vocabulary loaded from `T_WC_T2S_MOVIE.STATUS` ∪ `T_WC_T2S_SERIE.STATUS`) — placeholder `{{Status_nameN}}`
      - **Serie type** (`Documentary`, `Miniseries`, `News`, `Reality`, `Scripted`, `Talk Show`, `Video` — closed vocabulary loaded from `T_WC_T2S_SERIE.SERIE_TYPE`, only with explicit series context) — placeholder `{{Serie_typeN}}`
@@ -132,7 +132,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    - Per-placeholder strategies (current):
      - **Person names** (`{{Person_nameN}}`): RapidFuzz, language-family aware.
        - Latin scripts → `T_WC_T2S_PERSON` (canonical names) using `PERSON_NAME_NORM` / `PERSON_NAME_KEY` / `POPULARITY`.
-       - Non-Latin scripts → `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` (AKA table), then resolved to canonical `T_WC_T2S_PERSON.PERSON_NAME`.
+       - Non-Latin scripts → `T_WC_T2S_PERSON_ALSO_KNOWN_AS` (AKA table), then resolved to canonical `T_WC_T2S_PERSON.PERSON_NAME`.
        - SQL substitution always uses the canonical value; justification is formatted as `<aka_name> (<canonical_name>)` only when the AKA differs from the canonical name.
      - **Movie titles** (`{{Movie_titleN}}`): embeddings on `movies` collection, language-routed columns (`en` → `MOVIE_TITLE`, `fr` → `MOVIE_TITLE_FR`, `*` → `ORIGINAL_TITLE`) on `T_WC_T2S_MOVIE`.
      - **TV series titles** (`{{Serie_titleN}}`): embeddings on `series` collection, same `en` / `fr` / `*` routing on `T_WC_T2S_SERIE`.
@@ -148,7 +148,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Death names** (`{{Death_nameN}}`): embeddings on `deaths` collection, `T_WC_T2S_DEATH.DEATH_NAME` / `DEATH_NAME_FR`.
      - **Location names** (`{{Location_nameN}}`): embeddings on `t2slocations` collection, `T_WC_T2S_LOCATION.LOCATION_NAME` / `LOCATION_NAME_FR` (locations are linked to movies/series via `T_WC_T2S_MOVIE_LOCATION` / `T_WC_T2S_SERIE_LOCATION`, whose `LOCATION_ROLE` is `'narrative'` or `'filming'`).
      - **Character names** (`{{Character_nameN}}`): currently extracted by the LLM but **not yet wired in `entity_resolution.json`** — the value falls through to the SQL-escaped raw fallback. The `characters` ChromaDB collection is provisioned in [main.py:135](main.py#L135) for upcoming use.
-     - **Movie genres** (`{{Movie_genreN}}`) and **Series genres** (`{{Serie_genreN}}`): closed-vocabulary lookup mapping name → integer `ID_GENRE`. Canonicals from `T_WC_TMDB_GENRE`, with each loader filtered by `APPLIES_TO_MOVIE = 1` or `APPLIES_TO_SERIE = 1` so the movie placeholder cannot resolve to a TV-only genre (`Reality`, `Sci-Fi & Fantasy`, `Talk`, …) and the series placeholder cannot resolve to a movie-only genre (`Action`, `Thriller`, `TV Movie`, …); 8 IDs overlap on both sides (Animation, Comedy, Crime, Documentary, Drama, Family, Mystery, Western). Multilingual aliases from `T_WC_TMDB_GENRE_LANG` (currently French; auto-extends to any LANG inserted) joined against the same flag, layered with JSON aliases keyed under `Movie_genre` / `Serie_genre`.
+     - **Movie genres** (`{{Movie_genreN}}`) and **Series genres** (`{{Serie_genreN}}`): closed-vocabulary lookup mapping name → integer `ID_GENRE`. Canonicals from `T_WC_T2S_GENRE`, with each loader filtered by `APPLIES_TO_MOVIE = 1` or `APPLIES_TO_SERIE = 1` so the movie placeholder cannot resolve to a TV-only genre (`Reality`, `Sci-Fi & Fantasy`, `Talk`, …) and the series placeholder cannot resolve to a movie-only genre (`Action`, `Thriller`, `TV Movie`, …); 8 IDs overlap on both sides (Animation, Comedy, Crime, Documentary, Drama, Family, Mystery, Western). Multilingual aliases from `T_WC_T2S_GENRE_LANG` (currently French; auto-extends to any LANG inserted) joined against the same flag, layered with JSON aliases keyed under `Movie_genre` / `Serie_genre`.
      - **Technical formats** (`{{Technical_formatN}}`): closed-vocabulary lookup mapping name → integer `ID_TECHNICAL`. Canonicals from `T_WC_T2S_TECHNICAL` (sound systems, color/film/sound technologies, film formats, movie classifications, aspect ratios — grouped by `TECHNICAL_TYPE`); aliases from `data/closed_vocabularies.json` only (no `_LANG` companion table yet). Aspect-ratio surface forms (`Academy`, `widescreen`, `flat`, `fullscreen`, `4:3`, `16:9`, `2.35:1`, `2,35` with French comma decimal, dot-decimals like `1.85`) all resolve through this placeholder to the matching aspect-ratio `ID_TECHNICAL`.
      - **Status name** (`{{Status_nameN}}`): closed-vocabulary string substitution for `STATUS` (e.g. `Released`, `Canceled`). Canonicals from `DISTINCT STATUS` over `T_WC_T2S_MOVIE` ∪ `T_WC_T2S_SERIE`.
      - **Serie type** (`{{Serie_typeN}}`): closed-vocabulary string substitution for `SERIE_TYPE` (e.g. `Documentary`, `Miniseries`). Canonicals from `DISTINCT SERIE_TYPE` over `T_WC_T2S_SERIE`.
@@ -717,7 +717,7 @@ Pagination covers only the related-entity lists. Image arrays (`posters`, `backd
 }
 ```
 
-- `record_source` says where the base row comes from, which is what makes `tmdb_updated_at` meaningful. For the TMDb-sourced entities (`/movies`, `/series`, `/seasons`, `/episodes`, `/persons`, `/companies`, `/networks`) the preprocess copies `TIM_UPDATED` **verbatim** from the `T_WC_TMDB_*` source row, so it really is the TMDb refresh datetime. For the Wikidata-derived entities (`/collections`, `/topics`, `/lists`, `/movements`, `/technicals`, `/groups`, `/deaths`, `/awards`, `/nominations`, `/locations`) TMDb has no say in the record, so `tmdb_updated_at` is `null` and `record_updated_at` / `wikidata_updated_at` are the dates that matter. `/genres` reads the static reference table `T_WC_TMDB_GENRE`, which carries no timestamps at all, so every field is `null`.
+- `record_source` says where the base row comes from, which is what makes `tmdb_updated_at` meaningful. For the TMDb-sourced entities (`/movies`, `/series`, `/seasons`, `/episodes`, `/persons`, `/companies`, `/networks`) the preprocess copies `TIM_UPDATED` **verbatim** from the `T_WC_TMDB_*` source row, so it really is the TMDb refresh datetime. For the Wikidata-derived entities (`/collections`, `/topics`, `/lists`, `/movements`, `/technicals`, `/groups`, `/deaths`, `/awards`, `/nominations`, `/locations`) TMDb has no say in the record, so `tmdb_updated_at` is `null` and `record_updated_at` / `wikidata_updated_at` are the dates that matter. `/genres` reads the static reference table `T_WC_T2S_GENRE`, which carries no timestamps at all, so every field is `null`.
 - The `wikipedia_*` fields come from `T_WC_WIKIPEDIA_PAGE_LANG` for the entity's `ID_WIKIDATA`, resolved to the **same language** the `wikipedia_content` / `wikipedia_images` arrays of that response were served in (requested language when it actually has sections, English fallback otherwise). They are `null` on `/companies`, `/networks`, and `/genres`, whose base tables have no `ID_WIKIDATA`.
 - `wikipedia_updated_at` (`LAST_SUCCESS_AT`) is the honest data date: the last time the page was fetched **successfully**. `wikipedia_crawled_at` (`LAST_CRAWLED_AT`) is the last attempt whether it succeeded or not, so a `crawled_at` later than `updated_at` means recent attempts failed and the served content is older than the crawl suggests.
 - The block is returned on the **full** response only. A targeted `?collection=<name>` page is a pagination sub-request and keeps its lean shape.
@@ -752,7 +752,7 @@ Pagination covers only the related-entity lists. Image arrays (`posters`, `backd
 | `GET` | `/lists/{id}` | `ID_T2S_LIST` | `T_WC_T2S_LIST` | Curated list detail |
 | `GET` | `/movements/{id}` | `ID_MOVEMENT` | `T_WC_T2S_MOVEMENT` | Film movement or style detail |
 | `GET` | `/technicals/{id}` | `ID_TECHNICAL` | `T_WC_T2S_TECHNICAL` | Technical format detail (sound system, color/film/sound technology, film format) |
-| `GET` | `/genres/{id}` | `ID_GENRE` (TMDb genre code) | `T_WC_TMDB_GENRE` | Movie / TV genre detail (closed vocabulary) |
+| `GET` | `/genres/{id}` | `ID_GENRE` (TMDb genre code) | `T_WC_T2S_GENRE` | Movie / TV genre detail (closed vocabulary) |
 | `GET` | `/groups/{id}` | `ID_GROUP` | `T_WC_T2S_GROUP` | Person group detail |
 | `GET` | `/deaths/{id}` | `ID_DEATH` | `T_WC_T2S_DEATH` | Cause or circumstance of death detail |
 | `GET` | `/awards/{id}` | `ID_AWARD` | `T_WC_T2S_AWARD` | Award detail |
@@ -938,16 +938,16 @@ Base technical fields currently include `ID_TECHNICAL`, `ID_RECORD`, `ID_WIKIDAT
 
 ##### `GET /genres/{id}`
 
-Returns a genre from the closed-vocabulary reference table `T_WC_TMDB_GENRE`, identified by its TMDb genre code `ID_GENRE` (e.g. `28` = Action, `878` = Science Fiction, `18` = Drama), plus its member movies and TV series. Returns `404` when the genre code does not exist.
+Returns a genre from the closed-vocabulary reference table `T_WC_T2S_GENRE`, identified by its TMDb genre code `ID_GENRE` (e.g. `28` = Action, `878` = Science Fiction, `18` = Drama), plus its member movies and TV series. Returns `404` when the genre code does not exist.
 
-Because `T_WC_TMDB_GENRE` uses the legacy lowercase columns `id` / `name`, the base row is aliased to the API's canonical shape. Base genre fields are `ID_GENRE` (from `id`), `GENRE_NAME` (from `name`, localized to `ui_language` via `T_WC_TMDB_GENRE_LANG` with English fallback), `APPLIES_TO_MOVIE`, and `APPLIES_TO_SERIE` (the flags that say which side the genre is valid for — 8 codes apply to both).
+The T2S genre tables carry the API's canonical column names. Base genre fields are `ID_GENRE`, `GENRE_NAME` (localized to `ui_language` via `T_WC_T2S_GENRE_LANG` with English fallback), `APPLIES_TO_MOVIE`, and `APPLIES_TO_SERIE` (the flags that say which side the genre is valid for — 8 codes apply to both).
 
 | Field | Shape |
 |---|---|
 | `movies` | Array of `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH }` from `T_WC_T2S_MOVIE_GENRE` joined to `T_WC_T2S_MOVIE`, ordered by `IMDB_RATING_WEIGHTED DESC, ID_MOVIE ASC`. Empty for a TV-only genre |
 | `series` | Array of `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH }` from `T_WC_T2S_SERIE_GENRE` joined to `T_WC_T2S_SERIE`, ordered by `IMDB_RATING_WEIGHTED DESC, ID_SERIE ASC`. Empty for a movie-only genre |
 
-No `wikipedia_images` / `wikipedia_content` arrays are returned because `T_WC_TMDB_GENRE` has no `ID_WIKIDATA`. Both nested lists are paginated (`collection` = `movies` / `series`) and their `POSTER_PATH` is localized like every other nested movie/serie row.
+No `wikipedia_images` / `wikipedia_content` arrays are returned because `T_WC_T2S_GENRE` has no `ID_WIKIDATA`. Both nested lists are paginated (`collection` = `movies` / `series`) and their `POSTER_PATH` is localized like every other nested movie/serie row.
 
 ##### `GET /groups/{id}` and `/deaths/{id}`
 
@@ -1429,7 +1429,7 @@ The current prompt template is specifically designed for a **movie and TV series
 **🎬 Database Schema Coverage:**
 - **Movies** (`T_WC_T2S_MOVIE`): Complete TMDB (The Movie Database) schema with detailed movie information
 - **TV Series** (`T_WC_T2S_SERIE`): Full series data including episodes, seasons, and network information
-- **People** (`T_WC_T2S_PERSON`, `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`): Actors, directors, and crew members with their roles, relationships, and AKAs (used for non-Latin name resolution)
+- **People** (`T_WC_T2S_PERSON`, `T_WC_T2S_PERSON_ALSO_KNOWN_AS`): Actors, directors, and crew members with their roles, relationships, and AKAs (used for non-Latin name resolution)
 - **Companies** (`T_WC_T2S_COMPANY`): Production companies and studios
 - **Networks** (`T_WC_T2S_NETWORK`): TV networks and streaming platforms
 - **Topics** (`T_WC_T2S_TOPIC`): Curated themes and recurring-character topics (e.g., World War II, Christmas, Philip Marlowe)
@@ -1441,7 +1441,7 @@ The current prompt template is specifically designed for a **movie and TV series
 - **Deaths** (`T_WC_T2S_DEATH`): Causes and circumstances of persons' deaths
 - **Locations** (`T_WC_T2S_LOCATION` joined via `T_WC_T2S_MOVIE_LOCATION` / `T_WC_T2S_SERIE_LOCATION`, `LOCATION_ROLE` `'narrative'` or `'filming'`): places a movie or series is linked to
 - **Ratings**: IMDB ratings integration (raw and weighted)
-- **Genres** (`T_WC_TMDB_GENRE` + `T_WC_TMDB_GENRE_LANG`): closed-vocabulary reference table; 27 canonical English names plus multilingual aliases (currently French, extensible to any LANG); used by both `T_WC_T2S_MOVIE_GENRE` and `T_WC_T2S_SERIE_GENRE` join tables (shared ID space)
+- **Genres** (`T_WC_T2S_GENRE` + `T_WC_T2S_GENRE_LANG`): closed-vocabulary reference table; 27 canonical English names plus multilingual aliases (currently French, extensible to any LANG); used by both `T_WC_T2S_MOVIE_GENRE` and `T_WC_T2S_SERIE_GENRE` join tables (shared ID space)
 - **Technical formats** (`T_WC_T2S_TECHNICAL`): closed-vocabulary reference table grouping 56 active rows by `TECHNICAL_TYPE` (sound systems, color/film/sound technologies, film formats — e.g. IMAX, Technicolor, CinemaScope, 35 mm, Dolby); joined to movies via `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL`
 - **Languages**: Multi-language support for titles and content
 - **Images**: Poster, backdrop, and profile image management
@@ -1566,8 +1566,8 @@ The system intelligently extracts and replaces entities in natural language ques
 
 | Placeholder prefix | Description | Canonical source | Substitution |
 |---|---|---|---|
-| `Movie_genre` | Movie genre (TMDb /genre/movie/list) | `T_WC_TMDB_GENRE` filtered by `APPLIES_TO_MOVIE = 1` + matching rows of `T_WC_TMDB_GENRE_LANG` (multilingual aliases) | Integer `ID_GENRE` |
-| `Serie_genre` | TV series genre (TMDb /genre/tv/list) | `T_WC_TMDB_GENRE` filtered by `APPLIES_TO_SERIE = 1` + matching rows of `T_WC_TMDB_GENRE_LANG` (multilingual aliases) | Integer `ID_GENRE` |
+| `Movie_genre` | Movie genre (TMDb /genre/movie/list) | `T_WC_T2S_GENRE` filtered by `APPLIES_TO_MOVIE = 1` + matching rows of `T_WC_T2S_GENRE_LANG` (multilingual aliases) | Integer `ID_GENRE` |
+| `Serie_genre` | TV series genre (TMDb /genre/tv/list) | `T_WC_T2S_GENRE` filtered by `APPLIES_TO_SERIE = 1` + matching rows of `T_WC_T2S_GENRE_LANG` (multilingual aliases) | Integer `ID_GENRE` |
 | `Technical_format` | Sound systems, color/film/sound tech, film formats | `T_WC_T2S_TECHNICAL` (56 active rows grouped by `TECHNICAL_TYPE`) | Integer `ID_TECHNICAL` |
 | `Status_name` | Production lifecycle status | `DISTINCT STATUS` over `T_WC_T2S_MOVIE` ∪ `T_WC_T2S_SERIE` | Canonical string (e.g. `Released`, `Canceled`) |
 | `Serie_type` | TV series type | `DISTINCT SERIE_TYPE` over `T_WC_T2S_SERIE` | Canonical string (e.g. `Documentary`, `Miniseries`) |

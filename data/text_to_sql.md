@@ -61,7 +61,7 @@ Genre and Technical_format placeholder special case (integer-ID columns):
   - Series genre: `T_WC_T2S_SERIE_GENRE.ID_GENRE = '{{Serie_genre1}}'`
   - Movie technical (filter — movies that used this technical): `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL = '{{Technical_format1}}'`
   - Movie technical (detail — the technical record itself, for "What is X?" / "Tell me about X" questions): `T_WC_T2S_TECHNICAL.ID_TECHNICAL = '{{Technical_format1}}'`
-- The resolver will substitute each placeholder with the correct integer ID at runtime (the surrounding quotes are stripped). The full canonical name → ID mapping lives in the database (`T_WC_TMDB_GENRE`, filtered by `APPLIES_TO_MOVIE` / `APPLIES_TO_SERIE` flags; `T_WC_T2S_TECHNICAL` for technical formats) and is loaded into memory at startup, with multilingual aliases / format variants on top — you do not need to know the IDs.
+- The resolver will substitute each placeholder with the correct integer ID at runtime (the surrounding quotes are stripped). The full canonical name → ID mapping lives in the database (`T_WC_T2S_GENRE`, filtered by `APPLIES_TO_MOVIE` / `APPLIES_TO_SERIE` flags; `T_WC_T2S_TECHNICAL` for technical formats) and is loaded into memory at startup, with multilingual aliases / format variants on top — you do not need to know the IDs.
 - Never use `{{Movie_genreN}}` against `T_WC_T2S_SERIE_GENRE` or `{{Serie_genreN}}` against `T_WC_T2S_MOVIE_GENRE`: the resolver restricts each placeholder to its side's vocabulary, so a cross-use will leave the placeholder unresolved.
 
 Example:
@@ -1157,9 +1157,9 @@ ID_COMPANY, COMPANY_NAME, LOGO_PATH, DESCRIPTION, ORIGIN_COUNTRY, HEADQUARTERS
 ID_NETWORK, NETWORK_NAME, LOGO_PATH, ORIGIN_COUNTRY
 
 #### Genres – return:
-T_WC_TMDB_GENRE.id AS ID_GENRE, T_WC_TMDB_GENRE.name AS GENRE_NAME, T_WC_TMDB_GENRE.APPLIES_TO_MOVIE, T_WC_TMDB_GENRE.APPLIES_TO_SERIE
-- Genres are a closed vocabulary in `T_WC_TMDB_GENRE` (legacy lowercase columns `id` and `name`; the PK MUST be aliased `id AS ID_GENRE`). Query this table directly — never derive the genre list from `T_WC_T2S_MOVIE_GENRE` / `T_WC_T2S_SERIE_GENRE` (those are the join tables that link genres to content).
-- `APPLIES_TO_MOVIE = 1` marks a genre valid for movies; `APPLIES_TO_SERIE = 1` marks it valid for TV series (8 genres apply to both). For "movie genres" filter `WHERE APPLIES_TO_MOVIE = 1`; for "TV/series genres" filter `WHERE APPLIES_TO_SERIE = 1`; for "all genres" omit the flag filter. Default `ORDER BY name ASC`.
+T_WC_T2S_GENRE.ID_GENRE, T_WC_T2S_GENRE.GENRE_NAME, T_WC_T2S_GENRE.APPLIES_TO_MOVIE, T_WC_T2S_GENRE.APPLIES_TO_SERIE
+- Genres are a closed vocabulary in `T_WC_T2S_GENRE`. Query this table directly — never derive the genre list from `T_WC_T2S_MOVIE_GENRE` / `T_WC_T2S_SERIE_GENRE` (those are the join tables that link genres to content).
+- `APPLIES_TO_MOVIE = 1` marks a genre valid for movies; `APPLIES_TO_SERIE = 1` marks it valid for TV series (8 genres apply to both). For "movie genres" filter `WHERE APPLIES_TO_MOVIE = 1`; for "TV/series genres" filter `WHERE APPLIES_TO_SERIE = 1`; for "all genres" omit the flag filter. Default `ORDER BY GENRE_NAME ASC`.
 
 #### Locations – return:
 ID_LOCATION, LOCATION_NAME, LOCATION_TYPE, LOCATION_SOURCE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING
@@ -1355,8 +1355,8 @@ Time-of-day / "watch now" qualifiers — "tonight", "right now", "this evening",
 - Person images → ORDER BY VOTE_AVERAGE DESC
 
 ### Genre filtering
-- Movies: filter on `T_WC_T2S_MOVIE_GENRE.ID_GENRE` (integer FK to `T_WC_TMDB_GENRE.id`, restricted to rows with `APPLIES_TO_MOVIE = 1`). Always reference the genre via the `{{Movie_genreN}}` placeholder.
-- Series: filter on `T_WC_T2S_SERIE_GENRE.ID_GENRE` (same `T_WC_TMDB_GENRE` ID space, restricted to rows with `APPLIES_TO_SERIE = 1` — no separate series-genre table). Always reference the genre via the `{{Serie_genreN}}` placeholder.
+- Movies: filter on `T_WC_T2S_MOVIE_GENRE.ID_GENRE` (integer FK to `T_WC_T2S_GENRE.ID_GENRE`, restricted to rows with `APPLIES_TO_MOVIE = 1`). Always reference the genre via the `{{Movie_genreN}}` placeholder.
+- Series: filter on `T_WC_T2S_SERIE_GENRE.ID_GENRE` (same `T_WC_T2S_GENRE` ID space, restricted to rows with `APPLIES_TO_SERIE = 1` — no separate series-genre table). Always reference the genre via the `{{Serie_genreN}}` placeholder.
 - The two placeholders draw from disjoint-but-overlapping ID sets (8 IDs are shared: Animation, Comedy, Crime, Documentary, Drama, Family, Mystery, Western; 11 are movie-only and 8 are TV-only). The resolver will refuse to substitute a placeholder for a genre that does not apply to its side, so always pick the placeholder that matches the junction table you are filtering against (see the Genre placeholder special case at the top of this prompt).
 
 ### Join Conditions

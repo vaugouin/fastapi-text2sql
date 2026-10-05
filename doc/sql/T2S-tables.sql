@@ -746,6 +746,32 @@ CREATE TABLE `T_WC_T2S_EVALUATION_EXECUTION_20260830` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_T2S_GENRE` (
+  `ID_GENRE` int(11) NOT NULL,
+  `GENRE_NAME` varchar(250) DEFAULT NULL,
+  `APPLIES_TO_MOVIE` tinyint(1) NOT NULL DEFAULT 0,
+  `APPLIES_TO_SERIE` tinyint(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`ID_GENRE`),
+  KEY `GENRE_NAME` (`GENRE_NAME`),
+  KEY `APPLIES_TO_MOVIE` (`APPLIES_TO_MOVIE`),
+  KEY `APPLIES_TO_SERIE` (`APPLIES_TO_SERIE`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_T2S_GENRE_LANG` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_GENRE` int(11) NOT NULL,
+  `LANG` varchar(10) DEFAULT NULL,
+  `GENRE_NAME` varchar(250) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  KEY `ID_GENRE` (`ID_GENRE`),
+  KEY `LANG` (`LANG`),
+  KEY `GENRE_NAME` (`GENRE_NAME`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_T2S_GROUP` (
   `ID_GROUP` int(11) NOT NULL AUTO_INCREMENT,
   `ID_WIKIDATA` varchar(20) DEFAULT NULL,
@@ -1737,6 +1763,33 @@ CREATE TABLE `T_WC_T2S_PERSON` (
   KEY `DELETED` (`DELETED`),
   KEY `IDX_T2S_PERSON_NAME_KEY` (`PERSON_NAME_KEY`),
   KEY `IDX_T2S_PERSON_NAME_NORM` (`PERSON_NAME_NORM`),
+  FULLTEXT KEY `ft_person_name_norm` (`PERSON_NAME_NORM`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_T2S_PERSON_ALSO_KNOWN_AS` (
+  `ID_ROW` int(11) NOT NULL,
+  `ID_PERSON` int(11) NOT NULL,
+  `PERSON_NAME` varchar(200) DEFAULT NULL,
+  `LANGUAGE_FAMILY` varchar(10) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  `PERSON_NAME_NORM` varchar(255) GENERATED ALWAYS AS (lcase(regexp_replace(regexp_replace(`PERSON_NAME`,'[^\\p{L}\\p{N} ]+',' '),' +',' '))) STORED,
+  `PERSON_NAME_KEY` varchar(255) GENERATED ALWAYS AS (replace(`PERSON_NAME_NORM`,' ','')) STORED,
+  PRIMARY KEY (`ID_ROW`),
+  UNIQUE KEY `UQ_T2S_PERSON_ALSO_KNOWN_AS_PERSON_NAME` (`ID_PERSON`,`PERSON_NAME`),
+  KEY `ID_PERSON` (`ID_PERSON`),
+  KEY `DELETED` (`DELETED`),
+  KEY `LANGUAGE_FAMILY` (`LANGUAGE_FAMILY`),
+  KEY `PERSON_NAME` (`PERSON_NAME`),
+  KEY `IDX_T2S_PERSON_NAME_NORM` (`PERSON_NAME_NORM`),
+  KEY `IDX_T2S_PERSON_NAME_KEY` (`PERSON_NAME_KEY`),
   FULLTEXT KEY `ft_person_name_norm` (`PERSON_NAME_NORM`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;

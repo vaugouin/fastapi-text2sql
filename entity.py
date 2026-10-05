@@ -678,7 +678,7 @@ def is_unmatchable_against_canonical(value: str) -> bool:
 
     FASTAPI-TEXT2SQL-226. When every configured strategy fails, the raw value is substituted
     as-is, which yields `WHERE T_WC_T2S_PERSON.PERSON_NAME = '<value>'`. That column holds the
-    canonical TMDb name; the non-Latin spellings live in `T_WC_TMDB_PERSON_ALSO_KNOWN_AS` by
+    canonical TMDb name; the non-Latin spellings live in `T_WC_T2S_PERSON_ALSO_KNOWN_AS` by
     design. A value carrying no Latin letter at all therefore cannot match, and the execution
     that follows is a guaranteed empty round trip before the stronger-model retry.
 
