@@ -6484,8 +6484,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
     attribution pointing at the exact article the prose came from.
 
     The seasons list contains every season of this series from T_WC_T2S_SEASON,
-    ordered by SEASON_NUMBER ASC; each element carries ID_SEASON, SEASON_NUMBER, SEASON_TITLE
-    (TITLE, deprecated duplicate),
+    ordered by SEASON_NUMBER ASC; each element carries ID_SEASON, SEASON_NUMBER, SEASON_TITLE,
     OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH, AIR_DAY, POSTER_PATH, EPISODE_COUNT,
     VOTE_AVERAGE, ID_IMDB, ID_WIKIDATA, ID_TVDB, plus IMDB_RATING and
     IMDB_RATED_EPISODES. That rating is DERIVED, the
@@ -6612,9 +6611,9 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
             # season is scored on the episodes that have aired, and summing episode votes
             # would count the same viewers several times.
             # FASTAPI-TEXT2SQL-179: rows come from T_WC_T2S_SEASON. SEASON_TITLE is the T2S name;
-            # TITLE is a deprecated duplicate kept until VOICE-AGENT-199 reads SEASON_TITLE.
+            # No TITLE alias any more: dropped once VOICE-AGENT-199 read SEASON_TITLE (2026-10-05).
             "seasons": ("""
-                SELECT s.ID_SEASON, s.SEASON_NUMBER, s.SEASON_TITLE, s.SEASON_TITLE AS TITLE, s.OVERVIEW, s.DAT_AIR,
+                SELECT s.ID_SEASON, s.SEASON_NUMBER, s.SEASON_TITLE, s.OVERVIEW, s.DAT_AIR,
                        s.AIR_YEAR, s.AIR_MONTH, s.AIR_DAY, s.POSTER_PATH, s.EPISODE_COUNT,
                        s.VOTE_AVERAGE, s.ID_IMDB, s.ID_WIKIDATA, s.ID_TVDB,
                        s.IMDB_RATING,
@@ -6758,7 +6757,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
 
     The episodes list contains every episode of this season from T_WC_T2S_EPISODE,
     ordered by EPISODE_NUMBER ASC. Each element is a summary row that carries
-    ID_EPISODE, EPISODE_NUMBER, EPISODE_TITLE (TITLE, deprecated duplicate), OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH,
+    ID_EPISODE, EPISODE_NUMBER, EPISODE_TITLE, OVERVIEW, DAT_AIR, AIR_YEAR, AIR_MONTH,
     AIR_DAY, RUNTIME, EPISODE_TYPE, STILL_PATH, ID_IMDB,
     ID_WIKIDATA, and ID_TVDB. Episode cast/crew, additional stills, and Wikipedia
     payloads live on /episodes/{id_serie}/{season_number}/{episode_number} to keep
@@ -6810,8 +6809,8 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     Every row comes from the T2S read-model (FASTAPI-TEXT2SQL-179): T_WC_T2S_SEASON,
     T_WC_T2S_PERSON_SEASON, T_WC_T2S_SEASON_IMAGE, T_WC_T2S_SEASON_VIDEO and
     T_WC_T2S_EPISODE. A season whose series is not in T_WC_T2S_SERIE returns 404, like the
-    series itself. The title is SEASON_TITLE (episodes: EPISODE_TITLE); TITLE is still sent
-    as a deprecated duplicate until the front-end reads the T2S names (VOICE-AGENT-199).
+    series itself. The title is SEASON_TITLE (episodes: EPISODE_TITLE), the T2S names; the
+    TMDb-era TITLE field is gone since VOICE-AGENT-199.
 
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It
@@ -6838,7 +6837,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                 # the pick deterministic on the 14 (ID_SERIE, SEASON_NUMBER) keys TMDb holds
                 # twice (TMDB-CRAWLER-032): a live row first, then the oldest id.
                 """
-                SELECT s.*, s.SEASON_TITLE AS TITLE,
+                SELECT s.*,
                        (SELECT COUNT(*) FROM T_WC_T2S_EPISODE e
                          WHERE e.ID_SEASON = s.ID_SEASON AND e.IMDB_RATING IS NOT NULL
                        ) AS IMDB_RATED_EPISODES
@@ -6890,9 +6889,9 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
             # FASTAPI-TEXT2SQL-177 / -179: rows and IMDb fields both come from T_WC_T2S_EPISODE
             # (tmdb-movie-preprocess Process 28). A NULL rating is the correct answer for an
             # episode that has not aired yet. EPISODE_TITLE is the T2S name; TITLE is a
-            # deprecated duplicate kept until VOICE-AGENT-199 reads EPISODE_TITLE.
+            # no longer duplicated as TITLE since VOICE-AGENT-199 (2026-10-05).
             "episodes": ("""
-                SELECT e.ID_EPISODE, e.EPISODE_NUMBER, e.EPISODE_TITLE, e.EPISODE_TITLE AS TITLE, e.OVERVIEW, e.DAT_AIR,
+                SELECT e.ID_EPISODE, e.EPISODE_NUMBER, e.EPISODE_TITLE, e.OVERVIEW, e.DAT_AIR,
                        e.AIR_YEAR, e.AIR_MONTH, e.AIR_DAY, e.RUNTIME, e.EPISODE_TYPE,
                        e.STILL_PATH, e.VOTE_AVERAGE, e.VOTE_COUNT,
                        e.ID_IMDB, e.ID_WIKIDATA, e.ID_TVDB,
@@ -6912,7 +6911,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
             # left first: they are real content, but opening a show on "Specials" as the
             # leading card makes no sense. Same CASE ordering as the Criterion spine rule.
             "seasons": ("""
-                SELECT s.ID_SEASON, s.SEASON_NUMBER, s.SEASON_TITLE, s.SEASON_TITLE AS TITLE, s.OVERVIEW, s.DAT_AIR,
+                SELECT s.ID_SEASON, s.SEASON_NUMBER, s.SEASON_TITLE, s.OVERVIEW, s.DAT_AIR,
                        s.AIR_YEAR, s.AIR_MONTH, s.AIR_DAY, s.POSTER_PATH, s.EPISODE_COUNT,
                        s.VOTE_AVERAGE, s.ID_IMDB, s.ID_WIKIDATA, s.ID_TVDB,
                        s.ID_SERIE,
@@ -6964,7 +6963,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                 # excluded from the chain entirely: "the season after the specials" means
                 # nothing, so both neighbours are null when viewing season 0.
                 cursor.execute("""
-                    SELECT ID_SEASON, SEASON_NUMBER, SEASON_TITLE, SEASON_TITLE AS TITLE, POSTER_PATH, ID_SERIE
+                    SELECT ID_SEASON, SEASON_NUMBER, SEASON_TITLE, POSTER_PATH, ID_SERIE
                     FROM T_WC_T2S_SEASON
                     WHERE ID_SERIE = %s AND SEASON_NUMBER > 0
                     ORDER BY SEASON_NUMBER ASC
@@ -7098,8 +7097,8 @@ async def get_episode(
     Every row comes from the T2S read-model (FASTAPI-TEXT2SQL-179): T_WC_T2S_EPISODE,
     T_WC_T2S_PERSON_EPISODE, T_WC_T2S_EPISODE_IMAGE, T_WC_T2S_EPISODE_VIDEO and
     T_WC_T2S_SEASON. An episode whose series or season is not in T2S returns 404. The
-    title is EPISODE_TITLE; TITLE is still sent as a deprecated duplicate until the
-    front-end reads the T2S name (VOICE-AGENT-199).
+    title is EPISODE_TITLE, the T2S name; the TMDb-era TITLE field is gone since
+    VOICE-AGENT-199.
 
     data_freshness dates this payload so a caller can state how current the answer is (every
     value is served from the read-model, never fetched live from TMDb or Wikipedia). It
@@ -7121,7 +7120,7 @@ async def get_episode(
                 # FASTAPI-TEXT2SQL-179: T_WC_T2S_EPISODE is the row source. The ORDER BY makes
                 # the pick deterministic on the 140 keys TMDb holds twice (TMDB-CRAWLER-032).
                 """
-                SELECT e.*, e.EPISODE_TITLE AS TITLE
+                SELECT e.*
                 FROM T_WC_T2S_EPISODE e
                 WHERE e.ID_SERIE = %s AND e.SEASON_NUMBER = %s AND e.EPISODE_NUMBER = %s
                 ORDER BY COALESCE(e.DELETED, 0) ASC, e.ID_EPISODE ASC
@@ -7177,7 +7176,7 @@ async def get_episode(
             # alike far more than film posters do, so without the marker a rail of lookalike
             # frames leaves the viewer unsure where they are.
             "episodes": ("""
-                SELECT e.ID_EPISODE, e.EPISODE_NUMBER, e.EPISODE_TITLE, e.EPISODE_TITLE AS TITLE, e.OVERVIEW, e.DAT_AIR,
+                SELECT e.ID_EPISODE, e.EPISODE_NUMBER, e.EPISODE_TITLE, e.OVERVIEW, e.DAT_AIR,
                        e.AIR_YEAR, e.AIR_MONTH, e.AIR_DAY, e.RUNTIME, e.EPISODE_TYPE,
                        e.STILL_PATH, e.VOTE_AVERAGE, e.VOTE_COUNT,
                        e.ID_IMDB, e.ID_WIKIDATA, e.ID_TVDB,
@@ -7202,7 +7201,7 @@ async def get_episode(
                 """, (id_episode,))
                 stills = cursor.fetchall()
                 cursor.execute("""
-                    SELECT ID_SEASON, SEASON_NUMBER, SEASON_TITLE, SEASON_TITLE AS TITLE, POSTER_PATH
+                    SELECT ID_SEASON, SEASON_NUMBER, SEASON_TITLE, POSTER_PATH
                     FROM T_WC_T2S_SEASON WHERE ID_SEASON = %s
                 """, (id_season,))
                 season = cursor.fetchone()
@@ -7223,7 +7222,7 @@ async def get_episode(
                 # season boundary, "the episode after the finale" belongs to another season
                 # and would make the arrows jump context without warning.
                 cursor.execute("""
-                    SELECT ID_EPISODE, EPISODE_NUMBER, EPISODE_TITLE, EPISODE_TITLE AS TITLE, STILL_PATH, ID_SERIE, SEASON_NUMBER
+                    SELECT ID_EPISODE, EPISODE_NUMBER, EPISODE_TITLE, STILL_PATH, ID_SERIE, SEASON_NUMBER
                     FROM T_WC_T2S_EPISODE
                     WHERE ID_SEASON = %s
                     ORDER BY EPISODE_NUMBER ASC
@@ -9173,7 +9172,7 @@ async def _mcp_get_season(id_serie: int, season_number: int, ui_language: str = 
     season_number is a SEASON_NUMBER taken from the `seasons` array of get_series (season 0
     is the specials season when the series has one).
 
-    The season row carries SEASON_TITLE (TITLE is a deprecated duplicate), OVERVIEW,
+    The season row carries SEASON_TITLE, OVERVIEW,
     DAT_AIR, POSTER_PATH, EPISODE_COUNT, IMDb/Wikidata/TVDB ids, IMDB_RATING and
     IMDB_RATED_EPISODES. IMDb never rates seasons: this IMDB_RATING is DERIVED, the plain
     mean of the season's rated episodes, and IMDB_RATED_EPISODES is how many episodes back
@@ -9210,7 +9209,7 @@ async def _mcp_get_episode(id_serie: int, season_number: int, episode_number: in
     get_series, and episode_number is an EPISODE_NUMBER from the `episodes` array of
     get_season.
 
-    The episode row carries EPISODE_TITLE (TITLE is a deprecated duplicate), OVERVIEW,
+    The episode row carries EPISODE_TITLE, OVERVIEW,
     DAT_AIR, RUNTIME, EPISODE_TYPE, STILL_PATH, IMDb/Wikidata/TVDB ids, and IMDB_RATING /
     IMDB_VOTES, the episode's own IMDb rating and vote count (null when the episode has no
     IMDb id or has not been rated yet, typically before it airs). season (ID_SEASON,
