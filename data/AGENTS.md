@@ -56,6 +56,17 @@ these two files, **go and read the twin**, decide explicitly whether it moves to
 in the commit message. They are meant to agree on the principle and to disagree on the
 instruction.
 
+## A format example uses placeholders, never a real title
+
+In a prompt that has to **guess** an entity (`complex_question.md`, `vision_identification.md`),
+a format example written with a real title is also a candidate answer, and an unsure model
+copies it. Measured on 2026-10-06 (FASTAPI-TEXT2SQL-316): the series rule showed
+`Serie Friends (1994)`, and `gpt-4o` answered a *Toy Story* riddle with exactly that, three
+times out of five. Write `Serie <Title> (<first-air year>)`. A real title stays acceptable where
+the step does not guess: a counter-example that illustrates a rule (`Movie Pulp Fiction (1994)`
+in the relation rule), or an INPUT example of `entity_extraction.md`, which parses a title
+already named.
+
 ## Three things that bite when editing anything here
 
 **A change is live in about 5 seconds, and a cache row can hide it.** No restart is needed, but
