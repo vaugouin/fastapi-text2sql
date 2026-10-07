@@ -1836,7 +1836,7 @@ mount is really shared, `OTHER_BASE_URL=...`.
 ---
 
 **Last Updated**: 2026-09-20
-**Current Version**: 1.1.19 (see `strapiversion` in [main.py:137](main.py#L137))
+**Current Version**: 1.1.20 (see `strapiversion` in [main.py:194](main.py#L194))
 
 ## Backlog (Nestor second-brain)
 

@@ -83,8 +83,8 @@ TV networks or streaming platforms.
 Examples: `Netflix`, `HBO`, `BBC`
 
 ### Character_name
-Character names.
-Examples: `James Bond`, `Sherlock Holmes`, `R2-D2`, `Hamlet`
+Character names, fictional or real persons portrayed as a character, including recurring characters (never `Topic_name`).
+Examples: `James Bond`, `Sherlock Holmes`, `R2-D2`, `Hamlet`, `Philip Marlowe`, `Charlotte Corday`
 
 ### Location_name
 Location names used as story locations or filming locations.
@@ -160,7 +160,8 @@ Examples: `liver cirrhosis`, `car collision`, `homicide`
 ### Topic_name
 Extract `Topic_name` only for recognizable movie/series-related topics such as:
 - clear thematic topics such as `World War II` or `biographical films`
-- notable recurring character-based collections
+
+Do NOT extract a character as `Topic_name`, even a recurring one (`Philip Marlowe`, `Sherlock Holmes`, `Charlotte Corday`, `Antoine Doinel`): a character is always `Character_name`.
 
 Do NOT extract universes or franchises (e.g. `Star Wars`, `Marvel Cinematic Universe`, `DC Extended Universe`, `Batman universe`, `Middle-Earth`, `Harry Potter movies`, `James Bond films`) as `Topic_name` — they are now extracted as `Collection_name`.
 
@@ -168,7 +169,6 @@ Examples:
 - `World War II`
 - `Christmas`
 - `kidnapping`
-- `Philip Marlowe`
 
 ### Movie_genre
 Extract `Movie_genre` when the user question mentions a movie genre AND that genre **qualifies movies**, whatever kind of thing the question ultimately returns.
@@ -472,9 +472,9 @@ Output:
 Input: `Movies having a Philip Marlowe character`
 Output:
 {
-  "question": "Movies having a {{Topic_name1}} character",
+  "question": "Movies having a {{Character_name1}} character",
   "query_mode": "named_entity_query",
-  "Topic_name1": "Philip Marlowe"
+  "Character_name1": "Philip Marlowe"
 }
 
 Input: `Sergio Leone movies with Clint Eastwood`

@@ -323,16 +323,9 @@ CREATE TABLE T_WC_T2S_SERIE_LIST (
 );
 
 ### Topics
-Topics are comprehensive collections stored in T_WC_T2S_TOPIC and include:
+Topics are thematic collections stored in T_WC_T2S_TOPIC: movies and series about a specific topic.
 
-#### Character-based Collections
-- Philip Marlowe movies
-- Sherlock Holmes films
-- Hercule Poirot adaptations
-- Indiana Jones adventures
-
-#### Other Topics
-Topics can also include thematic collections, movies about a specific topic.
+Characters are NOT topics. A character (Philip Marlowe, Sherlock Holmes, Hercule Poirot, Indiana Jones, Charlotte Corday) comes as `{{Character_nameN}}` and is searched in `CAST_CHARACTER` of the cast credits, never in T_WC_T2S_TOPIC.
 When a question is about a topic, always display content (movies and/or series) related to this topic in the search result. Do not display a list of topics.
 
 NOTE: Universes and franchises (e.g., `Star Wars`, `Marvel Cinematic Universe`, `DC Extended Universe`, `Batman universe`, `Middle-Earth`, `Harry Potter movies`, `James Bond films`) are NOT topics anymore. They are now managed as collections in `T_WC_T2S_COLLECTION` — use the `{{Collection_nameN}}` placeholder and the Collection tables (`T_WC_T2S_MOVIE_COLLECTION`, `T_WC_T2S_SERIE_COLLECTION`) to query them.

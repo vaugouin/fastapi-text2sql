@@ -87,9 +87,9 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **TV series titles** (multi-language support) — placeholder `{{Serie_titleN}}`
      - **Company names** (production companies, studios) — placeholder `{{Company_nameN}}`
      - **Network names** (TV networks, streaming platforms) — placeholder `{{Network_nameN}}`
-     - **Character names** (e.g., "James Bond", "Sherlock Holmes", "R2-D2") — placeholder `{{Character_nameN}}` *(extracted; resolution falls through to raw fallback substitution)*
+     - **Character names** (e.g., "James Bond", "Sherlock Holmes", "R2-D2", "Philip Marlowe", "Charlotte Corday") — placeholder `{{Character_nameN}}` *(extracted; resolution falls through to raw fallback substitution)*
      - **Location names** (narrative or filming locations, Wikidata-backed; e.g., "New York City", "Gotham City") — placeholder `{{Location_nameN}}`
-     - **Topic names** (themes and recurring-character collections like "World War II", "Christmas", "Philip Marlowe") — placeholder `{{Topic_nameN}}`
+     - **Topic names** (themes like "World War II", "Christmas"; characters are never topics, they are `Character_name`) — placeholder `{{Topic_nameN}}`
      - **List names** (curated rankings/canons such as "Sight and Sound greatest films", "IMDb top 250 tv shows") — placeholder `{{List_nameN}}`
      - **Award names** (e.g., "Palme d'Or", "Academy Award for Best Picture", "Primetime Emmy Award") — placeholder `{{Award_nameN}}`
      - **Nomination names** (the same set, but referenced as a nomination rather than a win) — placeholder `{{Nomination_nameN}}`
@@ -1432,7 +1432,7 @@ The current prompt template is specifically designed for a **movie and TV series
 - **People** (`T_WC_T2S_PERSON`, `T_WC_T2S_PERSON_ALSO_KNOWN_AS`): Actors, directors, and crew members with their roles, relationships, and AKAs (used for non-Latin name resolution)
 - **Companies** (`T_WC_T2S_COMPANY`): Production companies and studios
 - **Networks** (`T_WC_T2S_NETWORK`): TV networks and streaming platforms
-- **Topics** (`T_WC_T2S_TOPIC`): Curated themes and recurring-character topics (e.g., World War II, Christmas, Philip Marlowe)
+- **Topics** (`T_WC_T2S_TOPIC`): Curated themes (e.g., World War II, Christmas); characters are not topics
 - **Lists** (`T_WC_T2S_LIST`): Notable curated rankings, registries, and editorial lists (e.g., Sight and Sound, IMDb Top 250)
 - **Awards** (`T_WC_T2S_AWARD`) and **Nominations** (`T_WC_T2S_NOMINATION`): Award wins and award nominations for movies, series, and persons
 - **Collections** (`T_WC_T2S_COLLECTION`): Trilogies, named series of works, universes, and franchises (e.g., Dollars Trilogy, James Bond Collection, Star Wars, Marvel Cinematic Universe, Middle-Earth, Harry Potter movies)
@@ -1551,7 +1551,7 @@ The system intelligently extracts and replaces entities in natural language ques
 | `Serie_title` | TV series titles (English/French/original) | Embeddings — `series` collection |
 | `Company_name` | Production / distribution companies | Embeddings — `companies` collection |
 | `Network_name` | TV networks / streaming platforms | Embeddings — `networks` collection |
-| `Topic_name` | Themes, recurring-character collections | Embeddings — `topics` collection |
+| `Topic_name` | Themes (never characters) | Embeddings — `topics` collection |
 | `List_name` | Curated rankings / canons / registries | Embeddings — `lists` collection |
 | `Award_name` | Named awards or recognitions | Embeddings — `awards` collection |
 | `Nomination_name` | Named award nominations | Embeddings — `nominations` collection |

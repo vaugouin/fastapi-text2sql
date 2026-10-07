@@ -76,7 +76,7 @@ async def _mcp_sql_search(
     Query the cinema and TV database in natural language, or from a deposited image.
 
     Covers movies, TV series, persons (actors, directors, writers, crew),
-    production companies, TV networks, topics (themes, recurring-character collections),
+    production companies, TV networks, topics (themes), characters (cast credits),
     curated lists (rankings, canons), collections (trilogies, sagas, universes, franchises),
     film movements, technical formats (sound systems, color/film/sound technologies,
     film formats), person groups, causes of death, awards, nominations, and locations
@@ -204,7 +204,7 @@ async def _mcp_get_collection(id: int) -> str:
 
 @mcp.tool(name="get_topic")
 async def _mcp_get_topic(id: int) -> str:
-    """Get all fields for a topic (theme, keyword, recurring-character collection) plus linked
+    """Get all fields for a topic (theme, keyword) plus linked
     movies and TV series ordered by their position in the topic. id = ID_TOPIC."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:

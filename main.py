@@ -191,7 +191,7 @@ def _run_generated_sql(db_connection, sql_text: str):
 
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.19"
+strapiversion = "1.1.20"
 # Convert API version to XXX.YYY.ZZZ format
 strapiversionformatted = format_api_version(strapiversion)
 
@@ -2245,8 +2245,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     """Convert a natural language question about cinema or TV into SQL, execute it, and return the result set.
 
     Covers the full entertainment database: movies, TV series, persons (actors, directors,
-    writers, crew), production companies, TV networks, topics (themes, recurring-character
-    collections), curated lists (rankings, canons), collections (trilogies, sagas, universes,
+    writers, crew), production companies, TV networks, topics (themes), characters
+    (cast credits), curated lists (rankings, canons), collections (trilogies, sagas, universes,
     franchises), film movements, person groups, causes of death, awards, nominations, and
     locations (narrative or filming, via Wikidata).
 
@@ -7642,7 +7642,7 @@ async def get_collection(id: int, ui_language: Optional[str] = "en", collection:
 
 @app.get("/topics/{id}", summary="Topic full detail", response_class=RoundedJSONResponse)
 async def get_topic(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
-    """Return all fields for a topic (theme, keyword, recurring-character collection) plus linked
+    """Return all fields for a topic (theme, keyword) plus linked
     movies and TV series ordered by DISPLAY_ORDER. The id is ID_TOPIC.
 
     The topic itself includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH,
@@ -8924,7 +8924,7 @@ async def _mcp_sql_search(
     Query the cinema and TV database in natural language, or from a deposited image.
 
     Covers movies, TV series, persons (actors, directors, writers, crew),
-    production companies, TV networks, topics (themes, recurring-character collections),
+    production companies, TV networks, topics (themes), characters (cast credits),
     curated lists (rankings, canons), collections (trilogies, sagas, universes, franchises),
     film movements, person groups, causes of death, awards, nominations, and locations
     (narrative or filming).
@@ -9294,7 +9294,7 @@ async def _mcp_get_collection(id: int, ui_language: str = "en", collection: Opti
 
 @mcp.tool(name="get_topic")
 async def _mcp_get_topic(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
-    """Get all fields for a topic (theme, keyword, recurring-character collection) plus linked
+    """Get all fields for a topic (theme, keyword) plus linked
     movies and TV series ordered by their position in the topic. The topic itself includes
     POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
@@ -9662,8 +9662,8 @@ async def _mcp_database_scope() -> str:
         Potter movies, James Bond films).
     - T_WC_T2S_TOPIC: TOPIC_NAME, TOPIC_TYPE, TOPIC_SOURCE, LANG, MOVIE_COUNT, SERIE_COUNT,
         POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
-        Holds themes (e.g., World War II, Christmas) and recurring-character collections
-        (e.g., Philip Marlowe, Sherlock Holmes). Universes and franchises are NOT here —
+        Holds themes (e.g., World War II, Christmas). Characters are NOT here: they are
+        searched in CAST_CHARACTER. Universes and franchises are NOT here either —
         they live in T_WC_T2S_COLLECTION.
     - T_WC_T2S_LIST: LIST_NAME, OVERVIEW, LIST_TYPE, MOVIE_COUNT, SERIE_COUNT,
         POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
