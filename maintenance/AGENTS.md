@@ -192,6 +192,11 @@ they address the table directly.
   any evaluation that already has a live execution row for the same version,
   models and language, so a "full re-run" over a populated version runs almost
   nothing. Read the trap section before choosing to keep recent rows.
+- `vision-cache-reset-image.sql` : soft-deletes one photo from `T_WC_T2S_VISION_CACHE` (before /
+  update / after), so a rehearsal or a shoot pays a real recognition again instead of a cached
+  0.3 s answer. The key is the MD5 of the **resized JPEG** sent by the browser, read in the
+  `image_ref` of the client log's `look_capture` line, never the MD5 of the original file. Edit
+  the MD5 (three places), commit, run (2026-10-09).
 - `vision-recognition-cache.sql` : creates `T_WC_T2S_VISION_CACHE`, the recognition cache of the
   picture-based search, **run 2026-09-20 at 12:53:25** (FASTAPI-TEXT2SQL-114). Its output is kept
   beside it in `vision-recognition-cache-20260920.txt` and matches the DDL column for column and
