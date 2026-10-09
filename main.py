@@ -794,6 +794,11 @@ _RESULT_ENTITY_SOURCES = {
     # location guard, and a location query projecting only ITEM_LABEL failed it. An
     # ID_<ENTITY> token is unambiguous, which is what the guard assumes everywhere else.
     "location": ("ID_LOCATION", "T_WC_T2S_LOCATION"),
+    # "Based on" sources (FASTAPI-TEXT2SQL-320, read-model built by tmdb-movie-preprocess
+    # process 73): "what is Scarface based on", "the most adapted work". The source is
+    # always a T_WC_T2S_SOURCE_WORK row, whatever its kind (novel, manga, play, game, or
+    # itself a movie or a series), so the guard's id token is ID_SOURCE_WORK.
+    "source_work": ("ID_SOURCE_WORK", "T_WC_T2S_SOURCE_WORK"),
     # Genres are a closed-vocabulary reference (T_WC_T2S_GENRE, PK ID_GENRE since
     # FASTAPI-TEXT2SQL-313). They are listable in their own right ("what are the movie genres?")
     # but are ALSO the most common filter word ("Sci-Fi movies"); the classifier
@@ -1185,6 +1190,7 @@ _FAST_PATH_SELECT_COLUMNS_FALLBACK = {
     "award": "ID_AWARD, AWARD_NAME, AWARD_SOURCE, AWARD_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT, IMDB_RATING",
     "nomination": "ID_NOMINATION, NOMINATION_NAME, NOMINATION_SOURCE, NOMINATION_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT, IMDB_RATING",
     "location": "ID_LOCATION, LOCATION_NAME, LOCATION_TYPE, LOCATION_SOURCE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING",
+    "source_work": "ID_SOURCE_WORK, SOURCE_WORK_NAME, SOURCE_WORK_TYPE, SOURCE_WORK_FORM, SOURCE_WORK_YEAR, ID_MOVIE, ID_SERIE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING",
     "genre": "ID_GENRE, GENRE_NAME, APPLIES_TO_MOVIE, APPLIES_TO_SERIE",
     "person_image": "ID_ROW, ID_PERSON, TYPE_IMAGE, LANG, IMAGE_PATH AS POSTER_PATH, VOTE_AVERAGE",
     "movie_image": "ID_ROW, ID_MOVIE, TYPE_IMAGE, LANG, IMAGE_PATH AS POSTER_PATH, VOTE_AVERAGE",
@@ -1195,7 +1201,7 @@ _FAST_PATH_SELECT_COLUMNS_FALLBACK = {
 # wins (a Wikidata entity is, in practice, exactly one kind of thing).
 _WIKIDATA_FAST_PATH_PRECEDENCE = [
     "movie", "serie", "person", "collection", "list", "topic", "movement",
-    "group", "death", "award", "nomination", "technical", "location",
+    "group", "death", "award", "nomination", "technical", "location", "source_work",
 ]
 
 # Heading name (in the prompt's "Result Columns" section) -> result_entity.
@@ -1205,6 +1211,7 @@ _RESULT_SECTION_NAME_TO_ENTITY = {
     "technicals": "technical", "groups": "group", "deaths": "death",
     "awards": "award", "nominations": "nomination", "companies": "company",
     "networks": "network", "locations": "location", "genres": "genre",
+    "sourceworks": "source_work",
 }
 
 # A "Result Columns" sub-heading, e.g. "#### Movies – return:" (en dash or hyphen).
@@ -6353,6 +6360,17 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
                 JOIN T_WC_T2S_MOVEMENT m ON mm.ID_MOVEMENT = m.ID_MOVEMENT
                 WHERE mm.ID_MOVIE = %s ORDER BY mm.DISPLAY_ORDER ASC, m.ID_MOVEMENT ASC
             """, (id,), None),
+            # "Based on" (FASTAPI-TEXT2SQL-320): the works this movie is adapted from. A source
+            # that is itself a T2S movie or series carries ID_MOVIE / ID_SERIE, the hop to
+            # its own sheet. Oldest source first (the novel before its first film).
+            "based_on": ("""
+                SELECT sw.ID_SOURCE_WORK, sw.SOURCE_WORK_NAME, sw.SOURCE_WORK_NAME_FR, sw.SOURCE_WORK_TYPE,
+                       sw.SOURCE_WORK_FORM, sw.SOURCE_WORK_YEAR, sw.ID_MOVIE, sw.ID_SERIE,
+                       sw.WIKIPEDIA_IMAGE_PATH, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_MOVIE_SOURCE_WORK ms
+                JOIN T_WC_T2S_SOURCE_WORK sw ON ms.ID_SOURCE_WORK = sw.ID_SOURCE_WORK AND sw.DELETED = 0
+                WHERE ms.ID_MOVIE = %s ORDER BY sw.SOURCE_WORK_YEAR ASC, sw.ID_SOURCE_WORK ASC
+            """, (id,), None),
             "technicals": ("""
                 SELECT t.ID_TECHNICAL, t.DESCRIPTION, t.DESCRIPTION_FR, t.TECHNICAL_TYPE,
                        t.WIKIPEDIA_IMAGE_PATH, t.IMDB_RATING_WEIGHTED, t.POPULARITY,
@@ -6473,6 +6491,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
             "lists": data["lists"],
             "collections": data["collections"],
             "movements": data["movements"],
+            "based_on": data["based_on"],
             "technicals": data["technicals"],
             "awards": data["awards"],
             "nominations": data["nominations"],
@@ -6658,6 +6677,15 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
                 JOIN T_WC_T2S_MOVEMENT m ON sm.ID_MOVEMENT = m.ID_MOVEMENT
                 WHERE sm.ID_SERIE = %s ORDER BY sm.DISPLAY_ORDER ASC, m.ID_MOVEMENT ASC
             """, (id,), None),
+            # "Based on" (FASTAPI-TEXT2SQL-320), same shape as on the movie sheet.
+            "based_on": ("""
+                SELECT sw.ID_SOURCE_WORK, sw.SOURCE_WORK_NAME, sw.SOURCE_WORK_NAME_FR, sw.SOURCE_WORK_TYPE,
+                       sw.SOURCE_WORK_FORM, sw.SOURCE_WORK_YEAR, sw.ID_MOVIE, sw.ID_SERIE,
+                       sw.WIKIPEDIA_IMAGE_PATH, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_SERIE_SOURCE_WORK ss
+                JOIN T_WC_T2S_SOURCE_WORK sw ON ss.ID_SOURCE_WORK = sw.ID_SOURCE_WORK AND sw.DELETED = 0
+                WHERE ss.ID_SERIE = %s ORDER BY sw.SOURCE_WORK_YEAR ASC, sw.ID_SOURCE_WORK ASC
+            """, (id,), None),
             "awards": ("""
                 SELECT a.ID_AWARD, a.AWARD_NAME, a.AWARD_NAME_FR, a.POSTER_PATH, a.WIKIPEDIA_IMAGE_PATH,
                        COUNT(*) OVER() AS _TOTAL_COUNT
@@ -6790,6 +6818,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
             "lists": data["lists"],
             "collections": data["collections"],
             "movements": data["movements"],
+            "based_on": data["based_on"],
             "awards": data["awards"],
             "nominations": data["nominations"],
             "cast": data["cast"],
@@ -9154,7 +9183,7 @@ async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[
     """Get all fields for a movie (title, release date, runtime, budget, revenue, ratings,
     plot, IMDb/Wikidata IDs, color/B&W/silent flags) plus embedded relations:
     cast, crew, genre codes, production companies, production countries, spoken languages,
-    topics, lists, collections, movements, technicals, awards, and nominations, plus similar
+    topics, lists, collections, movements, technicals, awards, nominations, and the works it is based on (based_on), plus similar
     and recommendations (grounded TMDb neighbour movies, each with ID_MOVIE, localized
     MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, and POSTER_PATH, ordered by
     DISPLAY_ORDER; similar is content-based, recommendations is behaviour-based).
@@ -9732,6 +9761,9 @@ async def _mcp_database_scope() -> str:
     - Nominations: T_WC_T2S_MOVIE_NOMINATION \u2192 T_WC_T2S_NOMINATION (DISPLAY_ORDER)
     - Locations: T_WC_T2S_MOVIE_LOCATION \u2192 T_WC_T2S_LOCATION
         LOCATION_ROLE = 'narrative' (the story happens there) or 'filming' (shot there)
+    - Based on: T_WC_T2S_MOVIE_SOURCE_WORK \u2192 T_WC_T2S_SOURCE_WORK
+        the work the movie is adapted from (novel, manga, play, game, or a movie / series:
+        then T_WC_T2S_SOURCE_WORK.ID_MOVIE / ID_SERIE points to it)
 
     ## Relationships \u2014 TV Series
     Same structure as movies with T_WC_T2S_SERIE_* equivalents for all join tables.
@@ -9776,6 +9808,10 @@ async def _mcp_database_scope() -> str:
     - T_WC_T2S_NETWORK: NETWORK_NAME, ORIGIN_COUNTRY, LOGO_PATH
     - T_WC_T2S_LOCATION: ID_LOCATION, LOCATION_NAME, LOCATION_TYPE, OVERVIEW,
         MOVIE_COUNT, SERIE_COUNT, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, POPULARITY
+    - T_WC_T2S_SOURCE_WORK: ID_SOURCE_WORK, SOURCE_WORK_NAME, SOURCE_WORK_NAME_FR,
+        SOURCE_WORK_TYPE (literary, comic, stage, game, screen, folklore, other),
+        SOURCE_WORK_FORM (manga, light_novel, play, musical or NULL), SOURCE_WORK_YEAR,
+        ID_MOVIE, ID_SERIE, MOVIE_COUNT, SERIE_COUNT
 
     ## Useful value ranges
     - VOTE_AVERAGE: 0 to 10, meaningful above VOTE_COUNT > 200

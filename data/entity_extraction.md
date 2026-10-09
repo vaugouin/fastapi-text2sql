@@ -41,7 +41,7 @@ Classify the user's request before extracting entities:
 The three modes are exclusive, so apply them in this order:
 
 1. Is the user trying to recover the identity of one unnamed entity from remembered clues? Then `descriptive_identification`, whatever else the question contains.
-2. Otherwise, does the question name a specific real-world entity (a person, a movie or series, a collection or franchise, a company, a network, a group, an award or nomination, a curated list, a movement, a named event or character) or carry an explicit identifier? Then `named_entity_query`, even when the question also asks for a set or applies filters.
+2. Otherwise, does the question name a specific real-world entity (a person, a movie or series, a collection or franchise, a company, a network, a group, an award or nomination, a curated list, a movement, a named event or character, a book, play or game named as the source of an adaptation) or carry an explicit identifier? Then `named_entity_query`, even when the question also asks for a set or applies filters.
 3. Otherwise `ordinary_filter_query`. Closed-vocabulary descriptors are filters, not named entities: genre, serie type, department, status, technical format, spoken language, cause of death, and years all fall here.
 
 `query_mode` is always present, in every answer, including when no entity is extracted.
@@ -89,6 +89,10 @@ Examples: `James Bond`, `Sherlock Holmes`, `R2-D2`, `Hamlet`, `Philip Marlowe`, 
 ### Location_name
 Location names used as story locations or filming locations.
 Examples: `New York City`, `South America`, `Moon`, `France`, `Gotham City`, `British Columbia`, `Hollywood`
+
+### Source_work_name
+The work a movie or a series is BASED ON or ADAPTED FROM, when the question names it: a novel, a short story, a manga, a comic, a play, a musical, an opera, a video game, a tale. Extract it only when the question says the work is a source: "based on", "adapted from", "adaptations of", "remakes of", "tiré de", "adapté de", "d'après", "adaptations de".
+Examples: `Dracula`, `Heart of Darkness`, `Au cœur des ténèbres`, `Nineteen Eighty-Four`, `Romeo and Juliet`, `The Three Musketeers`, `Les Misérables`, `One Piece`, `The Last of Us`
 
 ### IMDb_ID
 IMDb identifiers for movies or series.
@@ -310,6 +314,14 @@ When the user writes `Serie Title (Year)` or `Series Title (Year)`, the title is
 - `First_air_yearN`: the 4-digit year inside parentheses
 Never extract that year as `Release_yearN`: a release year belongs to a movie.
 
+### Source_work_name boundaries
+- A named work introduced as the SOURCE of movies or series ("movies based on Dracula", "films adaptés d'Au cœur des ténèbres", "adaptations of Romeo and Juliet") is `Source_work_name`, not `Movie_title` and not `Character_name`, even when a movie or a character bears the same name.
+- "Remakes of `<movie>`" names a MOVIE: extract `Movie_title` (with its year if given); the source-work tables reach it through the movie.
+- "What is `<movie>` based on?" names the adaptation, not the source: extract `Movie_title` (or `Serie_title`).
+- A KIND of source without a name ("based on a manga", "adapted from a novel", "d'une comédie musicale", "based on video games") is NOT an entity: extract nothing for it, the SQL filters on the source type.
+- A PERSON as the source ("adapted from Stephen King", "adaptations of Tolkien") is `Person_name`, never `Source_work_name`.
+- "Based on a true story", "based on real events" name no work: they are topics, not `Source_work_name`.
+
 ### Topic_name boundaries
 Do not extract as `Topic_name`:
 - simple genre names by themselves (extract as `Movie_genre` or `Serie_genre` instead when they match the supported list for the matching side, e.g. `war` → `Movie_genre`, `comedy` → either, `Sci-Fi & Fantasy` → `Serie_genre`)
@@ -475,6 +487,21 @@ Output:
   "question": "Movies having a {{Character_name1}} character",
   "query_mode": "named_entity_query",
   "Character_name1": "Philip Marlowe"
+}
+
+Input: `Movies based on Dracula`
+Output:
+{
+  "question": "Movies based on {{Source_work_name1}}",
+  "query_mode": "named_entity_query",
+  "Source_work_name1": "Dracula"
+}
+
+Input: `Films and series based on a manga`
+Output:
+{
+  "question": "Films and series based on a manga",
+  "query_mode": "ordinary_filter_query"
 }
 
 Input: `Sergio Leone movies with Clint Eastwood`

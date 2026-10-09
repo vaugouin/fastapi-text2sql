@@ -15,7 +15,7 @@ Convert the provided natural language question into the following json structure
   "error": "**request clarification**"
 }
 
-- **Step 1 — decide `result_entity` first.** It is the kind of thing the user wants *listed* in the results, exactly one of: `movie`, `serie`, `person`, `collection`, `list`, `topic`, `movement`, `technical`, `group`, `death`, `award`, `nomination`, `company`, `network`, `location`, `genre` (use `movie_serie` for a movies+series UNION). Everything else named in the question is a FILTER reached via joins, never the SELECT target. NOTE on `genre`: use it only when the genres themselves are the answer ("what are the movie genres?", "list all genres"); a genre that merely scopes a search ("Sci-Fi movies", "list comedies") is a FILTER and the `result_entity` is `movie` / `serie`. The primary result table and the columns you SELECT (see "Result Columns") MUST match `result_entity`, and the SELECT MUST project that entity's id column. See "Answer entity (what to return)" below.
+- **Step 1 — decide `result_entity` first.** It is the kind of thing the user wants *listed* in the results, exactly one of: `movie`, `serie`, `person`, `collection`, `list`, `topic`, `movement`, `technical`, `group`, `death`, `award`, `nomination`, `company`, `network`, `location`, `source_work`, `genre` (use `movie_serie` for a movies+series UNION). Everything else named in the question is a FILTER reached via joins, never the SELECT target. NOTE on `genre`: use it only when the genres themselves are the answer ("what are the movie genres?", "list all genres"); a genre that merely scopes a search ("Sci-Fi movies", "list comedies") is a FILTER and the `result_entity` is `movie` / `serie`. The primary result table and the columns you SELECT (see "Result Columns") MUST match `result_entity`, and the SELECT MUST project that entity's id column. See "Answer entity (what to return)" below.
 - If the question is valid, return **valid SQL query** to the "sql_query" element, **brief explanation** to the "justification" element, and **user-oriented answer** to the "answer" element.
  **brief explanation** must retain all entity extraction elements, for instance "{{PERSON_NAME}}".
  **user-oriented answer** is a friendly, slightly warm assistant sentence describing what the query returns, written in the **UI language given at the very end of this prompt** (`UI language:`). It must NOT mention any table name, column name, or technical SQL detail. It must retain all entity extraction placeholders exactly as in the justification (e.g. "{{Person_name1}}"). Think of it as the short intro line displayed to the end user above the query results. Use natural phrasing such as "Here you go...", "Sure...", or "Here are..." but stay concise (ideally 1 sentence).
@@ -28,7 +28,7 @@ Never include a semicolon at the end of the SQL query.
 
 ## ? Placeholders / Anonymization
 
-The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}, {{Movie_genre1}}, {{Serie_genre1}}, {{Serie_type1}}, {{Status_name1}}, {{Technical_format1}}, {{Department_name1}}, {{Release_year1}}, {{First_air_year1}}, {{Birth_year1}}, {{Death_year1}}.
+The input question may contain anonymized placeholders in double curly braces, for example: {{Person_name1}}, {{Movie_title1}}, {{Serie_title1}}, {{Company_name1}}, {{Network_name1}}, {{Character_name1}}, {{Location_name1}}, {{Source_work_name1}}, {{IMDb_ID1}}, {{IMDb_person_ID1}}, {{Wikidata_ID1}}, {{Wikidata_property_ID1}}, {{TMDb_ID1}}, {{Criterion_spine_ID1}}, {{List_name1}}, {{Award_name1}}, {{Nomination_name1}}, {{Collection_name1}}, {{Movement_name1}}, {{Group_name1}}, {{Death_name1}}, {{Topic_name1}}, {{Movie_genre1}}, {{Serie_genre1}}, {{Serie_type1}}, {{Status_name1}}, {{Technical_format1}}, {{Department_name1}}, {{Release_year1}}, {{First_air_year1}}, {{Birth_year1}}, {{Death_year1}}.
 These placeholders represent real entity values that were intentionally replaced earlier. **This list is exhaustive.** Entity extraction produces these names and no others, so a name outside this list cannot exist and must never be written.
 
 Rules:
@@ -664,6 +664,56 @@ CREATE TABLE T_WC_T2S_SERIE_LOCATION (
   try to widen a place to its region or its country: the containment is not in the
   database.
 
+### Source works (adaptations, "based on")
+The work a movie or a series is based on (Wikidata "based on", P144) is stored in `T_WC_T2S_SOURCE_WORK`: a novel, a manga, a play, a video game, a tale, or itself a movie or a series (remakes, a series from a film). When the user names a specific source work, use the `SOURCE_WORK_NAME` field (or `SOURCE_WORK_NAME_FR` for a French name) and the `{{Source_work_nameN}}` placeholder when present.
+
+The LEFT side, the work studied, is chosen by the junction table: `T_WC_T2S_MOVIE_SOURCE_WORK` for a movie, `T_WC_T2S_SERIE_SOURCE_WORK` for a series. The RIGHT side, the source, is ALWAYS a row of `T_WC_T2S_SOURCE_WORK`, whatever its kind. One join, always the same; the kind of source is a FILTER on `SOURCE_WORK_TYPE` / `SOURCE_WORK_FORM`, never another table.
+
+CREATE TABLE T_WC_T2S_SOURCE_WORK (
+  ID_SOURCE_WORK INT NOT NULL,
+  ID_WIKIDATA VARCHAR(20),
+  SOURCE_WORK_NAME VARCHAR(250),
+  SOURCE_WORK_NAME_FR VARCHAR(250),
+  OVERVIEW MEDIUMTEXT,
+  SOURCE_WORK_TYPE VARCHAR(20),
+  SOURCE_WORK_FORM VARCHAR(20),
+  SOURCE_WORK_YEAR INT,
+  ID_MOVIE INT,
+  ID_SERIE INT,
+  DELETED INT,
+  MOVIE_COUNT INT,
+  SERIE_COUNT INT,
+  POSTER_PATH VARCHAR(200),
+  WIKIPEDIA_IMAGE_PATH VARCHAR(500),
+  IMDB_RATING DOUBLE,
+  IMDB_RATING_WEIGHTED DOUBLE,
+  POPULARITY DOUBLE
+);
+
+CREATE TABLE T_WC_T2S_MOVIE_SOURCE_WORK (
+  ID_ROW INT NOT NULL,
+  ID_MOVIE INT NOT NULL,
+  ID_SOURCE_WORK INT NOT NULL,
+  DISPLAY_ORDER INT
+);
+
+CREATE TABLE T_WC_T2S_SERIE_SOURCE_WORK (
+  ID_ROW INT NOT NULL,
+  ID_SERIE INT NOT NULL,
+  ID_SOURCE_WORK INT NOT NULL,
+  DISPLAY_ORDER INT
+);
+
+- `SOURCE_WORK_TYPE` says what kind of work the source is, and takes exactly these values: 'literary' (novel, short story, book, book series), 'comic' (comic, manga, graphic novel, webtoon, manhwa, manhua), 'stage' (play, musical, opera, ballet), 'game' (video game, board or card game, role-playing game), 'screen' (a movie or a series), 'folklore' (fairy tale, folk tale, myth), 'other' (a character, a franchise, a person, anything else). "Movies based on a comic" → `SOURCE_WORK_TYPE = 'comic'`; "series based on video games" → `SOURCE_WORK_TYPE = 'game'`; "remakes" or "adapted from a movie" → `SOURCE_WORK_TYPE = 'screen'`.
+- `SOURCE_WORK_FORM` refines the type and is often NULL: 'manga' (type 'comic'), 'light_novel' (type 'literary'), 'play' and 'musical' (type 'stage'; 'musical' covers every stage work with music, opera and ballet included). "Based on a manga" → `SOURCE_WORK_FORM = 'manga'`; "adapted from a musical" / "d'une comédie musicale" → `SOURCE_WORK_FORM = 'musical'`; "based on a play" → `SOURCE_WORK_FORM = 'play'`. A musical SOURCE is not the Music genre of the movie: never answer "adapted from a musical" with a genre filter.
+- When the source is itself a movie or a series of the database, `T_WC_T2S_SOURCE_WORK.ID_MOVIE` or `T_WC_T2S_SOURCE_WORK.ID_SERIE` points to it. Use this hop when the question needs the source's own columns (its rating, its year, its title as a movie): `JOIN T_WC_T2S_MOVIE src ON src.ID_MOVIE = T_WC_T2S_SOURCE_WORK.ID_MOVIE`. "Remakes of `{{Movie_title1}}`" → movies whose source has `ID_MOVIE` = that movie, through `T_WC_T2S_MOVIE_SOURCE_WORK`.
+- Always filter `T_WC_T2S_SOURCE_WORK` on DELETED = 0, for the same reason as locations.
+- "What is `<movie>` based on?", "de quoi est adapté `<movie>`" → `result_entity = source_work`: SELECT from `T_WC_T2S_SOURCE_WORK` through the junction, filtered on the movie. A movie may have several sources (*Scarface* 1983 is based on a novel AND on the 1932 movie): return them all.
+- "Movies based on `{{Source_work_name1}}`", "adaptations of `<work>`" → `result_entity = movie` (or `serie`, or `movie_serie` when the question says movies and series): the source work is a FILTER.
+- "Which work has been adapted the most" → `result_entity = source_work`, `ORDER BY (MOVIE_COUNT + SERIE_COUNT) DESC`.
+- **"Based on a true story", "based on real events", "based on a real person" are NOT source works**: no work is named, they are topics. Keep them on `T_WC_T2S_TOPIC` as before.
+- **Adapted from a PERSON is not a source work either.** "Movies adapted from Stephen King", "adaptations of Tolkien" name a writer: search a Writing credit for that person (see the person rules), not `T_WC_T2S_SOURCE_WORK`. The author of a source work is not in the database yet.
+
 ### Images about entities
 
 CREATE TABLE T_WC_T2S_COMPANY_IMAGE (
@@ -803,6 +853,7 @@ CREATE TABLE T_WC_T2S_SERIE_RECOMMENDATION (
 - SERIE_TITLE is the main title of the tv serie. Always use this field to search for a serie by its title 
 - PERSON_NAME is the name of the person. Always use this field to search for a person by her/his name
 - LOCATION_NAME is the name of a place. Always use this field to search for a location by its name
+- SOURCE_WORK_NAME is the name of the work a movie or a series is based on (a novel, a manga, a play, a game). Always use this field, or SOURCE_WORK_NAME_FR for a French name, to search for a source work by its name
 - LIST_NAME is the main name of a notable curated film list or TV series list. Always use this field to search for a list by its name
 - COLLECTION_NAME is the main name of a trilogy or named series of works. Always use this field to search for a collection by its name
 - MOVEMENT_NAME is the main name of a film movement or style. Always use this field to search for a movement by its name
@@ -1157,6 +1208,9 @@ T_WC_T2S_GENRE.ID_GENRE, T_WC_T2S_GENRE.GENRE_NAME, T_WC_T2S_GENRE.APPLIES_TO_MO
 #### Locations – return:
 ID_LOCATION, LOCATION_NAME, LOCATION_TYPE, LOCATION_SOURCE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING
 
+#### Source works – return:
+ID_SOURCE_WORK, SOURCE_WORK_NAME, SOURCE_WORK_TYPE, SOURCE_WORK_FORM, SOURCE_WORK_YEAR, ID_MOVIE, ID_SERIE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, IMDB_RATING
+
 #### Movie images - return:
 ID_ROW, ID_MOVIE, TYPE_IMAGE, LANG, IMAGE_PATH AS POSTER_PATH, VOTE_AVERAGE
 
@@ -1233,7 +1287,7 @@ The spine number is the position in the publisher's catalogue, and it is carried
 - For a TV serie, there is an additional CREW_DEPARTMENT value, Creator, that must be used when looking for the creator of a series. 
 - There is no Creator credit for a movie. When looking for a creator of a movie, use the Writing department instead.
 - KNOWN_FOR_DEPARTMENT possible values: Acting, Art, Camera, Costume & Make-Up, Crew, Directing, Editing, Lighting, Production, Sound, Visual Effects, Writing
-- When requesting movies or series adapted from the work of a given person, always search for a Writing credit for this person
+- When requesting movies or series adapted from the work of a given person, always search for a Writing credit for this person. This is about a PERSON ("adapted from Stephen King"); a named WORK ("adapted from Dracula", "based on {{Source_work_name1}}") goes through `T_WC_T2S_SOURCE_WORK` instead (see "Source works")
 - When the question contains only the name of a person and eventually his/her known department, this is a person search query and do not use the KNOWN_FOR_DEPARTMENT field to filter the results
 - On the contrary, if the question concerns a person's job, use the KNOWN_FOR_DEPARTMENT field to filter the results
 - The `{{Department_nameN}}` placeholder is **crew-only** — it never carries `Acting` or `Actors`. Cast (acting) credits are never selected via this placeholder; see the actor / cast rule below.
@@ -1341,6 +1395,8 @@ Time-of-day / "watch now" qualifiers — "tonight", "right now", "this evening",
 - Locations → MOVIE_COUNT DESC
 - When display movies for a given location (narrative or filming), ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC
 - When display series for a given location (narrative or filming), ORDER BY T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED DESC
+- Source works → (MOVIE_COUNT + SERIE_COUNT) DESC
+- When display movies or series based on a source work, ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC (T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED DESC for series)
 - Movie images → ORDER BY VOTE_AVERAGE DESC
 - Serie images → ORDER BY VOTE_AVERAGE DESC
 - Company images → ORDER BY VOTE_AVERAGE DESC
@@ -1416,6 +1472,12 @@ Time-of-day / "watch now" qualifiers — "tonight", "right now", "this evening",
 - T_WC_T2S_MOVIE_LOCATION.ID_LOCATION = T_WC_T2S_LOCATION.ID_LOCATION
 - T_WC_T2S_SERIE_LOCATION.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE
 - T_WC_T2S_SERIE_LOCATION.ID_LOCATION = T_WC_T2S_LOCATION.ID_LOCATION
+- T_WC_T2S_MOVIE_SOURCE_WORK.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE
+- T_WC_T2S_MOVIE_SOURCE_WORK.ID_SOURCE_WORK = T_WC_T2S_SOURCE_WORK.ID_SOURCE_WORK
+- T_WC_T2S_SERIE_SOURCE_WORK.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE
+- T_WC_T2S_SERIE_SOURCE_WORK.ID_SOURCE_WORK = T_WC_T2S_SOURCE_WORK.ID_SOURCE_WORK
+- T_WC_T2S_SOURCE_WORK.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE (only when the source is itself a movie; join the movie under another alias, e.g. `src`)
+- T_WC_T2S_SOURCE_WORK.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE (only when the source is itself a series)
 
 ---
 
