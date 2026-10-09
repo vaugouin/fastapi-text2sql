@@ -1291,6 +1291,9 @@ _VISION_IDENTITY_SOURCES = {
 # Beyond this many namesakes the title is a generic word ("Alone", eight films in 2020); the
 # check still runs, on the first rows only. The harvest of 2026-09-30 found no group above 8.
 _VISION_IDENTITY_MAX_CANDIDATES = 20
+# FASTAPI-TEXT2SQL-322. With no year the namesakes are every work with the title: "Les
+# Misérables" is 23 films. The cap is wider there, so a recent film (a high id) is not cut off.
+_VISION_IDENTITY_MAX_CANDIDATES_NO_YEAR = 60
 
 
 def _vision_identity_row(r):
@@ -1303,22 +1306,28 @@ def _vision_identity_row(r):
 def _fetch_vision_identity_candidates(connection, item_type, title, year):
     """Return the works sharing ``title`` and ``year``, each with its makers and cast.
 
+    FASTAPI-TEXT2SQL-322: with no year (the vision model leaves it empty when the poster does not
+    show one), every work with the title is a candidate, up to a wider cap.
+
     Candidate dicts carry ``id``, ``id_imdb``, ``original_title``, ``original_language``,
     ``directors`` (creators for a series) and ``cast`` (billing order). Any failure returns
     ``[]``, which the caller treats as "nothing to decide": the check improves the answer, it
     is never a reason to fail it.
     """
     src = _VISION_IDENTITY_SOURCES.get(item_type)
-    if not src or not str(title or "").strip() or not re.fullmatch(r"\d{4}", str(year or "")):
+    has_year = bool(re.fullmatch(r"\d{4}", str(year or "")))
+    if not src or not str(title or "").strip():
         return []
     title_filter = " OR ".join(f"{c} = %s" for c in src["titles"])
+    year_filter = f" AND {src['year']} = %s" if has_year else ""
+    max_rows = _VISION_IDENTITY_MAX_CANDIDATES if has_year else _VISION_IDENTITY_MAX_CANDIDATES_NO_YEAR
     try:
         with connection.cursor() as cursor:
             cursor.execute(
                 f"SELECT {src['id']} AS ID, ID_IMDB, ORIGINAL_TITLE, ORIGINAL_LANGUAGE "
-                f"FROM {src['table']} WHERE ({title_filter}) AND {src['year']} = %s "
-                f"ORDER BY {src['id']} LIMIT {_VISION_IDENTITY_MAX_CANDIDATES}",
-                tuple([title] * len(src["titles"])) + (int(year),),
+                f"FROM {src['table']} WHERE ({title_filter}){year_filter} "
+                f"ORDER BY {src['id']} LIMIT {max_rows}",
+                tuple([title] * len(src["titles"])) + ((int(year),) if has_year else ()),
             )
             rows = cursor.fetchall() or []
             if len(rows) < 2:
@@ -1384,6 +1393,16 @@ def _apply_vision_credits_check(vision_evidence, result_rows):
             break
     if not movie_ids and not serie_ids:
         vision_evidence["credits_check"] = {"checked": False, "reason": "no work in the result"}
+        return
+    if len(movie_ids) + len(serie_ids) > 1:
+        # FASTAPI-TEXT2SQL-322. The credits are ground truth only for the work the image shows.
+        # With several works in the result (namesakes the identity check could not split), the
+        # first rows are not that work: on 2026-10-09 they were the 2012, 2019, 1998, 1934 and
+        # 1935 "Les Misérables", and the check removed Lindon, Rahim and Cavayé, the very names
+        # that identify the 2026 film. The names are left as read.
+        vision_evidence["credits_check"] = {
+            "checked": False, "reason": "several works in the result",
+            "works": {"movie": movie_ids, "serie": serie_ids}}
         return
     names = []
     try:
@@ -2869,7 +2888,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 connection, _type, _selected.get("value"), _selected.get("year"))
             _disc = vision_identity.discriminators_from_vision(
                 _selected, dctvisionselection.get("people"))
-            _decision = vision_identity.pick_vision_identity(_candidates, _disc)
+            # FASTAPI-TEXT2SQL-322: with no year, a person must back the choice.
+            _decision = vision_identity.pick_vision_identity(
+                _candidates, _disc,
+                require_person_match=not re.fullmatch(r"\d{4}", str(_selected.get("year") or "")))
             dctidentitycheck = {
                 "decision": _decision["decision"],
                 "discriminators": _disc,

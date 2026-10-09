@@ -277,6 +277,35 @@ def check_credits_check():
     return out
 
 
+def check_no_year():
+    """FASTAPI-TEXT2SQL-322: no year read, every namesake is a candidate, a person must decide."""
+    def c(i, lang, directors, cast):
+        return {"id": i, "id_imdb": f"tt{i}", "original_title": "Les Misérables",
+                "original_language": lang, "directors": directors, "cast": cast}
+    mis = [c(1934, "fr", ["Raymond Bernard"], ["Harry Baur"]),
+           c(2012, "en", ["Tom Hooper"], ["Hugh Jackman", "Russell Crowe"]),
+           c(2019, "fr", ["Ladj Ly"], ["Damien Bonnard"]),
+           c(2026, "fr", ["Fred Cavayé"], ["Vincent Lindon", "Tahar Rahim", "Camille Cottin"])]
+    out = []
+    # The reading of 2026-10-09 17:10: title, language, the printed names and the director known.
+    got = vi.pick_vision_identity(mis, disc(
+        faces=["Vincent Lindon", "Tahar Rahim"], directors=["Fred Cavayé"],
+        lead_cast=["Vincent Lindon", "Tahar Rahim", "Camille Cottin"],
+        original_title="Les Misérables", original_language="fr"), require_person_match=True)
+    out.append(("no year: the credits pick the 2026 Les Misérables among four",
+                got["decision"] == "picked" and got["kept"] == [2026], f"{got['decision']} {got['kept']}"))
+    # Language alone singles out the English film, but without a year that is a guess.
+    got = vi.pick_vision_identity(mis, disc(original_title="Les Misérables", original_language="en"),
+                                  require_person_match=True)
+    out.append(("no year: a language-only win is not a pick",
+                got["decision"] == "undecided" and len(got["kept"]) == 4, f"{got['decision']} {got['kept']}"))
+    # The same language-only win still decides when a year was read (the Taxi Driver rule).
+    got = vi.pick_vision_identity(mis, disc(original_title="Les Misérables", original_language="en"))
+    out.append(("with a year: the language rule is unchanged",
+                got["decision"] == "picked" and got["kept"] == [2012], f"{got['decision']} {got['kept']}"))
+    return out
+
+
 def main():
     verbose = "--verbose" in sys.argv
     results = []
@@ -292,7 +321,7 @@ def main():
             results.append((f"{name} (never empty)", False, "kept is empty"))
     results += (check_applies() + check_payload_reading() + check_phrase()
                 + check_composition() + check_normalization()
-                + check_credits_check())
+                + check_credits_check() + check_no_year())
 
     failed = 0
     for name, ok, detail in results:

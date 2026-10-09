@@ -143,7 +143,7 @@ def score_candidate(candidate, disc) -> dict:
     return {"score": score, "matches": matches}
 
 
-def pick_vision_identity(candidates, disc) -> dict:
+def pick_vision_identity(candidates, disc, require_person_match: bool = False) -> dict:
     """Decide which of the rows sharing the identified title and year the image meant.
 
     Returns ``{"decision", "kept", "scores"}``:
@@ -168,6 +168,13 @@ def pick_vision_identity(candidates, disc) -> dict:
     if best <= 0 or ranked[1]["score"] == best:
         return {"decision": "undecided", "kept": ids, "scores": scores}
     winner = next(cid for cid in ids if scores[cid]["score"] == best)
+    # FASTAPI-TEXT2SQL-322. Without a year the namesakes span decades, and the original title
+    # and language are shared by every version made in that language (five French "Les
+    # Misérables"). A win on those alone is a guess, so the winner must also match a person:
+    # a face, a director or a lead actor.
+    if require_person_match and not any(
+            m.split(" ", 1)[0] in ("face", "director", "cast") for m in scores[winner]["matches"]):
+        return {"decision": "undecided", "kept": ids, "scores": scores}
     return {"decision": "picked", "kept": [winner], "scores": scores}
 
 
