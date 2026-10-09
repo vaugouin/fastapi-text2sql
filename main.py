@@ -286,7 +286,10 @@ print("[startup] OpenAI embedding function initialized (text-embedding-3-large).
 
 # Create or load entity collections with the custom embedding function
 _collection_names = [
-    "persons",
+    # "persons" was dropped on 2026-10-09 and the collection deleted: person names resolve with
+    # rapidfuzz on T_WC_T2S_PERSON / T_WC_T2S_PERSON_ALSO_KNOWN_AS (entity_resolution.json), where
+    # "collection": "persons" is only a trace label. Listed here, get_or_create would recreate it
+    # empty on every start.
     "movies",
     "series",
     "companies",
