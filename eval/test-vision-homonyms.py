@@ -236,6 +236,47 @@ def check_normalization():
              f"got {vi.normalize_person_name(a)!r}, expected {b!r}") for a, b in pairs]
 
 
+def check_credits_check():
+    """FASTAPI-TEXT2SQL-321: a name the returned work does not credit leaves the evidence."""
+    out = []
+    ev = {
+        "hints": {"faces": ["Grégory Gadebois, central figure in a long dark coat",
+                            "Tahar Rahim, dark-haired man left of center",
+                            "Other figures in nineteenth-century clothing"]},
+        "candidates": [
+            {"type": "movie", "value": "Les Misérables",
+             "known_credits": {"directors": ["Fred Cavayé"],
+                               "lead_cast": ["Grégory Gadebois", "Tahar Rahim", "Bernard Campan"]}},
+            {"type": "person", "value": "Grégory Gadebois"},
+            {"type": "person", "value": "Tahar Rahim"},
+        ],
+        "people": [{"value": "Grégory Gadebois"}, {"value": "Tahar Rahim"}],
+    }
+    ev["selected"] = ev["candidates"][0]
+    credited = ["Vincent Lindon", "Tahar Rahim", "Noémie Merlant", "Fred Cavayé", "Victor Hugo"]
+    got = vi.apply_credits_check(ev, credited)
+    out.append(("credits check: uncredited face loses its name",
+                got["hints"]["faces"][0] == "unnamed person, central figure in a long dark coat",
+                got["hints"]["faces"][0]))
+    out.append(("credits check: credited face keeps its name",
+                got["hints"]["faces"][1].startswith("Tahar Rahim"), got["hints"]["faces"][1]))
+    out.append(("credits check: a description is not taken for a name",
+                got["hints"]["faces"][2] == "Other figures in nineteenth-century clothing",
+                got["hints"]["faces"][2]))
+    out.append(("credits check: people keeps credited names only",
+                [p["value"] for p in got["people"]] == ["Tahar Rahim"], str(got["people"])))
+    out.append(("credits check: person candidates filtered, work kept",
+                [c["value"] for c in got["candidates"]] == ["Les Misérables", "Tahar Rahim"],
+                str([c["value"] for c in got["candidates"]])))
+    out.append(("credits check: known lead cast filtered",
+                got["selected"]["known_credits"]["lead_cast"] == ["Tahar Rahim"],
+                str(got["selected"]["known_credits"])))
+    out.append(("credits check: removed names recorded",
+                got["credits_check"]["removed"] == ["Grégory Gadebois", "Bernard Campan"],
+                str(got["credits_check"])))
+    return out
+
+
 def main():
     verbose = "--verbose" in sys.argv
     results = []
@@ -250,7 +291,8 @@ def main():
         if cands and not got["kept"]:
             results.append((f"{name} (never empty)", False, "kept is empty"))
     results += (check_applies() + check_payload_reading() + check_phrase()
-                + check_composition() + check_normalization())
+                + check_composition() + check_normalization()
+                + check_credits_check())
 
     failed = 0
     for name, ok, detail in results:

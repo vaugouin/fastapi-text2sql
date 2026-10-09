@@ -211,3 +211,79 @@ def discriminator_phrase(candidate, disc, item_type: str = "movie") -> dict:
         return {"en": f"starring {_join(actors[:2], 'and')}",
                 "fr": f"avec {_join(actors[:2], 'et')}"}
     return {"en": "", "fr": ""}
+
+
+# FASTAPI-TEXT2SQL-321. The vision model puts names on faces, and a name it guesses can be wrong
+# while the work it identifies is right. Measured on 2026-10-09: the Paris metro poster of *Les
+# Misérables* (2026) came back as the right film, with "Grégory Gadebois, central figure in a long
+# dark coat" among the faces and "Bernard Campan" in the lead cast. Neither is credited on the
+# film; Vincent Lindon, whose printed name the photo cut off, plays Valjean. The client repeated
+# the guess as a fact ("with Grégory Gadebois at its centre").
+#
+# Once the result is known, the credits of the returned works are the ground truth: a person
+# named by the vision model survives only if those credits hold the name. The others are moved
+# out of every field the client reads (people, person candidates, known credits, the faces
+# hint) into ``credits_check.removed``, so the trace keeps them and the answer cannot use them.
+_NAME_HEAD = re.compile(r"^[^\W\d_][\w'’.-]*(?:\s+[^\W\d_][\w'’.-]*){1,3}$")
+
+
+def _looks_like_a_name(text) -> bool:
+    """True for "Grégory Gadebois", False for "Other figures in nineteenth-century clothing"."""
+    text = str(text or "").strip()
+    if not _NAME_HEAD.match(text):
+        return False
+    return all(word[:1].isupper() for word in text.split())
+
+
+def apply_credits_check(evidence, credited_names) -> dict:
+    """Drop from ``evidence`` every person name the returned works' credits do not hold.
+
+    ``evidence`` is the ``vision_evidence`` dict, modified in place and returned.
+    ``credited_names`` is every person credited (cast and crew) on the works the search
+    returned. Pure: no database, no model.
+    """
+    if not isinstance(evidence, dict):
+        return evidence
+    held = set(_names(credited_names))
+    confirmed, removed = [], []
+
+    def keep(name) -> bool:
+        text = str(name or "").strip()
+        if not text:
+            return True
+        ok = normalize_person_name(text) in held
+        target = confirmed if ok else removed
+        if text not in target:
+            target.append(text)
+        return ok
+
+    people = evidence.get("people")
+    if isinstance(people, list):
+        evidence["people"] = [p for p in people
+                              if not isinstance(p, dict) or keep(p.get("value"))]
+    for key in ("candidates", "alternatives"):
+        items = evidence.get(key)
+        if isinstance(items, list):
+            evidence[key] = [c for c in items if not isinstance(c, dict)
+                             or str(c.get("type") or "").lower() != "person"
+                             or keep(c.get("value"))]
+    works = [evidence.get("selected")] + list(evidence.get("candidates") or [])
+    for work in works:
+        credits = work.get("known_credits") if isinstance(work, dict) else None
+        if not isinstance(credits, dict):
+            continue
+        for field in ("directors", "lead_cast"):
+            if isinstance(credits.get(field), list):
+                credits[field] = [n for n in credits[field] if keep(n)]
+    hints = evidence.get("hints")
+    if isinstance(hints, dict) and isinstance(hints.get("faces"), list):
+        faces = []
+        for face in hints["faces"]:
+            text = str(face or "")
+            head, sep, rest = text.partition(",")
+            if sep and _looks_like_a_name(head) and not keep(head):
+                text = "unnamed person," + rest
+            faces.append(text)
+        hints["faces"] = faces
+    evidence["credits_check"] = {"checked": True, "confirmed": confirmed, "removed": removed}
+    return evidence

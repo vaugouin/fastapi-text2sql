@@ -191,7 +191,7 @@ def _run_generated_sql(db_connection, sql_text: str):
 
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.20"
+strapiversion = "1.1.19"
 # Convert API version to XXX.YYY.ZZZ format
 strapiversionformatted = format_api_version(strapiversion)
 
@@ -1350,6 +1350,70 @@ def _fetch_vision_identity_candidates(connection, item_type, title, year):
         if name not in cand[key]:
             cand[key].append(name)
     return [by_id[i] for i in ids]
+
+
+# FASTAPI-TEXT2SQL-321. How many returned works feed the credits check: the first rows only,
+# which on a photo are the identified work and, when no candidate dominates, its alternatives.
+_VISION_CREDITS_CHECK_MAX_WORKS = 5
+
+
+def _apply_vision_credits_check(vision_evidence, result_rows):
+    """Remove from ``vision_evidence`` the person names the returned works do not credit.
+
+    The pure decision is ``vision_identity.apply_credits_check``; this fetches its ground truth,
+    every cast and crew name of the works in ``result_rows``. Skipped, with the reason recorded,
+    when the turn was answered from the faces (the people ARE the answer there), when the image
+    has nothing of cinema in it, or when no work came back. Any failure leaves the evidence as it
+    was: the check makes the answer safer, it is never a reason to fail it.
+    """
+    if not isinstance(vision_evidence, dict):
+        return
+    if vision_evidence.get("answered_from_faces") or vision_evidence.get("authoritative_empty"):
+        vision_evidence["credits_check"] = {"checked": False, "reason": "not about a work"}
+        return
+    movie_ids, serie_ids = [], []
+    for row in result_rows or []:
+        data = row.get("data") if isinstance(row, dict) and isinstance(row.get("data"), dict) else row
+        if not isinstance(data, dict):
+            continue
+        if data.get("ID_MOVIE") and data["ID_MOVIE"] not in movie_ids:
+            movie_ids.append(data["ID_MOVIE"])
+        elif data.get("ID_SERIE") and data["ID_SERIE"] not in serie_ids:
+            serie_ids.append(data["ID_SERIE"])
+        if len(movie_ids) + len(serie_ids) >= _VISION_CREDITS_CHECK_MAX_WORKS:
+            break
+    if not movie_ids and not serie_ids:
+        vision_evidence["credits_check"] = {"checked": False, "reason": "no work in the result"}
+        return
+    names = []
+    try:
+        # Every call site runs after the request's connection is closed, so the check opens its
+        # own short-lived one, as the name-ambiguity hydration does (FASTAPI-TEXT2SQL-176).
+        _credits_conn = get_db_connection()
+        try:
+            cursor = _credits_conn.cursor()
+            for table, column, ids in (("T_WC_T2S_PERSON_MOVIE", "ID_MOVIE", movie_ids),
+                                       ("T_WC_T2S_PERSON_SERIE", "ID_SERIE", serie_ids)):
+                if not ids:
+                    continue
+                placeholders = ", ".join(["%s"] * len(ids))
+                cursor.execute(
+                    f"SELECT DISTINCT p.PERSON_NAME FROM {table} pc "
+                    f"JOIN T_WC_T2S_PERSON p ON p.ID_PERSON = pc.ID_PERSON "
+                    f"WHERE pc.{column} IN ({placeholders}) "
+                    f"AND (pc.DELETED IS NULL OR pc.DELETED = 0)",
+                    tuple(ids),
+                )
+                names.extend(r["PERSON_NAME"] for r in (cursor.fetchall() or [])
+                             if r.get("PERSON_NAME"))
+        finally:
+            _credits_conn.close()
+    except Exception as exc:
+        print(f"[vision-credits] credit lookup failed, check skipped: {exc}")
+        vision_evidence["credits_check"] = {"checked": False, "reason": "credit lookup failed"}
+        return
+    vision_identity.apply_credits_check(vision_evidence, names)
+    vision_evidence["credits_check"]["works"] = {"movie": movie_ids, "serie": serie_ids}
 
 
 def _detect_bare_id(question):
@@ -3052,6 +3116,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         fast_path_question_hash = hashlib.sha256(request.question.encode('utf-8')).hexdigest()
         total_processing_time = time.time() - total_start_time
 
+        _apply_vision_credits_check(vision_evidence, fast_path_results)  # -321
         fast_path_response = Text2SQLResponse(
             question=input_text,
             question_hashed=fast_path_question_hash,
@@ -3960,6 +4025,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     # image was ever sent" and hides the cost that was really paid.
                     retry_response.image_ref = strimageref
                     retry_response.vision_evidence = vision_evidence
+                    _apply_vision_credits_check(  # -321: the retry's rows are the result
+                        vision_evidence, retry_response.result)
                     retry_response.vision_model_used = vision_model_used
                     retry_response.vision_identification_processing_time = (
                         getattr(retry_response, "vision_identification_processing_time", 0.0) or 0.0
@@ -5547,6 +5614,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 ))
                 position_counter += 1
 
+    _apply_vision_credits_check(vision_evidence, query_results)  # -321
     response = Text2SQLResponse(
         question=input_text,
         question_hashed=response_question_hash,
