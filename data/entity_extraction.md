@@ -320,7 +320,7 @@ Never extract that year as `Release_yearN`: a release year belongs to a movie.
 - "What is `<movie>` based on?" names the adaptation, not the source: extract `Movie_title` (or `Serie_title`).
 - A KIND of source without a name ("based on a manga", "adapted from a novel", "d'une comédie musicale", "based on video games") is NOT an entity: extract nothing for it, the SQL filters on the source type.
 - A PERSON as the source ("adapted from Stephen King", "adaptations of Tolkien") is `Person_name`, never `Source_work_name`.
-- "Based on a true story", "based on real events" name no work: they are topics, not `Source_work_name`.
+- "Based on a true story", "based on real events" name no work: they are topics, not `Source_work_name`. Extract them as `Topic_name` with the value `true story`, in English, whatever the language of the question ("inspiré d'une histoire vraie", "tiré d'une histoire vraie", "inspiré de faits réels" → `Topic_name1` = `true story`). This is the one exception to "keep the user's wording": the topic is stored only under its English name, and the French words resemble it too little to be matched.
 
 ### Topic_name boundaries
 Do not extract as `Topic_name`:
@@ -405,6 +405,14 @@ Output:
   "question": "{{Topic_name1}} movies",
   "query_mode": "named_entity_query",
   "Topic_name1": "Vietnam war"
+}
+
+Input: `Films inspirés d'une histoire vraie`
+Output:
+{
+  "question": "Films inspirés d'une {{Topic_name1}}",
+  "query_mode": "named_entity_query",
+  "Topic_name1": "true story"
 }
 
 Input: `List war movies`

@@ -23,6 +23,11 @@
 -- first fix had invented ('based on true story'); the stored name is 'true story', the one every
 -- passing EN execution uses. This file frees both rows again, so replay both (2537 as control):
 -- EVAL_IDS=2537,2538 EVAL_LANGUAGE=fr ./text2sql-eval.sh
+--
+-- Third pass, same day (runner with -f): the SQL was right ('true story') but the provenance
+-- guard (entity.find_unbacked_entity_literals) refused a literal found neither in the French
+-- question nor in the extraction. Fix in data/entity_extraction.md: "histoire vraie" is
+-- extracted as Topic_name = 'true story', which backs the literal and resolves exactly.
 -- ============================================================================
 
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
