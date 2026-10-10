@@ -394,6 +394,27 @@
     ]
   },
   {
+    "placeholder_prefix": "Source_work_name",
+    "search_list": [
+      {
+        "search_mode": "embeddings",
+        "strtablename": "T_WC_T2S_SOURCE_WORK",
+        "strtableid": "ID_SOURCE_WORK",
+        "collection": "t2ssourceworks",
+        "default_field": "SOURCE_WORK_NAME",
+        "order_by": null,
+        "languages": {
+          "en": "SOURCE_WORK_NAME",
+          "fr": "SOURCE_WORK_NAME_FR",
+          "*": "SOURCE_WORK_NAME"
+        },
+        "document_name_separator": ": ",
+        "min_fuzz_ratio": 71.8,
+        "rescue_normalizations": ["apostrophes", "accents", "dashes", "punctuation"]
+      }
+    ]
+  },
+  {
     "placeholder_prefix": "Group_name",
     "search_list": [
       {

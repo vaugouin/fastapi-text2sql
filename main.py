@@ -329,6 +329,16 @@ try:
 except Exception as _exc:
     print(f"[startup] ChromaDB collection 't2slocations' unavailable ({_exc}); "
           "location entity resolution will be skipped until process 216 of embedding-update has built it.", flush=True)
+# t2ssourceworks (the works movies and series are based on, process 217 of embedding-update,
+# FASTAPI-TEXT2SQL-320): same rule as t2slocations, get_collection only. While it is missing,
+# {{Source_work_nameN}} falls back to the raw value, as before the collection existed.
+try:
+    CHROMADB_COLLECTIONS_BY_NAME["t2ssourceworks"] = chroma_client.get_collection(
+        name="t2ssourceworks", embedding_function=embedding_function
+    )
+except Exception as _exc:
+    print(f"[startup] ChromaDB collection 't2ssourceworks' unavailable ({_exc}); "
+          "source work entity resolution will be skipped until process 217 of embedding-update has built it.", flush=True)
 print(f"[startup] ChromaDB entity collections ready ({len(CHROMADB_COLLECTIONS_BY_NAME)}) in {time.perf_counter() - _t0:.2f}s.", flush=True)
 
 #Anonymized queries collection
