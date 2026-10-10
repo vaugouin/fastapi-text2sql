@@ -17,7 +17,12 @@
 -- (shared_data/text2sql-eval/evaluation_execution/001.001.019_fr_gpt-6-sol_gpt-6-sol_gpt-4o_re-gpt-6-luna/).
 --
 -- Run: ~/docker/tools/runsqlvaugouindb.sh <this file>
--- Then: EVAL_IDS=2537,2538 RESULT_ENTITY_MODEL=gpt-6-luna EVAL_LANGUAGE=fr ./text2sql-eval.sh
+-- Then: EVAL_IDS=2537,2538 EVAL_LANGUAGE=fr ./text2sql-eval.sh   (result entity defaults to gpt-6-luna)
+--
+-- Second pass, same day (runner with -f): 2537 passed, 2538 failed again on a topic name the
+-- first fix had invented ('based on true story'); the stored name is 'true story', the one every
+-- passing EN execution uses. This file frees both rows again, so replay both (2537 as control):
+-- EVAL_IDS=2537,2538 EVAL_LANGUAGE=fr ./text2sql-eval.sh
 -- ============================================================================
 
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
