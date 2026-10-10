@@ -12,7 +12,7 @@ openai>=1.0.0
 python-dotenv>=1.0.0
 
 # LLM provider SDKs
-anthropic>=0.20.0
+anthropic>=0.125.0,<1  # output_config.effort for the adaptive-thinking Claude models; 1.x is a breaking major, not taken here
 google-genai
 chromadb>=0.4.0
 

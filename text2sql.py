@@ -403,7 +403,9 @@ def _log_anthropic_cache_usage(message, *, model_norm: str, label: str = "text2s
             f"cache_read={cache_read}, hit_ratio={ratio:.1%}, output_tokens={output_tokens}."
         )
         # Anthropic counts thinking inside output_tokens with no separate figure, so reasoning
-        # stays 0 here: unknown, not absent. This pipeline sends no thinking budget anyway.
+        # stays 0 here: unknown, not absent. The cost stays right (thinking bills at the output
+        # rate), only the split is lost, and it is real spending on the models that always think
+        # (see _CLAUDE_EFFORT_MODEL_PREFIXES).
         _record_llm_usage(label, model_norm, prompt_tokens=total, cached_tokens=cache_read,
                           completion_tokens=output_tokens)
     except Exception as cache_log_error:
@@ -563,6 +565,83 @@ def _is_openai_reasoning_model(model_norm: str) -> bool:
     return str(model_norm).strip().lower().startswith(_REASONING_MODEL_PREFIXES)
 
 
+# --- Anthropic adaptive-thinking models -----------------------------------------------
+# The Claude branch of _call_chat_llm was written for the 4.x line, which took temperature=0
+# and answered with a single text block. The current models break both assumptions:
+# Opus 4.7 and later, Sonnet 5.x, Haiku 5.5 and Fable answer 400 to any non-default
+# `temperature`, and from Opus 5 on thinking is always on, so the FIRST content block is a
+# `thinking` block with no `.text`. Reading `message.content[0].text` was a crash on every call.
+# They take `output_config.effort` instead (low / medium / high / xhigh / max, no `none`),
+# and their defaults are not cheap: `high` on Sonnet 5.5, `medium` on Opus 5.5. Unsent, the
+# effort would quietly buy a thinking budget on the two tasks that fire on 100 % of requests.
+# The 4.x models below this list (Sonnet 4.6, Opus 4.6, Haiku 4.5) keep `temperature`, byte
+# for byte; Haiku 4.5 would even reject `effort`.
+_CLAUDE_EFFORT_MODEL_PREFIXES = (
+    "claude-opus-5", "claude-sonnet-5", "claude-haiku-5",
+    "claude-fable-", "claude-mythos-",
+    "claude-opus-4-7", "claude-opus-4-8",
+)
+
+# Same tiers as _DEFAULT_EFFORT_TIER, in Anthropic's vocabulary. Its floor is `low`.
+_CLAUDE_EFFORT_BY_TIER = {"cheapest": "low", "medium": "medium"}
+_CLAUDE_EFFORT_VALUES = ("low", "medium", "high", "xhigh", "max")
+
+# Thinking is billed inside `max_tokens`, so the 4,096 that fitted a bare SQL answer could cut
+# an answer short once the model thinks first. 16,000 is the ceiling a non-streaming call can
+# take without running into the SDK's HTTP timeout.
+_CLAUDE_MAX_TOKENS = 16000
+
+
+def _is_claude_effort_model(model_norm: str) -> bool:
+    """True when the Claude model rejects `temperature` and takes `output_config.effort`."""
+    return str(model_norm).strip().lower().startswith(_CLAUDE_EFFORT_MODEL_PREFIXES)
+
+
+def _anthropic_sampling_kwargs(model_norm: str, temperature: float, cache_label: str,
+                               reasoning_effort: Optional[str] = None) -> dict:
+    """Build the sampling half of an Anthropic call, per model generation.
+
+    An explicit `reasoning_effort` is honoured only when it is an Anthropic value: callers
+    speak OpenAI's vocabulary, and "none" or "minimal" would be a 400 here, so anything
+    else falls back to the per-task tier.
+    """
+    if not _is_claude_effort_model(model_norm):
+        return {"temperature": temperature}
+    effort = str(reasoning_effort or "").strip().lower()
+    if effort == "default":
+        return {}
+    if effort not in _CLAUDE_EFFORT_VALUES:
+        tier = _DEFAULT_EFFORT_TIER.get(cache_label, "cheapest")
+        effort = _CLAUDE_EFFORT_BY_TIER.get(tier) or _CLAUDE_EFFORT_BY_TIER["cheapest"]
+    return {"output_config": {"effort": effort}}
+
+
+def _anthropic_text(message, *, model_norm: str, label: str) -> str:
+    """Return the answer text of a Messages API response, or raise on a non-answer.
+
+    Joins every `text` block and skips the `thinking` ones. A refusal comes back as HTTP 200
+    with `stop_reason == "refusal"`, and a cut-off answer with `stop_reason == "max_tokens"`;
+    both raise, so the evaluator records a failure with its cause instead of parsing a
+    fragment. No server-side fallback to another model on purpose: in an evaluation campaign
+    the row would be scored under a model that did not answer it.
+    """
+    stop_reason = getattr(message, "stop_reason", None)
+    if stop_reason == "refusal":
+        details = getattr(message, "stop_details", None)
+        category = getattr(details, "category", None) if details is not None else None
+        raise RuntimeError(f"Anthropic refusal ({label}, {model_norm}): category={category}")
+    text = "".join(
+        getattr(block, "text", "") or ""
+        for block in (getattr(message, "content", None) or [])
+        if getattr(block, "type", None) == "text"
+    )
+    if stop_reason == "max_tokens":
+        raise RuntimeError(f"Anthropic response truncated at max_tokens ({label}, {model_norm})")
+    if not text:
+        raise RuntimeError(f"No text in Anthropic API response ({label}, {model_norm})")
+    return text
+
+
 def _uses_openai_responses_api(model_norm: str) -> bool:
     """True when this reasoning model is served through `responses.create`.
 
@@ -705,13 +784,13 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
         client = anthropic_sdk.Anthropic(api_key=anthropic_api_key)
         message = client.messages.create(
             model=model_norm,
-            max_tokens=4096,
+            max_tokens=_CLAUDE_MAX_TOKENS,
             system=system_prompt,
             messages=[{"role": "user", "content": _build_anthropic_user_content(user_prompt)}],
-            temperature=temperature,
+            **_anthropic_sampling_kwargs(model_norm, temperature, cache_label, reasoning_effort),
         )
         _log_anthropic_cache_usage(message, model_norm=model_norm, label=cache_label)
-        return message.content[0].text
+        return _anthropic_text(message, model_norm=model_norm, label=cache_label)
 
     if model_norm.startswith("gemini-") or model_norm.startswith("gemma-4-"):
         if genai is None:
