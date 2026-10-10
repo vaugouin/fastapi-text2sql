@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (1628116, 1381071, 848700, 891621, 1154730, 1288069, 1195803, 947493)"
+    "query_result": "ID_MOVIE IN (1628116, 1381071, 891621, 848700, 1585239, 1286656, 1154730, 1195803)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.STATUS = &#039;Released&#039; AND T_WC_T2S_MOVIE.DAT_RELEASE BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC LIMIT 8",
-  "assertion_refresh_last": "2026-10-04T02:31:58",
+  "assertion_refresh_last": "2026-10-10T02:37:24",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

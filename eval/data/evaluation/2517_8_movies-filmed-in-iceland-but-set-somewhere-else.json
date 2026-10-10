@@ -10,7 +10,7 @@
     "query_result": "ID_MOVIE IN (157336, 935, 272, 791373, 271110, 1251, 140607, 54138, 18, 2270, 116745, 1563, 493529, 62204, 3683)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_MOVIE_LOCATION filming_link ON filming_link.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE JOIN T_WC_T2S_LOCATION filming_location ON filming_location.ID_LOCATION = filming_link.ID_LOCATION WHERE filming_location.LOCATION_NAME = &#039;Iceland&#039; AND filming_location.DELETED = 0 AND filming_link.LOCATION_ROLE = &#039;filming&#039; AND EXISTS (SELECT 1 FROM T_WC_T2S_MOVIE_LOCATION narrative_link JOIN T_WC_T2S_LOCATION narrative_location ON narrative_location.ID_LOCATION = narrative_link.ID_LOCATION WHERE narrative_link.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE AND narrative_link.LOCATION_ROLE = &#039;narrative&#039; AND narrative_location.DELETED = 0 AND narrative_location.ID_LOCATION != filming_location.ID_LOCATION) ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC LIMIT 15;",
-  "assertion_refresh_last": "2026-10-04T02:32:07",
+  "assertion_refresh_last": "2026-10-10T02:37:31",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

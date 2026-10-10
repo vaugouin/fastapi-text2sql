@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_TOPIC IN (32957, 32954, 25027, 24751, 25928, 32914, 29790, 29056)"
+    "query_result": "ID_TOPIC IN (32954, 24751, 25027, 29808, 25928, 32914, 32957, 29790)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT ID_TOPIC FROM T_WC_T2S_TOPIC ORDER BY POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-10-04T02:32:19",
+  "assertion_refresh_last": "2026-10-10T02:37:43",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

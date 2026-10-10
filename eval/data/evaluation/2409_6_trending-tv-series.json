@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_SERIE IN (91759, 22980, 59941, 63770, 108978, 2261, 549, 70998)"
+    "query_result": "ID_SERIE IN (91759, 22980, 2261, 70998, 51025, 108978, 59941, 2734)"
   },
   "assertion_refresh_sql": "SELECT T_WC_T2S_SERIE.ID_SERIE FROM T_WC_T2S_SERIE ORDER BY T_WC_T2S_SERIE.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-10-04T02:32:05",
+  "assertion_refresh_last": "2026-10-10T02:37:29",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

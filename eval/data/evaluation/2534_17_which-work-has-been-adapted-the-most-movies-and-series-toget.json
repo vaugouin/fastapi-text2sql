@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2534,
+  "evaluation_category_id": 17,
+  "question_en": "Which work has been adapted the most, movies and series together?",
+  "question_fr": "Quelle œuvre a été la plus adaptée, films et séries confondus ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": "(?i)T_WC_T2S_SOURCE_WORK",
+    "query_result": "COUNT(*) &gt; 0"
+  },
+  "assertion_refresh_sql": "SELECT ID_SOURCE_WORK FROM T_WC_T2S_SOURCE_WORK WHERE DELETED = 0 ORDER BY MOVIE_COUNT + SERIE_COUNT DESC, ID_SOURCE_WORK ASC LIMIT 1",
+  "assertion_refresh_last": null,
+  "comment": "Novels, movies and plays ranked on one scale: only possible because every source sits in one table. The most adapted work moves with the data, hence the refresh SQL.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-10-10",
+  "tim_updated": "2026-10-10T05:08:46",
+  "is_showcase": 0,
+  "deleted": 0,
+  "id_creator": null,
+  "id_owner": null,
+  "id_user_updated": null,
+  "resolution_mode": null
+}

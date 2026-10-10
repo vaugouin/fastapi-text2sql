@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2526,
+  "evaluation_category_id": 4,
+  "question_en": "Which movies did हयाओ मियाज़ाकी direct?",
+  "question_fr": "Quels films हयाओ मियाजाकी a-t-il réalisés ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": "(?i)(Hayao Miyazaki|ID_PERSON ?= ?608)",
+    "query_result": "COUNT(*) &gt; 0 AND ID_MOVIE IN (129, 128)"
+  },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
+  "comment": "Hayao Miyazaki in Devanagari, near spelling: the stored alias without the nukta under ja. Before TMDB-PERSON-PREPROCESS-008 the vowel signs of the abugidas turned into spaces in the normalized alias keys, so a near spelling was scored syllable by syllable. On 2026-10-05, after the fix, it resolves through T_WC_T2S_PERSON_ALSO_KNOWN_AS at fuzz_ratio 96.3 (threshold 87.8). The name is the same in both languages on purpose, it must not be translated.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-10-05",
+  "tim_updated": "2026-10-05T17:15:48",
+  "is_showcase": 0,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
+}

@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": null,
-    "query_result": "ID_SERIE IN (251483, 87471, 116865, 13819, 217772, 456, 56389, 336584, 4231, 315842, 2190, 57480, 34860, 307991, 5811)"
+    "query_result": "ID_SERIE IN (251483, 87471, 116865, 13819, 217772, 56389, 456, 336584, 4231, 315842, 2190, 34860, 57480, 5811, 57911)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_SERIE.ID_SERIE FROM T_WC_T2S_SERIE JOIN T_WC_T2S_SERIE_GENRE ON T_WC_T2S_SERIE.ID_SERIE = T_WC_T2S_SERIE_GENRE.ID_SERIE WHERE T_WC_T2S_SERIE_GENRE.ID_GENRE = 16 ORDER BY T_WC_T2S_SERIE.NUMBER_OF_SEASONS DESC LIMIT 15",
-  "assertion_refresh_last": "2026-10-04T02:32:06",
+  "assertion_refresh_last": "2026-10-10T02:37:31",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

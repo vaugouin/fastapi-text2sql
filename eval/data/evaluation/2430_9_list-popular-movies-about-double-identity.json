@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": "seteq(entity_keys($), [&quot;Topic_name1&quot;])",
     "sql_query": null,
-    "query_result": "ID_MOVIE IN (539, 848538, 239, 1584215, 181886, 48769, 11761, 62790)"
+    "query_result": "ID_MOVIE IN (539, 848538, 1584215, 239, 181886, 48769, 11761, 62790)"
   },
   "assertion_refresh_sql": "SELECT DISTINCT m.ID_MOVIE FROM T_WC_T2S_MOVIE m JOIN T_WC_T2S_MOVIE_TOPIC mt ON mt.ID_MOVIE = m.ID_MOVIE JOIN T_WC_T2S_TOPIC t ON t.ID_TOPIC = mt.ID_TOPIC WHERE t.TOPIC_NAME = &#039;double identity&#039; ORDER BY m.POPULARITY DESC LIMIT 8",
-  "assertion_refresh_last": "2026-10-04T02:32:17",
+  "assertion_refresh_last": "2026-10-10T02:37:41",
   "comment": null,
   "keywords": null,
   "keywords_auto": null,

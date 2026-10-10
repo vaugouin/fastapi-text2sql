@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2530,
+  "evaluation_category_id": 2,
+  "question_en": "Which movies are remakes of Scarface (1932)?",
+  "question_fr": "Quels films sont des remakes de Scarface (1932) ?",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": "(?i)T_WC_T2S_MOVIE_SOURCE_WORK",
+    "query_result": "COUNT(*) &gt; 0 AND ID_MOVIE IN (111)"
+  },
+  "assertion_refresh_sql": null,
+  "assertion_refresh_last": null,
+  "comment": "A remake is a movie whose source is a movie: the source-work row of the 1932 film carries its ID_MOVIE, and the 1983 film must come out through that hop, not through a title match.",
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-10-10",
+  "tim_updated": "2026-10-10T05:08:46",
+  "is_showcase": 0,
+  "deleted": 0,
+  "id_creator": null,
+  "id_owner": null,
+  "id_user_updated": null,
+  "resolution_mode": null
+}

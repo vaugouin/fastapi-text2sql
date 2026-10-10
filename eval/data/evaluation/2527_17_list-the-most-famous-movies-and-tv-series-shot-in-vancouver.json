@@ -1,0 +1,28 @@
+{
+  "evaluation_id": 2527,
+  "evaluation_category_id": 17,
+  "question_en": "list the most famous movies and TV series shot in Vancouver",
+  "question_fr": "liste les films et séries télévisées The Most Famous tournés à Vancouver",
+  "translation_note": "Each evaluation carries an English (`question_en`) and a French (`question_fr`) form. One side is the original input typed by the user; the other is automatically translated by gpt-4o (gpt-6-sol since 2026-10-01) through Phase 5 (EN→FR) or Phase 6 (FR→EN) of the evaluator. Translations are generally high-quality but may differ in wording from a natively-typed equivalent — keep this in mind when comparing API outputs across languages.",
+  "assertions": {
+    "entity_extraction": null,
+    "sql_query": null,
+    "query_result": "ID_MOVIE IN (597, 293660, 49521, 383498, 2048, 36658, 13183, 61791, 36668, 2080, 7326, 56292, 1954, 119450, 22970)"
+  },
+  "assertion_refresh_sql": "SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE AS ID_CONTENT, &#039;movie&#039; AS CONTENT_TYPE, T_WC_T2S_MOVIE.MOVIE_TITLE AS CONTENT_TITLE, T_WC_T2S_MOVIE.DAT_RELEASE AS DAT_FIRST_AIR, T_WC_T2S_MOVIE.DAT_RELEASE AS DAT_LAST_AIR, T_WC_T2S_MOVIE.ID_IMDB, T_WC_T2S_MOVIE.IMDB_RATING, T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED, T_WC_T2S_MOVIE.IMDB_VOTES, T_WC_T2S_MOVIE.POSTER_PATH, T_WC_T2S_MOVIE.RUNTIME, T_WC_T2S_MOVIE.TAGLINE, NULL AS NUMBER_OF_SEASONS, NULL AS NUMBER_OF_EPISODES, T_WC_T2S_MOVIE.ID_CRITERION_SPINE FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_MOVIE_LOCATION ON T_WC_T2S_MOVIE_LOCATION.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE JOIN T_WC_T2S_LOCATION ON T_WC_T2S_LOCATION.ID_LOCATION = T_WC_T2S_MOVIE_LOCATION.ID_LOCATION WHERE T_WC_T2S_LOCATION.LOCATION_NAME = &#039;Vancouver&#039; AND T_WC_T2S_LOCATION.DELETED = 0 AND T_WC_T2S_MOVIE_LOCATION.LOCATION_ROLE = &#039;filming&#039; UNION SELECT DISTINCT T_WC_T2S_SERIE.ID_SERIE AS ID_CONTENT, &#039;serie&#039; AS CONTENT_TYPE, T_WC_T2S_SERIE.SERIE_TITLE AS CONTENT_TITLE, T_WC_T2S_SERIE.DAT_FIRST_AIR, T_WC_T2S_SERIE.DAT_LAST_AIR, T_WC_T2S_SERIE.ID_IMDB, T_WC_T2S_SERIE.IMDB_RATING, T_WC_T2S_SERIE.IMDB_RATING_WEIGHTED, T_WC_T2S_SERIE.IMDB_VOTES, T_WC_T2S_SERIE.POSTER_PATH, NULL AS RUNTIME, T_WC_T2S_SERIE.TAGLINE, T_WC_T2S_SERIE.NUMBER_OF_SEASONS, T_WC_T2S_SERIE.NUMBER_OF_EPISODES, T_WC_T2S_SERIE.ID_CRITERION_SPINE FROM T_WC_T2S_SERIE JOIN T_WC_T2S_SERIE_LOCATION ON T_WC_T2S_SERIE_LOCATION.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE JOIN T_WC_T2S_LOCATION ON T_WC_T2S_LOCATION.ID_LOCATION = T_WC_T2S_SERIE_LOCATION.ID_LOCATION WHERE T_WC_T2S_LOCATION.LOCATION_NAME = &#039;Vancouver&#039; AND T_WC_T2S_LOCATION.DELETED = 0 AND T_WC_T2S_SERIE_LOCATION.LOCATION_ROLE = &#039;filming&#039; ORDER BY IMDB_VOTES DESC LIMIT 15",
+  "assertion_refresh_last": "2026-10-10T02:37:19",
+  "comment": null,
+  "keywords": null,
+  "keywords_auto": null,
+  "is_eval": 1,
+  "is_sample": 1,
+  "display_order": null,
+  "dat_creat": "2026-10-06",
+  "tim_updated": "2026-10-10T11:14:31",
+  "is_showcase": 1,
+  "deleted": 0,
+  "id_creator": 1,
+  "id_owner": 1,
+  "id_user_updated": 1,
+  "resolution_mode": "standard"
+}
