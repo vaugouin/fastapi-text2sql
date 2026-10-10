@@ -1,0 +1,42 @@
+-- new-evaluations-based-on.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-10-10 05:08:46
+--
++----------------+-------------------+------------------+------------------+----------+
+| ID_SOURCE_WORK | SOURCE_WORK_NAME  | SOURCE_WORK_TYPE | SOURCE_WORK_YEAR | ID_MOVIE |
++----------------+-------------------+------------------+------------------+----------+
+|           3909 | Heart of Darkness | literary         |             1899 |     NULL |
+|           7931 | Scarface          | literary         |             1930 |     NULL |
+|          11891 | Scarface          | screen           |             1932 |      877 |
++----------------+-------------------+------------------+------------------+----------+
++----------+----------------+--------------+
+| ID_MOVIE | MOVIE_TITLE    | RELEASE_YEAR |
++----------+----------------+--------------+
+|       28 | Apocalypse Now |         1979 |
+|      111 | Scarface       |         1983 |
+|      680 | Pulp Fiction   |         1994 |
+|      877 | Scarface       |         1932 |
++----------+----------------+--------------+
++----------+-------------+
+| ID_SERIE | SERIE_TITLE |
++----------+-------------+
+|    60622 | Fargo       |
++----------+-------------+
++----------+---------------------+
+| ID_TOPIC | TOPIC_NAME          |
++----------+---------------------+
+|    18014 | based on true story |
++----------+---------------------+
++-------------------+------+-------------------------------------------------------------------------+
+| ID_T2S_EVALUATION | CAT  | QUESTION                                                                |
++-------------------+------+-------------------------------------------------------------------------+
+|              2530 |    2 | Which movies are remakes of Scarface (1932)?                            |
+|              2531 |    2 | What is Scarface (1983) based on?                                       |
+|              2532 |    6 | Which TV series are adapted from a movie?                               |
+|              2533 |   12 | Which movies adapted from a TV series are rated higher than the series? |
+|              2534 |   17 | Which work has been adapted the most, movies and series together?       |
+|              2535 |   17 | Movies and TV series based on video games                               |
+|              2536 |    4 | Movies adapted from a musical                                           |
+|              2537 |    4 | Which movies are adapted from Heart of Darkness?                        |
+|              2538 |    9 | Movies based on a true story                                            |
+|              2539 |    2 | What is Pulp Fiction based on?                                          |
++-------------------+------+-------------------------------------------------------------------------+
