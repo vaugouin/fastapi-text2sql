@@ -1386,6 +1386,18 @@ def _fetch_vision_identity_candidates(connection, item_type, title, year):
 _VISION_CREDITS_CHECK_MAX_WORKS = 5
 
 
+def _vision_payload_copy(payload):
+    """A detached, JSON-safe copy of the vision model's payload, for `vision_evidence`.
+
+    Detached because the payload is also the row written to the recognition cache and is
+    read again further down; the response must not share its lists with it.
+    """
+    try:
+        return json.loads(json.dumps(payload, ensure_ascii=False, default=str))
+    except Exception:
+        return {"unserializable": str(payload)}
+
+
 def _apply_vision_credits_check(vision_evidence, result_rows):
     """Remove from ``vision_evidence`` the person names the returned works do not credit.
 
@@ -2845,6 +2857,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     text=f"Vision: identification failed ({dctvision.get('error')})."
                 ))
                 position_counter += 1
+                # A failed read still says what the model wrote (`raw_content` when its JSON
+                # was truncated or broken), so the response shows why, not only that.
+                vision_evidence = {
+                    "image_ref": strimageref,
+                    "user_question": strvisionquestion,
+                    "cached": False,
+                    "raw_identification": _vision_payload_copy(dctvision),
+                }
                 return _vision_short_circuit_response(
                     answer_text=("La reconnaissance de l'image a échoué."
                                  if request.ui_language == "fr"
@@ -2972,6 +2992,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 "dominant": t2s.VISION_CONFIDENCE_DOMINANT,
                 "margin": t2s.VISION_CONFIDENCE_MARGIN,
             },
+            # Everything the vision model returned, untouched. The fields above are the
+            # normalized reading: items capped per kind, unknown types turned into "other",
+            # malformed years blanked, `known_credits` dropped outside movie/serie, and
+            # `image_answer` absent. This copy is what lets a reader check the normalization.
+            "raw_identification": _vision_payload_copy(dctvision),
         }
 
         if dctvisionselection["ranked"]:

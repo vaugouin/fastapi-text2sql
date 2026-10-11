@@ -207,6 +207,8 @@ its own table `T_WC_T2S_VISION_CACHE`.
 - `detect_person_role_collapse(sql_query, result_entity)` : true when a person-listing query pins the `ID_PERSON` it projects to a person named in the question, a shape that can only ever return that named person (FASTAPI-TEXT2SQL-211).
 - It exists as its own module so the runtime guard in `main.py` and the measurement in `analyze-complex-retry-logs.py` share the **exact same predicate**. A guard measured with a rule other than the one it runs is a number about nothing; do not fork the logic back into either caller.
 
+**[analyze-usage-logs.py](analyze-usage-logs.py)** : the replayable measurements of the HARNESS-BRICKS backlog topic, read from the usage logs and the evaluation exports, written as two dated HTML pages. See *Replaying the usage measurements*.
+
 **[cleanup.py](cleanup.py)** — version-scoped purge utilities (off by default; see `intcleanupenabled` at [main.py:70-71](main.py#L70-L71)).
 
 **[auth.py](auth.py)** — `get_api_key()` Security dependency. Multi-key via `API_KEYS` (comma-separated); `secrets.compare_digest()` for constant-time comparison.
@@ -1177,6 +1179,22 @@ entity endpoints, through `jsonable_encoder`, emitted a number. Both now emit a 
 `round_tree`, and any other script that execs the model block needs the same two names.
 
 ---
+
+## Replaying the usage measurements: `analyze-usage-logs.py`
+
+The HARNESS-BRICKS tickets (Nestor, `projets/t2s-backlog/topics/harness-bricks.md`) were first measured on 2026-10-10 by throwaway scripts. This script is those scripts kept, so the figures can be rebuilt after any deployment or campaign. It reads, never writes, and touches no database.
+
+```bash
+uv run analyze-usage-logs.py                     # defaults below, from the repo root, PC or VPS clone
+uv run analyze-usage-logs.py --since 20261001    # only the recent logs
+uv run analyze-usage-logs.py --eval-version 001.001.018
+```
+
+- **Inputs.** `../shared_data/fastapi-text2sql/logs` (loose files plus `archive/*.tar.gz`, deduplicated by file name because the month being archived sits in both) and `../shared_data/text2sql-eval/evaluation_execution` (one folder per run, latest execution kept per evaluation). The same relative layout holds on the PC and in `~/docker/fastapi-text2sql-<colour>`.
+- **Outputs**, in `../shared_data/fastapi-text2sql/reports/` by default: `api-usage-YYYYMMDD.html` (caches -003/-004a, `answer_single_value` -010, SQL execution feedback and escalation outputs -009, answer-entity guard -008, retry cache guards -011, failures by cause -001) and `vision-evidence-YYYYMMDD.html` (what the vision model read, the candidates, the identity and credits checks, field coverage of `vision_evidence`, the last 60 image requests with thumbnails from `uploads/vision/` while the deposit lasts). Inline CSS, no script, in the style of data-monitoring.
+- **Campaign versus production** is `retrieve_from_cache`: the evaluator sends `false`, the clients `true`. A test typed by hand in a front counts as production; nothing in a log can tell it apart.
+- **Message prefixes are the contract.** The guard, `answer_single_value` and escalation counts match the start of messages written by `main.py` (`Answer-entity guard: ...`, `SQL query returned a single-cell result with value 0`, `Complex question resolution output: `). Rewording one of those messages silently zeroes its section: grep the script before changing the text.
+- **`raw_identification`** only appears in logs written by an API that carries the patch. Until then the vision page says so, and its normalization-loss table stays empty.
 
 ## Run pyflakes before committing Python, and read the "undefined name" lines
 
