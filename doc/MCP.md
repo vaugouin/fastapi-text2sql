@@ -428,8 +428,8 @@ Each entity endpoint returns all properties for a given entity ID, including emb
 
 | Endpoint | Returns |
 |---|---|
-| `GET /movies/{id}` | All movie fields + cast, crew, genres, companies, topics, collections, movements, based_on (source works, each with ID_SOURCE_WORK), technicals, awards, nominations |
-| `GET /series/{id}` | All series fields + cast, crew, genres, companies, networks, topics, collections, movements, based_on, awards, nominations |
+| `GET /movies/{id}` | All movie fields + cast, crew, genres, companies, topics, collections, movements, based_on (source works, each with ID_SOURCE_WORK), locations (each with ID_LOCATION and LOCATION_ROLE 'narrative' / 'filming', narrative first), technicals, awards, nominations |
+| `GET /series/{id}` | All series fields + cast, crew, genres, companies, networks, topics, collections, movements, based_on, locations (each with ID_LOCATION and LOCATION_ROLE, narrative first), awards, nominations |
 | `GET /persons/{id}` | All person fields + movie_cast, movie_crew, series_cast, series_crew, groups, deaths, awards, nominations |
 | `GET /collections/{id}` | Collection fields + member movies and series ordered by position |
 | `GET /topics/{id}` | Topic fields + linked movies and series ordered by position |

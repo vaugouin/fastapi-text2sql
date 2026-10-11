@@ -1,0 +1,81 @@
+-- rerun-324.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-10-11 12:39:58
+--
++------------------------------------------------------------+
+| SECTION                                                    |
++------------------------------------------------------------+
+| B0. Before: executions of evals 2530 to 2539 on API 1.1.19 |
++------------------------------------------------------------+
++-------------------+------+-------------------------+-----------------+---------------+---------------------+---------+------------------------+--------------------+-------------------------+
+| ID_T2S_EVALUATION | LANG | ENTITY_EXTRACTION_MODEL | TEXT2SQL_MODEL  | COMPLEX_MODEL | RESULT_ENTITY_MODEL | DELETED | ASSERTIONS_TOTAL_SCORE | COMPLEX_MODEL_USED | FIRST_PASS_FAILURE_CODE |
++-------------------+------+-------------------------+-----------------+---------------+---------------------+---------+------------------------+--------------------+-------------------------+
+|              2530 | en   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2530 | en   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2530 | fr   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2530 | fr   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2531 | en   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2531 | en   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2531 | fr   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2531 | fr   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2532 | en   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2532 | en   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2532 | fr   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2532 | fr   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2533 | en   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2533 | en   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2533 | fr   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2533 | fr   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2534 | en   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2534 | en   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2534 | fr   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2534 | fr   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2535 | en   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2535 | en   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2535 | fr   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2535 | fr   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2536 | en   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2536 | en   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2536 | fr   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2536 | fr   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2537 | en   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2537 | en   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2537 | fr   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2537 | fr   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2538 | en   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2538 | en   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2538 | fr   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      0 |                  1 | NULL                    |
+|              2538 | fr   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2539 | en   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2539 | en   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2539 | fr   | claude-opus-5-5         | claude-opus-5-5 | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
+|              2539 | fr   | gpt-6-sol               | gpt-6-sol       | gpt-4o        | gpt-6-luna          |       0 |                      1 |                  0 | NULL                    |
++-------------------+------+-------------------------+-----------------+---------------+---------------------+---------+------------------------+--------------------+-------------------------+
++-----------------------------------------+
+| SECTION                                 |
++-----------------------------------------+
+| A0. After: the rows freed for the rerun |
++-----------------------------------------+
++-------------------+------+---------+------------+
+| ID_T2S_EVALUATION | LANG | DELETED | ROWS_COUNT |
++-------------------+------+---------+------------+
+|              2530 | en   |       1 |          1 |
+|              2530 | fr   |       1 |          1 |
+|              2531 | en   |       1 |          1 |
+|              2531 | fr   |       1 |          1 |
+|              2532 | en   |       1 |          1 |
+|              2532 | fr   |       1 |          1 |
+|              2533 | en   |       1 |          1 |
+|              2533 | fr   |       1 |          1 |
+|              2534 | en   |       1 |          1 |
+|              2534 | fr   |       1 |          1 |
+|              2535 | en   |       1 |          1 |
+|              2535 | fr   |       1 |          1 |
+|              2536 | en   |       1 |          1 |
+|              2536 | fr   |       1 |          1 |
+|              2537 | en   |       1 |          1 |
+|              2537 | fr   |       1 |          1 |
+|              2538 | en   |       1 |          1 |
+|              2538 | fr   |       1 |          1 |
+|              2539 | en   |       1 |          1 |
+|              2539 | fr   |       1 |          1 |
++-------------------+------+---------+------------+

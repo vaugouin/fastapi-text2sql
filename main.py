@@ -6253,7 +6253,8 @@ def _collection_context(cursor, entity_type, entity_id, ui_language="en"):
 async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a movie plus embedded relations: genres, production
     companies, production countries, spoken languages, topics, lists, collections,
-    movements, technicals, awards, nominations, cast, and crew. The id is the TMDb
+    movements, technicals, awards, nominations, the works it is based on (based_on),
+    its narrative and filming locations (locations), cast, and crew. The id is the TMDb
     movie ID (ID_MOVIE).
 
     similar and recommendations are the grounded TMDb neighbour movies (from
@@ -6294,6 +6295,15 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
     genres is a list of objects (not bare ids): each carries ID_GENRE and GENRE_NAME
     (localized to ui_language via T_WC_T2S_GENRE_LANG, English fallback), ordered by
     English name; ID_GENRE links to GET /genres/{ID_GENRE}.
+
+    locations (FASTAPI-TEXT2SQL-329) lists the places linked to this movie, the reverse
+    of GET /locations/{id}: each element carries ID_LOCATION (links to GET
+    /locations/{ID_LOCATION}), LOCATION_NAME (localized to ui_language), LOCATION_TYPE,
+    POSTER_PATH, WIKIPEDIA_IMAGE_PATH, WIKIPEDIA_MAIN_IMAGE_URL (localized to ui_language),
+    LOCATION_ROLE ('narrative': the story is set there; 'filming': it was shot there) and
+    DISPLAY_ORDER (junction row). Ordered narrative first, then filming, then
+    DISPLAY_ORDER, then name. A place can appear twice, once per role. Tombstoned
+    (DELETED) places are left out.
 
     The posters and backdrops lists each contain every image of the matching type
     available for this movie from T_WC_T2S_MOVIE_IMAGE (TYPE_IMAGE = 'poster' for
@@ -6405,6 +6415,20 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
                 FROM T_WC_T2S_MOVIE_SOURCE_WORK ms
                 JOIN T_WC_T2S_SOURCE_WORK sw ON ms.ID_SOURCE_WORK = sw.ID_SOURCE_WORK AND sw.DELETED = 0
                 WHERE ms.ID_MOVIE = %s ORDER BY sw.SOURCE_WORK_YEAR ASC, sw.ID_SOURCE_WORK ASC
+            """, (id,), None),
+            # Locations (FASTAPI-TEXT2SQL-329): where the story is set ('narrative') and where it
+            # was shot ('filming'), the reverse of /locations/{id}. Narrative first, then filming,
+            # then the junction DISPLAY_ORDER, then name. A tombstoned place (DELETED, see
+            # /locations/{id}) is left out, as is a junction row flagged DELETED.
+            "locations": ("""
+                SELECT l.ID_LOCATION, l.LOCATION_NAME, l.LOCATION_NAME_FR, l.LOCATION_TYPE,
+                       l.POSTER_PATH, l.WIKIPEDIA_IMAGE_PATH, l.WIKIPEDIA_MAIN_IMAGE_URL, l.WIKIPEDIA_MAIN_IMAGE_URL_FR,
+                       ml.LOCATION_ROLE, ml.DISPLAY_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_MOVIE_LOCATION ml
+                JOIN T_WC_T2S_LOCATION l ON ml.ID_LOCATION = l.ID_LOCATION AND l.DELETED = 0
+                WHERE ml.ID_MOVIE = %s AND COALESCE(ml.DELETED, 0) = 0
+                ORDER BY CASE ml.LOCATION_ROLE WHEN 'narrative' THEN 0 WHEN 'filming' THEN 1 ELSE 2 END ASC,
+                         ml.DISPLAY_ORDER ASC, l.LOCATION_NAME ASC, l.ID_LOCATION ASC, ml.LOCATION_ROLE ASC
             """, (id,), None),
             "technicals": ("""
                 SELECT t.ID_TECHNICAL, t.DESCRIPTION, t.DESCRIPTION_FR, t.TECHNICAL_TYPE,
@@ -6527,6 +6551,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
             "collections": data["collections"],
             "movements": data["movements"],
             "based_on": data["based_on"],
+            "locations": data["locations"],
             "technicals": data["technicals"],
             "awards": data["awards"],
             "nominations": data["nominations"],
@@ -6564,7 +6589,8 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
 async def get_series(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a TV series plus embedded relations: genres, production
     companies, networks, production countries, spoken languages, topics, lists,
-    collections, movements, awards, nominations, cast, and crew. The id is the TMDb
+    collections, movements, awards, nominations, the works it is based on (based_on),
+    its narrative and filming locations (locations), cast, and crew. The id is the TMDb
     series ID (ID_SERIE).
 
     similar and recommendations are the grounded TMDb neighbour series (from
@@ -6602,6 +6628,15 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
     genres is a list of objects (not bare ids): each carries ID_GENRE and GENRE_NAME
     (localized to ui_language via T_WC_T2S_GENRE_LANG, English fallback), ordered by
     English name; ID_GENRE links to GET /genres/{ID_GENRE}.
+
+    locations (FASTAPI-TEXT2SQL-329) lists the places linked to this series, the reverse
+    of GET /locations/{id}: each element carries ID_LOCATION (links to GET
+    /locations/{ID_LOCATION}), LOCATION_NAME (localized to ui_language), LOCATION_TYPE,
+    POSTER_PATH, WIKIPEDIA_IMAGE_PATH, WIKIPEDIA_MAIN_IMAGE_URL (localized to ui_language),
+    LOCATION_ROLE ('narrative': the story is set there; 'filming': it was shot there) and
+    DISPLAY_ORDER (junction row). Ordered narrative first, then filming, then
+    DISPLAY_ORDER, then name. A place can appear twice, once per role. Tombstoned
+    (DELETED) places are left out.
 
     The posters and backdrops lists each contain every image of the matching type
     available for this series from T_WC_T2S_SERIE_IMAGE (TYPE_IMAGE = 'poster' for
@@ -6720,6 +6755,20 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
                 FROM T_WC_T2S_SERIE_SOURCE_WORK ss
                 JOIN T_WC_T2S_SOURCE_WORK sw ON ss.ID_SOURCE_WORK = sw.ID_SOURCE_WORK AND sw.DELETED = 0
                 WHERE ss.ID_SERIE = %s ORDER BY sw.SOURCE_WORK_YEAR ASC, sw.ID_SOURCE_WORK ASC
+            """, (id,), None),
+            # Locations (FASTAPI-TEXT2SQL-329): where the story is set ('narrative') and where it
+            # was shot ('filming'), the reverse of /locations/{id}. Narrative first, then filming,
+            # then the junction DISPLAY_ORDER, then name. A tombstoned place (DELETED, see
+            # /locations/{id}) is left out, as is a junction row flagged DELETED.
+            "locations": ("""
+                SELECT l.ID_LOCATION, l.LOCATION_NAME, l.LOCATION_NAME_FR, l.LOCATION_TYPE,
+                       l.POSTER_PATH, l.WIKIPEDIA_IMAGE_PATH, l.WIKIPEDIA_MAIN_IMAGE_URL, l.WIKIPEDIA_MAIN_IMAGE_URL_FR,
+                       sl.LOCATION_ROLE, sl.DISPLAY_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_SERIE_LOCATION sl
+                JOIN T_WC_T2S_LOCATION l ON sl.ID_LOCATION = l.ID_LOCATION AND l.DELETED = 0
+                WHERE sl.ID_SERIE = %s AND COALESCE(sl.DELETED, 0) = 0
+                ORDER BY CASE sl.LOCATION_ROLE WHEN 'narrative' THEN 0 WHEN 'filming' THEN 1 ELSE 2 END ASC,
+                         sl.DISPLAY_ORDER ASC, l.LOCATION_NAME ASC, l.ID_LOCATION ASC, sl.LOCATION_ROLE ASC
             """, (id,), None),
             "awards": ("""
                 SELECT a.ID_AWARD, a.AWARD_NAME, a.AWARD_NAME_FR, a.POSTER_PATH, a.WIKIPEDIA_IMAGE_PATH,
@@ -6854,6 +6903,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
             "collections": data["collections"],
             "movements": data["movements"],
             "based_on": data["based_on"],
+            "locations": data["locations"],
             "awards": data["awards"],
             "nominations": data["nominations"],
             "cast": data["cast"],
@@ -9449,7 +9499,8 @@ async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[
     """Get all fields for a movie (title, release date, runtime, budget, revenue, ratings,
     plot, IMDb/Wikidata IDs, color/B&W/silent flags) plus embedded relations:
     cast, crew, genre codes, production companies, production countries, spoken languages,
-    topics, lists, collections, movements, technicals, awards, nominations, and the works it is based on (based_on), plus similar
+    topics, lists, collections, movements, technicals, awards, nominations, the works it is based on (based_on),
+    its narrative and filming locations (locations), plus similar
     and recommendations (grounded TMDb neighbour movies, each with ID_MOVIE, localized
     MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, and POSTER_PATH, ordered by
     DISPLAY_ORDER; similar is content-based, recommendations is behaviour-based).
@@ -9476,10 +9527,15 @@ async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[
     each video exposes SOURCE, VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG,
     OFFICIAL, DAT_PUBLISHED, DURATION_SECONDS, and WATCH_URL/EMBED_URL/FILE_URL/
     THUMBNAIL_URL.
+    locations lists the places linked to this movie: ID_LOCATION (open it with
+    get_location), LOCATION_NAME (localized), LOCATION_TYPE, POSTER_PATH,
+    WIKIPEDIA_IMAGE_PATH, WIKIPEDIA_MAIN_IMAGE_URL and LOCATION_ROLE, 'narrative' (the
+    story is set there) or 'filming' (it was shot there); narrative rows first, then
+    filming. Answer "where was it filmed" / "where is the story set" from this list.
     id = TMDb ID_MOVIE.
 
     Embedded related lists (cast, crew, companies, topics, lists, collections,
-    movements, technicals, awards, nominations, similar, recommendations) are paginated: by default each is
+    movements, based_on, locations, technicals, awards, nominations, similar, recommendations) are paginated: by default each is
     capped to its first 50 rows and a top-level `pagination` block reports each
     list's total. To fetch more of one list, set `collection` to its name (e.g.
     'cast') with `page` / `rows_per_page`; the response then contains just that
@@ -9506,7 +9562,8 @@ async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional
     """Get all fields for a TV series (title, first/last air date, number of seasons and
     episodes, ratings, status, Wikidata/IMDb IDs) plus embedded relations: cast, crew,
     genre codes, companies, networks, production countries, spoken languages, topics, lists,
-    collections, movements, awards, nominations, similar and recommendations (grounded
+    collections, movements, the works it is based on (based_on), its narrative and filming
+    locations (locations), awards, nominations, similar and recommendations (grounded
     TMDb neighbour series, each with ID_SERIE, localized SERIE_TITLE, DAT_FIRST_AIR,
     IMDB_RATING_WEIGHTED, and POSTER_PATH, ordered by DISPLAY_ORDER; similar is
     content-based, recommendations is behaviour-based), and seasons (every season from
@@ -9528,10 +9585,15 @@ async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional
     videos (T_WC_WIKIDATA_MEDIA_RESOURCE, RESOURCE_KIND='video'); each video exposes
     SOURCE, VIDEO_KEY, VIDEO_NAME, VIDEO_SITE, VIDEO_TYPE, LANG, OFFICIAL,
     DAT_PUBLISHED, DURATION_SECONDS, and WATCH_URL/EMBED_URL/FILE_URL/THUMBNAIL_URL.
+    locations lists the places linked to this series: ID_LOCATION (open it with
+    get_location), LOCATION_NAME (localized), LOCATION_TYPE, POSTER_PATH,
+    WIKIPEDIA_IMAGE_PATH, WIKIPEDIA_MAIN_IMAGE_URL and LOCATION_ROLE, 'narrative' (the
+    story is set there) or 'filming' (it was shot there); narrative rows first, then
+    filming. Answer "where was it filmed" / "where is the story set" from this list.
     id = TMDb ID_SERIE.
 
     Embedded related lists (cast, crew, companies, networks, topics, lists,
-    collections, movements, awards, nominations, seasons, similar, recommendations) are paginated: by default
+    collections, movements, based_on, locations, awards, nominations, seasons, similar, recommendations) are paginated: by default
     each is capped to its first 50 rows and a top-level `pagination` block reports
     each list's total. To fetch more of one list, set `collection` to its name with
     `page` / `rows_per_page`; the response then contains just that list's page.
