@@ -8201,13 +8201,130 @@ async def get_genre(id: int, ui_language: Optional[str] = "en", collection: Opti
         conn.close()
 
 
+# FASTAPI-TEXT2SQL-325. A group's works live in two tables built by tmdb-movie-preprocess
+# process 74 (TMDB-MOVIE-PREPROCESS-059). The API may ship before they exist, so the
+# /groups/{id} route probes them and serves empty collections while they are absent. A
+# present table is remembered for the life of the process; an absent one is probed again on
+# every request (one `LIMIT 0` select), so the collections light up as soon as the preprocess
+# has run, with no restart. The absence is logged once per table, not once per request.
+_GROUP_WORK_TABLES = ("T_WC_T2S_GROUP_MOVIE", "T_WC_T2S_GROUP_SERIE")
+_GROUP_WORK_TABLE_PRESENT = {name: False for name in _GROUP_WORK_TABLES}
+_GROUP_WORK_TABLE_ABSENCE_LOGGED = {name: False for name in _GROUP_WORK_TABLES}
+
+
+def _group_work_table_available(cursor, table_name: str) -> bool:
+    """True when ``table_name`` (one of :data:`_GROUP_WORK_TABLES`) can be read.
+
+    Only a missing table (MariaDB error 1146) degrades to False; any other database error
+    is raised, because hiding a privilege or syntax failure behind an empty list would make
+    a real defect look like a group with no works.
+    """
+    if _GROUP_WORK_TABLE_PRESENT.get(table_name):
+        return True
+    try:
+        cursor.execute(f"SELECT 1 FROM {table_name} LIMIT 0")
+        cursor.fetchall()
+    except Exception as exc:
+        if not vision_cache._is_missing_table_error(exc):
+            raise
+        if not _GROUP_WORK_TABLE_ABSENCE_LOGGED.get(table_name):
+            _GROUP_WORK_TABLE_ABSENCE_LOGGED[table_name] = True
+            print(f"/groups: {table_name} is missing, the group's works are served empty until tmdb-movie-preprocess process 74 has run ({exc})")
+        return False
+    _GROUP_WORK_TABLE_PRESENT[table_name] = True
+    return True
+
+
+# Zero rows, but the same placeholder count as the real query, so _run_collections and the
+# targeted ?collection= mode treat an absent table exactly like a group with no works.
+_EMPTY_GROUP_WORK_SQL = "SELECT NULL AS ID_ROW, 0 AS _TOTAL_COUNT FROM DUAL WHERE %s IS NULL AND %s IS NULL AND 1 = 0"
+
+
+def _group_work_collections(cursor, id_group: int) -> dict:
+    """Return the ``movies`` and ``series`` registry entries of ``/groups/{id}``.
+
+    Each row is a usual movie (resp. series) card plus the attachment facts stored by the
+    preprocess: MEMBER_COUNT (members credited), MEMBER_SHARE (MEMBER_COUNT / PERSON_COUNT,
+    0..1), IS_GROUP_CREDITED (the group's own item is credited), CREDIT_KINDS ('cast',
+    'crew' or 'cast,crew'), and MEMBER_NAMES, the comma-separated names of the members
+    credited on that work in membership order, computed here from T_WC_T2S_PERSON_GROUP and
+    the person credit tables. Ordered by the stored DISPLAY_ORDER.
+    """
+    entries = {}
+    if _group_work_table_available(cursor, "T_WC_T2S_GROUP_MOVIE"):
+        entries["movies"] = ("""
+            SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED,
+                   m.POSTER_PATH, gm.MEMBER_COUNT, gm.MEMBER_SHARE, gm.IS_GROUP_CREDITED, gm.CREDIT_KINDS,
+                   mn.MEMBER_NAMES, gm.DISPLAY_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
+            FROM T_WC_T2S_GROUP_MOVIE gm
+            JOIN T_WC_T2S_MOVIE m ON gm.ID_MOVIE = m.ID_MOVIE
+            LEFT JOIN (
+                SELECT d.ID_MOVIE,
+                       GROUP_CONCAT(d.PERSON_NAME ORDER BY d.MEMBER_ORDER, d.PERSON_NAME SEPARATOR ', ') AS MEMBER_NAMES
+                FROM (
+                    SELECT pm.ID_MOVIE, p.ID_PERSON, p.PERSON_NAME, MIN(pg.DISPLAY_ORDER) AS MEMBER_ORDER
+                    FROM T_WC_T2S_PERSON_GROUP pg
+                    JOIN T_WC_T2S_PERSON_MOVIE pm ON pm.ID_PERSON = pg.ID_PERSON AND COALESCE(pm.DELETED, 0) = 0
+                    JOIN T_WC_T2S_GROUP_MOVIE gm2 ON gm2.ID_GROUP = pg.ID_GROUP AND gm2.ID_MOVIE = pm.ID_MOVIE
+                    JOIN T_WC_T2S_PERSON p ON p.ID_PERSON = pg.ID_PERSON
+                    WHERE pg.ID_GROUP = %s
+                    GROUP BY pm.ID_MOVIE, p.ID_PERSON, p.PERSON_NAME
+                ) d
+                GROUP BY d.ID_MOVIE
+            ) mn ON mn.ID_MOVIE = gm.ID_MOVIE
+            WHERE gm.ID_GROUP = %s AND COALESCE(gm.DELETED, 0) = 0
+            ORDER BY gm.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
+        """, (id_group, id_group), "movie")
+    else:
+        entries["movies"] = (_EMPTY_GROUP_WORK_SQL, (id_group, id_group), "movie")
+    if _group_work_table_available(cursor, "T_WC_T2S_GROUP_SERIE"):
+        entries["series"] = ("""
+            SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED,
+                   s.POSTER_PATH, gs.MEMBER_COUNT, gs.MEMBER_SHARE, gs.IS_GROUP_CREDITED, gs.CREDIT_KINDS,
+                   sn.MEMBER_NAMES, gs.DISPLAY_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
+            FROM T_WC_T2S_GROUP_SERIE gs
+            JOIN T_WC_T2S_SERIE s ON gs.ID_SERIE = s.ID_SERIE
+            LEFT JOIN (
+                SELECT d.ID_SERIE,
+                       GROUP_CONCAT(d.PERSON_NAME ORDER BY d.MEMBER_ORDER, d.PERSON_NAME SEPARATOR ', ') AS MEMBER_NAMES
+                FROM (
+                    SELECT ps.ID_SERIE, p.ID_PERSON, p.PERSON_NAME, MIN(pg.DISPLAY_ORDER) AS MEMBER_ORDER
+                    FROM T_WC_T2S_PERSON_GROUP pg
+                    JOIN T_WC_T2S_PERSON_SERIE ps ON ps.ID_PERSON = pg.ID_PERSON AND COALESCE(ps.DELETED, 0) = 0
+                    JOIN T_WC_T2S_GROUP_SERIE gs2 ON gs2.ID_GROUP = pg.ID_GROUP AND gs2.ID_SERIE = ps.ID_SERIE
+                    JOIN T_WC_T2S_PERSON p ON p.ID_PERSON = pg.ID_PERSON
+                    WHERE pg.ID_GROUP = %s
+                    GROUP BY ps.ID_SERIE, p.ID_PERSON, p.PERSON_NAME
+                ) d
+                GROUP BY d.ID_SERIE
+            ) sn ON sn.ID_SERIE = gs.ID_SERIE
+            WHERE gs.ID_GROUP = %s AND COALESCE(gs.DELETED, 0) = 0
+            ORDER BY gs.DISPLAY_ORDER ASC, s.ID_SERIE ASC
+        """, (id_group, id_group), "serie")
+    else:
+        entries["series"] = (_EMPTY_GROUP_WORK_SQL, (id_group, id_group), "serie")
+    return entries
+
+
 @app.get("/groups/{id}", summary="Person group full detail", response_class=RoundedJSONResponse)
 async def get_group(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
     """Return all fields for a group (organization, club, musical group) plus associated
-    persons ordered by DISPLAY_ORDER. The id is ID_GROUP.
+    persons, movies and TV series, each ordered by DISPLAY_ORDER. The id is ID_GROUP.
 
-    The group itself includes PROFILE_PATH and WIKIPEDIA_IMAGE_PATH. Each nested person
+    The group itself includes PROFILE_PATH and WIKIPEDIA_IMAGE_PATH, plus MOVIE_WORK_COUNT
+    and SERIE_WORK_COUNT, the totals of the movies and series collections. Each nested person
     carries PROFILE_PATH.
+
+    movies and series are the group's works (FASTAPI-TEXT2SQL-325), read from
+    T_WC_T2S_GROUP_MOVIE / T_WC_T2S_GROUP_SERIE: a work is attached when the group itself is
+    credited, or when at least two members and 40% of the members are credited on it. Each
+    movie carries ID_MOVIE, MOVIE_TITLE, MOVIE_TITLE_FR, DAT_RELEASE, IMDB_RATING_WEIGHTED,
+    POSTER_PATH; each series ID_SERIE, SERIE_TITLE, SERIE_TITLE_FR, DAT_FIRST_AIR,
+    DAT_LAST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH; both carry MEMBER_COUNT (members
+    credited), MEMBER_SHARE (0..1, 1 means every member), IS_GROUP_CREDITED (0/1),
+    CREDIT_KINDS ('cast', 'crew' or 'cast,crew'), MEMBER_NAMES (comma-separated names of the
+    members credited, in membership order) and DISPLAY_ORDER. Both lists are empty while the
+    two tables do not exist yet. Valid collection values: persons, movies, series.
 
     The wikipedia_images list contains the Wikipedia images for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
@@ -8257,6 +8374,7 @@ async def get_group(id: int, ui_language: Optional[str] = "en", collection: Opti
             """, (id,), "person"),
         }
         with conn.cursor() as cursor:
+            pcollections.update(_group_work_collections(cursor, id))
             data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, group.get("ID_WIKIDATA"), ui_language)
@@ -8265,7 +8383,11 @@ async def get_group(id: int, ui_language: Optional[str] = "en", collection: Opti
                 data_freshness = _build_data_freshness(cursor, group, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
-        result = {**group, "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
+        # The work counts are the collection totals, not stored columns: they follow the
+        # attachment rule the preprocess applied, and stay 0 while the tables are absent.
+        group["MOVIE_WORK_COUNT"] = pagination["movies"]["total"]
+        group["SERIE_WORK_COUNT"] = pagination["series"]["total"]
+        result = {**group, "persons": data["persons"], "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         _attach_wikipedia_page(result, wikipedia_page)
         logs.log_usage("groups", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
@@ -9679,7 +9801,22 @@ async def _mcp_get_genre(id: int, ui_language: str = "en", collection: Optional[
 @mcp.tool(name="get_group")
 async def _mcp_get_group(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
     """Get all fields for a person group (organization, club, musical group) plus
-    associated persons ordered by their position. Also returns top-level
+    embedded relations: persons (the members, ordered by their position), movies and series
+    (the group's works: what its members made together, or what credits the group itself).
+    Each movie / series row is a usual card (ID_MOVIE or ID_SERIE, title, _FR title, date,
+    IMDB_RATING_WEIGHTED, POSTER_PATH) plus MEMBER_COUNT (members credited), MEMBER_SHARE
+    (0..1; 1 = every member), IS_GROUP_CREDITED (0/1), CREDIT_KINDS ('cast', 'crew',
+    'cast,crew'), MEMBER_NAMES (comma-separated members credited) and DISPLAY_ORDER. For "all
+    of them" keep MEMBER_SHARE = 1 or IS_GROUP_CREDITED = 1; for a counted "all four" keep
+    MEMBER_COUNT >= 4, since PERSON_COUNT includes former members. The group record carries
+    MOVIE_WORK_COUNT and SERIE_WORK_COUNT.
+
+    Embedded related lists (persons, movies, series) are paginated: by default each is capped
+    to its first 50 rows and a top-level `pagination` block reports each list's total. To
+    fetch more of one list, set `collection` to 'persons', 'movies' or 'series' with `page` /
+    `rows_per_page`; the response then contains just that list's requested page.
+
+    Also returns top-level
     wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and wikipedia_content (en
     Wikipedia section title/content pairs from T_WC_WIKIPEDIA_PAGE_LANG_SECTION)
     keyed off ID_WIKIDATA. id = ID_GROUP.
@@ -9970,6 +10107,13 @@ async def _mcp_database_scope() -> str:
     - T_WC_T2S_MOVEMENT: MOVEMENT_NAME, OVERVIEW, MOVIE_COUNT, SERIE_COUNT,
         POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
     - T_WC_T2S_GROUP: GROUP_NAME, GROUP_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
+        A group's works (what its members made together, or what credits the group
+        itself): T_WC_T2S_GROUP_MOVIE (ID_GROUP, ID_MOVIE) and T_WC_T2S_GROUP_SERIE
+        (ID_GROUP, ID_SERIE), each with MEMBER_COUNT, MEMBER_SHARE (0..1, 1 = every
+        member), IS_GROUP_CREDITED (0/1), CREDIT_KINDS ('cast', 'crew', 'cast,crew'),
+        DISPLAY_ORDER. Only attached works are stored (group credited, or at least two
+        members and 40% of them); employer and sports-team groups have none. Detail:
+        get_group (/groups/{ID_GROUP}), collections persons, movies, series.
     - T_WC_T2S_DEATH: DEATH_NAME, DEATH_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
     - T_WC_T2S_AWARD: AWARD_NAME, AWARD_TYPE, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT,
         IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY

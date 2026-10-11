@@ -1,0 +1,85 @@
+Démarrage de l'API
+Total Memory: 30.62 GB
+Available Memory: 10.06 GB
+Used Memory: 20.56 GB
+Free Memory: 0.25 GB
+Memory Usage: 67.2%
+[data-watcher] Registered 'text_to_sql.md' for hot-reload
+[data-watcher] Started watching '/app/data' every 5s
+[data-watcher] Registered 'complex_question.md' for hot-reload
+[data-watcher] Registered 'vision_identification.md' for hot-reload
+LLM API keys loaded:
+- OPENAI_API_KEY: found
+- ANTHROPIC_API_KEY: found
+- GOOGLE_API_KEY: found
+- OPENROUTER_API_KEY: found
+[data-watcher] Registered 'closed_vocabularies.json' for hot-reload
+[data-watcher] Registered 'entity_extraction.md' for hot-reload
+[data-watcher] Registered 'entity_resolution.json' for hot-reload
+[startup] 2026-10-11 11:58:11
+[startup] Booting Text2SQL API version 1.1.19...
+[startup] MCP bearer authentication ENABLED on /mcp.
+[startup] Loading OpenAI API key from environment...
+[startup] OpenAI API key loaded.
+[startup] Connecting to ChromaDB at localhost:8100...
+[startup] ChromaDB connected in 0.24s.
+[startup] OpenAI embedding function initialized (text-embedding-3-large).
+[startup] Creating/loading 13 ChromaDB entity collections...
+[startup] ChromaDB entity collections ready (15) in 0.03s.
+[startup] Creating/loading anonymizedqueries cache collection...
+[startup] anonymizedqueries collection ready in 0.00s.
+[startup] Connecting to MariaDB vaugouindb at localhost:3306...
+[startup] MariaDB connected in 0.05s.
+[startup] Loading closed-vocabulary canonicals from DB (Status_name, Serie_type, Department_name, Movie_genre, Serie_genre, Technical_format)...
+[closed_vocab] Loaded canonical maps: Status_name=9, Serie_type=7, Department_name=12, Movie_genre=19, Movie_genre_db_aliases=19, Serie_genre=16, Serie_genre_db_aliases=8, Technical_format=73
+[startup] Closed-vocabulary canonicals loaded in 0.58s.
+[startup] Starting RapidFuzz BK-tree warm-up in the background (API available immediately; first RapidFuzz query may lazy-build)...
+[startup] Startup tasks complete in 0.91s. Handing off to uvicorn.
+[entity] BKTREE_ENABLED=0, skipping BK-tree prebuild
+[startup] BK-tree warm-up complete in 0.1s.
+Catalogue : Source_work_name=40
+Titres a apostrophe : Source_work_name=40
+Noms francais : Source_work_name=40
+Corpus : anchor-fr=6, negative-cross=40, negative-invent=20, observed-unscored=40, observed-unscored-typo=37, positive-catalogue=40, positive-catalogue-fr=40, positive-catalogue-fr-typo=38, positive-catalogue-fr-unaccented=15, positive-catalogue-typo=37, positive-catalogue-typography=76
+Valeurs tirees du cache d'archives : 3404
+Suspects a trier a la main (jamais score 1) : 0
+Types completes depuis le vivier NON score, verite de terrain plus faible : Source_work_name
+   100/389 cas resolus
+   200/389 cas resolus
+   300/389 cas resolus
+
+### Source_work_name   246 positifs, 58 negatifs (2 croisements ecartes, candidat legitime)
+   fuzz_ratio  positifs n=246 med=93.9 min=22.2 | negatifs n=58 med=39.2 max=95.2
+               seuil propose >= 21.65  (legitimes refuses 0, intrus acceptes 53)
+               tout seuil de 21.10 a 22.20 donne le meme resultat ; le milieu
+               est retenu comme le plus eloigne des deux distributions
+   distance    positifs n=246 med=0.7 min=0.0 | negatifs n=58 med=1.3 max=1.5
+               seuil propose <= 1.02  (legitimes refuses 42, intrus acceptes 4)
+               tout seuil de 1.02 a 1.02 donne le meme resultat ; le milieu
+               est retenu comme le plus eloigne des deux distributions
+   observe    n=77 med=100.0, dont 5 sous 50 : autant de resolutions
+              deja servies en production et probablement fausses
+                r=  0.0  Чкатило                    -> Klymko
+                r= 27.3  Impitoybale                -> Cuidado con las personas formales
+                r= 34.3  Bringing Out the Deau      -> The Shaughraun
+                r= 40.0  La Vie h cinq              -> Une Vie
+                r= 45.5  Mbtlock                    -> The Locked Room
+   croisements ecartes, le candidat contient la valeur injectee :
+                r=100.0  The chocolate war          -> The Chocolate War
+                r= 66.7  Star Wars universe         -> Star Wars
+
+=== Ce que la porte a fait (FASTAPI-TEXT2SQL-309) ===
+   type             classe                                cas    admis  refuses   sauves autre_titre
+   Source_work_name anchor-fr                               6        6        0        0           0
+   Source_work_name negative-cross                         40        4       36        1           0
+   Source_work_name negative-invent                        20        0       20        0           0
+   Source_work_name observed-unscored                      40       40        0        0           0
+   Source_work_name observed-unscored-typo                 37       31        6        0           0
+   Source_work_name positive-catalogue                     40       38        2        0           0
+   Source_work_name positive-catalogue-fr                  40       38        2        0           0
+   Source_work_name positive-catalogue-fr-typo             38       35        3        0           1
+   Source_work_name positive-catalogue-fr-unaccented       15       15        0        0           1
+   Source_work_name positive-catalogue-typo                37       32        5        0           0
+   Source_work_name positive-catalogue-typography          76        4       72        0           4
+
+Ecrit dans eval/data/bench-source-work.json

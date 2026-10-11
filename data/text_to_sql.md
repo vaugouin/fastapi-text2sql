@@ -492,6 +492,40 @@ CREATE TABLE T_WC_T2S_PERSON_GROUP (
   DISPLAY_ORDER INT
 );
 
+A group's WORKS, the movies and series its members made together (or that credit the group itself), are stored, already computed, in two junction tables. Use them for every question about what a group made; never rebuild the answer from the members' person credits.
+
+CREATE TABLE T_WC_T2S_GROUP_MOVIE (
+  ID_ROW INT NOT NULL,
+  ID_GROUP INT NOT NULL,
+  ID_MOVIE INT NOT NULL,
+  MEMBER_COUNT INT,
+  MEMBER_SHARE DOUBLE,
+  IS_GROUP_CREDITED INT,
+  CREDIT_KINDS VARCHAR(20),
+  DELETED INT,
+  DISPLAY_ORDER INT
+);
+
+CREATE TABLE T_WC_T2S_GROUP_SERIE (
+  ID_ROW INT NOT NULL,
+  ID_GROUP INT NOT NULL,
+  ID_SERIE INT NOT NULL,
+  MEMBER_COUNT INT,
+  MEMBER_SHARE DOUBLE,
+  IS_GROUP_CREDITED INT,
+  CREDIT_KINDS VARCHAR(20),
+  DELETED INT,
+  DISPLAY_ORDER INT
+);
+
+- `MEMBER_COUNT` is the number of members credited on the work; `MEMBER_SHARE` is that number divided by the group's `PERSON_COUNT`, from 0 to 1, where 1 means every member; `IS_GROUP_CREDITED` is 1 when the group itself is credited on the work (a band as performer, a troupe as writer); `CREDIT_KINDS` is 'cast', 'crew' or 'cast,crew'.
+- Only works attached to the group are stored: the group is credited, or at least two members and 40% of the members are. Employer and sports-team groups have no works at all.
+- Always filter `DELETED = 0` on `T_WC_T2S_GROUP_MOVIE` / `T_WC_T2S_GROUP_SERIE`.
+- "Movies / films made by `<group>`", "what did `<group>` make / do together", "films of the Beatles", "Monty Python movies", "quels films les Monty Python ont-ils faits ensemble" → `result_entity = movie`: SELECT the Movies columns from `T_WC_T2S_MOVIE` joined to `T_WC_T2S_GROUP_MOVIE`, joined to `T_WC_T2S_GROUP` on `T_WC_T2S_GROUP.GROUP_NAME = '{{Group_name1}}'`, `ORDER BY T_WC_T2S_GROUP_MOVIE.DISPLAY_ORDER ASC`. The same question about series ("TV series / shows by `<group>`") → `result_entity = serie` through `T_WC_T2S_GROUP_SERIE`, `ORDER BY T_WC_T2S_GROUP_SERIE.DISPLAY_ORDER ASC`.
+- "All of them", "the whole group", "tous les membres", "le groupe au complet" → add `(T_WC_T2S_GROUP_MOVIE.MEMBER_SHARE = 1 OR T_WC_T2S_GROUP_MOVIE.IS_GROUP_CREDITED = 1)` (the same on `T_WC_T2S_GROUP_SERIE`). When the question NAMES the number ("all four Beatles", "les cinq Monty Python", "all three Marx Brothers"), filter on that number instead: `(T_WC_T2S_GROUP_MOVIE.MEMBER_COUNT >= 4 OR T_WC_T2S_GROUP_MOVIE.IS_GROUP_CREDITED = 1)`. `PERSON_COUNT` counts every member the group ever had (Pete Best is one of the Beatles' five), so `MEMBER_SHARE = 1` would demand a former member the user did not count. Without such words, do not filter on `MEMBER_SHARE` or `MEMBER_COUNT`: every stored work is an answer.
+- **Never intersect the members' person credits** (`T_WC_T2S_PERSON_GROUP` joined to `T_WC_T2S_PERSON_MOVIE` with `HAVING COUNT(...)`) to answer a question about a group's works. That computation is what the two tables above already hold, with the attachment rule applied once; redoing it at question time returns works where two members merely crossed. `T_WC_T2S_PERSON_GROUP` stays the table for the MEMBERS of a group ("who are the members of `<group>`", "which bands was `<person>` in").
+- A question asking for the group's movies AND series ("everything Monty Python made", "films et séries des Monty Python") → `result_entity = movie_serie`, the UNION contract of "Movies AND Series (UNION)" with its fixed column list, one side through `T_WC_T2S_GROUP_MOVIE`, the other through `T_WC_T2S_GROUP_SERIE`, each side filtered on the group. `DISPLAY_ORDER` is not projected by that shape: sort the UNION on `IMDB_RATING_WEIGHTED DESC`, as for any UNION.
+
 ### Deaths
 Underlying or immediate causes of death, or general circumstances of death associated with people, are stored in `T_WC_T2S_DEATH`.
 When the user asks about a specific cause or circumstance of death, use the `DEATH_NAME` field and the `{{Death_nameN}}` placeholder when present.
@@ -1034,6 +1068,7 @@ Phrasings that are commonly mis-targeted — get these right:
 - "actors / actresses / cast of `<movie or serie>`", "who plays in `<movie>`", "comédienne / acteur qui joue dans `<films>`" → `result_entity = person`. Return the Persons columns from `T_WC_T2S_PERSON` joined through `T_WC_T2S_PERSON_MOVIE` / `T_WC_T2S_PERSON_SERIE` with `CREDIT_TYPE = 'cast'`; the movie(s)/serie(s) are **filters** (when several are given, all must match — see the cast/crew rules above).
 - "`<person>`'s movie `<title>`", "`<person>` movie: `<title>`", "film de `<person>` : `<title>`" → `result_entity = movie`. Return the Movies columns; the person and the title are **filters**, not the result.
 - "movies directed by / written by `<person>`", "films de `<person>`" → `result_entity = movie`; the person is a **crew filter**; documentaries the person directed or wrote are part of the answer (no `IS_MOVIE` filter, see the documentary rule).
+- "movies the Beatles made together", "Monty Python films", "what did `<group>` do together" → `result_entity = movie` (`serie` for series), through `T_WC_T2S_GROUP_MOVIE` / `T_WC_T2S_GROUP_SERIE` (see "Groups"); the group is a **filter**. Only "who are the members of `<group>`" returns persons.
 - A single word or phrase naming a profession/role, or "which actor/director/person …" → `result_entity = person`.
 - "Docu / Documentaire `<title>`" with no series indication → `result_entity = movie` (documentaries default to `T_WC_T2S_MOVIE`; see the documentary rule above).
 - "I saw / j'ai vu / j'ai aimé `<movie or serie>`, what do you recommend / que me conseilles-tu / what to watch next" → `result_entity = movie` (or `serie`). Return the **recommended** titles from the recommendation junction; the named title is the SOURCE filter, not the result (see "Recommendations from a named film / series").
@@ -1364,6 +1399,8 @@ Time-of-day / "watch now" qualifiers — "tonight", "right now", "this evening",
 - When listing technicals as siblings of a given technical (same `TECHNICAL_TYPE`), ORDER BY MOVIE_COUNT DESC
 - Groups for a person → POPULARITY DESC
 - When display persons for a given group, ORDER BY T_WC_T2S_PERSON_GROUP.DISPLAY_ORDER ASC
+- When display movies for a given group (its works), ORDER BY T_WC_T2S_GROUP_MOVIE.DISPLAY_ORDER ASC
+- When display series for a given group (its works), ORDER BY T_WC_T2S_GROUP_SERIE.DISPLAY_ORDER ASC
 - Deaths for a person → POPULARITY DESC
 - When display persons for a given death, ORDER BY T_WC_T2S_PERSON_DEATH.DISPLAY_ORDER ASC
 - Awards for a movie or serie → IMDB_RATING_WEIGHTED DESC
@@ -1376,7 +1413,7 @@ Time-of-day / "watch now" qualifiers — "tonight", "right now", "this evening",
 - When display movies for a given nomination, ORDER BY T_WC_T2S_MOVIE_NOMINATION.DISPLAY_ORDER ASC
 - When display series for a given nomination, ORDER BY T_WC_T2S_SERIE_NOMINATION.DISPLAY_ORDER ASC
 - When display persons for a given nomination, ORDER BY T_WC_T2S_PERSON_NOMINATION.DISPLAY_ORDER ASC
-- When listing movies AND series together (UNION) for a given collection, movement, topic, list, award, or nomination: the junction-specific DISPLAY_ORDER columns are not part of the 13-column UNION SELECT shape, so they cannot be referenced in the outer ORDER BY. Fall back to `ORDER BY IMDB_RATING_WEIGHTED DESC` on the UNION result. Never emit an unqualified `ORDER BY DISPLAY_ORDER` after a UNION.
+- When listing movies AND series together (UNION) for a given collection, movement, topic, list, award, nomination, or group: the junction-specific DISPLAY_ORDER columns are not part of the 13-column UNION SELECT shape, so they cannot be referenced in the outer ORDER BY. Fall back to `ORDER BY IMDB_RATING_WEIGHTED DESC` on the UNION result. Never emit an unqualified `ORDER BY DISPLAY_ORDER` after a UNION.
 - Persons → POPULARITY DESC
 - When display persons for a given movie (cast or crew), ORDER BY T_WC_T2S_PERSON_MOVIE.DISPLAY_ORDER ASC
 - When display persons for a given serie (cast or crew), ORDER BY T_WC_T2S_PERSON_SERIE.DISPLAY_ORDER ASC
@@ -1444,6 +1481,10 @@ Time-of-day / "watch now" qualifiers — "tonight", "right now", "this evening",
 - T_WC_T2S_MOVEMENT.ID_MOVEMENT = T_WC_T2S_SERIE_MOVEMENT.ID_MOVEMENT
 - T_WC_T2S_PERSON.ID_PERSON = T_WC_T2S_PERSON_GROUP.ID_PERSON
 - T_WC_T2S_GROUP.ID_GROUP = T_WC_T2S_PERSON_GROUP.ID_GROUP
+- T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_GROUP_MOVIE.ID_MOVIE
+- T_WC_T2S_GROUP.ID_GROUP = T_WC_T2S_GROUP_MOVIE.ID_GROUP
+- T_WC_T2S_SERIE.ID_SERIE = T_WC_T2S_GROUP_SERIE.ID_SERIE
+- T_WC_T2S_GROUP.ID_GROUP = T_WC_T2S_GROUP_SERIE.ID_GROUP
 - T_WC_T2S_PERSON.ID_PERSON = T_WC_T2S_PERSON_DEATH.ID_PERSON
 - T_WC_T2S_DEATH.ID_DEATH = T_WC_T2S_PERSON_DEATH.ID_DEATH
 - T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_AWARD.ID_MOVIE

@@ -390,13 +390,28 @@ def sample_apostrophe_titles(collections_by_name, types_filter, per_type, rng):
         collection = (collections_by_name or {}).get(strategy.get("collection"))
         if collection is None:
             continue
+        # FASTAPI-TEXT2SQL-324: a collection whose documents carry more than the name (source
+        # works: "<name>: <form>, <year>, <overview>") must be cut at its separator, or the
+        # "title" is the whole document and its apostrophe often sits in the overview. Measured
+        # on 2026-10-11: 72 of 76 such cases refused, and a positive minimum of 22.2. More
+        # documents are fetched because only some of them keep an apostrophe in the name.
+        separator = strategy.get("document_name_separator")
         try:
-            got = collection.get(where_document={"$contains": "'"}, limit=max(per_type * 5, 50),
+            got = collection.get(where_document={"$contains": "'"},
+                                 limit=max(per_type * (20 if separator else 5), 50),
                                  include=["documents"])
         except Exception as collection_error:
             print(f"[warn] collection {strategy.get('collection')} : tirage des apostrophes impossible : {collection_error}")
             continue
-        titles = sorted({d.strip() for d in (got.get("documents") or []) if isinstance(d, str) and "'" in d})
+        names = []
+        for document in got.get("documents") or []:
+            if not isinstance(document, str):
+                continue
+            value = document.strip()
+            if separator and separator in value:
+                value = value.split(separator, 1)[0].strip()
+            names.append(value)
+        titles = sorted({value for value in names if "'" in value})
         rng.shuffle(titles)
         drawn[etype] = titles[:per_type]
     return drawn

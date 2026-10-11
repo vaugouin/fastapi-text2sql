@@ -675,7 +675,7 @@ Each endpoint returns `404` when the requested entity is not found. Successful r
 **Localized main picture (`ui_language` != `"en"`)**: image paths have no `_FR` column, so for a non-default language the server overrides each entity's main-picture path with the main (lowest `DISPLAY_ORDER`) related image whose `LANG` matches the requested language, keeping the canonical (default) path as a fallback when no localized image exists.
 
 - **Primary entity**: wired on the endpoints that carry a language-tagged image array — `/movies/{id}`, `/series/{id}`, and `/seasons/{id_serie}/{season_number}` override `POSTER_PATH` from their `posters` array; `/persons/{id}` overrides `PROFILE_PATH` from its `portraits` array.
-- **Nested collections**: the related-entity rows embedded in every detail response are localized too. Person rows (`cast`, `crew`, and the `persons` arrays on `/groups`, `/deaths`, `/awards`, `/nominations`) get a localized `PROFILE_PATH`; movie and series rows (`movie_cast`/`movie_crew`, `series_cast`/`series_crew`, and the `movies`/`series` arrays on `/companies`, `/networks`, `/collections`, `/topics`, `/lists`, `/movements`, `/technicals`, `/awards`, `/nominations`, `/locations`, `/sourceworks`) get a localized `POSTER_PATH`; the parent-`series`/`season` navigation stubs (`/seasons`, `/episodes`) and the `seasons` array on `/series` are localized as well. These are resolved with one batched image lookup per entity kind, so a non-`en` request adds at most a few extra queries.
+- **Nested collections**: the related-entity rows embedded in every detail response are localized too. Person rows (`cast`, `crew`, and the `persons` arrays on `/groups`, `/deaths`, `/awards`, `/nominations`) get a localized `PROFILE_PATH`; movie and series rows (`movie_cast`/`movie_crew`, `series_cast`/`series_crew`, and the `movies`/`series` arrays on `/groups`, `/companies`, `/networks`, `/collections`, `/topics`, `/lists`, `/movements`, `/technicals`, `/awards`, `/nominations`, `/locations`, `/sourceworks`) get a localized `POSTER_PATH`; the parent-`series`/`season` navigation stubs (`/seasons`, `/episodes`) and the `seasons` array on `/series` are localized as well. These are resolved with one batched image lookup per entity kind, so a non-`en` request adds at most a few extra queries.
 
 The language-tagged image arrays themselves (`posters`, `portraits`, …) are always returned in full so a client can still pick a different language, and usage logs keep the canonical paths (localization runs after logging). Episodes are not affected (`STILL_PATH` frames are not language-specific).
 
@@ -754,7 +754,7 @@ Pagination covers only the related-entity lists. Image arrays (`posters`, `backd
 | `GET` | `/movements/{id}` | `ID_MOVEMENT` | `T_WC_T2S_MOVEMENT` | Film movement or style detail |
 | `GET` | `/technicals/{id}` | `ID_TECHNICAL` | `T_WC_T2S_TECHNICAL` | Technical format detail (sound system, color/film/sound technology, film format) |
 | `GET` | `/genres/{id}` | `ID_GENRE` (TMDb genre code) | `T_WC_T2S_GENRE` | Movie / TV genre detail (closed vocabulary) |
-| `GET` | `/groups/{id}` | `ID_GROUP` | `T_WC_T2S_GROUP` | Person group detail |
+| `GET` | `/groups/{id}` | `ID_GROUP` | `T_WC_T2S_GROUP` | Person group detail, with its members and its works (movies, series) |
 | `GET` | `/deaths/{id}` | `ID_DEATH` | `T_WC_T2S_DEATH` | Cause or circumstance of death detail |
 | `GET` | `/awards/{id}` | `ID_AWARD` | `T_WC_T2S_AWARD` | Award detail |
 | `GET` | `/nominations/{id}` | `ID_NOMINATION` | `T_WC_T2S_NOMINATION` | Award nomination detail |
@@ -955,12 +955,14 @@ No `wikipedia_images` / `wikipedia_content` arrays are returned because `T_WC_T2
 
 ##### `GET /groups/{id}` and `/deaths/{id}`
 
-These endpoints return all fields from their primary entity table, plus associated persons:
+These endpoints return all fields from their primary entity table, plus associated persons, and for a group its works:
 
 | Endpoint | Primary fields include | Embedded arrays |
 |---|---|---|
-| `/groups/{id}` | `ID_GROUP`, `ID_WIKIDATA`, `GROUP_NAME`, `GROUP_NAME_FR`, `OVERVIEW`, `GROUP_SOURCE`, `GROUP_TYPE`, `PERSON_COUNT`, `PROFILE_PATH`, `WIKIPEDIA_IMAGE_PATH`, `POPULARITY` | `persons`: array of `{ ID_PERSON, PERSON_NAME, POPULARITY, PROFILE_PATH, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
+| `/groups/{id}` | `ID_GROUP`, `ID_WIKIDATA`, `GROUP_NAME`, `GROUP_NAME_FR`, `OVERVIEW`, `GROUP_SOURCE`, `GROUP_TYPE`, `PERSON_COUNT`, `PROFILE_PATH`, `WIKIPEDIA_IMAGE_PATH`, `POPULARITY`, plus `MOVIE_WORK_COUNT` and `SERIE_WORK_COUNT` (the totals of `movies` and `series`) | `persons`: array of `{ ID_PERSON, PERSON_NAME, POPULARITY, PROFILE_PATH, DISPLAY_ORDER }`; `movies`: array of `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH, MEMBER_COUNT, MEMBER_SHARE, IS_GROUP_CREDITED, CREDIT_KINDS, MEMBER_NAMES, DISPLAY_ORDER }`; `series`: array of `{ ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, IMDB_RATING_WEIGHTED, POSTER_PATH, MEMBER_COUNT, MEMBER_SHARE, IS_GROUP_CREDITED, CREDIT_KINDS, MEMBER_NAMES, DISPLAY_ORDER }`; all three ordered by `DISPLAY_ORDER` |
 | `/deaths/{id}` | `ID_DEATH`, `ID_WIKIDATA`, `DEATH_NAME`, `DEATH_NAME_FR`, `OVERVIEW`, `DEATH_SOURCE`, `DEATH_TYPE`, `PERSON_COUNT`, `PROFILE_PATH`, `WIKIPEDIA_IMAGE_PATH`, `POPULARITY` | `persons`: array of `{ ID_PERSON, PERSON_NAME, POPULARITY, PROFILE_PATH, DISPLAY_ORDER }`, ordered by `DISPLAY_ORDER` |
+
+A group's works (FASTAPI-TEXT2SQL-325) are read from `T_WC_T2S_GROUP_MOVIE` / `T_WC_T2S_GROUP_SERIE`, built by `tmdb-movie-preprocess` process 74: a work is stored when the group itself is credited on it, or when at least two members and 40% of the members are; employer (P108) and sports-team (P54) groups have none. `MEMBER_COUNT` is the number of members credited, `MEMBER_SHARE` that number over `PERSON_COUNT` (1 means every member), `IS_GROUP_CREDITED` is 0/1, `CREDIT_KINDS` is `cast`, `crew` or `cast,crew`, and `MEMBER_NAMES`, computed by the API from `T_WC_T2S_PERSON_GROUP` and the person credits, lists the members credited on that work, comma-separated, in membership order. The three lists page independently (`collection` = `persons` / `movies` / `series`). While the two tables do not exist yet the route still answers, with `movies` and `series` empty and the absence logged once per table on stdout.
 
 Both endpoints also return `wikipedia_images` and `wikipedia_content` arrays — see the `/movies/{id}` table for their full row shapes.
 
@@ -1456,7 +1458,7 @@ The current prompt template is specifically designed for a **movie and TV series
 - **Awards** (`T_WC_T2S_AWARD`) and **Nominations** (`T_WC_T2S_NOMINATION`): Award wins and award nominations for movies, series, and persons
 - **Collections** (`T_WC_T2S_COLLECTION`): Trilogies, named series of works, universes, and franchises (e.g., Dollars Trilogy, James Bond Collection, Star Wars, Marvel Cinematic Universe, Middle-Earth, Harry Potter movies)
 - **Movements** (`T_WC_T2S_MOVEMENT`): Film movements and stylistic schools (Film Noir, French New Wave, etc.)
-- **Groups** (`T_WC_T2S_GROUP`): Organizations, publications, and musical/comedy groups associated with persons
+- **Groups** (`T_WC_T2S_GROUP`): Organizations, publications, and musical/comedy groups associated with persons; their works through `T_WC_T2S_GROUP_MOVIE` / `T_WC_T2S_GROUP_SERIE`
 - **Deaths** (`T_WC_T2S_DEATH`): Causes and circumstances of persons' deaths
 - **Locations** (`T_WC_T2S_LOCATION` joined via `T_WC_T2S_MOVIE_LOCATION` / `T_WC_T2S_SERIE_LOCATION`, `LOCATION_ROLE` `'narrative'` or `'filming'`): places a movie or series is linked to
 - **Ratings**: IMDB ratings integration (raw and weighted)

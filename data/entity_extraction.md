@@ -369,6 +369,7 @@ Do not extract as `Movement_name` for franchises, universes, trilogies, recurrin
 ### Group_name boundaries
 Extract as `Group_name` when the phrase refers to an organization, club, publication group, collective, or musical/comedy group associated with a person.
 Do not extract as `Group_name` for companies, networks, franchises, topics, awards, nominations, movements, or curated ranking lists.
+A question about what a group MADE ("movies the Beatles made together", "Monty Python films", "films des Marx Brothers") still extracts the group as `Group_name`: the group is the filter of a works question, never a `Movie_title`, a `Collection_name` or several `Person_name` for its members. A title that merely contains the group's name (`Monty Python and the Holy Grail`) stays a `Movie_title`.
 
 ### Department_name boundaries
 Extract as `Department_name` when the phrase refers to a film/TV **crew** department or job category by name (e.g., `directors`, `cinematographers`, `editors`, `producers`, `creators`, `réalisateurs`, `scénaristes`, `monteurs`).
@@ -625,6 +626,22 @@ Output:
   "question": "Show me people who worked for {{Group_name1}}",
   "query_mode": "named_entity_query",
   "Group_name1": "Les Cahiers du Cinéma"
+}
+
+Input: `Which movies did Monty Python make together?`
+Output:
+{
+  "question": "Which movies did {{Group_name1}} make together?",
+  "query_mode": "named_entity_query",
+  "Group_name1": "Monty Python"
+}
+
+Input: `Quelles séries les Marx Brothers ont-ils faites ?`
+Output:
+{
+  "question": "Quelles séries les {{Group_name1}} ont-ils faites ?",
+  "query_mode": "named_entity_query",
+  "Group_name1": "Marx Brothers"
 }
 
 Input: `Which people died from liver cirrhosis?`

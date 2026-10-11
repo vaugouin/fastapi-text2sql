@@ -328,6 +328,18 @@ stays as it is until the bench below has run. The bench supports the type since 
 The command is the one of §9 with `--types Source_work_name`; the measured value then goes in
 `data/entity_resolution.json` and in the table of §7, replacing this paragraph.
 
+**First run, 2026-10-11 on Green, discarded** (`eval/data/bench-source-work-20261011.txt`). The
+gate at 71.8 behaved well where the corpus was sound: invented titles 0 accepted out of 20,
+cross negatives 4 out of 40 (two of them legitimate, "The chocolate war" and "Star Wars
+universe"), catalogue positives 38/40, French 38/40, unaccented French 15/15, the six French
+anchors 6/6. The proposed number was not: `seuil propose >= 21.65`, positive minimum 22.2,
+because `positive-catalogue-typography` refused 72 of its 76 cases. The bench drew those
+"titles" as whole documents, overview included, so the apostrophe was often in the overview
+and the query was a paragraph. Fixed in `sample_apostrophe_titles` (cut at
+`document_name_separator`, keep only names carrying an apostrophe); rerun before writing a
+number. The `observed` tail of that run came from other types' archives (the type has no log
+yet) and says nothing about source works.
+
 ## 9. Re-running the bench
 
 Inside the API image, which is the only one carrying both the resolution stack and the bench.

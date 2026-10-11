@@ -437,7 +437,7 @@ Each entity endpoint returns all properties for a given entity ID, including emb
 | `GET /movements/{id}` | Movement fields + associated movies and series |
 | `GET /technicals/{id}` | Technical-format fields + associated movies and sibling technicals sharing the same TECHNICAL_TYPE |
 | `GET /genres/{id}` | Genre fields (closed vocabulary, ID_GENRE = TMDb genre code) + member movies and TV series |
-| `GET /groups/{id}` | Group fields + associated persons |
+| `GET /groups/{id}` | Group fields + associated persons + the group's works (movies, series) with MEMBER_COUNT, MEMBER_SHARE, IS_GROUP_CREDITED, CREDIT_KINDS, MEMBER_NAMES |
 | `GET /deaths/{id}` | Death/cause fields + associated persons |
 | `GET /awards/{id}` | Award fields + associated movies, series, and persons |
 | `GET /nominations/{id}` | Nomination fields + associated movies, series, and persons |
@@ -716,6 +716,8 @@ async def _mcp_database_scope() -> str:
         TECHNICAL_TYPE values: sound_system, color_technology, film_technology,
         sound_technology, film_format
     - T_WC_T2S_GROUP: GROUP_NAME, GROUP_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
+        A group's works: T_WC_T2S_GROUP_MOVIE / T_WC_T2S_GROUP_SERIE (MEMBER_COUNT,
+        MEMBER_SHARE, IS_GROUP_CREDITED, CREDIT_KINDS, DISPLAY_ORDER)
     - T_WC_T2S_DEATH: DEATH_NAME, DEATH_TYPE, OVERVIEW, PERSON_COUNT, POPULARITY
     - T_WC_T2S_AWARD: AWARD_NAME, AWARD_TYPE, MOVIE_COUNT, SERIE_COUNT, PERSON_COUNT,
         IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY

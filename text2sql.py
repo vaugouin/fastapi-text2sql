@@ -1004,6 +1004,8 @@ def f_classify_result_entity(user_question: str, allowed_entities, strmodel: str
         "- 'Dune posters' -> movie_image.  'backdrops of Breaking Bad' -> serie_image.\n"
         "- 'Movies based on Dracula' / 'series adapted from a manga' -> movie / serie (the source work filters).\n"
         "- 'What is Scarface based on?' / 'which work has been adapted the most?' -> source_work (the source works ARE the answer).\n"
+        "- 'Which movies did the Beatles make together?' / 'Monty Python films' -> movie; 'TV series by Monty Python' -> serie (the group filters; its works are the answer).\n"
+        "- 'Who are the members of the Beatles?' -> person.  'Which bands was Paul McCartney in?' -> group.\n"
         "If the answer mixes movies and series, or you are genuinely unsure, reply exactly: "
         "unknown (the caller then trusts the SQL-generation step instead).\n"
         "Reply with only the single word: no punctuation, no quotes, no explanation."

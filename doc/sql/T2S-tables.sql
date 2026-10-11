@@ -818,6 +818,54 @@ CREATE TABLE `T_WC_T2S_GROUP` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_T2S_GROUP_MOVIE` (
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
+  `ID_GROUP` int(11) NOT NULL,
+  `ID_MOVIE` int(11) NOT NULL,
+  `MEMBER_COUNT` int(11) DEFAULT NULL,
+  `MEMBER_SHARE` double DEFAULT NULL,
+  `IS_GROUP_CREDITED` int(1) DEFAULT NULL,
+  `CREDIT_KINDS` varchar(20) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  UNIQUE KEY `UK_T2S_GROUP_MOVIE` (`ID_GROUP`,`ID_MOVIE`),
+  KEY `ID_MOVIE` (`ID_MOVIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `MEMBER_COUNT` (`MEMBER_COUNT`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_T2S_GROUP_SERIE` (
+  `ID_ROW` int(11) NOT NULL AUTO_INCREMENT,
+  `ID_GROUP` int(11) NOT NULL,
+  `ID_SERIE` int(11) NOT NULL,
+  `MEMBER_COUNT` int(11) DEFAULT NULL,
+  `MEMBER_SHARE` double DEFAULT NULL,
+  `IS_GROUP_CREDITED` int(1) DEFAULT NULL,
+  `CREDIT_KINDS` varchar(20) DEFAULT NULL,
+  `DELETED` int(5) DEFAULT NULL,
+  `DISPLAY_ORDER` int(5) DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_OWNER` int(5) DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL,
+  PRIMARY KEY (`ID_ROW`),
+  UNIQUE KEY `UK_T2S_GROUP_SERIE` (`ID_GROUP`,`ID_SERIE`),
+  KEY `ID_SERIE` (`ID_SERIE`),
+  KEY `DELETED` (`DELETED`),
+  KEY `MEMBER_COUNT` (`MEMBER_COUNT`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_T2S_ITEM` (
   `ID_ROW` int(11) NOT NULL,
   `ID_WIKIDATA` varchar(50) NOT NULL,
