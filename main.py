@@ -8618,6 +8618,114 @@ async def get_location(id: int, ui_language: Optional[str] = "en", collection: O
         conn.close()
 
 
+def _fetch_source_work_screen_entity(cursor, source_work):
+    """Return the T2S movie or series a source work IS, or None.
+
+    A source is always a T_WC_T2S_SOURCE_WORK row, but when it is itself a film or a
+    series of the read-model the row points to it through ID_MOVIE / ID_SERIE (Scarface
+    1932, the source of Scarface 1983). The stub carries the same card fields as the
+    movies / series collections, plus ENTITY_TYPE, so a client can link to that sheet and
+    show its poster: the source-work row has no TMDb image of its own. A target that is
+    gone (DELETED) yields None rather than a dead link.
+    """
+    if source_work.get("ID_MOVIE"):
+        cursor.execute("""
+            SELECT 'movie' AS ENTITY_TYPE, m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE,
+                   m.IMDB_RATING_WEIGHTED, m.POSTER_PATH
+            FROM T_WC_T2S_MOVIE m
+            WHERE m.ID_MOVIE = %s AND COALESCE(m.DELETED, 0) = 0
+        """, (source_work["ID_MOVIE"],))
+        return cursor.fetchone()
+    if source_work.get("ID_SERIE"):
+        cursor.execute("""
+            SELECT 'serie' AS ENTITY_TYPE, s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR,
+                   s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH
+            FROM T_WC_T2S_SERIE s
+            WHERE s.ID_SERIE = %s AND COALESCE(s.DELETED, 0) = 0
+        """, (source_work["ID_SERIE"],))
+        return cursor.fetchone()
+    return None
+
+
+@app.get("/sourceworks/{id}", summary="Source work full detail", response_class=RoundedJSONResponse)
+async def get_source_work(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+    """Return all fields for a source work (the novel, manga, play, game, tale, or film /
+    series that movies and series are based on, Wikidata P144) plus the movies and series
+    adapted from it, oldest first. The id is ID_SOURCE_WORK (FASTAPI-TEXT2SQL-323), the id
+    every based_on item of /movies/{id} and /series/{id} carries.
+
+    The source itself carries SOURCE_WORK_NAME (localized to ui_language, English fallback),
+    SOURCE_WORK_TYPE (literary, comic, stage, game, screen, folklore, other),
+    SOURCE_WORK_FORM (manga, light_novel, play, musical or null), SOURCE_WORK_YEAR,
+    OVERVIEW, MOVIE_COUNT, SERIE_COUNT, WIKIPEDIA_IMAGE_PATH and WIKIPEDIA_MAIN_IMAGE_URL
+    (localized). POSTER_PATH stays empty: a book has no TMDb image.
+
+    source_entity is the T2S movie or series the source IS, when ID_MOVIE / ID_SERIE is set
+    (Scarface 1932 for Scarface 1983): { ENTITY_TYPE ('movie' | 'serie'), ID_MOVIE,
+    MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH } or the serie equivalent
+    (ID_SERIE, SERIE_TITLE, DAT_FIRST_AIR, DAT_LAST_AIR, ...). null for any other source.
+
+    movies and series are the adaptations, paginated like every detail route (collection =
+    'movies' | 'series'), ordered by release / first-air date, undated rows last.
+
+    wikipedia_images, wikipedia_content, wikipedia_page and data_freshness behave exactly
+    as on /locations/{id}, keyed off the source's ID_WIKIDATA. Until the Wikipedia crawl
+    covers source works (WIKIPEDIA-CRAWLER-023) the two arrays are [] and wikipedia_page is
+    absent, which a client must read as "no article yet", not as an error."""
+    ui_language = normalize_ui_language(ui_language)
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            # DELETED = 0: a source that left the P144 perimeter stays as a tombstone so its
+            # ID_SOURCE_WORK is never handed to another work (same rule as locations, -014).
+            cursor.execute("SELECT * FROM T_WC_T2S_SOURCE_WORK WHERE ID_SOURCE_WORK = %s AND COALESCE(DELETED, 0) = 0", (id,))
+            source_work = cursor.fetchone()
+        if not source_work:
+            raise HTTPException(status_code=404, detail=f"Source work {id} not found")
+        # Same card fields as the movies / series collections of /locations/{id}. The link
+        # rows and the adapted works are filtered on DELETED too: the preprocess writes 0
+        # today, the filter keeps a future soft delete from resurfacing here.
+        pcollections = {
+            "movies": ("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED,
+                       m.POSTER_PATH, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_MOVIE_SOURCE_WORK ms
+                JOIN T_WC_T2S_MOVIE m ON ms.ID_MOVIE = m.ID_MOVIE AND COALESCE(m.DELETED, 0) = 0
+                WHERE ms.ID_SOURCE_WORK = %s AND COALESCE(ms.DELETED, 0) = 0
+                ORDER BY m.DAT_RELEASE IS NULL, m.DAT_RELEASE ASC, m.ID_MOVIE ASC
+            """, (id,), "movie"),
+            "series": ("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED,
+                       s.POSTER_PATH, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_SERIE_SOURCE_WORK ss
+                JOIN T_WC_T2S_SERIE s ON ss.ID_SERIE = s.ID_SERIE AND COALESCE(s.DELETED, 0) = 0
+                WHERE ss.ID_SOURCE_WORK = %s AND COALESCE(ss.DELETED, 0) = 0
+                ORDER BY s.DAT_FIRST_AIR IS NULL, s.DAT_FIRST_AIR ASC, s.ID_SERIE ASC
+            """, (id,), "serie"),
+        }
+        with conn.cursor() as cursor:
+            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            if collection is None:
+                source_entity = _fetch_source_work_screen_entity(cursor, source_work)
+                wikipedia_images = _fetch_wikipedia_images(cursor, source_work.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, source_work.get("ID_WIKIDATA"), ui_language)
+                wikipedia_page = _fetch_wikipedia_page(cursor, source_work.get("ID_WIKIDATA"), ui_language)
+                data_freshness = _build_data_freshness(cursor, source_work, RECORD_SOURCE_WIKIDATA, ui_language)
+        if collection is not None:
+            return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
+        result = {**source_work, "source_entity": source_entity, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
+        _attach_wikipedia_page(result, wikipedia_page)
+        logs.log_usage("sourceworks", {"id": id, "response": result}, strapiversion)
+        image_groups = _localized_image_groups(data, kinds)
+        if source_entity:
+            image_groups.setdefault(source_entity["ENTITY_TYPE"], []).append(source_entity)
+        apply_localized_related_images(conn, image_groups, ui_language)
+        localize_response(result, ui_language)
+        return _strip_tmdb_rating(result)
+    finally:
+        conn.close()
+
+
 # Root parent of the suggested-samples category tree (mirrors the front-end's $lngroot=1).
 SAMPLES_ROOT_PARENT_ID = 1
 
@@ -9083,8 +9191,8 @@ async def _mcp_sql_search(
     Covers movies, TV series, persons (actors, directors, writers, crew),
     production companies, TV networks, topics (themes), characters (cast credits),
     curated lists (rankings, canons), collections (trilogies, sagas, universes, franchises),
-    film movements, person groups, causes of death, awards, nominations, and locations
-    (narrative or filming).
+    film movements, person groups, causes of death, awards, nominations, locations
+    (narrative or filming), and source works (what a movie or series is based on).
 
     The result returns rows with entity IDs and key fields (title, release date,
     IMDb rating, poster path), plus a plain-language `answer` field generated in
@@ -9146,6 +9254,7 @@ async def _mcp_sql_search(
     Company IDs    → https://myapp.com/companies/{ID_COMPANY}
     Network IDs    → https://myapp.com/networks/{ID_NETWORK}
     Location IDs   → https://myapp.com/locations/{ID_LOCATION}
+    Source work IDs → https://myapp.com/sourceworks/{ID_SOURCE_WORK}
     """
     if not str(question or "").strip() and not str(image_ref or "").strip():
         return json.dumps({"error": "Provide a question, an image_ref, or both."})
@@ -9713,6 +9822,34 @@ async def _mcp_get_location(id: int, ui_language: str = "en", collection: Option
     return await _mcp_get(f"/locations/{id}", ui_language, collection, page, rows_per_page)
 
 
+@mcp.tool(name="get_source_work")
+async def _mcp_get_source_work(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+    """Get all fields for a source work by ID_SOURCE_WORK (the novel, manga, play, video
+    game, tale, or film / series that movies and series are adapted from, Wikidata P144)
+    plus the movies and series based on it, oldest first. The id is the ID_SOURCE_WORK
+    carried by each based_on item of get_movie / get_series.
+    The source carries SOURCE_WORK_NAME (localized), SOURCE_WORK_TYPE (literary, comic,
+    stage, game, screen, folklore, other), SOURCE_WORK_FORM (manga, light_novel, play,
+    musical or null), SOURCE_WORK_YEAR, OVERVIEW, MOVIE_COUNT and SERIE_COUNT.
+    source_entity is not null when the source is itself a film or series of the database
+    (Scarface 1932 for Scarface 1983): { ENTITY_TYPE 'movie' | 'serie', ID_MOVIE or
+    ID_SERIE, title, date, IMDB_RATING_WEIGHTED, POSTER_PATH }; open it with get_movie or
+    get_series. Paginate the adaptations with collection = 'movies' | 'series'.
+    Also returns wikipedia_images and wikipedia_content keyed off the source's Wikidata ID;
+    both are [] (and wikipedia_page absent) until the Wikipedia crawl covers source works,
+    which means "no article yet", not an error.
+
+    data_freshness dates the payload: record_source ('wikidata'), record_updated_at,
+    tmdb_updated_at (null), wikidata_updated_at, and wikipedia_updated_at /
+    wikipedia_crawled_at / wikipedia_lang. Use it to tell the user how current the data is
+    instead of implying it is live. Absent from a ?collection= targeted page.
+
+    wikipedia_page, when present, is the source article behind wikipedia_content: lang,
+    title and url. Quoting wikipedia_content requires CC BY-SA attribution pointing at
+    this url."""
+    return await _mcp_get(f"/sourceworks/{id}", ui_language, collection, page, rows_per_page)
+
+
 @mcp.tool(name="list_samples")
 async def _mcp_list_samples(ui_language: str = "en", set: str = "sample") -> str:
     """List the curated tree of suggested sample questions for the cinema/TV database.
@@ -9846,7 +9983,12 @@ async def _mcp_database_scope() -> str:
     - T_WC_T2S_SOURCE_WORK: ID_SOURCE_WORK, SOURCE_WORK_NAME, SOURCE_WORK_NAME_FR,
         SOURCE_WORK_TYPE (literary, comic, stage, game, screen, folklore, other),
         SOURCE_WORK_FORM (manga, light_novel, play, musical or NULL), SOURCE_WORK_YEAR,
-        ID_MOVIE, ID_SERIE, MOVIE_COUNT, SERIE_COUNT
+        ID_MOVIE, ID_SERIE, OVERVIEW, MOVIE_COUNT, SERIE_COUNT, WIKIPEDIA_IMAGE_PATH,
+        WIKIPEDIA_MAIN_IMAGE_URL, IMDB_RATING, IMDB_RATING_WEIGHTED, POPULARITY
+        Holds what movies and series are adapted from (Heart of Darkness, Dracula, a
+        manga, a play). ID_MOVIE / ID_SERIE are set when the source is itself a T2S
+        movie or series (Scarface 1932 for Scarface 1983). Detail: get_source_work
+        (/sourceworks/{ID_SOURCE_WORK}), with its adapted movies and series.
 
     ## Useful value ranges
     - VOTE_AVERAGE: 0 to 10, meaningful above VOTE_COUNT > 200

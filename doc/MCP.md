@@ -106,6 +106,7 @@ async def _mcp_sql_search(
     Company IDs    → https://myapp.com/companies/{ID_COMPANY}
     Network IDs    → https://myapp.com/networks/{ID_NETWORK}
     Location IDs   → https://myapp.com/locations/{ID_LOCATION}
+    Source work IDs → https://myapp.com/sourceworks/{ID_SOURCE_WORK}
     """
     try:
         async with httpx.AsyncClient(timeout=60) as client:
@@ -427,8 +428,8 @@ Each entity endpoint returns all properties for a given entity ID, including emb
 
 | Endpoint | Returns |
 |---|---|
-| `GET /movies/{id}` | All movie fields + cast, crew, genres, companies, topics, collections, movements, technicals, awards, nominations |
-| `GET /series/{id}` | All series fields + cast, crew, genres, companies, networks, topics, collections, movements, awards, nominations |
+| `GET /movies/{id}` | All movie fields + cast, crew, genres, companies, topics, collections, movements, based_on (source works, each with ID_SOURCE_WORK), technicals, awards, nominations |
+| `GET /series/{id}` | All series fields + cast, crew, genres, companies, networks, topics, collections, movements, based_on, awards, nominations |
 | `GET /persons/{id}` | All person fields + movie_cast, movie_crew, series_cast, series_crew, groups, deaths, awards, nominations |
 | `GET /collections/{id}` | Collection fields + member movies and series ordered by position |
 | `GET /topics/{id}` | Topic fields + linked movies and series ordered by position |
@@ -443,6 +444,7 @@ Each entity endpoint returns all properties for a given entity ID, including emb
 | `GET /companies/{id}` | Company fields + associated movies and series |
 | `GET /networks/{id}` | Network fields + associated TV series |
 | `GET /locations/{id}` | Location fields + movies and series, each tagged with LOCATION_ROLE ('narrative' / 'filming') |
+| `GET /sourceworks/{id}` | Source work fields (what movies and series are based on) + `source_entity` (the T2S movie / series the source is, or null) + adapted movies and series, oldest first. MCP tool `get_source_work` |
 
 The guiding principle: **one tool call should answer one user intent**. If Claude needs two tool calls to answer a simple question, the entity design is too granular.
 

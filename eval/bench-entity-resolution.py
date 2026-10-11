@@ -115,6 +115,7 @@ import os
 import random
 import re
 import sys
+import unicodedata
 
 from dotenv import load_dotenv
 import pymysql.cursors
@@ -126,18 +127,61 @@ load_dotenv()
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ARCHIVE_CACHE = os.path.join(REPO, "eval/data/archived-entity-values.json")
 
-# The fourteen placeholders that actually reach a scored resolver. Closed-vocabulary and regex
+# The fifteen placeholders that actually reach a scored resolver. Closed-vocabulary and regex
 # placeholders (Movie_genre, Release_year, ...) resolve by exact lookup and produce no score.
+# Source_work_name joined on 2026-10-11 (FASTAPI-TEXT2SQL-324): its min_fuzz_ratio of 71.8 was
+# borrowed from Location_name when the type was created (-320), and this bench is what turns
+# that loan into a measurement.
 SCORED_TYPES = [
     "Person_name", "Movie_title", "Serie_title", "Company_name", "Network_name",
     "Topic_name", "List_name", "Award_name", "Nomination_name", "Collection_name",
-    "Movement_name", "Location_name", "Group_name", "Death_name",
+    "Movement_name", "Location_name", "Group_name", "Death_name", "Source_work_name",
 ]
 
 INVENTED = [
     "Zorglub", "Bibendum", "Wagonlit", "Kraglinov", "Pentafrag",
     "Vorzimmer", "Quillebeuf", "Zamboni-Trask", "Mirlitonde", "Halvorsen-Puig",
 ]
+
+# FASTAPI-TEXT2SQL-324. A one-word stranger is too easy a negative for a resolver of TITLES:
+# what reaches Source_work_name in production is a book title, several words long and built
+# from the common words every real title shares ("The", "of", "Le", "des"). Those shared
+# words are exactly what lifts fuzz.ratio towards a wrong neighbour, so the invented titles
+# reuse them on purpose, in English and in French. None of these exists as a work.
+INVENTED_TITLES_BY_TYPE = {
+    "Source_work_name": [
+        "The Zorglub Chronicles", "Memoirs of a Pentafrag", "The Vorzimmer Inheritance",
+        "A Wagonlit in Winter", "The Last Days of Kraglinov", "Mirlitonde and the Glass Tower",
+        "Le Secret de Quillebeuf", "Les Enfants de Halvorsen-Puig", "La Ballade du Bibendum",
+        "Au coeur du Zorglub",
+    ],
+}
+
+# FASTAPI-TEXT2SQL-324. Types whose bench draws a French class on purpose: catalogue documents
+# indexed in French (metadata language = "fr"), as stored and typed without accents. A random
+# draw of the collection mixes both languages without saying which, and the case that matters
+# for this type is the French reader asking for "Au coeur des tenebres": the French label is
+# indexed as its own document, so it must resolve to itself, and the accent rescue must carry
+# the unaccented spelling through. Kept to the types named here so that adding the class does
+# not change the corpus, hence the comparability, of the types already calibrated.
+FRENCH_CLASS_TYPES = {"Source_work_name"}
+
+# Hand-picked French titles, the spelling a French user types (no accents), with the indexed
+# label they should land on. NOT a positive class, and deliberately so: nothing guarantees
+# that each one is in the catalogue (the French label comes from Wikidata and falls back to
+# English when missing), and a positive absent from the collection would drag the cut down
+# exactly like the observed-* values once did. They come out in the outcome table as
+# `anchor-fr`, a sanity check read by eye, outside the threshold arithmetic.
+FRENCH_ANCHORS_BY_TYPE = {
+    "Source_work_name": [
+        ("Au coeur des tenebres", "Au cœur des ténèbres"),
+        ("Le Comte de Monte-Cristo", "Le Comte de Monte-Cristo"),
+        ("Vingt mille lieues sous les mers", "Vingt mille lieues sous les mers"),
+        ("Orgueil et prejuges", "Orgueil et Préjugés"),
+        ("Le Tour du monde en quatre-vingts jours", "Le Tour du monde en quatre-vingts jours"),
+        ("Les Hauts de Hurlevent", "Les Hauts de Hurlevent"),
+    ],
+}
 
 
 def get_db_connection():
@@ -358,6 +402,58 @@ def sample_apostrophe_titles(collections_by_name, types_filter, per_type, rng):
     return drawn
 
 
+def sample_french_names(collections_by_name, types_filter, per_type, rng):
+    """FASTAPI-TEXT2SQL-324. French documents of the collection, names only, for the types of
+    FRENCH_CLASS_TYPES. The collection holds one document per language and skips the French
+    one when its label equals the English label (embedding-update, process 217), so every
+    document drawn here carries a name that differs from the English one, which is the
+    population the French class exists for."""
+    try:
+        config = json.load(io.open(os.path.join(REPO, "data/entity_resolution.json"), encoding="utf-8"))
+    except Exception:
+        return {}
+    wanted = set(types_filter or SCORED_TYPES) & FRENCH_CLASS_TYPES
+    drawn = {}
+    for entry in config:
+        etype = entry.get("placeholder_prefix")
+        if etype not in wanted:
+            continue
+        for strategy in entry.get("search_list") or []:
+            if strategy.get("search_mode") != "embeddings" or not strategy.get("collection"):
+                continue
+            collection = (collections_by_name or {}).get(strategy.get("collection"))
+            if collection is None:
+                continue
+            try:
+                got = collection.get(where={"language": "fr"}, limit=max(per_type * 5, 50),
+                                     include=["documents"])
+            except Exception as collection_error:
+                print(f"[warn] collection {strategy.get('collection')} : tirage francais impossible : {collection_error}")
+                continue
+            separator = strategy.get("document_name_separator")
+            names = []
+            for document in got.get("documents") or []:
+                if not isinstance(document, str) or not document.strip():
+                    continue
+                value = document.strip()
+                if separator and separator in value:
+                    value = value.split(separator, 1)[0].strip()
+                if value:
+                    names.append(value)
+            names = sorted(set(names))
+            rng.shuffle(names)
+            drawn[etype] = names[:per_type]
+            break
+    return drawn
+
+
+def unaccented(value):
+    """What a French user types: no accents, ligatures spelled out ("coeur" for "cœur")."""
+    value = (value.replace("œ", "oe").replace("Œ", "Oe")
+             .replace("æ", "ae").replace("Æ", "Ae"))
+    return "".join(c for c in unicodedata.normalize("NFKD", value) if not unicodedata.combining(c))
+
+
 def typography_variants(title):
     """The spellings the rescue exists for: a space typed after the apostrophe, and a curly one."""
     spaced = re.sub(r"'(?=\w)", "' ", title)
@@ -392,7 +488,8 @@ def mutate(value, rng):
     return "".join(chars)
 
 
-def build_corpus(limit_per_type, types_filter, seed, use_pool_as_positive, catalogue=None, apostrophes=None):
+def build_corpus(limit_per_type, types_filter, seed, use_pool_as_positive, catalogue=None, apostrophes=None,
+                 french=None):
     """Assemble the classes. Without `catalogue` this reads files only and needs no database."""
     rng = random.Random(seed)
     positives, suspects, pool, archived = harvest_pairs()
@@ -434,6 +531,31 @@ def build_corpus(limit_per_type, types_filter, seed, use_pool_as_positive, catal
             for variant in typography_variants(title):
                 catalogue_cases.append({"type": etype, "value": variant, "expected": title,
                                         "klass": "positive-catalogue-typography"})
+
+    # FASTAPI-TEXT2SQL-324: the French class. The label as indexed, its unaccented spelling
+    # (expected to resolve to the indexed label, through the accent rescue when the plain ratio
+    # falls short), and one typo of the unaccented spelling, the realistic worst case.
+    for etype, names in (french or {}).items():
+        if etype not in wanted:
+            continue
+        for name in names:
+            pool[etype].add(name)
+            catalogue_cases.append({"type": etype, "value": name, "klass": "positive-catalogue-fr"})
+            plain = unaccented(name)
+            if plain != name:
+                catalogue_cases.append({"type": etype, "value": plain, "expected": name,
+                                        "klass": "positive-catalogue-fr-unaccented"})
+            typo = mutate(plain, rng)
+            if typo != plain:
+                catalogue_cases.append({"type": etype, "value": typo, "expected": name,
+                                        "klass": "positive-catalogue-fr-typo"})
+    # The French anchors, outside the arithmetic (see FRENCH_ANCHORS_BY_TYPE).
+    for etype, anchors in FRENCH_ANCHORS_BY_TYPE.items():
+        if etype not in wanted:
+            continue
+        for typed, expected in anchors:
+            catalogue_cases.append({"type": etype, "value": typed, "expected": expected,
+                                    "klass": "anchor-fr"})
 
     # Thin types have no scored positives at all. Falling back to the unscored pool is a weaker
     # ground truth (nothing says the answer was right) but it beats not measuring them, and the
@@ -484,6 +606,12 @@ def build_corpus(limit_per_type, types_filter, seed, use_pool_as_positive, catal
             continue
         rng.shuffle(others)
         n = min(limit_per_type or 40, max(len(by_type[etype]), 10))
+        # FASTAPI-TEXT2SQL-324. A type that no log has ever carried (Source_work_name, born in
+        # -320) has no usage value at all, so the rule above gave it ten negatives against some
+        # two hundred catalogue positives. Its negatives are sized on the limit instead. Types
+        # with usage values keep the rule above, hence their corpus.
+        if not by_type[etype]:
+            n = limit_per_type or 40
         for i in range(n):
             source = others[i % len(others)]
             cases.append({
@@ -492,7 +620,7 @@ def build_corpus(limit_per_type, types_filter, seed, use_pool_as_positive, catal
             })
 
     for etype in set(list(by_type) + [c["type"] for c in catalogue_cases]):
-        for name in INVENTED:
+        for name in INVENTED + INVENTED_TITLES_BY_TYPE.get(etype, []):
             cases.append({"type": etype, "value": name, "klass": "negative-invent"})
 
     return cases, suspects, sorted(weakly_grounded), archived
@@ -847,6 +975,7 @@ def main():
     # file-only corpus. That is the honest degradation: fewer positives, same method.
     catalogue = {}
     apostrophes = {}
+    french = {}
     connection = None
     api = None
     if not args.build_only and args.catalogue_per_type:
@@ -864,9 +993,14 @@ def main():
             random.Random(args.seed))
         print("Titres a apostrophe : " + (", ".join(
             "%s=%d" % (k, len(v)) for k, v in sorted(apostrophes.items())) or "aucun"))
+        french = sample_french_names(
+            api.CHROMADB_COLLECTIONS_BY_NAME, types_filter, args.catalogue_per_type,
+            random.Random(args.seed))
+        print("Noms francais : " + (", ".join(
+            "%s=%d" % (k, len(v)) for k, v in sorted(french.items())) or "aucun"))
 
     cases, suspects, weak, archived = build_corpus(
-        args.limit_per_type, types_filter, args.seed, not args.no_unscored, catalogue, apostrophes)
+        args.limit_per_type, types_filter, args.seed, not args.no_unscored, catalogue, apostrophes, french)
 
     counts = collections.Counter(c["klass"] for c in cases)
     print("Corpus : " + ", ".join("%s=%d" % (k, v) for k, v in sorted(counts.items())))

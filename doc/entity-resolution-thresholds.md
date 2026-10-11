@@ -263,6 +263,7 @@ Midpoint of the measured equivalence interval. "refused" counts legitimate match
 | `Award_name` | 74.45 | 3 / 0 | |
 | `Collection_name` | 72 | 1 / 3 | value already in service, kept |
 | `Location_name` | 71.80 | 3 / 0 | |
+| `Source_work_name` | 71.80 | not measured | **borrowed** from `Location_name` at creation (-320), see §8 |
 | `Topic_name` | 69.10 | 1 / 3 | |
 | `List_name` | 67.10 | 0 / 0 | wide interval, 46.7 to 87.5 |
 | `Nomination_name` | 57.15 | 1 / 1 | |
@@ -303,6 +304,30 @@ falls through to the next strategy and, failing that, to the raw fallback.
 `List_name` with 32 resolutions below 50 and `Topic_name` with 24. Their thresholds cut those, but
 the `observed` tail is worth re-reading after deployment to confirm it.
 
+**`Source_work_name` runs on a borrowed number (FASTAPI-TEXT2SQL-324).** The type was created
+by -320 with the `t2ssourceworks` collection and took `Location_name`'s 71.8 because both
+collections are built by the same embedding-update function with the same document shape
+(`<name>: <type>, ...`, cut at `": "`). That is a resemblance, not a measurement, and the value
+stays as it is until the bench below has run. The bench supports the type since 2026-10-11:
+
+- `positive-catalogue` and its typos, drawn from `t2ssourceworks` like every embeddings type;
+- `positive-catalogue-fr`, French documents only (metadata `language = "fr"`), with two
+  variants each: the **unaccented** spelling a French user types ("Au coeur des tenebres",
+  expected to land on "Au cœur des ténèbres", through the accent rescue when the plain ratio
+  falls short) and one typo of it. The collection drops a French document whose label equals
+  the English one, so every name drawn here differs from its English label;
+- `negative-cross` sized on the limit rather than on usage, since no log carries the type yet
+  (ten negatives against two hundred positives would measure nothing), and `negative-invent`
+  extended with invented **titles** built from the common words real titles share ("The
+  Vorzimmer Inheritance", "Le Secret de Quillebeuf"): a one-word stranger is too easy a negative
+  for a resolver of titles;
+- `anchor-fr`, six hand-picked French titles with their expected label, **outside** the
+  arithmetic because nothing guarantees each is in the catalogue. Read them in the outcome
+  table: `autre_titre` above zero there is worth a look.
+
+The command is the one of §9 with `--types Source_work_name`; the measured value then goes in
+`data/entity_resolution.json` and in the table of §7, replacing this paragraph.
+
 ## 9. Re-running the bench
 
 Inside the API image, which is the only one carrying both the resolution stack and the bench.
@@ -329,6 +354,20 @@ docker run -d --rm --network="host" \
   fastapi-text2sql-blue-app \
   python eval/bench-entity-resolution.py --types Person_name \
     --catalogue-per-type 40 --out eval/data/bench-personnes.json
+```
+
+```bash
+# Source_work_name alone (FASTAPI-TEXT2SQL-324), from the clone of the colour in service
+cd ~/docker/fastapi-text2sql-blue && git pull
+docker run --rm --network="host" \
+  --env-file /home/debian/docker/fastapi-text2sql-blue/.env \
+  -e BKTREE_ENABLED=0 \
+  -v /home/debian/docker/fastapi-text2sql-blue:/app \
+  --memory=6g --name t2s-bench-324 \
+  fastapi-text2sql-blue-app \
+  python eval/bench-entity-resolution.py --types Source_work_name \
+    --catalogue-per-type 40 --out eval/data/bench-source-work.json \
+  | tee eval/data/bench-source-work-$(date +%Y%m%d).txt
 ```
 
 `--seed` defaults to a fixed value, so the corpus is identical between runs and a difference in the
