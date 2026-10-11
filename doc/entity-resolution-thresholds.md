@@ -257,13 +257,13 @@ Midpoint of the measured equivalence interval. "refused" counts legitimate match
 | `Movie_title` | 85.85 | 8 / 3 | |
 | `Person_name` | 84.50 | 0 / 0 | perfect separation |
 | `Person_name` (aliases) | 90.00 | not measured | **provisional**, see §8 |
+| `Source_work_name` | 79.55 | 15 / 1 | measured 2026-10-11 (-324), was 71.80 borrowed from `Location_name`, see §8 |
 | `Network_name` | 78.45 | 6 / 0 | |
 | `Company_name` | 77.50 | 2 / 0 | |
 | `Group_name` | 77.50 | 2 / 0 | |
 | `Award_name` | 74.45 | 3 / 0 | |
 | `Collection_name` | 72 | 1 / 3 | value already in service, kept |
 | `Location_name` | 71.80 | 3 / 0 | |
-| `Source_work_name` | 71.80 | not measured | **borrowed** from `Location_name` at creation (-320), see §8 |
 | `Topic_name` | 69.10 | 1 / 3 | |
 | `List_name` | 67.10 | 0 / 0 | wide interval, 46.7 to 87.5 |
 | `Nomination_name` | 57.15 | 1 / 1 | |
@@ -304,11 +304,11 @@ falls through to the next strategy and, failing that, to the raw fallback.
 `List_name` with 32 resolutions below 50 and `Topic_name` with 24. Their thresholds cut those, but
 the `observed` tail is worth re-reading after deployment to confirm it.
 
-**`Source_work_name` runs on a borrowed number (FASTAPI-TEXT2SQL-324).** The type was created
-by -320 with the `t2ssourceworks` collection and took `Location_name`'s 71.8 because both
+**`Source_work_name`: 79.55, measured 2026-10-11 (FASTAPI-TEXT2SQL-324).** The type was created
+by -320 with the `t2ssourceworks` collection and first took `Location_name`'s 71.8 because both
 collections are built by the same embedding-update function with the same document shape
-(`<name>: <type>, ...`, cut at `": "`). That is a resemblance, not a measurement, and the value
-stays as it is until the bench below has run. The bench supports the type since 2026-10-11:
+(`<name>: <type>, ...`, cut at `": "`). That was a resemblance, not a measurement. The bench
+covers the type with these classes:
 
 - `positive-catalogue` and its typos, drawn from `t2ssourceworks` like every embeddings type;
 - `positive-catalogue-fr`, French documents only (metadata `language = "fr"`), with two
@@ -325,8 +325,7 @@ stays as it is until the bench below has run. The bench supports the type since 
   arithmetic because nothing guarantees each is in the catalogue. Read them in the outcome
   table: `autre_titre` above zero there is worth a look.
 
-The command is the one of §9 with `--types Source_work_name`; the measured value then goes in
-`data/entity_resolution.json` and in the table of §7, replacing this paragraph.
+The command is the one of §9 with `--types Source_work_name`.
 
 **First run, 2026-10-11 on Green, discarded** (`eval/data/bench-source-work-20261011.txt`). The
 gate at 71.8 behaved well where the corpus was sound: invented titles 0 accepted out of 20,
@@ -336,9 +335,20 @@ anchors 6/6. The proposed number was not: `seuil propose >= 21.65`, positive min
 because `positive-catalogue-typography` refused 72 of its 76 cases. The bench drew those
 "titles" as whole documents, overview included, so the apostrophe was often in the overview
 and the query was a paragraph. Fixed in `sample_apostrophe_titles` (cut at
-`document_name_separator`, keep only names carrying an apostrophe); rerun before writing a
-number. The `observed` tail of that run came from other types' archives (the type has no log
-yet) and says nothing about source works.
+`document_name_separator`, keep only names carrying an apostrophe). The `observed` tail came
+from other types' archives (the type has no log yet) and says nothing about source works.
+
+**Second run, same day, retained** (`eval/data/bench-source-work-20261011-2.txt`). 246 positives,
+58 negatives (two cross negatives set aside as legitimate). `fuzz_ratio`: positives median 96.6,
+minimum 24.2; negatives median 39.2, maximum 95.2. Proposed `>= 79.55`, any value from 79.10 to
+80.00 giving the same split: 15 legitimate refused, 1 stranger admitted. The gate at the old 71.8
+admitted 2 strangers among the cross negatives (4 admitted, 2 of them legitimate) and refused
+14 positives after rescue, so the move trades about one stranger for about one refusal: the
+strict side, by the rule of §1. The value lands between the place names (71.80) and the film
+and series titles (85.85, 87.85), which is where a resolver of titles was expected to sit.
+The typographic class, now sound, passes 74 of 76 at 71.8. To watch after deployment: the
+French anchors ("Au coeur des tenebres") passed 6 of 6 at 71.8 and were not re-scored at 79.55;
+evaluations 2530 to 2539, EN and FR, are the check.
 
 ## 9. Re-running the bench
 

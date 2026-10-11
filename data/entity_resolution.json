@@ -409,7 +409,7 @@
           "*": "SOURCE_WORK_NAME"
         },
         "document_name_separator": ": ",
-        "min_fuzz_ratio": 71.8,
+        "min_fuzz_ratio": 79.55,
         "rescue_normalizations": ["apostrophes", "accents", "dashes", "punctuation"]
       }
     ]
