@@ -7,10 +7,10 @@
   "assertions": {
     "entity_extraction": null,
     "sql_query": "(?i)T_WC_T2S_SOURCE_WORK",
-    "query_result": "COUNT(*) &gt; 0"
+    "query_result": "ID_SOURCE_WORK IN (4897)"
   },
   "assertion_refresh_sql": "SELECT ID_SOURCE_WORK FROM T_WC_T2S_SOURCE_WORK WHERE DELETED = 0 ORDER BY MOVIE_COUNT + SERIE_COUNT DESC, ID_SOURCE_WORK ASC LIMIT 1",
-  "assertion_refresh_last": null,
+  "assertion_refresh_last": "2026-10-11T02:36:40",
   "comment": "Novels, movies and plays ranked on one scale: only possible because every source sits in one table. The most adapted work moves with the data, hence the refresh SQL.",
   "keywords": null,
   "keywords_auto": null,
