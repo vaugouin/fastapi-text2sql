@@ -2972,6 +2972,18 @@ CREATE TABLE `T_WC_T2S_SOURCE_WORK` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_T2S_SOURCE_WORK_CLASS` (
+  `ID_CLASS` varchar(50) NOT NULL,
+  `CONE_RANK` int(11) NOT NULL,
+  `SOURCE_WORK_TYPE` varchar(20) NOT NULL,
+  `SOURCE_WORK_FORM` varchar(20) DEFAULT NULL,
+  `DAT_CREAT` datetime DEFAULT current_timestamp(),
+  PRIMARY KEY (`ID_CLASS`),
+  KEY `CONE_RANK` (`CONE_RANK`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `T_WC_T2S_SYNTHETIC_IMAGE` (
   `ID_SYNTHETIC_IMAGE` int(11) NOT NULL AUTO_INCREMENT,
   `IMAGE_KEY` varchar(64) NOT NULL,
