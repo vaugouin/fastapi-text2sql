@@ -9,7 +9,8 @@ Deeper specs live in their own files:
 - @doc/AGENTS.md : index of the reference documentation, and the rule that a new entity ships with a measured threshold
 - @doc/MCP.md — full MCP integration guide (tool code, resource reference, client setup, bearer token, end-to-end flow)
 - @doc/RAPIDFUZZ.md — RapidFuzz setup and SQL schema requirements
-- @eval/README.md — evaluation harness
+- `../text2sql-eval/README.md` — the evaluator, a separate repository since 2026-10-12 ([github.com/vaugouin/text2sql-eval](https://github.com/vaugouin/text2sql-eval))
+- `checks/` — offline checks and benches that import this repository's modules (`verif-*`, `check-*`, `bench-*`, `eval-309`); they stayed here when the evaluator left
 - @doc/sql/*.sql — reference DDL for the database schema; treat these files as read-only unless the user explicitly asks you to edit schema documentation
 
 - For any project update, keep documentation aligned:
@@ -29,7 +30,7 @@ Pipeline stages:
 - **Preprocessing → `T_WC_T2S_*`** — `tmdb-movie-preprocess`, `tmdb-person-preprocess`, `keywords-processing`.
 - **Semantic index & name resolution** — `embedding-update`, `embedding-query`, `rapidfuzz_query`.
 - **Serving** — `fastapi-text2sql` (NL→SQL API + MCP server), `voice-agent`, `tmdb-front` (PHP web front-end).
-- **Evaluation** — `extract-movie-questions`. (`eval-text2sql` was removed; the evaluator now lives in this repo under `eval/`.)
+- **Evaluation** — `text2sql-eval` (the evaluator, an API client; it lived in this repo under `eval/` until 2026-10-12), `extract-movie-questions`.
 - **Maintenance & tooling** — `plex-duplicates`, `subtitle-translate`, `powershell`, `playwright-test`.
 - **Monitoring & observability** — `data-monitoring`, `pipeline-3d` (three.js replay of one question's execution trace through `voice-agent` and `fastapi-text2sql`).
 
@@ -43,7 +44,7 @@ Bumping `strapiversion` moves the deployment to the other colour (even patch →
 
 | client | how it picks a colour | what to change |
 |---|---|---|
-| **evaluator** (`eval/text2sql-eval.py`) | derives the port from the parity of `--api-version`, [line 563](eval/text2sql-eval.py#L563), exactly like `main.py` does | nothing: pass the right `--api-version` |
+| **evaluator** (`text2sql-eval/text2sql-eval.py`) | derives the port from the parity of `--api-version`, [line 563](https://github.com/vaugouin/text2sql-eval/blob/main/text2sql-eval.py#L563), exactly like `main.py` does | nothing: pass the right `--api-version` |
 | **Claude, via MCP** | `https://www.vaugouin.com/mcp`, routed by **NGINX** | the `reverseproxy` repo, repoint the upstream port |
 | **tmdb-front** (PHP) | `$strtext2sqlapicolor`, **hard-coded** in `lib/global-light.inc.php` (~line 144); both URLs already sit in its `.env` as `TEXT2SQL_API_BLUE_URL` / `TEXT2SQL_API_GREEN_URL` | swap the two commented lines, then deploy the front |
 | **voice-agent** | `TEXT2SQL_BASE_URL` in its `.env`, port written in full | edit the port, restart the service |
@@ -52,9 +53,9 @@ Two things worth knowing.
 
 **tmdb-front can be tested on the other colour without switching anyone.** It accepts `?apicolor=Blue` on the URL and remembers it in a cookie, so the new version can be exercised through the real front-end, for one browser only, while everyone else stays on the live colour. That is the cheapest validation available and it needs no deployment.
 
-**The evaluator's working copy on the VPS is `~/docker/text2sql-eval`, not a git checkout.** It holds its own `.env`, `Dockerfile` and copies of the `eval/*.py` files, which drift from this repo silently. Compare sizes before trusting a run. `~/docker/fastapi-text2sql-blue` had the same problem until 2026-08-21, when it was converted to a git clone.
+**The evaluator is its own repository, `text2sql-eval`, since 2026-10-12.** It is a client of this API like `voice-agent` or `tmdb-front`, and `~/docker/text2sql-eval` on the VPS is a git clone of it (it used to be a hand copy of `eval/*`, which drifted silently). A change to the API that the evaluator must follow (a new response field, a new model selector) is two commits in two repositories. The scripts that import this repository's modules stayed here, in `checks/`. `~/docker/fastapi-text2sql-blue` had the same flat-copy problem until 2026-08-21, when it was converted to a git clone.
 
-**Not clients, despite appearances:** `data-monitoring` (one mention, a design analogy in its `AGENTS.md`), `extract-movie-questions` (no reference at all). `eval-text2sql` no longer exists, 404 on GitHub.
+**Not clients, despite appearances:** `data-monitoring` (one mention, a design analogy in its `AGENTS.md`), `extract-movie-questions` (no reference at all). The old `eval-text2sql` repository no longer exists (404 on GitHub); its successor `text2sql-eval` is a client, above.
 
 ### Redeploying in place, without bumping the version
 
@@ -240,7 +241,7 @@ keep different instructions:
 - `closed_vocabularies.json` — alias dictionaries (loaded by [closed_vocab.py](closed_vocab.py))
 - `vision_identification.md` : the image-reading prompt (loaded by [text2sql.py](text2sql.py))
 
-**[maintenance/](maintenance/)** — one-shot operational SQL, run by hand against the production DB, no code path loads it. Distinct from `doc/sql/` (reference DDL, read-only) and from `eval/assertions-*.sql` (which writes to the evaluation bank): this folder writes to operational tables, `T_WC_T2S_CACHE` first among them. Conventions and the cache facts a cleanup relies on are in [maintenance/AGENTS.md](maintenance/AGENTS.md); read it before adding or running anything there.
+**[maintenance/](maintenance/)** — one-shot operational SQL, run by hand against the production DB, no code path loads it. Distinct from `doc/sql/` (reference DDL, read-only) and from `text2sql-eval/assertions-*.sql` (which writes to the evaluation bank): this folder writes to operational tables, `T_WC_T2S_CACHE` first among them. Conventions and the cache facts a cleanup relies on are in [maintenance/AGENTS.md](maintenance/AGENTS.md); read it before adding or running anything there.
 
 ---
 
@@ -437,14 +438,14 @@ Latency baseline from the same run, for comparing any model swap against:
 
 | client | how it selects | state |
 |---|---|---|
-| **evaluator** (`eval/text2sql-eval.py`) | `--entity-extraction-model`, `--text2sql-model`, `--complex-model`, `--result-entity-model`, `--answer-single-value-model` | five of six; it cannot send an image at all, which is FASTAPI-TEXT2SQL-277 |
+| **evaluator** (`text2sql-eval/text2sql-eval.py`) | `--entity-extraction-model`, `--text2sql-model`, `--complex-model`, `--result-entity-model`, `--answer-single-value-model` | five of six; it cannot send an image at all, which is FASTAPI-TEXT2SQL-277 |
 | **tmdb-front** | request params / cookies `eemodel`, `t2smodel`, `complexmodel`, `resultentitymodel`, `answermodel`, radio groups on the settings page | five of six; it sends `image_ref` but no vision-model selector (TMDB-FRONT-088) |
 | **Claude, via MCP** | the six arguments of `sql_search`, `llm_model_vision` included | all six |
 | **voice-agent** | does not send any; takes the server defaults | unchanged |
 
 **The gap is closed (FASTAPI-TEXT2SQL-234, 2026-09-25).** `T_WC_T2S_EVALUATION_EXECUTION`
 now stores all five models: `RESULT_ENTITY_MODEL` and `ANSWER_SINGLE_VALUE_MODEL` were added by
-`eval/migrate-evaluation-execution-late-models.sql`, which must run before the evaluator of the
+`text2sql-eval/migrate-evaluation-execution-late-models.sql`, which must run before the evaluator of the
 same commit. The folder suffix (`_re-<model>`, `_asv-<model>`) is built from the ROW, never from
 the CLI, and only when the value differs from `gpt-4o`, so a re-export never labels an old row
 with today's setting and the three-model folders keep their names. Rows older than the columns
@@ -458,8 +459,8 @@ execution row, no cache write.
 
 | bench | task | ground truth |
 |---|---|---|
-| `eval/bench-entity-extraction.py` | 1, entity extraction | `ASSERTIONS_ENTITY_EXTRACTION` in the bank |
-| `eval/bench-result-entity.py` | 3, answer-entity classifier | `result_entity` of executions that PASSED |
+| `checks/bench-entity-extraction.py` | 1, entity extraction | `ASSERTIONS_ENTITY_EXTRACTION` in the bank |
+| `checks/bench-result-entity.py` | 3, answer-entity classifier | `result_entity` of executions that PASSED |
 
 **Always measure the noise floor first, by running one model against itself.** At
 temperature 0 a configuration still disagrees with itself, and until that number exists a
@@ -585,7 +586,7 @@ confident-error line on a class with n=1 is a prompt to go read the case, never 
 on the model. This is also why `--min-decidable` exists: at n=1 a single questionable
 label is 100 % of the class.
 
-**Bench artefacts are gitignored** (`eval/data/bench/`), for the same reason as the
+**Bench artefacts are gitignored** (`checks/data/bench/`), for the same reason as the
 execution exports: they carry the evaluation questions verbatim.
 
 **Both benches preflight one call per model and abort before spending anything.** The
@@ -638,7 +639,7 @@ hit rate of every campaign from the per-task table of phase 20 before reading it
 the cache with NEW questions only.
 
 **The evaluator now stops a run whose cache does not hold** (`PromptCacheGuard` in
-`eval/text2sql-eval.py`, 2026-09-28). After each stored execution it reads `llm_usage`; for every
+`text2sql-eval/text2sql-eval.py`, 2026-09-28). After each stored execution it reads `llm_usage`; for every
 cacheable task (>= 1,024 prompt tokens per call) it ignores the first 3 calls, then stops the run
 with exit code 3 when fewer than 70 % of the last 20 calls read at least 90 % of their prompt from
 cache. Rows already written are kept and the same command resumes. Replayed on the 2026-09-27
@@ -695,7 +696,7 @@ IMDb rating of Kubrick movies per decade", grouped by decade, became one row per
   projected column a key or an aggregate, no window function, no `UNION`. A key that is an
   identity (`ID_*`, `*_NAME`, `*_TITLE`, `DESCRIPTION`) disqualifies it: "directors with the most
   films" grouped on `PERSON_NAME` alone is exactly what the guard must still turn into person rows.
-- **Offline check:** `uv run eval/verif-311.py` (23 cases, both directions). **Replayed** on the
+- **Offline check:** `uv run checks/verif-311.py` (23 cases, both directions). **Replayed** on the
   11,477 SQL statements of the 5,502 executions of the 1.1.19 campaigns: no `AVG`/`SUM` total and
   no statistics table among them, and the 266 `GROUP BY` queries all project an entity id and are
   all rejected by the new rule. So -311 changes no decision on the existing bank; its only
@@ -716,7 +717,7 @@ docker stop <what is still running>   # off.sh only prevents the NEXT launch
 bash ~/docker/on-all.sh       # after the LAST campaign of the session: everything back on
 ```
 
-`eval/text2sql-eval.sh` prints this at startup, checks the "off" half in its pre-flight (which
+`text2sql-eval/text2sql-eval.sh` prints this at startup, checks the "off" half in its pre-flight (which
 tasks are still armed, which containers still run), and repeats the `on-all.sh` reminder at
 launch. Nothing can check the "on" half: forgetting it leaves the crawlers and the embeddings
 silently frozen for days. Rule set by Philippe on 2026-09-26.
@@ -824,7 +825,7 @@ items. That split is what makes the recognition cache sound: the identification 
 does not depend on the question asked about it, so it is stored under the MD5 of the bytes and
 reused on later turns. If the model composed the question, a cached turn and a fresh turn
 would produce **different questions for the same photo**, and the divergence would only show
-up on the second turn in production. `eval/verif-114.py` asserts the invariant directly: the
+up on the second turn in production. `checks/verif-114.py` asserts the invariant directly: the
 identification round-tripped through the cache composes the same question as the fresh one.
 
 **Two shapes of composition, and the second one is the one to protect.** A lone photo goes
@@ -901,7 +902,7 @@ gpt-5.6-sol, see *The reasoning-family block*) and because this repository has n
 Title plus year is not a unique key. On 2026-09-30 a still from Scorsese's *Taxi Driver*,
 recognised at 0.98, returned two cards, because the Turkish *Taksi Şoförü* (1976) carries the
 English title "Taxi Driver" on TMDb. The harvest of that day counts 7,788 such movie groups,
-433 of them with a film of 10,000 votes or more (`eval/harvest-title-year-homonyms-20260930.txt`).
+433 of them with a film of 10,000 votes or more (`text2sql-eval/harvest-title-year-homonyms-20260930.txt`).
 
 - **The prompt** asks, for every `movie` / `serie` item, a `known_credits` block (directors or
   creators, up to three leads, original title, original language): what the model KNOWS, never
@@ -920,7 +921,7 @@ English title "Taxi Driver" on TMDb. The harvest of that day counts 7,788 such m
   ("the movie Taxi Driver (1976) directed by Martin Scorsese").
 - **Undecided** (no score, or a tie): the composed question is unchanged and all rows come back.
 - Traced in `vision_evidence.identity_check` (decision, discriminators, candidates, scores).
-- Offline check: `uv run eval/test-vision-homonyms.py`.
+- Offline check: `uv run checks/test-vision-homonyms.py`.
 - **Shipped on 1.1.19 without a version bump** (Philippe, 2026-09-30), so the version scope of
   the recognition cache does not retire the rows written before it. `vision_cache.predates_known_credits`
   spots them (a movie or serie item without the `known_credits` key) and the pre-stage reads
@@ -960,7 +961,7 @@ the **same** MD5.
   path works, uncached. **That flag never flips back**, so a process that met the missing table
   once stays uncached until it is restarted.
 
-**Offline check:** `uv run eval/verif-114.py` (62 cases, no API, no database and no image). It
+**Offline check:** `uv run checks/verif-114.py` (62 cases, no API, no database and no image). It
 covers everything deterministic on this path: the may-call gate, the confidence rule, both
 shapes of composition, the cache round-trip invariant, the guardrail, the `image_ref` refusals
 and the Pydantic contract the two front clients depend on.
@@ -1023,7 +1024,7 @@ measured. `vision_identification` sits in the table at the cheapest rung ahead o
   `/v1/chat/completions`. It does not bite today, since this pipeline uses neither tools nor
   `response_format`. It will the moment someone adds structured outputs.
 
-**Offline check:** `uv run eval/verif-274.py` (31 cases, no API and no database). It reads the
+**Offline check:** `uv run checks/verif-274.py` (31 cases, no API and no database). It reads the
 family block out of `text2sql.py` and executes it in isolation, so it runs on a machine without
 the full stack.
 
@@ -1040,7 +1041,7 @@ Every resolver now carries a rejection threshold. Do NOT adjust one by hand on t
 single bad case: each value is the midpoint of a measured equivalence interval, and the method
 that produced it, the data it used and the traps it walked into are written up in
 [doc/entity-resolution-thresholds.md](doc/entity-resolution-thresholds.md). Re-run
-[eval/bench-entity-resolution.py](eval/bench-entity-resolution.py) and read the interval instead.
+[checks/bench-entity-resolution.py](checks/bench-entity-resolution.py) and read the interval instead.
 
 Three things from that document are worth knowing before touching this area at all.
 
@@ -1106,7 +1107,7 @@ distinct awards together instead of separating them. Same for `Movement_name` ("
 `List_name` ("Top 250", "Sight & Sound").
 
 Adding a list to a type that has a `min_fuzz_ratio` changes the gate, so measure before and
-after with [eval/bench-entity-resolution.py](eval/bench-entity-resolution.py). Note the effect
+after with [checks/bench-entity-resolution.py](checks/bench-entity-resolution.py). Note the effect
 runs both ways: neutralisation closed a false positive (76.5 to 33.3) and a false NEGATIVE in
 the same move ("star wars universe" against "Star Wars Collection", 57.9 to 100, where 57.9 sat
 below the threshold and would have been refused).
@@ -1114,7 +1115,7 @@ below the threshold and would have been refused).
 ## Adding an indicator to the response
 
 The measurement chain is already generic, and knowing that saves most of the work.
-`eval/text2sql-eval.py` stores the **entire** HTTP response body in
+`text2sql-eval/text2sql-eval.py` stores the **entire** HTTP response body in
 `T_WC_T2S_EVALUATION_EXECUTION.JSON_RESULT`, and the export phase copies that JSON verbatim
 into `api_output` in `/shared/evaluation_execution/`. So:
 
@@ -1123,14 +1124,14 @@ into `api_output` in `/shared/evaluation_execution/`. So:
    sites (cache miss, bare-identifier fast path, complex-question retry) keep working.
 2. **Add a dedicated column only if you need to aggregate it in SQL.** The columns are a
    duplicate of what `JSON_RESULT` already holds, kept so a campaign can be sliced without
-   `JSON_EXTRACT` on every row (the PHP graphs under `eval/lib/` rely on them). That step is
+   `JSON_EXTRACT` on every row (the PHP graphs under `text2sql-eval/lib/` rely on them). That step is
    four edits, not one: [doc/sql/T2S_EVALUATION-tables.sql](doc/sql/T2S_EVALUATION-tables.sql)
    for the reference DDL, a migration under [maintenance/](maintenance/) for the live table,
-   the write in `eval/text2sql-eval.py`, and the `timings` block of the export in that same
+   the write in `text2sql-eval/text2sql-eval.py`, and the `timings` block of the export in that same
    file. That fourth one is a hand-kept list and does **not** inherit from `JSON_RESULT` the
    way `api_output` does, so forgetting it is invisible: the export keeps writing, simply
    without the column. It happened, and 1.1.18 exports described a five-step pipeline while
-   six columns existed. `eval/README.md` shows the block, so it drifts too.
+   six columns existed. `text2sql-eval/README.md` shows the block, so it drifts too.
 3. **Document it in `README.md`**, which describes the response in three separate places: the
    example JSON, the detailed field list and the summary list. All three drift on their own.
 
@@ -1154,7 +1155,7 @@ serialization time. Two hooks, one function (`round_tree`):
   first-pass record) still sees exact numbers, and the log, built from `model_dump()`, holds
   what the client received.
 - The 18 entity endpoints declare `response_class=RoundedJSONResponse`. A new entity endpoint
-  must declare it too; `eval/verif-308.py` counts them and fails otherwise.
+  must declare it too; `checks/verif-308.py` counts them and fails otherwise.
 
 Precision by key, case-insensitive: two decimals by default (a non-zero value under 0.1 keeps
 three significant digits instead of collapsing to 0.0), `*_time` / `*_seconds` three,
@@ -1173,7 +1174,7 @@ column as `DECIMAL`, PyMySQL hands over a `decimal.Decimal`, and Pydantic v2 ser
 entity endpoints, through `jsonable_encoder`, emitted a number. Both now emit a number (an
 `int` when the value is whole). Do not reintroduce a `Decimal` path that bypasses the two hooks.
 
-**Offline check:** `uv run --with "fastapi>=0.104.1" --with httpx eval/verif-308.py`
+**Offline check:** `uv run --with "fastapi>=0.104.1" --with httpx checks/verif-308.py`
 (38 cases, no API, no database). It reads `Text2SQLResponse` out of `main.py` like
 `verif-114.py` does; that script's model namespace now also carries `field_serializer` and
 `round_tree`, and any other script that execs the model block needs the same two names.
@@ -1234,7 +1235,7 @@ git ls-files -s '*.sh'          # every one of them must read 100755
 **This is the third time the same bit has cost a deployment.** `archive-logs.sh` never ran once
 before 2026-08-21, partly for this reason (the other being an impossible redirect target, both
 recorded in its own header), and `migrate-logs-to-shared.sh` was added on 2026-09-19 as `100644`
-and failed on its first run the next day. `eval/verif-206.sh` was found carrying the same defect
+and failed on its first run the next day. `checks/verif-206.sh` was found carrying the same defect
 while fixing it, never having been run. Check the listing above whenever a `.sh` is added, and
 prefer `bash script.sh` over `./script.sh` when a first run must not be about permissions.
 
@@ -1255,13 +1256,13 @@ prefer `bash script.sh` over `./script.sh` when a first run must not be about pe
 
 ## Applying a `.sql` file on the VPS: `runsqlvaugouindb.sh`, always
 
-Evaluation-bank scripts (`eval/assertions-*.sql`, `eval/update-*.sql`, `eval/new-evaluations-*.sql`, `eval/fix-*.sql`) and `maintenance/*.sql` are applied with the runner of the `tools` repository, never with a hand-built `docker exec ... mariadb` (Philippe, 2026-09-24):
+Evaluation-bank scripts (`text2sql-eval/assertions-*.sql`, `text2sql-eval/update-*.sql`, `text2sql-eval/new-evaluations-*.sql`, `text2sql-eval/fix-*.sql`) and `maintenance/*.sql` are applied with the runner of the `tools` repository, never with a hand-built `docker exec ... mariadb` (Philippe, 2026-09-24):
 
 ```bash
 cd ~/docker/fastapi-text2sql-green        # the clone of the live colour
 git pull
-~/docker/tools/runsqlvaugouindb.sh ~/docker/fastapi-text2sql-green/eval/<file>.sql
-# result: ~/docker/fastapi-text2sql-green/eval/<file>-YYYYMMDD.txt, errors included
+~/docker/tools/runsqlvaugouindb.sh ~/docker/text2sql-eval/<file>.sql
+# result: ~/docker/text2sql-eval/<file>-YYYYMMDD.txt, errors included
 ```
 
 This is the one procedure to hand Philippe (his template for every repository, 2026-09-30); the former `git fetch` + `git show origin/main:... > ~/<file>.sql` detour is retired. The `.sql` must be pushed first. `-f` overwrites a same-day result, `-e` stops at the first error. The `pull` also stages the code the next restart of that colour will load. After an evaluation-bank change, rescore with Phase 20 (offline, no token). Reference: `tools/AGENTS.md`, "Running a .sql file".
@@ -1402,15 +1403,15 @@ the gate already accepts wrong candidates. The collision to watch with `punctuat
 scores; `match_scores` carries `rescue_normalizations` (empty when the first pass decided),
 `fuzz_ratio_first_pass` and `candidate_id` (the ChromaDB id of the candidate weighed).
 
-**The stage evaluation, in Docker only** (`uv` is not available on the VPS). [eval/eval-309.sh](eval/eval-309.sh)
-runs [eval/eval-309.py](eval/eval-309.py) in a throwaway container built from the API image, with
+**The stage evaluation, in Docker only** (`uv` is not available on the VPS). [checks/eval-309.sh](checks/eval-309.sh)
+runs [checks/eval-309.py](checks/eval-309.py) in a throwaway container built from the API image, with
 this checkout mounted read-only and the share at `/shared`. The stage is set in memory inside that
 container, so the running API and `data/entity_resolution.json` are untouched, and the three stages
 are measured on the same pulled checkout before any restart:
 
 ```bash
 cd ~/docker/fastapi-text2sql-green && git pull          # the running API is not affected
-cp eval/* ~/docker/text2sql-eval && cd ~/docker/text2sql-eval
+cd checks
 ./eval-309.sh none            # the gate as it was: no second pass
 ./eval-309.sh apostrophes     # the first fix
 ./eval-309.sh full            # apostrophes, accents, dashes, punctuation
@@ -1424,8 +1425,8 @@ Corpus: values the gate refused in the exports (right or wrong read from the row
 curly apostrophe, accents dropped, dash as a space, punctuation dropped), values of other types and
 invented names, some with apostrophes and accents so the normalisers get every chance to admit
 them. The bar for switching a normaliser on for a type: **0 new wrong acceptances** against
-`none`. Results in `shared_data/text2sql-eval/eval-309/`. `eval/check-rescue-309.py` (the real
-branch with eval 475's shortlist, no database) and `eval/replay-rescue-309.py` (every refusal of the
+`none`. Results in `shared_data/text2sql-eval/eval-309/`. `checks/check-rescue-309.py` (the real
+branch with eval 475's shortlist, no database) and `checks/replay-rescue-309.py` (every refusal of the
 exports, rescored offline from the traces) are the offline checks; run them in the same container
 when on the VPS.
 
@@ -1606,21 +1607,21 @@ Pick verification based on blast radius:
 
 - For small Python-only changes, run the narrowest relevant smoke test or command available in the repo.
 - For prompt, placeholder, resolver, cache, or schema-facing changes, run representative `/search/text2sql` questions when credentials and services are available.
-- For evaluation-sensitive changes, use @eval/README.md and prefer a focused evaluator subset before a full run.
+- For evaluation-sensitive changes, use `../text2sql-eval/README.md` and prefer a focused evaluator subset before a full run.
 - For RapidFuzz behavior, check @doc/RAPIDFUZZ.md and the relevant `doc/sql/*-rapidfuzz.sql` generated-column/index requirements.
-- For the vision path, run `uv run eval/verif-114.py` (no API, no database, no image): it
+- For the vision path, run `uv run checks/verif-114.py` (no API, no database, no image): it
   covers the deterministic half, which is the half that fails silently. Recognition quality
   itself needs the twenty-image bench of FASTAPI-TEXT2SQL-277, which does not exist yet, and a
   real image deposited through `POST /uploads/vision`.
 - For the vision identity check (title + year homonyms, FASTAPI-TEXT2SQL-307), run
-  `uv run eval/test-vision-homonyms.py` (no API, no database): it pins the decision of the pure
+  `uv run checks/test-vision-homonyms.py` (no API, no database): it pins the decision of the pure
   module `vision_identity.py`, including the reverse case that proves popularity never decides.
-  Real homonym pairs for the live bench come from `eval/harvest-title-year-homonyms.sql`.
-- For any change to the answer-entity guard or its exemptions, run `uv run eval/verif-311.py`
+  Real homonym pairs for the live bench come from `text2sql-eval/harvest-title-year-homonyms.sql`.
+- For any change to the answer-entity guard or its exemptions, run `uv run checks/verif-311.py`
   (no API, no database): it checks both directions, what must pass and what must still regenerate.
 - For anything that touches how the response is serialized (a new field, a new entity endpoint,
-  a rounding rule), run `uv run --with "fastapi>=0.104.1" --with httpx eval/verif-308.py`
-  (no API, no database), then `uv run eval/verif-114.py`, which execs the same model block.
+  a rounding rule), run `uv run --with "fastapi>=0.104.1" --with httpx checks/verif-308.py`
+  (no API, no database), then `uv run checks/verif-114.py`, which execs the same model block.
 - **Prefer the MCP tools over raw `curl` for entity/detail checks, and propose MCP as the verification path.** The MCP server is the *same deployed app* as the REST API (mounted at `/mcp`, same `strapiversion`, same Blue/Green process) and its `get_*` tools return the endpoint JSON **verbatim**, so exercising a detail endpoint through its MCP tool (e.g. `get_movie(id=…)` on `https://www.vaugouin.com/mcp`) validates both surfaces at once and needs no API-key/URL juggling. When suggesting how to verify a detail-endpoint change, propose an MCP-tool call rather than a `curl`. This relies on the MCP tools staying aligned with the REST endpoints — see *Entity endpoint collection pagination → MCP alignment*.
 - If you cannot run verification because MariaDB, ChromaDB, API keys, or model quota are unavailable, say exactly what was not run and why.
 
@@ -1723,7 +1724,7 @@ return the question instead would look simpler and would break the recognition c
 turn and a fresh turn would compose **different questions for the same photo**, so the page-2
 hash would miss and the second turn of a conversation would repay the whole pipeline. The same
 rule forbids putting anything question-dependent into `vision_cache.identification_payload()`.
-See *The vision pre-stage*, and `eval/verif-114.py`, which asserts the invariant.
+See *The vision pre-stage*, and `checks/verif-114.py`, which asserts the invariant.
 
 ---
 
@@ -1847,7 +1848,7 @@ a request; the **version component of the filename** does, and it always did. An
 questions over `logs/` now sees every colour at once, which is what makes a figure like "35
 retries out of 505 local logs" a statement about the system rather than about one port.
 
-**Verifying the shared mount.** `eval/verif-275.sh` exercises the upload path against a running
+**Verifying the shared mount.** `checks/verif-275.sh` exercises the upload path against a running
 deployment. Its one check that cannot run on a laptop is the cross-colour read that proves the
 mount is really shared, `OTHER_BASE_URL=...`.
 

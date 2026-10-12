@@ -11,7 +11,7 @@
 -- only (DELETED = 1), which is what every evaluator query already filters on.
 --
 -- WHY THIS IS NEEDED BEFORE A FULL RUN
--- The run phase of eval/text2sql-eval.py excludes any evaluation that already has a LIVE
+-- The run phase of text2sql-eval/text2sql-eval.py excludes any evaluation that already has a LIVE
 -- execution row for the same API_VERSION, the same three models and the same LANG (the
 -- `strnotinbase` subquery around line 372). So a "full re-run" over a version that already
 -- has executions runs almost nothing. Retiring the old rows is not housekeeping, it is the

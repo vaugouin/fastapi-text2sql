@@ -1,0 +1,4 @@
+# Bench artefacts carry the evaluation questions verbatim (EVALUATIONS-008): local only.
+data/bench/
+.env
+__pycache__/

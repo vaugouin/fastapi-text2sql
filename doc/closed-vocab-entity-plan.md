@@ -339,7 +339,7 @@ The historical `MOVIE_GENRE_NAME_TO_ID` / `SERIE_GENRE_NAME_TO_ID` dicts have be
 
 1. Bump `strapiversion` in [main.py:54](../main.py#L54) (cache key includes version, so a parity flip also moves Blue/Green)
 2. Confirm `closed_vocab.init()` ran cleanly at startup by logging the loaded canonical maps (sizes per entity); a non-zero count proves the DB queries returned real data
-3. Add concrete questions to the eval set in [eval/](../eval/) covering each new placeholder, including **typo / alias variants** (e.g. "sciience fiction", "Documentaire", "annulé", "academy ratio") to exercise the alias + RapidFuzz paths
+3. Add concrete questions to the eval set in the [text2sql-eval](https://github.com/vaugouin/text2sql-eval) bank covering each new placeholder, including **typo / alias variants** (e.g. "sciience fiction", "Documentaire", "annulé", "academy ratio") to exercise the alias + RapidFuzz paths
 4. Hot reload picks up `data/closed_vocabularies.json` edits within 5 s — restart only required for `closed_vocab.py` / `entity.py` changes; canonical refresh from DB requires a manual `closed_vocab.refresh(connection)` call (or a restart)
 5. Manual smoke tests with curl against `/search/text2sql`, asserting:
    - the new placeholder appears in `entity_extraction`

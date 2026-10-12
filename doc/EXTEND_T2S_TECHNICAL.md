@@ -162,14 +162,14 @@ Two options are documented below. The user has not committed to either.
 | `/movies/{id}` | Remove `ASPECT_RATIO` from the row payload, or compute a primary ratio from the technicals collection for backward compat. | [main.py:1670](../main.py#L1670) |
 | MCP docs | Remove `"ASPECT_RATIO"` from the inline JSON at [MCP.md:467](MCP.md#L467) and from the resource listing at [MCP.md:582](MCP.md#L582); update `get_movie` docstring at [main.py:2602-2611](../main.py#L2602-L2611). | as listed |
 | SQL cache | **All cached SQL referencing `T_WC_T2S_MOVIE.ASPECT_RATIO` becomes wrong.** Flush via `DELETE FROM <cache_table> WHERE SQL_QUERY LIKE '%ASPECT_RATIO%'` before deploy, or accept a cache cold period. | (cache impl in `search_text2sql` of [main.py](../main.py)) |
-| Evaluation | Run `eval/text2sql-eval.py` against questions covering aspect ratio (Academy ratio, widescreen, 2.35, "shot in scope") and noisy aliases (`4:3`, `16:9`). Add at least one regression where a single movie has multiple ratios. | [eval/](../eval/) |
+| Evaluation | Run `text2sql-eval/text2sql-eval.py` against questions covering aspect ratio (Academy ratio, widescreen, 2.35, "shot in scope") and noisy aliases (`4:3`, `16:9`). Add at least one regression where a single movie has multiple ratios. | [eval/](../eval/) |
 | AGENTS.md / closed-vocab-entity-plan.md | Both reference `Aspect_ratio` as a "string-canonical lookup entity" / "**SHIPPED**" pattern. Both need updating to reflect the new path. | [AGENTS.md:44](../AGENTS.md#L44), [:128](../AGENTS.md#L128), [:298](../AGENTS.md#L298); [closed-vocab-entity-plan.md:67-72](closed-vocab-entity-plan.md#L67-L72), [:169](closed-vocab-entity-plan.md#L169), [:295](closed-vocab-entity-plan.md#L295) |
 
 **Risks (Option A.1)**
 - **Alias retargeting must be exhaustive.** All 54 `Aspect_ratio` aliases currently target comma-decimal canonicals. Each must be remapped to a dot-decimal `DESCRIPTION` value. Missing one breaks resolution silently — the LLM emits `{{Aspect_ratio1}}` and the resolver leaves it unresolved.
 - **The REGEXP filter at [closed_vocab.py:171](../closed_vocab.py#L171) is no longer needed**, but its role (excluding noisy DB values from canonicals so aliases fire) is still required during backfill — `'4:3'`, `'235:1'`, etc. must be normalized when inserting into `T_WC_T2S_MOVIE_TECHNICAL`, not carried over verbatim.
 - **The SQL-prompt change is the largest lift**: the LLM has been trained over many evaluation iterations to write `T_WC_T2S_MOVIE.ASPECT_RATIO = '1,85'`. Switching to a JOIN pattern requires re-running evals end-to-end to confirm no regressions.
-- **Evaluation-pinned questions** in `eval/data/evaluation/` may have expected-SQL strings that reference the old column directly; those golden files would need updating.
+- **Evaluation-pinned questions** in `text2sql-eval/data/evaluation/` may have expected-SQL strings that reference the old column directly; those golden files would need updating.
 
 ### 3.2 Option A.2 — Dual model (column stays, junction added)
 
@@ -381,7 +381,7 @@ For each remaining PR:
 - **`/movies/{id}` manual probe**: pick a movie ID known to carry rich technical metadata (a Technicolor 70mm Dolby Stereo release like *Lawrence of Arabia* or *2001*); verify the `technicals` array is populated with the correct rows and `technical_type` values. The query is already wired ([main.py:1728-1735](../main.py#L1728-L1735)).
 - **`/technicals/{id}` manual probe**: pick an ID (e.g. `technicolor`); verify the `movies` array and `siblings` array (other `color_technology` rows ordered by `MOVIE_COUNT DESC`) are populated.
 - **MCP smoke**: call `mcp__claude_ai_text2sql__get_movie` and `mcp__claude_ai_text2sql__get_technical` for the same IDs; verify both return the expected payloads.
-- **Eval baseline**: `python eval/text2sql-eval.py` against the full evaluation set; diff CSV output against the previous baseline. **Expectation under the recommended path: zero text2sql regressions** because no prompt is changed.
+- **Eval baseline**: `python text2sql-eval/text2sql-eval.py` against the full evaluation set; diff CSV output against the previous baseline. **Expectation under the recommended path: zero text2sql regressions** because no prompt is changed.
 - **Targeted NL queries** (manual or scripted):
   - "color films of 1939" → SQL should still use `IS_COLOR = 1` (flag path, not junction).
   - "silent films of the 1920s" → `IS_SILENT = 1`.

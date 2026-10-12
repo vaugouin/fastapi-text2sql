@@ -13,7 +13,7 @@ image meant, using only what the vision model already said:
   with no face: directors, lead cast, original title, original language.
 
 It is pure on purpose: no database, no model, standard library only, so that the decision is
-pinned by ``eval/test-vision-homonyms.py`` on any machine. The caller fetches the candidate
+pinned by ``checks/test-vision-homonyms.py`` on any machine. The caller fetches the candidate
 rows and their credits, and applies the decision.
 
 Two rules the decision never breaks:

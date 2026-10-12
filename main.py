@@ -1295,7 +1295,7 @@ _BARE_ID_PATTERNS = {
 # FASTAPI-TEXT2SQL-307. The rows the identity check chooses among: every work sharing the
 # title and the year the vision model read, on the same three title columns the generated SQL
 # compares, so the check sees exactly the namesakes the search would have returned. The decision
-# itself lives in vision_identity.py, pure and pinned by eval/test-vision-homonyms.py.
+# itself lives in vision_identity.py, pure and pinned by checks/test-vision-homonyms.py.
 _VISION_IDENTITY_SOURCES = {
     "movie": {
         "table": "T_WC_T2S_MOVIE", "id": "ID_MOVIE", "year": "RELEASE_YEAR",

@@ -63,7 +63,7 @@
 -- on 2026-08-21 is ONE pair, the unexplained one from 2026-07-14, not zero. Any pair beyond
 -- that, or any pair with a TIM_UPDATED later than the guard landing in commit 3a86239, means
 -- the guard regressed. Re-running it after a deploy costs nothing and catches that faster
--- than anything in eval/.
+-- than anything in text2sql-eval/.
 
 
 -- ===========================================================================

@@ -1087,7 +1087,7 @@ Each **category node** has the shape:
 }
 ```
 
-The assertion DSL is parsed by [`samples_assertions.py`](samples_assertions.py); the `eval/data/evaluation*` JSON exports mirror the live tables and can be used to simulate this endpoint's output offline.
+The assertion DSL is parsed by [`samples_assertions.py`](samples_assertions.py); the `text2sql-eval/data/evaluation*` JSON exports mirror the live tables and can be used to simulate this endpoint's output offline.
 
 #### 5. Vision Image Deposit
 
@@ -1399,8 +1399,7 @@ fastapi-text2sql/
 │   ├── vision_identification.md                                      # Image-reading prompt: what the picture shows and which work it points at (hot-reloaded)
 │   ├── entity_resolution.json                                        # Entity resolution configuration (embeddings + rapidfuzz, hot-reloaded)
 │   └── closed_vocabularies.json                                      # Closed-vocabulary aliases for Movie_genre, Serie_genre, Technical_format, Status_name, Serie_type, Department_name (hot-reloaded)
-├── eval/                    # Evaluation harness (see eval/README.md)
-│   ├── text2sql-eval.py                                              # End-to-end evaluator against the running API
+├── checks/                  # Offline checks and benches that import the API's own modules (the evaluator itself is the text2sql-eval repo)
 │   ├── verif-275.sh                                                  # Checks the vision upload path against a running deployment (cross-colour read included)
 │   ├── verif-114.py                                                  # Checks the deterministic half of the picture-based search: composition, confidence rule, cache contract (no API, no DB, no image)
 │   ├── bench-entity-extraction.py                                    # Offline A/B comparison of two extraction configurations

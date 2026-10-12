@@ -119,4 +119,4 @@ ALTER TABLE `T_WC_T2S_EVALUATION_EXECUTION`
 
 -- ATTENTION : ces deux requetes ne voient que les correspondances ACCEPTEES, puisque le seuil
 -- n'existe pas encore et que rien n'est rejete. Elles donnent donc la classe positive et rien
--- d'autre. La classe negative doit etre fabriquee, ce que fait eval/bench-entity-resolution.py.
+-- d'autre. La classe negative doit etre fabriquee, ce que fait checks/bench-entity-resolution.py.

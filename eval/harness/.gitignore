@@ -1,3 +1,0 @@
-# Run artifacts — never commit harness run outputs
-results/
-__pycache__/

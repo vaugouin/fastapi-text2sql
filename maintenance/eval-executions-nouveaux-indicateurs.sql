@@ -7,7 +7,7 @@
 -- Un champ ajoute a Text2SQLResponse arrive donc en base et dans l'export sans qu'on
 -- touche a quoi que ce soit. Les colonnes ci-dessous sont un DOUBLON volontaire de cinq
 -- de ces champs, pour qu'une campagne se decoupe en SQL sans JSON_EXTRACT sur chaque
--- ligne, ce dont se servent les graphes PHP de eval/lib/.
+-- ligne, ce dont se servent les graphes PHP de text2sql-eval/lib/.
 --
 -- CE QUE CHAQUE COLONNE PORTE
 -- RESULT_ENTITY_PROCESSING_TIME    le classificateur d'entite de reponse, chronometre

@@ -9,7 +9,7 @@ Not to be confused with two neighbours that also hold `.sql`:
 
 - `doc/sql/*.sql` is **reference DDL**, a schema dump. Read-only unless the user
   explicitly asks for a schema-doc change.
-- `eval/assertions-*.sql` writes to the **evaluation bank**
+- `text2sql-eval/assertions-*.sql` writes to the **evaluation bank**
   (`T_WC_T2S_EVALUATION`). It shapes what the harness measures.
 
 This folder writes to **operational** tables, `T_WC_T2S_CACHE` first among them.
@@ -43,7 +43,7 @@ replaying the migration.
   syntax only, and the header must say so rather than imply a passing run.
 - **Backslashes are doubled in string literals.** MariaDB treats backslash as an
   escape inside literals, so a regex written `\\.` in the file lands as `\.` in
-  the column. Same convention as `eval/archive/assertions-year-bounds.sql`.
+  the column. Same convention as `text2sql-eval/archive/assertions-year-bounds.sql`.
 - **Text comparison on questions is forced to `utf8mb4_bin`.** The table
   collation is `utf8mb4_unicode_ci` and would call two questions equal when they
   differ only by case or accent. Acceptable to count, not to delete.

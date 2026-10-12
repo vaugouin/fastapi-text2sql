@@ -47,7 +47,7 @@ paths, using `fuzz.ratio` on both sides so the two scales stay comparable.
 
 ## 3. The classes, in decreasing order of certainty
 
-Produced by [eval/bench-entity-resolution.py](../eval/bench-entity-resolution.py).
+Produced by [checks/bench-entity-resolution.py](../checks/bench-entity-resolution.py).
 
 | class | origin | ground truth |
 |---|---|---|
@@ -73,12 +73,12 @@ of false acceptances already in production, but it calibrates nothing.
 | source | volume | role |
 |---|---|---|
 | ChromaDB collections | 40 values per type | catalogue positives |
-| `eval/data/evaluation_execution/` | 6 828 files, 1 202 scored pairs | assertion-arbitrated positives |
+| `text2sql-eval/data/evaluation_execution/` | 6 828 files, 1 202 scored pairs | assertion-arbitrated positives |
 | VPS archived logs, both colours | 24 040 files, 3 404 distinct values | value pool, and negatives by cross injection |
 | local `logs/` | 510 files | same |
 
 The archive is harvested by
-[eval/harvest-archived-entities.py](../eval/harvest-archived-entities.py) into a local cache, the
+[checks/harvest-archived-entities.py](../checks/harvest-archived-entities.py) into a local cache, the
 share reading at about 35 files per second. It lifted `Topic_name` from 48 to 236 values and
 `Collection_name` from 36 to 128, and **did nothing for the tail, as it could not**: across those
 24 040 requests `Network_name` shows seven distinct values, because nobody asks about a network by
@@ -243,7 +243,7 @@ comparable across strategies without knowing which rule produced it. `match_scor
 `score_metric` next to `fuzz_ratio` for exactly that reason. Re-read §9 with this in mind: a bench
 run that mixes metrics in one histogram is measuring nothing.
 
-**Verified without a database**: `eval/check-score-metrics.py`, which feeds `rank_candidates` the
+**Verified without a database**: `checks/check-score-metrics.py`, which feeds `rank_candidates` the
 rows the SELECT would have returned and asserts each guard. It is not a substitute for the bench.
 
 ## 7. The thresholds in force
@@ -327,7 +327,7 @@ covers the type with these classes:
 
 The command is the one of §9 with `--types Source_work_name`.
 
-**First run, 2026-10-11 on Green, discarded** (`eval/data/archive/bench-source-work-20261011.txt`). The
+**First run, 2026-10-11 on Green, discarded** (`checks/data/archive/bench-source-work-20261011.txt`). The
 gate at 71.8 behaved well where the corpus was sound: invented titles 0 accepted out of 20,
 cross negatives 4 out of 40 (two of them legitimate, "The chocolate war" and "Star Wars
 universe"), catalogue positives 38/40, French 38/40, unaccented French 15/15, the six French
@@ -338,7 +338,7 @@ and the query was a paragraph. Fixed in `sample_apostrophe_titles` (cut at
 `document_name_separator`, keep only names carrying an apostrophe). The `observed` tail came
 from other types' archives (the type has no log yet) and says nothing about source works.
 
-**Second run, same day, retained** (`eval/data/bench-source-work-20261011-2.txt`). 246 positives,
+**Second run, same day, retained** (`checks/data/bench-source-work-20261011-2.txt`). 246 positives,
 58 negatives (two cross negatives set aside as legitimate). `fuzz_ratio`: positives median 96.6,
 minimum 24.2; negatives median 39.2, maximum 95.2. Proposed `>= 79.55`, any value from 79.10 to
 80.00 giving the same split: 15 legitimate refused, 1 stranger admitted. The gate at the old 71.8
@@ -364,9 +364,9 @@ docker run -d --rm --network="host" \
   -v /home/debian/docker/fastapi-text2sql-blue:/app \
   --memory=6g --name t2s-bench \
   fastapi-text2sql-blue-app \
-  python eval/bench-entity-resolution.py \
+  python checks/bench-entity-resolution.py \
     --types Movie_title,Serie_title,Company_name,Network_name,Topic_name,List_name,Award_name,Nomination_name,Movement_name,Location_name,Group_name,Death_name \
-    --catalogue-per-type 40 --out eval/data/bench-embeddings.json
+    --catalogue-per-type 40 --out checks/data/bench-embeddings.json
 
 # Person_name, which needs its BK-trees
 docker run -d --rm --network="host" \
@@ -374,8 +374,8 @@ docker run -d --rm --network="host" \
   -v /home/debian/docker/fastapi-text2sql-blue:/app \
   --memory=6g --name t2s-bench \
   fastapi-text2sql-blue-app \
-  python eval/bench-entity-resolution.py --types Person_name \
-    --catalogue-per-type 40 --out eval/data/bench-personnes.json
+  python checks/bench-entity-resolution.py --types Person_name \
+    --catalogue-per-type 40 --out checks/data/bench-personnes.json
 ```
 
 ```bash
@@ -387,16 +387,16 @@ docker run --rm --network="host" \
   -v /home/debian/docker/fastapi-text2sql-blue:/app \
   --memory=6g --name t2s-bench-324 \
   fastapi-text2sql-blue-app \
-  python eval/bench-entity-resolution.py --types Source_work_name \
-    --catalogue-per-type 40 --out eval/data/bench-source-work.json \
-  | tee eval/data/bench-source-work-$(date +%Y%m%d).txt
+  python checks/bench-entity-resolution.py --types Source_work_name \
+    --catalogue-per-type 40 --out checks/data/bench-source-work.json \
+  | tee checks/data/bench-source-work-$(date +%Y%m%d).txt
 ```
 
 `--seed` defaults to a fixed value, so the corpus is identical between runs and a difference in the
 output comes from the code, not from the draw. `--build-only` assembles the corpus with no database
 at all, which is enough to check what the bench is about to measure.
 
-A three-question production probe, [eval/verif-206.sh](../eval/verif-206.sh), covers the perfect
+A three-question production probe, [checks/verif-206.sh](../checks/verif-206.sh), covers the perfect
 match, the false positive and the true rejection. It reads the key from `.env` and needs neither
 `curl` nor `bash`, the container image carrying neither.
 
