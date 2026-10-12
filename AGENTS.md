@@ -445,7 +445,7 @@ Latency baseline from the same run, for comparing any model swap against:
 
 **The gap is closed (FASTAPI-TEXT2SQL-234, 2026-09-25).** `T_WC_T2S_EVALUATION_EXECUTION`
 now stores all five models: `RESULT_ENTITY_MODEL` and `ANSWER_SINGLE_VALUE_MODEL` were added by
-`text2sql-eval/migrate-evaluation-execution-late-models.sql`, which must run before the evaluator of the
+`text2sql-eval/archive/migrate-evaluation-execution-late-models.sql`, which must run before the evaluator of the
 same commit. The folder suffix (`_re-<model>`, `_asv-<model>`) is built from the ROW, never from
 the CLI, and only when the value differs from `gpt-4o`, so a re-export never labels an old row
 with today's setting and the three-model folders keep their names. Rows older than the columns
