@@ -74,7 +74,7 @@
 -- HOW TO RUN (VPS, live colour clone):
 --   cd ~/docker/fastapi-text2sql-green
 --   git pull
---   ~/docker/tools/runsqlvaugouindb.sh ~/docker/fastapi-text2sql-green/eval/new-evaluations-person-filmography-aggregates.sql
+--   ~/docker/tools/runsqlvaugouindb.sh ~/docker/fastapi-text2sql-green/eval/archive/new-evaluations-person-filmography-aggregates.sql
 -- Read sections 0 and 1 in the result before trusting section 2: if 1b does not show five
 -- decades, the Kubrick bounds must be corrected and the file re-run (the guard makes a second
 -- run skip what the first one inserted, so correct with an UPDATE guarded on the old value).

@@ -327,7 +327,7 @@ covers the type with these classes:
 
 The command is the one of §9 with `--types Source_work_name`.
 
-**First run, 2026-10-11 on Green, discarded** (`eval/data/bench-source-work-20261011.txt`). The
+**First run, 2026-10-11 on Green, discarded** (`eval/data/archive/bench-source-work-20261011.txt`). The
 gate at 71.8 behaved well where the corpus was sound: invented titles 0 accepted out of 20,
 cross negatives 4 out of 40 (two of them legitimate, "The chocolate war" and "Star Wars
 universe"), catalogue positives 38/40, French 38/40, unaccented French 15/15, the six French

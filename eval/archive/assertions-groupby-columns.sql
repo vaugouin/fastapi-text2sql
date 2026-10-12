@@ -16,7 +16,7 @@
 -- COUNT, must GROUP BY, and must still project the entity id and its image column.
 --
 -- HOW TO RUN
---   mysql --user=<user> --password <db> < eval/assertions-groupby-columns.sql
+--   mysql --user=<user> --password <db> < eval/archive/assertions-groupby-columns.sql
 -- Then re-run the evaluator so the JSON exports under eval/data/evaluation/ pick it up.
 --
 -- TWO TRAPS, THE SAME AS THE YEAR-BOUND BATCH

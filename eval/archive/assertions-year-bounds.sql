@@ -22,7 +22,7 @@
 -- database refresh.
 --
 -- HOW TO RUN
---   mysql --user=<user> --password <db> < eval/assertions-year-bounds.sql
+--   mysql --user=<user> --password <db> < eval/archive/assertions-year-bounds.sql
 -- Then re-run the evaluator so the JSON exports under eval/data/evaluation/ pick the
 -- new assertions up (the exporter rewrites a file whose content changed).
 --

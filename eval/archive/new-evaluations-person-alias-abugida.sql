@@ -59,7 +59,7 @@
 -- HOW TO RUN (VPS)
 --   cd ~/docker/fastapi-text2sql-green      # or -blue, the clone of the live colour
 --   git pull
---   ~/docker/tools/runsqlvaugouindb.sh ~/docker/fastapi-text2sql-green/eval/new-evaluations-person-alias-abugida.sql
+--   ~/docker/tools/runsqlvaugouindb.sh ~/docker/fastapi-text2sql-green/eval/archive/new-evaluations-person-alias-abugida.sql
 -- Then phase 31 to refresh the JSON export, and phases 11 + 20 to run and score it.
 
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;

@@ -43,7 +43,7 @@ replaying the migration.
   syntax only, and the header must say so rather than imply a passing run.
 - **Backslashes are doubled in string literals.** MariaDB treats backslash as an
   escape inside literals, so a regex written `\\.` in the file lands as `\.` in
-  the column. Same convention as `eval/assertions-year-bounds.sql`.
+  the column. Same convention as `eval/archive/assertions-year-bounds.sql`.
 - **Text comparison on questions is forced to `utf8mb4_bin`.** The table
   collation is `utf8mb4_unicode_ci` and would call two questions equal when they
   differ only by case or accent. Acceptable to count, not to delete.
