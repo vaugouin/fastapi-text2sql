@@ -1,0 +1,19 @@
+-- cache-reponses-scalaires-de-memoire.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-10-15 10:16:49
+--
++--------+-------------+-------------+---------------------+--------------------------------------------------------------------+--------------------------------------------------------------------------------------------+
+| ID_ROW | API_VERSION | UI_LANGUAGE | TIM_UPDATED         | QUESTION                                                           | SQL_QUERY                                                                                  |
++--------+-------------+-------------+---------------------+--------------------------------------------------------------------+--------------------------------------------------------------------------------------------+
+|  18881 | 001.001.019 | en          | 2026-10-03 16:14:06 | How many Academy awards did Katharine Hepburn won?                 | SELECT 4 AS 'How many Academy awards did Katharine Hepburn won?' FROM DUAL                 |
+|  18927 | 001.001.019 | en          | 2026-10-03 16:18:14 | How many Academy Awards did Walt Disney won?                       | SELECT 22 AS 'How many Academy Awards did Walt Disney won?' FROM DUAL                      |
+|  20517 | 001.001.019 | fr          | 2026-10-03 18:10:13 | Combien de prix Oscar Katharine Hepburn a-t-elle remportés ?       | SELECT 4 AS 'Combien de prix Oscar Katharine Hepburn a-t-elle remportés ?' FROM DUAL       |
+|  20565 | 001.001.019 | fr          | 2026-10-03 18:14:17 | Combien de prix Oscar Walt Disney a-t-il remportés ?               | SELECT 22 AS 'Combien de prix Oscar Walt Disney a-t-il remportés ?' FROM DUAL              |
+|  20971 | 001.001.019 | en          | 2026-10-10 08:59:19 | And how many films did Robert De Niro and Al Pacino make together? | SELECT 4 AS 'And how many films did Robert De Niro and Al Pacino make together?' FROM DUAL |
+|  21020 | 001.001.019 | en          | 2026-10-10 09:38:52 | How many Academy Awards did Walt Disney win?                       | SELECT 22 AS 'How many Academy Awards did Walt Disney win?' FROM DUAL                      |
+|  21023 | 001.001.019 | en          | 2026-10-10 09:39:12 | How many Academy Awards did Katharine Hepburn win?                 | SELECT 4 AS 'How many Academy Awards did Katharine Hepburn win?' FROM DUAL                 |
++--------+-------------+-------------+---------------------+--------------------------------------------------------------------+--------------------------------------------------------------------------------------------+
++--------------------------+
+| LIVE_SYNTHETIC_ROWS_LEFT |
++--------------------------+
+|                        0 |
++--------------------------+
