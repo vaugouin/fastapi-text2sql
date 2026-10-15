@@ -64,12 +64,12 @@ async def _mcp_sql_search(
     # JSON only, so the image is deposited on POST /uploads/vision first and only its name
     # travels here. `question` is therefore optional: a photo can be sent alone.
     image_ref: str = "",
-    # Six selectors, one per LLM task in the pipeline (FASTAPI-TEXT2SQL-232, -114).
+    # One selector per LLM task in the pipeline (FASTAPI-TEXT2SQL-232, -114; the
+    # single-value one went with its task, -331).
     llm_model_entity_extraction: str = "default",
     llm_model_text2sql: str = "default",
     llm_model_complex: str = "default",
     llm_model_result_entity: str = "default",
-    llm_model_answer_single_value: str = "default",
     llm_model_vision: str = "default",
 ) -> str:
     """
@@ -491,7 +491,7 @@ The response from `POST /search/text2sql` contains the full pipeline trace along
   "llm_model_text2sql": "gpt-6-sol",
   "llm_model_complex": "gpt-4o",
   "llm_model_result_entity": "gpt-6-luna",
-  "llm_model_answer_single_value": "gpt-4o",
+  "llm_model_answer_single_value": "",
   "api_version": "1.1.19",
   "messages": [
     { "position": 1, "text": "Attempting to retrieve exact question from cache." },

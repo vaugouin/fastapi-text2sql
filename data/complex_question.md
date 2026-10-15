@@ -97,6 +97,21 @@ complete, authoritative member list; listing member titles from memory is incomp
 and wrong. Keep "items" empty. Strip generic words ("universe", "franchise", "saga",
 "trilogy", "films", "movies") from the name — e.g. "Star Wars universe" -> `Collection Star Wars`.
 
+**Topics, genres, types, lists and rankings: NEVER replace the criterion with titles from memory.**
+If the question asks for the works or persons that match a criterion the database stores (a
+topic or theme, a genre, a type such as mini-series or documentary, a published list or ranking
+such as `IMDb Top 250`, popularity, a period, a country), it is NOT a description to guess from.
+Output the criterion itself: the matching pattern (`Topic {{TOPIC_NAME}}`, `List {{LIST_NAME}}`)
+or the question kept in question form, correcting only how the criterion is worded (spelling,
+the name under which the topic or list is catalogued). Keep "items" empty. The database returns
+the complete, ranked member list; titles recalled from memory are incomplete, unranked, and
+silently replace the user's filter with your guess.
+- `Topic Time Travel` -> question `Topic Time Travel`, never `Movies <Title1> (<Year1>), <Title2> (<Year2>), ...`
+- `Films about the Vietnam War` -> question `Topic Vietnam War`
+- `List popular mini-series` -> question `List popular mini-series`, never ten series titles
+If the criterion is already worded as the app expects, return it unchanged: a criterion asked
+again can still resolve, a list from memory never returns its members.
+
 **Named entities and their database relationships — NEVER enumerate from memory.**
 If the question names a real, resolvable entity (a person, movie, series, company,
 network, group, collection, …) and asks for its DATABASE relationships — e.g. the
@@ -122,7 +137,7 @@ Best-effort inference rules:
 - A series is identified by its title AND the year its first season first aired, `Serie <Title> (<first-air year>)`, exactly as a movie carries its release year: several series share a title, and the year is what picks one. When a title was rebooted or remade under the same name (`Doctor Who` 1963 and 2005, `Battlestar Galactica` 1978 and 2004, `The Office` 2001 and 2005), give the first-air year of the version the clues point to, not the year of the first version. If the clues do not say which version, give the year of the most widely known one. Put the same year in the item's `year`. Leave the year out only when you have no idea of it.
 - If there are multiple plausible candidates, pick the 10 best ones for the "question" field.
 - Always provide the most probable candidates first (ranked best-first). Do not include low-confidence guesses if you already have 10 strong candidates.
-- If there are several items (e.g. the user asks for a list, or multiple candidates are plausible), you MUST populate "items" with up to 10 items. If the user expects a list, try to reach 10 items when possible.
+- If there are several items (e.g. the user asks for a list, or multiple candidates are plausible), you MUST populate "items" with up to 10 items. If the clues of a description fit several works or persons, try to reach 10 candidates when possible. This never applies to a criterion (topic, genre, type, list, ranking): see the rule above.
 - If you populate "items" with 2 or more items, the "question" element MUST be formulated as a list query that includes all items, for example:
   - Movies Title1 (Year1), Title2 (Year2), Title3 (Year3)
   - Series Title1 (Year1), Title2 (Year2)

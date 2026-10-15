@@ -80,11 +80,9 @@ strresultentitymodeldefault = "gpt-6-luna"
 strvisionprompttemplate = "vision_identification.md"
 strvisionmodeldefault = "gpt-6-astra"
 
-# Direct scalar answer when the SQL path returned a single cell worth 0 (FASTAPI-TEXT2SQL-232).
-# Until then this task borrowed the complex-question model, which made the two impossible to
-# price or to move apart: they are different jobs (one rewrites a question, the other answers
-# it from parametric memory) and they deserve their own knob.
-stranswersinglevaluemodeldefault = "gpt-4o"
+# The direct scalar answer (FASTAPI-TEXT2SQL-232, `stranswersinglevaluemodeldefault`,
+# `f_answer_single_value`) was removed on 2026-10-15 by FASTAPI-TEXT2SQL-331: it answered a
+# single cell worth 0 from the model's memory instead of the database (HARNESS-BRICKS-010).
 
 # Sentinel that marks the boundary between the byte-stable static prefix and the
 # dynamic suffix (the user question / ui_language) in the prompt templates. Used
@@ -495,7 +493,6 @@ _DEFAULT_EFFORT_TIER = {
     "text2sql": "cheapest",
     "result_entity": "cheapest",
     "complex_question": "medium",
-    "answer_single_value": "medium",
     "vision_identification": "cheapest",
 }
 
@@ -1358,65 +1355,6 @@ def f_retry_question_drops_intent(
     except Exception:
         # A guard that raises must not break the retry it is only meant to describe.
         return False
-
-
-def f_answer_single_value(user_question: str, strcomplexquestionmodel: str = "default"):
-    """Ask the stronger model to directly answer a question with a single scalar value.
-
-    Used when a SQL query returned a single-cell result with value 0, suggesting
-    the SQL approach failed. The stronger model provides the factual answer directly.
-
-    Args:
-        user_question: The original user question.
-        strcomplexquestionmodel: The model to use for answering. Since
-            FASTAPI-TEXT2SQL-232 this resolves against
-            ``stranswersinglevaluemodeldefault``, its own default, not the
-            complex-question one: the two tasks share a caller but not a job, and the
-            parameter name is kept only so existing positional callers keep working.
-
-    Returns:
-        dict with keys:
-            - "value": the scalar answer (int, float, or str), or None on failure
-            - "error": error message if the call failed, else ""
-    """
-    model_to_use = _normalize_llm_model(strcomplexquestionmodel, stranswersinglevaluemodeldefault)
-    temperature_to_use = _complex_question_temperature(model_to_use)
-
-    system_prompt = (
-        "You are a factual knowledge assistant. "
-        "Answer the following question with ONLY a single numeric or short scalar value. "
-        "Do not explain, do not add units unless essential, do not add any surrounding text. "
-        "If the answer is a number, return only the number. "
-        "If you cannot determine the answer, return exactly: UNKNOWN"
-    )
-
-    try:
-        raw_answer = _call_chat_llm(
-            model=model_to_use,
-            system_prompt=system_prompt,
-            user_prompt=user_question,
-            temperature=temperature_to_use,
-            cache_label="answer_single_value",
-        ).strip()
-    except Exception as e:
-        return {"value": None, "error": f"LLM call failed: {str(e)}"}
-
-    if raw_answer.upper() == "UNKNOWN":
-        return {"value": None, "error": "Model could not determine the answer."}
-
-    # Try to parse as int, then float, otherwise keep as string
-    try:
-        parsed = int(raw_answer)
-        return {"value": parsed, "error": ""}
-    except ValueError:
-        pass
-    try:
-        parsed = float(raw_answer)
-        return {"value": parsed, "error": ""}
-    except ValueError:
-        pass
-
-    return {"value": raw_answer, "error": ""}
 
 
 def f_resolve_complex_question_retry_payload(user_question: str, strcomplexquestionmodel: str = "default"):

@@ -161,7 +161,6 @@ Edit at the right layer; the architecture is intentionally split.
 - `f_text2sql(user_question, model, ui_language)` — text-to-SQL conversion; replaces `{ui_language}` in the prompt template so the LLM generates the `answer` field in the requested language.
 - `f_resolve_complex_question()` / `f_resolve_complex_question_retry_payload()` — complex-question simplification via stronger model.
 - `f_build_retry_question_from_reasoning()` — deterministic retry-question composer (typed entities + years).
-- `f_answer_single_value()` — direct-answer path for single-cell zero-count results.
 - `f_identify_from_image()` / `_call_vision_llm()` : the sixth task, the only one whose input
   is an image (FASTAPI-TEXT2SQL-114). OpenAI route only, and the error says so.
 - `compose_vision_question()` / `select_vision_candidates()` / `question_targets_the_image()` :
@@ -368,11 +367,11 @@ served it, and since -233 its own wall clock.
 | 2 | `text2sql` | `text2sql.py:518` | 100 % | `llm_model_text2sql` |
 | 3 | `result_entity` | `text2sql.py:629` | 99.9 % | `llm_model_result_entity` |
 | 4 | `complex_question` | `text2sql.py:663` | ~1 % | `llm_model_complex` |
-| 5 | `answer_single_value` | `text2sql.py:835` | < 1 % | `llm_model_answer_single_value` |
+| 5 | ~~`answer_single_value`~~ | removed 2026-10-15 (FASTAPI-TEXT2SQL-331): it answered a single cell worth 0 from memory | never | `llm_model_answer_single_value`, accepted and ignored |
 | 6 | `vision_identification` | `text2sql._call_vision_llm` | only with an `image_ref` | `llm_model_vision` |
 
 Line numbers move; the `cache_label` does not. `grep -n 'cache_label="' text2sql.py entity.py`
-is the durable way to find all six.
+is the durable way to find them (five since -331 removed task 5).
 
 **Task 6 is priced apart from the five, and it is not in the table below.** It fires only on a
 request carrying an image, so it has no frequency in a text campaign; it costs about **4 cents
@@ -1247,7 +1246,7 @@ prefer `bash script.sh` over `./script.sh` when a first run must not be about pe
   - `dbl` — floats (`dblavailableram`)
   - `arr` — lists / arrays
   - `int` — boolean-like flags (`intcleanupenabled`, `intentity`)
-- **Function naming**: public pipeline entry points use `f_` (`f_text2sql`, `f_entity_extraction`, `f_resolve_complex_question`, `f_answer_single_value`, `f_hello_world`); private helpers use `_` (`_call_chat_llm`, `_normalize_llm_model`).
+- **Function naming**: public pipeline entry points use `f_` (`f_text2sql`, `f_entity_extraction`, `f_resolve_complex_question`, `f_hello_world`); private helpers use `_` (`_call_chat_llm`, `_normalize_llm_model`).
 - **Docstrings**: Google-style on public functions.
 - **Error handling**: broad try/except with console logging; surface failures via the `error` response field and the `messages` trace. Database execution errors are not returned directly to clients — they go through the complex-question retry path when enabled.
 - **JSON serialization**: use `logs.decimal_serializer()` for `Decimal` and `datetime`.

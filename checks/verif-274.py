@@ -48,9 +48,9 @@ CRAN_PAR_TACHE = espace["_DEFAULT_EFFORT_TIER"]
 # Les cinq crans documentes de la famille GPT-6, le moins cher etant `low`. Pas de `none`.
 CRANS_GPT6 = ("low", "medium", "high", "xhigh", "max")
 
-# Les six taches du pipeline, la sixieme etant celle de -114, declaree d'avance.
+# Les taches du pipeline (answer_single_value retiree par -331, 2026-10-15).
 TACHES = ("entity_extraction", "text2sql", "result_entity",
-          "complex_question", "answer_single_value", "vision_identification")
+          "complex_question", "vision_identification")
 
 
 def cas_sampling():

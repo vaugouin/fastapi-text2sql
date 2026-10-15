@@ -352,7 +352,6 @@ Content-Type: application/json
   "llm_model_text2sql": "default",
   "llm_model_complex": "default",
   "llm_model_result_entity": "default",
-  "llm_model_answer_single_value": "default",
   "llm_model_vision": "default",
   "image_ref": null,
   "complex_question_processing": false,
@@ -371,7 +370,7 @@ Content-Type: application/json
 - `llm_model_text2sql` (optional, str, default: "default"): LLM model to use for text-to-SQL conversion
 - `llm_model_complex` (optional, str, default: "default"): LLM model to use for complex-question resolution / stronger-model retry
 - `llm_model_result_entity` (optional, str, default: "default"): LLM model for the answer-entity classifier, which decides from the **original** question what kind of thing the returned rows should be. Before FASTAPI-TEXT2SQL-232 this task was reachable only through its module default, so it could be neither priced nor moved.
-- `llm_model_answer_single_value` (optional, str, default: "default"): LLM model asked for a direct scalar answer when the SQL came back as a single cell worth 0. Before -232 it borrowed `llm_model_complex`; the two share a caller but not a job, so they now have separate selectors and separate defaults.
+- `llm_model_answer_single_value` (optional, str): **accepted and ignored since 2026-10-15** (FASTAPI-TEXT2SQL-331). It selected the model of the direct scalar answer, a branch that answered a single cell worth 0 from the model's memory instead of the database; that branch is removed, and a single cell worth 0 is returned as the database gave it. The field stays in the request model so older clients still validate.
 - `llm_model_vision` (optional, str, default: "default"): LLM that reads the image when `image_ref` is supplied, the sixth and last task of the pipeline (FASTAPI-TEXT2SQL-114). `"default"` resolves to **`gpt-6-astra`**, not `gpt-4o`: this is the one task whose default is not the house model, because it is the model the feature was designed and tried on. Only the OpenAI families read images here (`gpt-4o`, the GPT-5.x line, `gpt-6-astra`); an Anthropic or Gemini name is refused with an explicit error rather than silently ignored.
 - `image_ref` (optional, str): The bare filename returned by `POST /uploads/vision`. This is the picture-based search, and it is a **string**, not bytes: the deposit has its own route, so a search request stays JSON and one endpoint serves both modes. A request may legitimately carry **only** an image, with no `question` and no `question_hashed`. See the vision pre-stage in *Query Processing Pipeline* for what happens then, and `vision_evidence` in the response for what comes back.
 - `ui_language` (optional, str, default: `"en"`): Language code for the user-oriented `answer` field in the response. Only `"en"` (English) and `"fr"` (French) are supported; the value is normalized (case-insensitive, region/script subtags stripped, so `"fr-FR"` → `"fr"`) and any missing, empty, or unsupported value falls back to `"en"`. The answer is a plain-language sentence describing what the query returns, written in the specified language, with no table/column names or SQL details. This value is also used as part of the cache key, so the same question submitted with different `ui_language` values produces separate cache entries.
@@ -391,7 +390,6 @@ Content-Type: application/json
     - `llm_model_text2sql` → `gpt-6-sol` (since 2026-10-03, LLM-TASKS-010)
     - `llm_model_complex` → `gpt-4o`
     - `llm_model_result_entity` → `gpt-6-luna` (since 2026-09-29, GPT-6-003)
-    - `llm_model_answer_single_value` → `gpt-4o`
     - `llm_model_vision` → `gpt-6-astra`
 
 - OpenAI models
@@ -449,7 +447,6 @@ Content-Type: application/json
   - `llm_model_text2sql`
   - `llm_model_complex`
   - `llm_model_result_entity`
-  - `llm_model_answer_single_value`
 - **`llm_model_vision` is the exception, and deliberately so.** It reads an image, and every
   provider encodes an image differently, so it is wired for the OpenAI chat-completions route
   only: `gpt-4o`, the GPT-5.x line and `gpt-6-astra`. A `claude-*` or `gemini-*` name is
@@ -550,7 +547,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "llm_model_text2sql": "gpt-6-sol",
   "llm_model_complex": "gpt-4o",
   "llm_model_result_entity": "gpt-6-luna",
-  "llm_model_answer_single_value": "gpt-4o",
+  "llm_model_answer_single_value": "",
   "llm_model_vision": "gpt-6-astra",
   "complex_model_used": false,
   "api_version": "1.1.19",
@@ -628,7 +625,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `entity_match_worst_fuzz_ratio` (float or null): `fuzz.ratio` of the weakest accepted match, on 100. A similarity, so larger is closer and a threshold reads `>= min_fuzz_ratio`. The two "worst" therefore run in opposite directions
 - `entity_match_scores` (list): One entry per candidate weighed by an embeddings or rapidfuzz strategy, accepted or not, with what was sought, what was found and how far apart they sat. `fuzz_ratio` is the score the gate actually used, after the entity's own descriptor words were neutralised on both sides; `fuzz_ratio_raw` is what it would have been without that, kept so the effect stays auditable. Measured 2026-08-24: "wagonlit collection" against "life collection" scores 76.5 raw and 33.3 stripped, and the threshold sits at 72. This is the calibration material for FASTAPI-TEXT2SQL-206: twelve of the fourteen resolvers currently have no threshold and accept their nearest neighbour however far it sits. Not summed across a retry, like the counts: it describes the resolution that produced the returned result
 - `complex_question_processing_time` (float): The stronger-model simplification call that precedes a complex retry. 0.0 when no retry happened, so it is the most direct marker of a retried request. **On a retried request every timing above covers both passes**, and `total_processing_time` is the real end-to-end elapsed
-- `answer_single_value_processing_time` (float): The direct scalar answer asked of the stronger model when the SQL returned a single cell worth 0 (FASTAPI-TEXT2SQL-233). 0.0 when that branch did not fire. Banked before any early return, so an answer that errored still reports the seconds it spent. With this field the response carries **one wall clock per LLM task**, which is what makes a per-task model swap measurable rather than merely configurable. The five do not sum to `total_processing_time`: that one is measured end to end and includes the plumbing between the steps
+- `answer_single_value_processing_time` (float): **Always 0.0 since 2026-10-15** (FASTAPI-TEXT2SQL-331, the branch is removed); kept so the response shape and the evaluator's column hold. It used to time the direct scalar answer asked of the stronger model when the SQL returned a single cell worth 0 (FASTAPI-TEXT2SQL-233). Banked before any early return, so an answer that errored still reports the seconds it spent. With this field the response carries **one wall clock per LLM task**, which is what makes a per-task model swap measurable rather than merely configurable. The five do not sum to `total_processing_time`: that one is measured end to end and includes the plumbing between the steps
 - `vision_identification_processing_time` (float): The sixth and last wall clock, the vision call that read the image and named what it points at (FASTAPI-TEXT2SQL-114). 0.0 when no image was sent **and** on a recognition-cache hit, which is the criterion that proves the cache: the same photo re-deposited answers with this at 0.0 and `vision_model_used` false, because the identification came from the fingerprint of the bytes rather than from a second call of about 4 cents
 - `query_execution_time` (float): Time for SQL execution in seconds
 - `total_processing_time` (float): Total request processing time in seconds
@@ -652,7 +649,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `llm_model_text2sql` (str): LLM model actually used for text-to-SQL conversion
 - `llm_model_complex` (str): LLM model **configured** for complex-question resolution / stronger-model retry — exposed even when the retry path was not taken
 - `llm_model_result_entity` (str): LLM model actually used for the answer-entity classifier (FASTAPI-TEXT2SQL-232)
-- `llm_model_answer_single_value` (str): LLM model **configured** for the direct scalar answer, exposed even when that branch did not fire
+- `llm_model_answer_single_value` (str): always `""` since FASTAPI-TEXT2SQL-331 (2026-10-15): no model serves the removed direct scalar answer
 - `llm_model_vision` (str): LLM model **configured** for the image-reading task, exposed even when no image was sent
 - `vision_model_used` (bool, default `false`): **Whether the vision model was actually invoked** on this turn. Read this rather than `llm_model_vision`, exactly as `complex_model_used` is read rather than `llm_model_complex`. It stays `false` on a recognition-cache hit, and it is what proves a second turn on the same photo cost nothing
 - `complex_model_used` (bool, default `false`): **Whether the stronger model was actually invoked** during the request — set to `true` when any of the four complex-retry code paths fired (text2sql error, SQL execution error, zero-row result on page 1, or single-cell zero-count direct answer). Use this rather than `llm_model_complex` to know whether the extra LLM call happened.

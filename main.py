@@ -1923,6 +1923,8 @@ class Text2SQLRequest(BaseModel):
     # module default or by borrowing the complex-question knob, so neither could be priced
     # or moved on its own. Five tasks, five selectors, each echoed back in the response.
     llm_model_result_entity: Optional[str] = "default"
+    # FASTAPI-TEXT2SQL-331 (2026-10-15): the single-value task is removed. Kept so a client
+    # that still sends it validates; ignored.
     llm_model_answer_single_value: Optional[str] = "default"
     # FASTAPI-TEXT2SQL-114. The sixth task, and the sixth selector: reading an image and
     # saying which work or person it points at. Its module default is `gpt-6-astra`, not
@@ -2035,7 +2037,8 @@ class Text2SQLResponse(BaseModel):
     # with a single cell worth 0 (FASTAPI-TEXT2SQL-233). It used to be billed silently: the
     # call happens after the SQL step, so its seconds landed in total_processing_time with
     # nothing to attribute them to, which is exactly the shape of latency that looks like
-    # database slowness in a campaign. 0.0 when the branch did not fire.
+    # database slowness in a campaign. Always 0.0 since FASTAPI-TEXT2SQL-331 removed the
+    # branch (2026-10-15); kept so the response shape and the evaluator columns hold.
     answer_single_value_processing_time: float = 0.0
     # FASTAPI-TEXT2SQL-114, the sixth task. Wall clock of the vision call that read the image
     # and named what it points at, 0.0 when no image was sent AND on a recognition-cache hit.
@@ -2144,6 +2147,7 @@ class Text2SQLResponse(BaseModel):
     # FASTAPI-TEXT2SQL-232. Which model actually served the other two tasks. Defaulted
     # rather than required so a client reading an older cached payload still validates.
     llm_model_result_entity: str = ""
+    # Always "" since FASTAPI-TEXT2SQL-331: no model serves the removed single-value task.
     llm_model_answer_single_value: str = ""
     # FASTAPI-TEXT2SQL-114. Echoed like the five others even when no image was sent, so a
     # campaign reads the configuration from the response and never from the request.
@@ -2409,10 +2413,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
               classifier, which decides from the ORIGINAL question what kind of thing the
               rows should be. "default" resolves to gpt-6-luna (gpt-4o until GPT-6-003,
               2026-09-29). FASTAPI-TEXT2SQL-232.
-            - llm_model_answer_single_value (str, default "default"): LLM asked for a
-              direct scalar answer when SQL returned a single cell worth 0. Until -232 it
-              borrowed llm_model_complex; it now has its own selector and its own default.
-              "default" resolves to gpt-4o.
+            - llm_model_answer_single_value (str): accepted and ignored. The direct
+              scalar answer it selected was removed on 2026-10-15 (FASTAPI-TEXT2SQL-331):
+              a single cell worth 0 is now returned as the database gave it.
             - llm_model_vision (str, default "default"): LLM that reads the image when
               `image_ref` is supplied. "default" resolves to gpt-6-astra, not gpt-4o.
               FASTAPI-TEXT2SQL-114.
@@ -2450,15 +2453,18 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
               seconds. One field per LLM task since FASTAPI-TEXT2SQL-233, so the five
               calls can be priced and paced separately. Each is 0.0 when its task did
               not run: `result_entity_processing_time` on no SQL or a text2sql error,
-              the last two on any request that never escalated. They do not sum to
+              `complex_question_processing_time` on any request that never escalated.
+              `answer_single_value_processing_time` is always 0.0 since its task was
+              removed (FASTAPI-TEXT2SQL-331, 2026-10-15). They do not sum to
               `total_processing_time`, which is measured end to end and includes the
               plumbing between the steps.
             - ambiguous_question_for_text2sql: True when the question was too vague to
               produce a SQL query.
             - messages (list): Ordered processing-step messages for debugging.
             - llm_model_entity_extraction, llm_model_text2sql, llm_model_complex,
-              llm_model_result_entity, llm_model_answer_single_value: the model that
-              actually served each of the five LLM tasks, resolved (never "default").
+              llm_model_result_entity: the model that actually served each of these LLM
+              tasks, resolved (never "default"). llm_model_answer_single_value is always
+              "" since FASTAPI-TEXT2SQL-331.
             - sql_regeneration_outcome: When the query was refused by the engine (an
               unknown column) or by the SQL guard, the API regenerates the SQL ONCE for
               the SAME question, handing the model its own error back, before any
@@ -2616,9 +2622,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     strresultentitymodel = t2s.strresultentitymodeldefault
     if request.llm_model_result_entity and request.llm_model_result_entity != "default":
         strresultentitymodel = request.llm_model_result_entity
-    stranswersinglevaluemodel = t2s.stranswersinglevaluemodeldefault
-    if request.llm_model_answer_single_value and request.llm_model_answer_single_value != "default":
-        stranswersinglevaluemodel = request.llm_model_answer_single_value
+    # FASTAPI-TEXT2SQL-331: the task is removed. The request field is still accepted so older
+    # clients validate, and ignored; the response echoes "" (no model served it).
+    stranswersinglevaluemodel = ""
     strvisionmodel = t2s.strvisionmodeldefault
     if request.llm_model_vision and request.llm_model_vision != "default":
         strvisionmodel = request.llm_model_vision
@@ -2628,7 +2634,6 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     print("- Text2SQL model:", strtext2sqlmodel)
     print("- Complex question model:", strcomplexquestionmodel)
     print("- Result entity model:", strresultentitymodel)
-    print("- Answer single value model:", stranswersinglevaluemodel)
     print("- Vision identification model:", strvisionmodel)
 
 
@@ -5131,139 +5136,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             if retry_response is not None:
                 return retry_response
 
-        # Single-cell zero result: if the SQL returned a single row with a single column
-        # whose value is 0, the SQL approach likely failed (e.g. COUNT returning 0).
-        # Ask the stronger model to directly answer with the correct scalar value.
-        try:
-            single_zero_result = False
-            if (
-                not sql_execution_failed
-                and lngpage == 1
-                and isinstance(query_results, list)
-                and len(query_results) == 1
-            ):
-                row_data = query_results[0].get("data")
-                if isinstance(row_data, dict) and len(row_data) == 1:
-                    single_value = next(iter(row_data.values()))
-                    if single_value == 0:
-                        single_zero_result = True
-
-            can_answer_zero_count = (
-                request.complex_question_processing
-                and single_zero_result
-                and bool(request.question)
-                and not getattr(request, "complex_question_already_resolved", False)
-                and "original_question" in locals()
-                and isinstance(original_question, str)
-                and original_question.strip() != ""
-            )
-        except Exception as _guard_exc:
-            can_answer_zero_count = False
-            messages.append(TextMessage(
-                position=position_counter,
-                text=f"Retry guard: evaluating can_answer_zero_count raised {type(_guard_exc).__name__}: {_guard_exc}; the zero-count answer path is disabled for this question."
-            ))
-            position_counter += 1
-
-        if can_answer_zero_count:
-            complex_model_used = True
-            messages.append(TextMessage(
-                position=position_counter,
-                text=f"SQL query returned a single-cell result with value 0; asking the stronger model '{stranswersinglevaluemodel}' for a direct answer."
-            ))
-            position_counter += 1
-
-            # FASTAPI-TEXT2SQL-233: bank the wall clock before any branch can bail out, the
-            # same rule -205 established for the complex-question retry. An answer that
-            # errors still costs the seconds and the tokens it spent.
-            _answer_single_value_start = time.time()
-            answer_result = t2s.f_answer_single_value(original_question, stranswersinglevaluemodel)
-            answer_single_value_processing_time += time.time() - _answer_single_value_start
-
-            if answer_result.get("error"):
-                messages.append(TextMessage(
-                    position=position_counter,
-                    text=f"Stronger model '{stranswersinglevaluemodel}' could not provide a direct answer: {answer_result['error']}"
-                ))
-                position_counter += 1
-            else:
-                answer_value = answer_result["value"]
-                messages.append(TextMessage(
-                    position=position_counter,
-                    text=f"Stronger model '{stranswersinglevaluemodel}' provided direct answer: {answer_value}"
-                ))
-                position_counter += 1
-
-                # Build a synthetic SQL embedding the answer, execute it, then cache it.
-                # Executing before caching ensures consistency (result comes from SQL like
-                # every other query) and validation (confirms the SQL is well-formed).
-                escaped_question = original_question.replace("'", "''")
-                if isinstance(answer_value, (int, float)):
-                    synthetic_sql = f"SELECT {answer_value} AS '{escaped_question}' FROM DUAL"
-                else:
-                    escaped_value = str(answer_value).replace("'", "''")
-                    synthetic_sql = f"SELECT '{escaped_value}' AS '{escaped_question}' FROM DUAL"
-
-                messages.append(TextMessage(
-                    position=position_counter,
-                    text=f"Executing synthetic SQL for direct answer: {synthetic_sql}"
-                ))
-                position_counter += 1
-
-                try:
-                    with connection.cursor() as synth_cursor:
-                        synth_cursor.execute(synthetic_sql)
-                        synth_results = synth_cursor.fetchall()
-                        query_results = [
-                            {"index": idx, "data": {k: html.unescape(v) if isinstance(v, str) else v for k, v in row.items()}}
-                            for idx, row in enumerate(synth_results)
-                        ]
-                    messages.append(TextMessage(
-                        position=position_counter,
-                        text=f"Synthetic SQL executed successfully; result returned from SQL execution."
-                    ))
-                    position_counter += 1
-                except Exception as synth_err:
-                    messages.append(TextMessage(
-                        position=position_counter,
-                        text=f"Synthetic SQL execution failed: {str(synth_err)}; falling back to original zero result."
-                    ))
-                    position_counter += 1
-                    synthetic_sql = None
-
-                # Cache the validated synthetic SQL so subsequent calls skip the stronger model
-                if synthetic_sql and request.store_to_cache and request.question:
-                    synthetic_hash = hashlib.sha256(original_question.encode('utf-8')).hexdigest()
-                    try:
-                        sql_cache.write_sql_cache_entry(
-                            connection,
-                            question=original_question,
-                            question_hashed=synthetic_hash,
-                            sql_query=synthetic_sql,
-                            sql_processed=synthetic_sql,
-                            justification=justification or "",
-                            answer=answer or "",
-                            api_version=strapiversionformatted,
-                            entity_extraction_processing_time=entity_extraction_processing_time,
-                            text2sql_processing_time=text2sql_processing_time,
-                            embeddings_time=embeddings_processing_time,
-                            query_time=query_execution_time,
-                            total_processing_time=0.0,
-                            is_anonymized=False,
-                            ui_language=request.ui_language,
-                            result_entity="",
-                        )
-                        messages.append(TextMessage(
-                            position=position_counter,
-                            text=f"Cached synthetic SQL for direct answer: {synthetic_sql}"
-                        ))
-                        position_counter += 1
-                    except Exception as cache_err:
-                        messages.append(TextMessage(
-                            position=position_counter,
-                            text=f"Failed to cache synthetic SQL for direct answer: {str(cache_err)}"
-                        ))
-                        position_counter += 1
+        # FASTAPI-TEXT2SQL-331 (2026-10-15): the single-cell-zero branch is gone. When the SQL
+        # returned one cell worth 0, it asked an LLM for the number from memory, wrapped it in a
+        # synthetic `SELECT n FROM DUAL` and cached it (commit 5bb6580, 2026-04-19, for the
+        # Oscar counts). A zero from the database is now the answer, and a wrong zero is a data
+        # or SQL defect to fix where it lives (HARNESS-BRICKS-010).
     else:
         messages.append(TextMessage(
             position=position_counter, 
@@ -9354,7 +9231,6 @@ async def _mcp_sql_search(
     llm_model_text2sql: str = "default",
     llm_model_complex: str = "default",
     llm_model_result_entity: str = "default",
-    llm_model_answer_single_value: str = "default",
     llm_model_vision: str = "default",
 ) -> str:
     """
@@ -9380,16 +9256,14 @@ async def _mcp_sql_search(
 
     Optional model overrides (each defaults to "default" = the server's configured
     model: gpt-6-sol for entity extraction and text-to-SQL, gpt-4o for the complex
-    question and the single-value answer, gpt-6-luna for the answer-entity classifier,
-    and gpt-6-astra for the vision one). The
-    pipeline makes six distinct LLM calls and each has its own selector:
+    question, gpt-6-luna for the answer-entity classifier, and gpt-6-astra for the
+    vision one). The pipeline makes five distinct LLM calls and each has its own selector:
     llm_model_entity_extraction, llm_model_text2sql, llm_model_complex,
-    llm_model_result_entity (the answer-entity classifier),
-    llm_model_answer_single_value (the direct scalar answer) and llm_model_vision (the
+    llm_model_result_entity (the answer-entity classifier) and llm_model_vision (the
     image reader, which only fires when an image_ref is supplied). Each routes its step
     through a chosen provider/model (an OpenAI "gpt-*"/"o1*"/"o3*"/"o4*" model, a
     "claude-*" model, or a "gemini-*" model; the vision task reads images through the
-    OpenAI route only). The response echoes back the six resolved names and the
+    OpenAI route only). The response echoes back the resolved names and the
     per-task wall clock, so a run can be priced task by task.
 
     `image_ref` starts the question from a picture instead of from words
@@ -9442,7 +9316,6 @@ async def _mcp_sql_search(
                     "llm_model_text2sql": llm_model_text2sql,
                     "llm_model_complex": llm_model_complex,
                     "llm_model_result_entity": llm_model_result_entity,
-                    "llm_model_answer_single_value": llm_model_answer_single_value,
                     "llm_model_vision": llm_model_vision,
                 },
                 headers={"X-API-Key": MCP_INTERNAL_API_KEY},
