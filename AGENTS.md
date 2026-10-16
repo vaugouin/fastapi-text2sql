@@ -1332,6 +1332,8 @@ reports what it could not reach as SKIPPED rather than passing it. Every source 
 allowed table, so the restricted-DB table-scope contract (DATA-DISTRIBUTION-008) holds without new
 promotions.
 
+**Wikipedia Markdown and mentions (2026-10-16).** `_fetch_wikipedia_content(..., wikipedia_format)` serves `CONTENT_MD` per section when asked (`format`, `references` per element); the `text` branch must stay byte for byte what it was, since every existing client reads it. The six `mentions_*` / `mentioned_in_*` lists come from `_wikipedia_mention_collections()`, merged into each endpoint's registry at the `_run_collections` call and attached by `_attach_wikipedia_mentions()`, so a new Wikipedia-carrying endpoint needs those three calls plus the `wikipedia_format` parameter on the route and on its MCP tool. tmdb-front's `f_wikipediamentions()` applies the same rules (date links out, 20,000-page cap backward, adult and deleted rows out); change both together. `checks/test-wikipedia-md-mentions.py` checks the helpers and the wiring of all 16 endpoints offline. The two tables are in the T2S backup perimeter (`tools/backupvaugouindb-t2s.sh`).
+
 **Pagination.** Each endpoint declares a local `pcollections` registry mapping
 `collection_name -> (sql, params, image_kind)`, driven by `_run_collections()`. It is the single
 source of truth for both the untargeted and the targeted mode, so a new nested related-entity list

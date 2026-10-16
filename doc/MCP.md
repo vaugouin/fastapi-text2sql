@@ -452,6 +452,8 @@ The guiding principle: **one tool call should answer one user intent**. If Claud
 
 Each entity endpoint paginates its embedded **related-entity lists** (cast, crew, movies, series, persons, siblings, episodes, seasons, …). By default the tool returns every list capped to its first page (`rows_per_page` rows, default 50, max 200) and a top-level `pagination` object reporting each list's `{ total, page, rows_per_page, returned }`. To drill into one list, the `get_*` tools accept three optional arguments — `collection` (the list's field name, e.g. `"movie_cast"`), `page`, and `rows_per_page` — forwarded as query params (`?collection=movie_cast&page=2`). When `collection` is set, the endpoint returns a lean payload containing only that list's requested page plus its `pagination` entry (the base entity and other lists are omitted). Image arrays, `videos`, and Wikipedia arrays are never paginated. Calling a tool without these arguments is unchanged.
 
+The same 16 tools that return `wikipedia_content` take `wikipedia_format`: `"md"` serves each section as Markdown (tables, lists, links as Wikipedia URLs) with its footnotes in `references`, the default `"text"` is unchanged. They also return six paginated lists built from the links between Wikipedia articles: `mentions_persons` / `mentions_movies` / `mentions_series` (what the entity's article links to) and `mentioned_in_persons` / `mentioned_in_movies` / `mentioned_in_series` (whose article links to the entity). See README.md, section 3.
+
 ---
 
 ## 3. Sample JSON Responses

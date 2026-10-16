@@ -20,6 +20,7 @@ from urllib.parse import unquote_plus
 import pymysql.cursors
 from dotenv import load_dotenv
 import re
+import urllib.parse
 import html
 import openai
 import chromadb
@@ -5669,7 +5670,41 @@ def _fetch_wikipedia_images(cursor, id_wikidata, ui_language="en"):
     return rows
 
 
-def _fetch_wikipedia_content(cursor, id_wikidata, ui_language="en"):
+WIKIPEDIA_FORMATS = ("text", "md")
+
+
+def normalize_wikipedia_format(value):
+    """``md`` (or ``markdown``) asks for the Markdown sections; anything else is ``text``."""
+    return "md" if str(value or "").strip().lower() in ("md", "markdown") else "text"
+
+
+# [words](target), the target holding balanced parentheses: [x](Parasite_(film,_2019)). The same
+# expression as wikipedia-crawler's md_to_text and tmdb-front's lib/wikipedia-md.inc.php.
+_MD_LINK = re.compile(r"\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))*)\)")
+
+
+def _wikipedia_md_absolute_links(md, lang):
+    """Rewrite the crawler's internal links, written by Wikipedia title, as article URLs.
+
+    CONTENT_MD links an article as ``[words](Target_title#fragment)``: a client outside this
+    stack cannot resolve that, so each becomes ``https://<lang>.wikipedia.org/wiki/...``.
+    External links are kept; a lone ``#fragment`` keeps its words only.
+    """
+    def _one(m):
+        words, target = m.group(1), m.group(2)
+        if target.lower().startswith(("http://", "https://")):
+            return m.group(0)
+        title, _, fragment = target.partition("#")
+        if not title:
+            return words
+        url = f"https://{lang}.wikipedia.org/wiki/" + urllib.parse.quote(title.replace(" ", "_"), safe="/_(),'!-.:")
+        if fragment:
+            url += "#" + urllib.parse.quote(fragment.replace(" ", "_"), safe="_-.")
+        return f"[{words}]({url})"
+    return _MD_LINK.sub(_one, md or "")
+
+
+def _fetch_wikipedia_content(cursor, id_wikidata, ui_language="en", wikipedia_format="text"):
     """Return Wikipedia section content linked to an entity's Wikidata ID in the requested language.
 
     Each element exposes the section TITLE and CONTENT from
@@ -5677,26 +5712,132 @@ def _fetch_wikipedia_content(cursor, id_wikidata, ui_language="en"):
     requested language has no sections it falls back to English. Returns [] when
     id_wikidata is missing. Excludes soft-deleted rows and orders by DISPLAY_ORDER to
     preserve natural reading order.
+
+    ``wikipedia_format="md"`` serves CONTENT_MD instead, the Markdown the wikipedia-crawler
+    writes since 1.1.0 (tables, nested lists, the infobox, bold and italic, links rewritten as
+    article URLs), with the section's footnotes from T_WC_WIKIPEDIA_PAGE_LANG_REFERENCE in a
+    ``references`` list (label, url, title, text). The choice is per section: a section the
+    crawler has not converted yet comes back as text. Each element then says which it carries
+    in ``format`` ("md" or "text"). The default ``text`` response is unchanged, byte for byte.
+    The language resolution is the same in both formats, so the wikipedia_page credit holds.
     """
     if not id_wikidata:
         return []
     lang = normalize_ui_language(ui_language)
+    as_md = normalize_wikipedia_format(wikipedia_format) == "md"
 
     def _query(target_lang):
+        if not as_md:
+            cursor.execute("""
+                SELECT TITLE AS title, CONTENT AS content
+                FROM T_WC_WIKIPEDIA_PAGE_LANG_SECTION
+                WHERE ID_WIKIDATA = %s
+                  AND LANG = %s
+                  AND DELETED = 0
+                ORDER BY DISPLAY_ORDER ASC
+            """, (id_wikidata, target_lang))
+            return list(cursor.fetchall())
         cursor.execute("""
-            SELECT TITLE AS title, CONTENT AS content
+            SELECT DISPLAY_ORDER, TITLE, CONTENT, CONTENT_MD
             FROM T_WC_WIKIPEDIA_PAGE_LANG_SECTION
             WHERE ID_WIKIDATA = %s
               AND LANG = %s
               AND DELETED = 0
             ORDER BY DISPLAY_ORDER ASC
         """, (id_wikidata, target_lang))
-        return list(cursor.fetchall())
+        sections = list(cursor.fetchall())
+        if not sections:
+            return []
+        cursor.execute("""
+            SELECT SECTION_DISPLAY_ORDER, LABEL, URL, TITLE, REFERENCE_TEXT
+            FROM T_WC_WIKIPEDIA_PAGE_LANG_REFERENCE
+            WHERE ID_WIKIDATA = %s AND LANG = %s
+            ORDER BY SECTION_DISPLAY_ORDER ASC, DISPLAY_ORDER ASC
+        """, (id_wikidata, target_lang))
+        refs = {}
+        for ref in cursor.fetchall():
+            refs.setdefault(ref["SECTION_DISPLAY_ORDER"], []).append({
+                "label": ref["LABEL"], "url": ref["URL"], "title": ref["TITLE"], "text": ref["REFERENCE_TEXT"],
+            })
+        rows = []
+        for sec in sections:
+            md = (sec.get("CONTENT_MD") or "").strip()
+            if md:
+                rows.append({"title": sec["TITLE"], "content": _wikipedia_md_absolute_links(md, target_lang),
+                             "format": "md", "references": refs.get(sec["DISPLAY_ORDER"], [])})
+            else:
+                rows.append({"title": sec["TITLE"], "content": sec["CONTENT"], "format": "text", "references": []})
+        return rows
 
     rows = _query(lang)
     if not rows and lang != DEFAULT_UI_LANGUAGE:
         rows = _query(DEFAULT_UI_LANGUAGE)
     return rows
+
+
+# The persons, movies and series linked with an entity through its Wikipedia article, from
+# T_WC_WIKIPEDIA_PAGE_LANG_LINK (wikipedia-crawler 1.1.0+), in the requested language:
+#   mentions_*      the ones the entity's article links to, in the order they first appear
+#   mentioned_in_*  the ones whose article links to the entity, most popular first
+# Six registry collections, so each is paginated like any other list (?collection=...).
+# The backward source is capped at 20,000 pages, read on the covering index TARGET_LANG_SOURCE
+# (TARGET_ID_WIKIDATA, LANG, ID_WIKIDATA): once the backfill is done a country or a city is
+# linked from hundreds of thousands of pages. French date links (IS_DATE) are left out.
+# tmdb-front (f_wikipediamentions) applies the same rules: change both together.
+WIKIPEDIA_MENTION_COLLECTIONS = (
+    "mentions_persons", "mentions_movies", "mentions_series",
+    "mentioned_in_persons", "mentioned_in_movies", "mentioned_in_series",
+)
+
+_MENTION_KINDS = {
+    "persons": ("person", "p", "T_WC_T2S_PERSON", "ID_PERSON",
+                "p.ID_PERSON, p.PERSON_NAME, p.PROFILE_PATH, p.BIRTH_YEAR, p.DEATH_YEAR, p.POPULARITY"),
+    "movies": ("movie", "m", "T_WC_T2S_MOVIE", "ID_MOVIE",
+               "m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, m.POPULARITY"),
+    "series": ("serie", "s", "T_WC_T2S_SERIE", "ID_SERIE",
+               "s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, s.POPULARITY"),
+}
+
+
+def _wikipedia_mention_collections(id_wikidata, ui_language="en"):
+    """Registry entries ``name -> (sql, params, image_kind)`` for the six mention lists.
+
+    Empty when the entity has no ID_WIKIDATA: the lists are then absent from the registry,
+    and ``_attach_wikipedia_mentions`` serves them as empty arrays.
+    """
+    if not id_wikidata:
+        return {}
+    lang = normalize_ui_language(ui_language)
+    forward = """
+        SELECT TARGET_ID_WIKIDATA AS QID, MIN(SECTION_DISPLAY_ORDER * 100000 + DISPLAY_ORDER) AS MENTION_ORDER
+        FROM T_WC_WIKIPEDIA_PAGE_LANG_LINK
+        WHERE ID_WIKIDATA = %s AND LANG = %s AND TARGET_ID_WIKIDATA IS NOT NULL
+          AND TARGET_ID_WIKIDATA <> %s AND IS_DATE = 0
+        GROUP BY TARGET_ID_WIKIDATA"""
+    backward = """
+        SELECT DISTINCT ID_WIKIDATA AS QID, 0 AS MENTION_ORDER
+        FROM T_WC_WIKIPEDIA_PAGE_LANG_LINK
+        WHERE TARGET_ID_WIKIDATA = %s AND LANG = %s AND ID_WIKIDATA <> %s
+        LIMIT 20000"""
+    out = {}
+    for direction, source in (("mentions", forward), ("mentioned_in", backward)):
+        for suffix, (kind, alias, table, id_col, cols) in _MENTION_KINDS.items():
+            order = (f"x.MENTION_ORDER ASC, {alias}.{id_col} ASC" if direction == "mentions"
+                     else f"{alias}.POPULARITY DESC, {alias}.{id_col} ASC")
+            sql = f"""
+                SELECT {cols}, x.MENTION_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM ({source}) x
+                JOIN {table} {alias} ON {alias}.ID_WIKIDATA = x.QID
+                WHERE COALESCE({alias}.DELETED, 0) = 0 AND COALESCE({alias}.ADULT, 0) = 0
+                ORDER BY {order}"""
+            out[f"{direction}_{suffix}"] = (sql, (id_wikidata, lang, id_wikidata), kind)
+    return out
+
+
+def _attach_wikipedia_mentions(result, data):
+    """Add the six mention lists to a detail response, empty when the entity has none."""
+    for name in WIKIPEDIA_MENTION_COLLECTIONS:
+        result[name] = data.get(name, [])
 
 
 def _resolve_wikipedia_page_row(cursor, id_wikidata, ui_language="en"):
@@ -6127,7 +6268,7 @@ def _collection_context(cursor, entity_type, entity_id, ui_language="en"):
 
 
 @app.get("/movies/{id}", summary="Movie full detail", response_class=RoundedJSONResponse)
-async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for a movie plus embedded relations: genres, production
     companies, production countries, spoken languages, topics, lists, collections,
     movements, technicals, awards, nominations, the works it is based on (based_on),
@@ -6199,6 +6340,16 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged.
+
+    The mentions_persons / mentions_movies / mentions_series lists hold the persons, movies and
+    series the entity's Wikipedia article links to (in the requested language, in the order
+    they first appear), and mentioned_in_persons / _movies / _series those whose article links
+    to the entity (most popular first). Paginated like the other lists (?collection=...).
 
     The wikipedia_page object is the source-article reference for that content: lang (the
     language actually served, which is 'en' when the requested language has no sections),
@@ -6373,7 +6524,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
             """, (id,), "movie"),
         }
         with conn.cursor() as cursor:
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(movie.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 cursor.execute("""
                     SELECT g.ID_GENRE, g.GENRE_NAME, gl.GENRE_NAME AS GENRE_NAME_FR
@@ -6405,7 +6556,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
                 """, (id,))
                 backdrops = cursor.fetchall()
                 wikipedia_images = _fetch_wikipedia_images(cursor, movie.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, movie.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, movie.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, movie.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, movie, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_tmdb_videos(cursor, "movie", id) + _fetch_wikidata_videos(cursor, movie.get("ID_WIKIDATA"))
@@ -6452,6 +6603,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
             "data_freshness": data_freshness,
         }
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage("movies", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
@@ -6463,7 +6615,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
 
 
 @app.get("/series/{id}", summary="TV series full detail", response_class=RoundedJSONResponse)
-async def get_series(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+async def get_series(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for a TV series plus embedded relations: genres, production
     companies, networks, production countries, spoken languages, topics, lists,
     collections, movements, awards, nominations, the works it is based on (based_on),
@@ -6532,6 +6684,16 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged.
+
+    The mentions_persons / mentions_movies / mentions_series lists hold the persons, movies and
+    series the entity's Wikipedia article links to (in the requested language, in the order
+    they first appear), and mentioned_in_persons / _movies / _series those whose article links
+    to the entity (most popular first). Paginated like the other lists (?collection=...).
 
     The wikipedia_page object is the source-article reference for that content: lang (the
     language actually served, which is 'en' when the requested language has no sections),
@@ -6724,7 +6886,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
             """, (id,), "serie"),
         }
         with conn.cursor() as cursor:
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(serie.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 cursor.execute("""
                     SELECT g.ID_GENRE, g.GENRE_NAME, gl.GENRE_NAME AS GENRE_NAME_FR
@@ -6756,7 +6918,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
                 """, (id,))
                 backdrops = cursor.fetchall()
                 wikipedia_images = _fetch_wikipedia_images(cursor, serie.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, serie.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, serie.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, serie.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, serie, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_tmdb_videos(cursor, "serie", id) + _fetch_wikidata_videos(cursor, serie.get("ID_WIKIDATA"))
@@ -6804,6 +6966,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
             "data_freshness": data_freshness,
         }
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage("series", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, posters, "POSTER_PATH", ui_language)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
@@ -6815,7 +6978,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
 
 
 @app.get("/seasons/{id_serie}/{season_number}", summary="TV series season full detail", response_class=RoundedJSONResponse)
-async def get_season(id_serie: int, season_number: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+async def get_season(id_serie: int, season_number: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for a TV series season plus embedded relations: cast, crew,
     posters, backdrops, and a navigation stub for the parent series. The composite
     key is (ID_SERIE, SEASON_NUMBER); season 0 is the specials season when present.
@@ -6855,6 +7018,16 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged.
+
+    The mentions_persons / mentions_movies / mentions_series lists hold the persons, movies and
+    series the entity's Wikipedia article links to (in the requested language, in the order
+    they first appear), and mentioned_in_persons / _movies / _series those whose article links
+    to the entity (most popular first). Paginated like the other lists (?collection=...).
 
     The wikipedia_page object is the source-article reference for that content: lang (the
     language actually served, which is 'en' when the requested language has no sections),
@@ -7012,7 +7185,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
             """, (id_season, id_serie), "season"),
         }
         with conn.cursor() as cursor:
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(season.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 cursor.execute("""
                     SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
@@ -7036,7 +7209,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
                 """, (id_serie,))
                 series = cursor.fetchone()
                 wikipedia_images = _fetch_wikipedia_images(cursor, season.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, season.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, season.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, season.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, season, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_tmdb_videos(cursor, "season", id_season)
@@ -7078,6 +7251,7 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
             "data_freshness": data_freshness,
         }
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage(
             "seasons",
             {"id_serie": id_serie, "season_number": season_number, "response": result},
@@ -7106,6 +7280,7 @@ async def get_episode(
     collection: Optional[str] = None,
     page: int = 1,
     rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT,
+    wikipedia_format: Optional[str] = "text",
     api_key: str = Depends(get_api_key),
 ):
     """Return all fields for a TV series episode plus embedded relations: cast, crew,
@@ -7146,6 +7321,16 @@ async def get_episode(
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER. Empty when ID_WIKIDATA is
     NULL.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged.
+
+    The mentions_persons / mentions_movies / mentions_series lists hold the persons, movies and
+    series the entity's Wikipedia article links to (in the requested language, in the order
+    they first appear), and mentioned_in_persons / _movies / _series those whose article links
+    to the entity (most popular first). Paginated like the other lists (?collection=...).
 
     The wikipedia_page object is the source-article reference for that content: lang (the
     language actually served, which is 'en' when the requested language has no sections),
@@ -7274,7 +7459,7 @@ async def get_episode(
             """, (id_episode, id_season), None),
         }
         with conn.cursor() as cursor:
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(episode.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 cursor.execute("""
                     SELECT ID_ROW, TYPE_IMAGE, IMAGE_PATH, LANG, ASPECT_RATIO,
@@ -7295,7 +7480,7 @@ async def get_episode(
                 """, (id_serie,))
                 series = cursor.fetchone()
                 wikipedia_images = _fetch_wikipedia_images(cursor, episode.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, episode.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, episode.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, episode.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, episode, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_tmdb_videos(cursor, "episode", id_episode)
@@ -7338,6 +7523,7 @@ async def get_episode(
             "data_freshness": data_freshness,
         }
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage(
             "episodes",
             {
@@ -7359,7 +7545,7 @@ async def get_episode(
 
 
 @app.get("/persons/{id}", summary="Person full detail", response_class=RoundedJSONResponse)
-async def get_person(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+async def get_person(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for a person plus embedded relations: movie cast and crew,
     series cast and crew, groups, causes of death, awards, and nominations.
     The id is the TMDb person ID (ID_PERSON).
@@ -7389,6 +7575,16 @@ async def get_person(id: int, ui_language: Optional[str] = "en", collection: Opt
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged.
+
+    The mentions_persons / mentions_movies / mentions_series lists hold the persons, movies and
+    series the entity's Wikipedia article links to (in the requested language, in the order
+    they first appear), and mentioned_in_persons / _movies / _series those whose article links
+    to the entity (most popular first). Paginated like the other lists (?collection=...).
 
     The wikipedia_page object is the source-article reference for that content: lang (the
     language actually served, which is 'en' when the requested language has no sections),
@@ -7497,7 +7693,7 @@ async def get_person(id: int, ui_language: Optional[str] = "en", collection: Opt
             """, (id,), None),
         }
         with conn.cursor() as cursor:
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(person.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 cursor.execute("""
                     SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
@@ -7508,7 +7704,7 @@ async def get_person(id: int, ui_language: Optional[str] = "en", collection: Opt
                 """, (id,))
                 portraits = cursor.fetchall()
                 wikipedia_images = _fetch_wikipedia_images(cursor, person.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, person.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, person.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, person.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, person, RECORD_SOURCE_TMDB, ui_language)
                 videos = _fetch_wikidata_videos(cursor, person.get("ID_WIKIDATA"))
@@ -7532,6 +7728,7 @@ async def get_person(id: int, ui_language: Optional[str] = "en", collection: Opt
             "data_freshness": data_freshness,
         }
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage("persons", {"id": id, "response": result}, strapiversion)
         apply_localized_main_image(result, portraits, "PROFILE_PATH", ui_language)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
@@ -7643,7 +7840,7 @@ async def get_network(id: int, ui_language: Optional[str] = "en", collection: Op
 
 
 @app.get("/collections/{id}", summary="Film/series collection full detail", response_class=RoundedJSONResponse)
-async def get_collection(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+async def get_collection(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for a named collection (trilogy, saga, universe, franchise) plus
     member movies and TV series ordered by DISPLAY_ORDER. The id is ID_T2S_COLLECTION.
 
@@ -7659,6 +7856,16 @@ async def get_collection(id: int, ui_language: Optional[str] = "en", collection:
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged.
+
+    The mentions_persons / mentions_movies / mentions_series lists hold the persons, movies and
+    series the entity's Wikipedia article links to (in the requested language, in the order
+    they first appear), and mentioned_in_persons / _movies / _series those whose article links
+    to the entity (most popular first). Paginated like the other lists (?collection=...).
 
     The wikipedia_page object is the source-article reference for that content: lang (the
     language actually served, which is 'en' when the requested language has no sections),
@@ -7706,16 +7913,17 @@ async def get_collection(id: int, ui_language: Optional[str] = "en", collection:
             """, (id,), "serie"),
         }
         with conn.cursor() as cursor:
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(collection_row.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, collection_row.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, collection_row.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, collection_row.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, collection_row.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, collection_row, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**collection_row, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage("collections", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -7725,7 +7933,7 @@ async def get_collection(id: int, ui_language: Optional[str] = "en", collection:
 
 
 @app.get("/topics/{id}", summary="Topic full detail", response_class=RoundedJSONResponse)
-async def get_topic(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+async def get_topic(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for a topic (theme, keyword) plus linked
     movies and TV series ordered by DISPLAY_ORDER. The id is ID_TOPIC.
 
@@ -7741,6 +7949,16 @@ async def get_topic(id: int, ui_language: Optional[str] = "en", collection: Opti
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged.
+
+    The mentions_persons / mentions_movies / mentions_series lists hold the persons, movies and
+    series the entity's Wikipedia article links to (in the requested language, in the order
+    they first appear), and mentioned_in_persons / _movies / _series those whose article links
+    to the entity (most popular first). Paginated like the other lists (?collection=...).
 
     The wikipedia_page object is the source-article reference for that content: lang (the
     language actually served, which is 'en' when the requested language has no sections),
@@ -7788,16 +8006,17 @@ async def get_topic(id: int, ui_language: Optional[str] = "en", collection: Opti
             """, (id,), "serie"),
         }
         with conn.cursor() as cursor:
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(topic.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, topic.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, topic.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, topic.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, topic.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, topic, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**topic, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage("topics", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -7807,7 +8026,7 @@ async def get_topic(id: int, ui_language: Optional[str] = "en", collection: Opti
 
 
 @app.get("/lists/{id}", summary="Curated list full detail", response_class=RoundedJSONResponse)
-async def get_list(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+async def get_list(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for a named curated list plus member movies and TV series
     ordered by DISPLAY_ORDER. The id is ID_T2S_LIST.
 
@@ -7823,6 +8042,16 @@ async def get_list(id: int, ui_language: Optional[str] = "en", collection: Optio
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged.
+
+    The mentions_persons / mentions_movies / mentions_series lists hold the persons, movies and
+    series the entity's Wikipedia article links to (in the requested language, in the order
+    they first appear), and mentioned_in_persons / _movies / _series those whose article links
+    to the entity (most popular first). Paginated like the other lists (?collection=...).
 
     The wikipedia_page object is the source-article reference for that content: lang (the
     language actually served, which is 'en' when the requested language has no sections),
@@ -7870,16 +8099,17 @@ async def get_list(id: int, ui_language: Optional[str] = "en", collection: Optio
             """, (id,), "serie"),
         }
         with conn.cursor() as cursor:
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(lst.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, lst.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, lst.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, lst.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, lst.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, lst, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**lst, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage("lists", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -7889,7 +8119,7 @@ async def get_list(id: int, ui_language: Optional[str] = "en", collection: Optio
 
 
 @app.get("/movements/{id}", summary="Film movement or style full detail", response_class=RoundedJSONResponse)
-async def get_movement(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+async def get_movement(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for a film movement or style plus associated movies and TV series
     ordered by DISPLAY_ORDER. The id is ID_MOVEMENT.
 
@@ -7905,6 +8135,16 @@ async def get_movement(id: int, ui_language: Optional[str] = "en", collection: O
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged.
+
+    The mentions_persons / mentions_movies / mentions_series lists hold the persons, movies and
+    series the entity's Wikipedia article links to (in the requested language, in the order
+    they first appear), and mentioned_in_persons / _movies / _series those whose article links
+    to the entity (most popular first). Paginated like the other lists (?collection=...).
 
     The wikipedia_page object is the source-article reference for that content: lang (the
     language actually served, which is 'en' when the requested language has no sections),
@@ -7952,16 +8192,17 @@ async def get_movement(id: int, ui_language: Optional[str] = "en", collection: O
             """, (id,), "serie"),
         }
         with conn.cursor() as cursor:
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(movement.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, movement.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, movement.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, movement.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, movement.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, movement, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**movement, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage("movements", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -7971,7 +8212,7 @@ async def get_movement(id: int, ui_language: Optional[str] = "en", collection: O
 
 
 @app.get("/technicals/{id}", summary="Technical format full detail", response_class=RoundedJSONResponse)
-async def get_technical(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+async def get_technical(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for a technical format (sound system, color/film/sound technology,
     or film format) plus associated movies and sibling technicals sharing the same
     TECHNICAL_TYPE. The id is ID_TECHNICAL.
@@ -7991,6 +8232,16 @@ async def get_technical(id: int, ui_language: Optional[str] = "en", collection: 
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged.
+
+    The mentions_persons / mentions_movies / mentions_series lists hold the persons, movies and
+    series the entity's Wikipedia article links to (in the requested language, in the order
+    they first appear), and mentioned_in_persons / _movies / _series those whose article links
+    to the entity (most popular first). Paginated like the other lists (?collection=...).
 
     The wikipedia_page object is the source-article reference for that content: lang (the
     language actually served, which is 'en' when the requested language has no sections),
@@ -8039,16 +8290,17 @@ async def get_technical(id: int, ui_language: Optional[str] = "en", collection: 
             """, (technical["TECHNICAL_TYPE"], id), None),
         }
         with conn.cursor() as cursor:
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(technical.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, technical.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, technical.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, technical.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, technical.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, technical, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**technical, "movies": data["movies"], "siblings": data["siblings"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage("technicals", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -8234,7 +8486,7 @@ def _group_work_collections(cursor, id_group: int) -> dict:
 
 
 @app.get("/groups/{id}", summary="Person group full detail", response_class=RoundedJSONResponse)
-async def get_group(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+async def get_group(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for a group (organization, club, musical group) plus associated
     persons, movies and TV series, each ordered by DISPLAY_ORDER. The id is ID_GROUP.
 
@@ -8261,6 +8513,16 @@ async def get_group(id: int, ui_language: Optional[str] = "en", collection: Opti
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged.
+
+    The mentions_persons / mentions_movies / mentions_series lists hold the persons, movies and
+    series the entity's Wikipedia article links to (in the requested language, in the order
+    they first appear), and mentioned_in_persons / _movies / _series those whose article links
+    to the entity (most popular first). Paginated like the other lists (?collection=...).
 
     The wikipedia_page object is the source-article reference for that content: lang (the
     language actually served, which is 'en' when the requested language has no sections),
@@ -8302,10 +8564,10 @@ async def get_group(id: int, ui_language: Optional[str] = "en", collection: Opti
         }
         with conn.cursor() as cursor:
             pcollections.update(_group_work_collections(cursor, id))
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(group.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, group.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, group.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, group.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, group.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, group, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
@@ -8316,6 +8578,7 @@ async def get_group(id: int, ui_language: Optional[str] = "en", collection: Opti
         group["SERIE_WORK_COUNT"] = pagination["series"]["total"]
         result = {**group, "persons": data["persons"], "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage("groups", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -8325,7 +8588,7 @@ async def get_group(id: int, ui_language: Optional[str] = "en", collection: Opti
 
 
 @app.get("/deaths/{id}", summary="Cause of death full detail", response_class=RoundedJSONResponse)
-async def get_death(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+async def get_death(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for a cause or circumstance of death plus associated persons
     ordered by DISPLAY_ORDER. The id is ID_DEATH.
 
@@ -8340,6 +8603,16 @@ async def get_death(id: int, ui_language: Optional[str] = "en", collection: Opti
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged.
+
+    The mentions_persons / mentions_movies / mentions_series lists hold the persons, movies and
+    series the entity's Wikipedia article links to (in the requested language, in the order
+    they first appear), and mentioned_in_persons / _movies / _series those whose article links
+    to the entity (most popular first). Paginated like the other lists (?collection=...).
 
     The wikipedia_page object is the source-article reference for that content: lang (the
     language actually served, which is 'en' when the requested language has no sections),
@@ -8380,16 +8653,17 @@ async def get_death(id: int, ui_language: Optional[str] = "en", collection: Opti
             """, (id,), "person"),
         }
         with conn.cursor() as cursor:
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(death.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, death.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, death.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, death.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, death.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, death, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**death, "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage("deaths", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -8399,7 +8673,7 @@ async def get_death(id: int, ui_language: Optional[str] = "en", collection: Opti
 
 
 @app.get("/awards/{id}", summary="Award full detail", response_class=RoundedJSONResponse)
-async def get_award(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+async def get_award(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for an award plus associated movies, TV series, and persons,
     all ordered by DISPLAY_ORDER. The id is ID_AWARD.
 
@@ -8415,6 +8689,16 @@ async def get_award(id: int, ui_language: Optional[str] = "en", collection: Opti
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged.
+
+    The mentions_persons / mentions_movies / mentions_series lists hold the persons, movies and
+    series the entity's Wikipedia article links to (in the requested language, in the order
+    they first appear), and mentioned_in_persons / _movies / _series those whose article links
+    to the entity (most popular first). Paginated like the other lists (?collection=...).
 
     The wikipedia_page object is the source-article reference for that content: lang (the
     language actually served, which is 'en' when the requested language has no sections),
@@ -8469,16 +8753,17 @@ async def get_award(id: int, ui_language: Optional[str] = "en", collection: Opti
             """, (id,), "person"),
         }
         with conn.cursor() as cursor:
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(award.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, award.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, award.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, award.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, award.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, award, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**award, "movies": data["movies"], "series": data["series"], "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage("awards", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -8488,7 +8773,7 @@ async def get_award(id: int, ui_language: Optional[str] = "en", collection: Opti
 
 
 @app.get("/nominations/{id}", summary="Award nomination full detail", response_class=RoundedJSONResponse)
-async def get_nomination(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+async def get_nomination(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for an award nomination plus associated movies, TV series, and
     persons, all ordered by DISPLAY_ORDER. The id is ID_NOMINATION.
 
@@ -8504,6 +8789,16 @@ async def get_nomination(id: int, ui_language: Optional[str] = "en", collection:
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged.
+
+    The mentions_persons / mentions_movies / mentions_series lists hold the persons, movies and
+    series the entity's Wikipedia article links to (in the requested language, in the order
+    they first appear), and mentioned_in_persons / _movies / _series those whose article links
+    to the entity (most popular first). Paginated like the other lists (?collection=...).
 
     The wikipedia_page object is the source-article reference for that content: lang (the
     language actually served, which is 'en' when the requested language has no sections),
@@ -8558,16 +8853,17 @@ async def get_nomination(id: int, ui_language: Optional[str] = "en", collection:
             """, (id,), "person"),
         }
         with conn.cursor() as cursor:
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(nomination.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, nomination.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, nomination.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, nomination.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, nomination.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, nomination, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**nomination, "movies": data["movies"], "series": data["series"], "persons": data["persons"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage("nominations", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -8577,7 +8873,7 @@ async def get_nomination(id: int, ui_language: Optional[str] = "en", collection:
 
 
 @app.get("/locations/{id}", summary="Location full detail", response_class=RoundedJSONResponse)
-async def get_location(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+async def get_location(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for a location plus movies and series linked to it, ordered by
     adjusted IMDb rating. The id is ID_LOCATION.
 
@@ -8597,6 +8893,16 @@ async def get_location(id: int, ui_language: Optional[str] = "en", collection: O
     The wikipedia_content list contains the Wikipedia section content for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_SECTION; each element carries the
     section title and content, ordered by DISPLAY_ORDER.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged.
+
+    The mentions_persons / mentions_movies / mentions_series lists hold the persons, movies and
+    series the entity's Wikipedia article links to (in the requested language, in the order
+    they first appear), and mentioned_in_persons / _movies / _series those whose article links
+    to the entity (most popular first). Paginated like the other lists (?collection=...).
 
     The wikipedia_page object is the source-article reference for that content: lang (the
     language actually served, which is 'en' when the requested language has no sections),
@@ -8649,16 +8955,17 @@ async def get_location(id: int, ui_language: Optional[str] = "en", collection: O
             """, (id,), "serie"),
         }
         with conn.cursor() as cursor:
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(location.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, location.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, location.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, location.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, location.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, location, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**location, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage("locations", {"id": id, "response": result}, strapiversion)
         apply_localized_related_images(conn, _localized_image_groups(data, kinds), ui_language)
         localize_response(result, ui_language)
@@ -8697,7 +9004,7 @@ def _fetch_source_work_screen_entity(cursor, source_work):
 
 
 @app.get("/sourceworks/{id}", summary="Source work full detail", response_class=RoundedJSONResponse)
-async def get_source_work(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, api_key: str = Depends(get_api_key)):
+async def get_source_work(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for a source work (the novel, manga, play, game, tale, or film /
     series that movies and series are based on, Wikidata P144) plus the movies and series
     adapted from it, oldest first. The id is ID_SOURCE_WORK (FASTAPI-TEXT2SQL-323), the id
@@ -8720,7 +9027,14 @@ async def get_source_work(id: int, ui_language: Optional[str] = "en", collection
     wikipedia_images, wikipedia_content, wikipedia_page and data_freshness behave exactly
     as on /locations/{id}, keyed off the source's ID_WIKIDATA. Until the Wikipedia crawl
     covers source works (WIKIPEDIA-CRAWLER-023) the two arrays are [] and wikipedia_page is
-    absent, which a client must read as "no article yet", not as an error."""
+    absent, which a client must read as "no article yet", not as an error.
+
+    wikipedia_format=md serves wikipedia_content as Markdown (CONTENT_MD: tables, lists, the
+    infobox, links as article URLs) with each section's footnotes in a references list, where
+    the crawler has converted the section; each element says which it carries in format
+    ("md" or "text"). The default, text, is unchanged. The mentions_* and mentioned_in_* lists
+    (persons, movies, series) hold what the work's Wikipedia article links to, and what links
+    to it, as on every other detail endpoint."""
     ui_language = normalize_ui_language(ui_language)
     conn = get_db_connection()
     try:
@@ -8753,17 +9067,18 @@ async def get_source_work(id: int, ui_language: Optional[str] = "en", collection
             """, (id,), "serie"),
         }
         with conn.cursor() as cursor:
-            data, pagination, kinds = _run_collections(cursor, pcollections, collection, page, rows_per_page)
+            data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(source_work.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
             if collection is None:
                 source_entity = _fetch_source_work_screen_entity(cursor, source_work)
                 wikipedia_images = _fetch_wikipedia_images(cursor, source_work.get("ID_WIKIDATA"), ui_language)
-                wikipedia_content = _fetch_wikipedia_content(cursor, source_work.get("ID_WIKIDATA"), ui_language)
+                wikipedia_content = _fetch_wikipedia_content(cursor, source_work.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, source_work.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, source_work, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
         result = {**source_work, "source_entity": source_entity, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         _attach_wikipedia_page(result, wikipedia_page)
+        _attach_wikipedia_mentions(result, data)
         logs.log_usage("sourceworks", {"id": id, "response": result}, strapiversion)
         image_groups = _localized_image_groups(data, kinds)
         if source_entity:
@@ -9328,7 +9643,7 @@ async def _mcp_sql_search(
 
 async def _mcp_get(path: str, ui_language: str = "en", collection: Optional[str] = None,
                    page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT,
-                   sample_set: Optional[str] = None) -> str:
+                   sample_set: Optional[str] = None, wikipedia_format: Optional[str] = None) -> str:
     """Shared MCP helper: GET an internal entity endpoint and return its raw JSON text.
 
     Forwards the normalized ``ui_language`` (en/fr, English fallback) so every
@@ -9346,6 +9661,9 @@ async def _mcp_get(path: str, ui_language: str = "en", collection: Optional[str]
         params["rows_per_page"] = rows_per_page
     if sample_set is not None:
         params["set"] = sample_set
+    # Forwarded only when Markdown is asked for, so the default call is unchanged.
+    if normalize_wikipedia_format(wikipedia_format) == "md":
+        params["wikipedia_format"] = "md"
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
@@ -9368,7 +9686,7 @@ async def _mcp_get(path: str, ui_language: str = "en", collection: Optional[str]
 
 
 @mcp.tool(name="get_movie")
-async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for a movie (title, release date, runtime, budget, revenue, ratings,
     plot, IMDb/Wikidata IDs, color/B&W/silent flags) plus embedded relations:
     cast, crew, genre codes, production companies, production countries, spoken languages,
@@ -9426,12 +9744,12 @@ async def _mcp_get_movie(id: int, ui_language: str = "en", collection: Optional[
     actually served, always the same as wikipedia_lang above), title (the article's own
     title, which is not the entity's title and differs per language) and url. The key is
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
-    requires CC BY-SA attribution pointing at this url."""
-    return await _mcp_get(f"/movies/{id}", ui_language, collection, page, rows_per_page)
+    requires CC BY-SA attribution pointing at this url. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/movies/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="get_series")
-async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for a TV series (title, first/last air date, number of seasons and
     episodes, ratings, status, Wikidata/IMDb IDs) plus embedded relations: cast, crew,
     genre codes, companies, networks, production countries, spoken languages, topics, lists,
@@ -9483,12 +9801,12 @@ async def _mcp_get_series(id: int, ui_language: str = "en", collection: Optional
     actually served, always the same as wikipedia_lang above), title (the article's own
     title, which is not the entity's title and differs per language) and url. The key is
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
-    requires CC BY-SA attribution pointing at this url."""
-    return await _mcp_get(f"/series/{id}", ui_language, collection, page, rows_per_page)
+    requires CC BY-SA attribution pointing at this url. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/series/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="get_season")
-async def _mcp_get_season(id_serie: int, season_number: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_season(id_serie: int, season_number: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for one season of a TV series plus its episodes, cast, crew, posters,
     backdrops, videos and Wikipedia block. A season has no id of its own here: it is keyed
     by the pair (id_serie, season_number), where id_serie is the TMDb ID_SERIE and
@@ -9519,12 +9837,12 @@ async def _mcp_get_season(id_serie: int, season_number: int, ui_language: str = 
     error object ({"error": ..., "status_code": 404}), not a payload. data_freshness and
     wikipedia_page work as in get_series (quoting wikipedia_content requires CC BY-SA
     attribution pointing at wikipedia_page.url); data_freshness is absent from a
-    ?collection= targeted page."""
-    return await _mcp_get(f"/seasons/{id_serie}/{season_number}", ui_language, collection, page, rows_per_page)
+    ?collection= targeted page. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/seasons/{id_serie}/{season_number}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="get_episode")
-async def _mcp_get_episode(id_serie: int, season_number: int, episode_number: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_episode(id_serie: int, season_number: int, episode_number: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for one episode of a TV series plus its cast, crew (directors,
     writers, guest stars), stills, videos and Wikipedia block. An episode has no id of its
     own here: it is keyed by the triple (id_serie, season_number, episode_number), where
@@ -9550,12 +9868,12 @@ async def _mcp_get_episode(id_serie: int, season_number: int, episode_number: in
     returns an error object ({"error": ..., "status_code": 404}), not a payload.
     data_freshness and wikipedia_page work as in get_series (quoting wikipedia_content
     requires CC BY-SA attribution pointing at wikipedia_page.url); data_freshness is absent
-    from a ?collection= targeted page."""
-    return await _mcp_get(f"/episodes/{id_serie}/{season_number}/{episode_number}", ui_language, collection, page, rows_per_page)
+    from a ?collection= targeted page. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/episodes/{id_serie}/{season_number}/{episode_number}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="get_person")
-async def _mcp_get_person(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_person(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for a person (name, biography, birth/death dates, gender, country of
     birth, known-for department, IMDb/Wikidata IDs, popularity) plus embedded filmography
     split by role: movie_cast, movie_crew, series_cast, series_crew, groups, deaths,
@@ -9586,12 +9904,12 @@ async def _mcp_get_person(id: int, ui_language: str = "en", collection: Optional
     actually served, always the same as wikipedia_lang above), title (the article's own
     title, which is not the entity's title and differs per language) and url. The key is
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
-    requires CC BY-SA attribution pointing at this url."""
-    return await _mcp_get(f"/persons/{id}", ui_language, collection, page, rows_per_page)
+    requires CC BY-SA attribution pointing at this url. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/persons/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="get_collection")
-async def _mcp_get_collection(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_collection(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for a named collection (trilogy, saga, universe, franchise) plus member
     movies and TV series ordered by their position in the collection. The collection itself
     includes POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
@@ -9611,12 +9929,12 @@ async def _mcp_get_collection(id: int, ui_language: str = "en", collection: Opti
     actually served, always the same as wikipedia_lang above), title (the article's own
     title, which is not the entity's title and differs per language) and url. The key is
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
-    requires CC BY-SA attribution pointing at this url."""
-    return await _mcp_get(f"/collections/{id}", ui_language, collection, page, rows_per_page)
+    requires CC BY-SA attribution pointing at this url. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/collections/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="get_topic")
-async def _mcp_get_topic(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_topic(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for a topic (theme, keyword) plus linked
     movies and TV series ordered by their position in the topic. The topic itself includes
     POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
@@ -9636,12 +9954,12 @@ async def _mcp_get_topic(id: int, ui_language: str = "en", collection: Optional[
     actually served, always the same as wikipedia_lang above), title (the article's own
     title, which is not the entity's title and differs per language) and url. The key is
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
-    requires CC BY-SA attribution pointing at this url."""
-    return await _mcp_get(f"/topics/{id}", ui_language, collection, page, rows_per_page)
+    requires CC BY-SA attribution pointing at this url. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/topics/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="get_list")
-async def _mcp_get_list(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_list(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for a named curated list (e.g. AFI Top 100, Criterion Collection)
     plus member movies and TV series ordered by their position. The list itself includes
     POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
@@ -9661,12 +9979,12 @@ async def _mcp_get_list(id: int, ui_language: str = "en", collection: Optional[s
     actually served, always the same as wikipedia_lang above), title (the article's own
     title, which is not the entity's title and differs per language) and url. The key is
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
-    requires CC BY-SA attribution pointing at this url."""
-    return await _mcp_get(f"/lists/{id}", ui_language, collection, page, rows_per_page)
+    requires CC BY-SA attribution pointing at this url. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/lists/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="get_movement")
-async def _mcp_get_movement(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_movement(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for a film movement or style (e.g. French New Wave, Neo-Noir) plus
     associated movies and TV series ordered by their position. The movement itself includes
     POSTER_PATH, WIKIPEDIA_IMAGE_PATH, IMDB_RATING_WEIGHTED, and POPULARITY.
@@ -9686,12 +10004,12 @@ async def _mcp_get_movement(id: int, ui_language: str = "en", collection: Option
     actually served, always the same as wikipedia_lang above), title (the article's own
     title, which is not the entity's title and differs per language) and url. The key is
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
-    requires CC BY-SA attribution pointing at this url."""
-    return await _mcp_get(f"/movements/{id}", ui_language, collection, page, rows_per_page)
+    requires CC BY-SA attribution pointing at this url. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/movements/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="get_technical")
-async def _mcp_get_technical(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_technical(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for a technical format (sound system, color/film/sound technology,
     or film format — e.g. Dolby, Technicolor, 70mm, IMAX, Cinemascope) plus associated
     movies and sibling technicals sharing the same TECHNICAL_TYPE. The technical itself
@@ -9713,8 +10031,8 @@ async def _mcp_get_technical(id: int, ui_language: str = "en", collection: Optio
     actually served, always the same as wikipedia_lang above), title (the article's own
     title, which is not the entity's title and differs per language) and url. The key is
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
-    requires CC BY-SA attribution pointing at this url."""
-    return await _mcp_get(f"/technicals/{id}", ui_language, collection, page, rows_per_page)
+    requires CC BY-SA attribution pointing at this url. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/technicals/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="get_genre")
@@ -9734,7 +10052,7 @@ async def _mcp_get_genre(id: int, ui_language: str = "en", collection: Optional[
 
 
 @mcp.tool(name="get_group")
-async def _mcp_get_group(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_group(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for a person group (organization, club, musical group) plus
     embedded relations: persons (the members, ordered by their position), movies and series
     (the group's works: what its members made together, or what credits the group itself).
@@ -9768,12 +10086,12 @@ async def _mcp_get_group(id: int, ui_language: str = "en", collection: Optional[
     actually served, always the same as wikipedia_lang above), title (the article's own
     title, which is not the entity's title and differs per language) and url. The key is
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
-    requires CC BY-SA attribution pointing at this url."""
-    return await _mcp_get(f"/groups/{id}", ui_language, collection, page, rows_per_page)
+    requires CC BY-SA attribution pointing at this url. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/groups/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="get_death")
-async def _mcp_get_death(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_death(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for a cause or circumstance of death plus associated persons
     ordered by their position. Also returns top-level wikipedia_images (ui_language-specific
     Wikipedia image metadata) and wikipedia_content (Wikipedia section in the requested ui_language,
@@ -9792,12 +10110,12 @@ async def _mcp_get_death(id: int, ui_language: str = "en", collection: Optional[
     actually served, always the same as wikipedia_lang above), title (the article's own
     title, which is not the entity's title and differs per language) and url. The key is
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
-    requires CC BY-SA attribution pointing at this url."""
-    return await _mcp_get(f"/deaths/{id}", ui_language, collection, page, rows_per_page)
+    requires CC BY-SA attribution pointing at this url. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/deaths/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="get_award")
-async def _mcp_get_award(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_award(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for an award plus associated movies, TV series, and persons.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
@@ -9815,12 +10133,12 @@ async def _mcp_get_award(id: int, ui_language: str = "en", collection: Optional[
     actually served, always the same as wikipedia_lang above), title (the article's own
     title, which is not the entity's title and differs per language) and url. The key is
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
-    requires CC BY-SA attribution pointing at this url."""
-    return await _mcp_get(f"/awards/{id}", ui_language, collection, page, rows_per_page)
+    requires CC BY-SA attribution pointing at this url. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/awards/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="get_nomination")
-async def _mcp_get_nomination(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_nomination(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for an award nomination plus associated movies, TV series, and persons.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
@@ -9838,8 +10156,8 @@ async def _mcp_get_nomination(id: int, ui_language: str = "en", collection: Opti
     actually served, always the same as wikipedia_lang above), title (the article's own
     title, which is not the entity's title and differs per language) and url. The key is
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
-    requires CC BY-SA attribution pointing at this url."""
-    return await _mcp_get(f"/nominations/{id}", ui_language, collection, page, rows_per_page)
+    requires CC BY-SA attribution pointing at this url. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/nominations/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="get_company")
@@ -9869,7 +10187,7 @@ async def _mcp_get_network(id: int, ui_language: str = "en", collection: Optiona
 
 
 @mcp.tool(name="get_location")
-async def _mcp_get_location(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_location(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for a location by ID_LOCATION plus the movies and series linked to
     it, each carrying LOCATION_ROLE, 'narrative' (the story happens there) or 'filming'
     (it was shot there). The id is the integer ID_LOCATION, not the Wikidata Q-id, which
@@ -9890,12 +10208,12 @@ async def _mcp_get_location(id: int, ui_language: str = "en", collection: Option
     actually served, always the same as wikipedia_lang above), title (the article's own
     title, which is not the entity's title and differs per language) and url. The key is
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
-    requires CC BY-SA attribution pointing at this url."""
-    return await _mcp_get(f"/locations/{id}", ui_language, collection, page, rows_per_page)
+    requires CC BY-SA attribution pointing at this url. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/locations/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="get_source_work")
-async def _mcp_get_source_work(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT) -> str:
+async def _mcp_get_source_work(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
     """Get all fields for a source work by ID_SOURCE_WORK (the novel, manga, play, video
     game, tale, or film / series that movies and series are adapted from, Wikidata P144)
     plus the movies and series based on it, oldest first. The id is the ID_SOURCE_WORK
@@ -9918,8 +10236,8 @@ async def _mcp_get_source_work(id: int, ui_language: str = "en", collection: Opt
 
     wikipedia_page, when present, is the source article behind wikipedia_content: lang,
     title and url. Quoting wikipedia_content requires CC BY-SA attribution pointing at
-    this url."""
-    return await _mcp_get(f"/sourceworks/{id}", ui_language, collection, page, rows_per_page)
+    this url. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
+    return await _mcp_get(f"/sourceworks/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format)
 
 
 @mcp.tool(name="list_samples")
