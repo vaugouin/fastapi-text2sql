@@ -48,7 +48,11 @@ strtext2sqlmodeldefault = "gpt-6-sol"
 
 # Complex question feature (stronger model)
 strcomplexquestionprompttemplate = "complex_question.md"
-strcomplexquestionmodeldefault = "gpt-4o"
+# GPT-6-007 (2026-10-17, Philippe's decision): gpt-6.1-sol. Three arms on the escalated subset,
+# same prompt, same day: on the questions both escalated, gpt-6.1-sol 28/48 EN and 38/65 FR,
+# gpt-6-sol 26 and 36, gpt-4o 24 and 31 (retired by OpenAI on 2027-01-14). Cost: about +2.2 s
+# median on the step (3.3 s against 1.1 s), escalated questions only.
+strcomplexquestionmodeldefault = "gpt-6.1-sol"
 
 # Answer-entity classification (decide result_entity from the ORIGINAL question).
 # The strong model is used on purpose: this classification is AUTHORITATIVE over the

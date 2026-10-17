@@ -721,6 +721,8 @@ tasks are still armed, which containers still run), and repeats the `on-all.sh` 
 launch. Nothing can check the "on" half: forgetting it leaves the crawlers and the embeddings
 silently frozen for days. Rule set by Philippe on 2026-09-26.
 
+**After the campaign, bring the results home** (Philippe, 2026-10-17): run `~/Code/voice-agent/doc/logs-download/sync_vps_docker.py` on the PC (`cd C:\Users\vaugo\Code\voice-agent\doc\logs-download` then `uv run --no-project --with paramiko python sync_vps_docker.py`, in a Windows terminal from that folder). It mirrors the VPS `~/docker` tree additively, so the new `shared_data/text2sql-eval/evaluation_execution/` exports and the API logs land locally before any analysis. It asks for the SSH key passphrase, so Philippe runs it in his own terminal: a session that sees a campaign end gives him the command and never launches it itself (it hangs on the prompt).
+
 ## An evaluation declares the path that must resolve it (FASTAPI-TEXT2SQL-257)
 
 `complex_model_used` was an **observation**: it described what happened and could never

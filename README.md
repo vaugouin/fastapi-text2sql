@@ -388,7 +388,7 @@ Content-Type: application/json
   - Current defaults:
     - `llm_model_entity_extraction` → `gpt-6-sol` (since 2026-10-03, LLM-TASKS-010)
     - `llm_model_text2sql` → `gpt-6-sol` (since 2026-10-03, LLM-TASKS-010)
-    - `llm_model_complex` → `gpt-4o`
+    - `llm_model_complex` → `gpt-6.1-sol` (since 2026-10-17, GPT-6-007)
     - `llm_model_result_entity` → `gpt-6-luna` (since 2026-09-29, GPT-6-003)
     - `llm_model_vision` → `gpt-6-astra`
 
@@ -545,7 +545,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   "ambiguous_question_for_text2sql": false,
   "llm_model_entity_extraction": "gpt-6-sol",
   "llm_model_text2sql": "gpt-6-sol",
-  "llm_model_complex": "gpt-4o",
+  "llm_model_complex": "gpt-6.1-sol",
   "llm_model_result_entity": "gpt-6-luna",
   "llm_model_answer_single_value": "",
   "llm_model_vision": "gpt-6-astra",
