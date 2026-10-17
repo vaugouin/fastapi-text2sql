@@ -53,6 +53,10 @@ strcomplexquestionprompttemplate = "complex_question.md"
 # gpt-6-sol 26 and 36, gpt-4o 24 and 31 (retired by OpenAI on 2027-01-14). Cost: about +2.2 s
 # median on the step (3.3 s against 1.1 s), escalated questions only.
 strcomplexquestionmodeldefault = "gpt-6.1-sol"
+# LLM-TASKS-002 / LLM-TASKS-012 (2026-10-17): the one-time fallback when the complex model is not
+# found or not accessible. It was a hardcoded gpt-4o, which OpenAI retires on 2027-01-14; it is now
+# the previous Sol, measured on the same subset (26/48 EN, 36/65 FR) and known to answer our key.
+strcomplexquestionfallbackmodel = "gpt-6-sol"
 
 # Answer-entity classification (decide result_entity from the ORIGINAL question).
 # The strong model is used on purpose: this classification is AUTHORITATIVE over the
@@ -1056,9 +1060,9 @@ def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str 
         except Exception as api_error:
             msg = str(api_error)
             # If the chosen stronger model isn't available (common with o1/o3 gated access),
-            # retry once with the default chat model so the pipeline can still proceed.
+            # retry once with the fallback model so the pipeline can still proceed.
             if (
-                model_to_use != "gpt-4o"
+                model_to_use != strcomplexquestionfallbackmodel
                 and (
                     "model_not_found" in msg
                     or "does not exist" in msg
@@ -1066,12 +1070,15 @@ def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str 
                     or "404" in msg
                 )
             ):
+                # LLM-TASKS-002: say that it fired, it was silent until then.
+                print(f"Complex question model {model_to_use} unavailable ({msg[:160]}); "
+                      f"falling back once to {strcomplexquestionfallbackmodel}.")
                 try:
                     json_content = _call_chat_llm(
-                        model="gpt-4o",
+                        model=strcomplexquestionfallbackmodel,
                         system_prompt="You are a powerful question resolver. Respond only with the JSON content, no explanations.",
                         user_prompt=formatted_prompt,
-                        temperature=_complex_question_temperature("gpt-4o"),
+                        temperature=_complex_question_temperature(strcomplexquestionfallbackmodel),
                         cache_label="complex_question",
                     ).strip()
                 except Exception as fallback_error:
