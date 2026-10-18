@@ -9,6 +9,7 @@ import re
 import base64
 import contextvars
 import threading
+import time
 from typing import Optional
 
 import data_watcher
@@ -230,12 +231,16 @@ def _record_llm_usage(label: str, model_norm: str, *, prompt_tokens=0, cached_to
                        completion_tokens, reasoning_tokens, cache_write_tokens)
 
 
-def _add_llm_usage(usage, label, model_norm, prompt_tokens, cached_tokens,
-                   completion_tokens, reasoning_tokens, cache_write_tokens=0) -> None:
-    entry = usage.setdefault(label, {
+def _new_llm_usage_entry(model_norm: str) -> dict:
+    return {
         "model": model_norm, "calls": 0, "prompt_tokens": 0, "cached_tokens": 0,
         "completion_tokens": 0, "reasoning_tokens": 0, "cache_write_tokens": 0,
-    })
+    }
+
+
+def _add_llm_usage(usage, label, model_norm, prompt_tokens, cached_tokens,
+                   completion_tokens, reasoning_tokens, cache_write_tokens=0) -> None:
+    entry = usage.setdefault(label, _new_llm_usage_entry(model_norm))
     if model_norm not in str(entry["model"]).split(","):
         # One label, two models: only the Gemini fallback chain can do that. Say so rather
         # than attribute the second model's tokens to the first.
@@ -246,6 +251,96 @@ def _add_llm_usage(usage, label, model_norm, prompt_tokens, cached_tokens,
     entry["completion_tokens"] += int(completion_tokens or 0)
     entry["reasoning_tokens"] += int(reasoning_tokens or 0)
     entry["cache_write_tokens"] = entry.get("cache_write_tokens", 0) + int(cache_write_tokens or 0)
+
+
+# TEXT2SQL-EVAL-002 (2026-10-18). OpenAI Flex processing, asked per request by the evaluator
+# (`flex_processing`): billed at Batch API rates, half the standard price on the GPT-6 line, but
+# slower, and refused with a 429 "Resource Unavailable" (not billed) when OpenAI lacks capacity.
+# Same lifecycle as the two buffers above: set by the outer request, inherited by the
+# complex-question retry, copied into worker threads by asyncio.to_thread.
+_flex_processing: "contextvars.ContextVar" = contextvars.ContextVar("flex_processing", default=False)
+# Flex is offered on the reasoning lines only; gpt-4o and gpt-4.1 are not on OpenAI's Flex list.
+# The o-series is left out too: it goes through the Responses API route first, which stays at
+# the standard tier. Claude, Gemini and OpenRouter models never see the flag.
+_FLEX_MODEL_PREFIXES = ("gpt-5", "gpt-6")
+# A Flex call is retried this many times in all, then sent once at the standard tier so a
+# campaign always reaches its end (Philippe's decision: the run finishes, the fallback is counted).
+OPENAI_FLEX_MAX_ATTEMPTS = max(1, int(os.getenv("OPENAI_FLEX_MAX_ATTEMPTS", "5")))
+_FLEX_RETRY_WAITS_SECONDS = (5, 15, 30, 60)
+# OpenAI's Flex guide raises the client timeout to 15 minutes; the SDK default is 10.
+OPENAI_FLEX_TIMEOUT_SECONDS = float(os.getenv("OPENAI_FLEX_TIMEOUT_SECONDS", "900"))
+
+
+def set_flex_processing(enabled: bool) -> None:
+    """Ask for OpenAI Flex processing on every eligible chat call of the current request."""
+    _flex_processing.set(bool(enabled))
+
+
+def flex_processing_enabled() -> bool:
+    """True when the current request asked for OpenAI Flex processing."""
+    return bool(_flex_processing.get())
+
+
+def _uses_openai_flex(model_norm: str) -> bool:
+    return flex_processing_enabled() and str(model_norm).strip().lower().startswith(_FLEX_MODEL_PREFIXES)
+
+
+def _record_service_tier(label: str, model_norm: str, response, *, flex_retries: int = 0,
+                         flex_fallback: bool = False) -> None:
+    """Note in the request usage which tier OpenAI served, and what Flex cost in retries.
+
+    Adds three keys to the task's `llm_usage` entry: `service_tier` (the tier the response
+    reports, comma-joined if calls of one task differ), `flex_retries` (failed Flex attempts
+    that were retried) and `flex_fallbacks` (calls that ended at the standard tier).
+    """
+    usage = _llm_usage.get()
+    if usage is None:
+        return
+    served = str(getattr(response, "service_tier", None) or "unknown")
+    with _llm_usage_lock:
+        entry = usage.setdefault(label, _new_llm_usage_entry(model_norm))
+        tiers = [t for t in str(entry.get("service_tier") or "").split(",") if t]
+        if served not in tiers:
+            tiers.append(served)
+        entry["service_tier"] = ",".join(tiers)
+        entry["flex_retries"] = entry.get("flex_retries", 0) + int(flex_retries)
+        entry["flex_fallbacks"] = entry.get("flex_fallbacks", 0) + (1 if flex_fallback else 0)
+
+
+def _is_flex_retryable(error: Exception) -> bool:
+    """A Flex failure worth another attempt: no capacity (429), timeout, connection, 5xx."""
+    return isinstance(error, (openai.RateLimitError, openai.APITimeoutError,
+                              openai.APIConnectionError, openai.InternalServerError))
+
+
+def _openai_flex_call(send, *, label: str, model_norm: str):
+    """Run `send(extra_kwargs)` at the Flex tier with retries, then once at the standard tier.
+
+    `send` performs the OpenAI call with the given extra keyword arguments and returns the
+    response. Errors that another attempt cannot cure (a 400, an authentication error) are
+    raised at once, exactly as on the standard path.
+    """
+    last_error = None
+    for attempt in range(1, OPENAI_FLEX_MAX_ATTEMPTS + 1):
+        try:
+            response = send({"service_tier": "flex"})
+            _record_service_tier(label, model_norm, response, flex_retries=attempt - 1)
+            return response
+        except Exception as error:
+            if not _is_flex_retryable(error):
+                raise
+            last_error = error
+            if attempt < OPENAI_FLEX_MAX_ATTEMPTS:
+                wait = _FLEX_RETRY_WAITS_SECONDS[min(attempt - 1, len(_FLEX_RETRY_WAITS_SECONDS) - 1)]
+                print(f"[flex] {label} {model_norm}: attempt {attempt}/{OPENAI_FLEX_MAX_ATTEMPTS} "
+                      f"failed ({type(error).__name__}: {error}); retrying in {wait} s.")
+                time.sleep(wait)
+    print(f"[flex] {label} {model_norm}: {OPENAI_FLEX_MAX_ATTEMPTS} Flex attempts failed "
+          f"({type(last_error).__name__}: {last_error}); one call at the standard tier.")
+    response = send({})
+    _record_service_tier(label, model_norm, response, flex_retries=OPENAI_FLEX_MAX_ATTEMPTS - 1,
+                         flex_fallback=True)
+    return response
 
 
 def _record_prompt_cache_event(message_text: str) -> None:
@@ -749,14 +844,28 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
 
         # FASTAPI-TEXT2SQL-304: explicit cache breakpoint after the static block on gpt-5.6+.
         user_content, cache_extra = _openai_user_content(user_prompt, model_norm)
-        response = client.chat.completions.create(
-            model=model_norm,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-            **_merge_extra_body(dict(sampling_kwargs), cache_extra),
-        )
+        call_kwargs = _merge_extra_body(dict(sampling_kwargs), cache_extra)
+
+        def _send(extra: dict):
+            # TEXT2SQL-EVAL-002. A Flex attempt gets the longer timeout and no SDK retries,
+            # since _openai_flex_call owns them; the standard-tier fallback keeps the defaults.
+            target = client
+            if extra.get("service_tier") == "flex":
+                target = client.with_options(timeout=OPENAI_FLEX_TIMEOUT_SECONDS, max_retries=0)
+            return target.chat.completions.create(
+                model=model_norm,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                **call_kwargs,
+                **extra,
+            )
+
+        if _uses_openai_flex(model_norm):
+            response = _openai_flex_call(_send, label=cache_label, model_norm=model_norm)
+        else:
+            response = _send({})
         _log_openai_cache_usage(response, model_norm=model_norm, label=cache_label)
         if not response.choices or not response.choices[0].message or not response.choices[0].message.content:
             raise RuntimeError("No content in OpenAI API response")

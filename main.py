@@ -6,7 +6,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import httpx
 from fastmcp import FastMCP
 from auth import get_api_key
-from pydantic import BaseModel, field_serializer, field_validator, model_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 import pandas as pd 
 import numpy as np 
 import text2sql as t2s
@@ -1947,6 +1947,10 @@ class Text2SQLRequest(BaseModel):
     # plus the expected result entity. Built by text2sql.f_build_identity_retry_seed.
     complex_retry_seed: Optional[dict] = None
     ui_language: Optional[str] = "en"
+    # TEXT2SQL-EVAL-002 (2026-10-18). Ask OpenAI for Flex processing on every chat call of this
+    # request: half the price, slower, retried on 429 and timeouts, then sent once at the
+    # standard tier. Meant for evaluation campaigns; GPT-5.x and GPT-6 models only.
+    flex_processing: bool = False
 
     @field_validator("ui_language", mode="before")
     @classmethod
@@ -2057,6 +2061,10 @@ class Text2SQLResponse(BaseModel):
     # are the part no timing reveals. A retried request reports both passes. None when no LLM
     # was called (cache hit) or on a path that returns before the pipeline runs.
     llm_usage: Optional[dict] = None
+    # TEXT2SQL-EVAL-002. Echo of the request's flex_processing, read from the request context
+    # when the response is built, so every construction site carries it without passing it.
+    # The tier OpenAI actually served, with retries and fallbacks, is per task in llm_usage.
+    flex_processing: bool = Field(default_factory=t2s.flex_processing_enabled)
     # True only when the vision model was actually invoked on this turn. Read it rather than
     # `llm_model_vision`, which is echoed even when no image was sent, exactly as
     # `complex_model_used` is read rather than `llm_model_complex`.
@@ -2425,6 +2433,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
               POST /uploads/vision. Optional third way to carry a request, beside
               `question` and `question_hashed`: with an image, a request may legitimately
               carry no words at all.
+            - flex_processing (bool, default False): OpenAI Flex processing on the
+              GPT-5.x and GPT-6 chat calls of this request, half price, slower, retried
+              then sent once at the standard tier. For evaluation campaigns.
+              TEXT2SQL-EVAL-002.
         api_key (str): Valid API key injected via X-API-Key header.
 
     Returns:
@@ -2508,6 +2520,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     if not getattr(request, "complex_question_already_resolved", False):
         t2s.reset_prompt_cache_events()
         t2s.reset_llm_usage()
+    # TEXT2SQL-EVAL-002. Set on every pass; the retry copies the request, so the value is the same.
+    t2s.set_flex_processing(getattr(request, "flex_processing", False))
 
     # The user's own wording, as everything downstream reads it: the complex-question retry
     # rewrites THIS, and several branches read it without first testing that it exists.
@@ -4010,7 +4024,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         position_counter += 1
 
         _complex_call_start = time.time()
-        retry_payload = t2s.f_resolve_complex_question_retry_payload(original_question, strcomplexquestionmodel)
+        # In a worker thread since TEXT2SQL-EVAL-002, like the other LLM calls: run on the event
+        # loop, a slow call (a Flex wait of minutes, a stalled provider) held every other request.
+        retry_payload = await asyncio.to_thread(
+            t2s.f_resolve_complex_question_retry_payload, original_question, strcomplexquestionmodel
+        )
         _complex_call_seconds = time.time() - _complex_call_start
         # Bank the cost on the OUTER scope immediately, before any branch can bail out
         # (FASTAPI-TEXT2SQL-205). -204 only consolidated the success path, so an aborted retry

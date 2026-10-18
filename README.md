@@ -380,6 +380,7 @@ Content-Type: application/json
   - The generated SQL executes successfully but returns an empty result set
 
   Set to `false` when calling from an agent or MCP tool so that the agent itself handles error conditions and decides whether to rephrase or escalate the question.
+- `flex_processing` (optional, bool, default: `false`, TEXT2SQL-EVAL-002): asks OpenAI for Flex processing (`service_tier="flex"`) on every chat call of the request made with a GPT-5.x or GPT-6 model. Flex is billed at Batch API rates, half the standard price, but it is slower and can be refused with a 429 when OpenAI lacks capacity. Each Flex call is tried up to `OPENAI_FLEX_MAX_ATTEMPTS` times (default 5, waits of 5, 15, 30 and 60 s, client timeout `OPENAI_FLEX_TIMEOUT_SECONDS`, default 900), then sent once at the standard tier. Meant for evaluation campaigns (`text2sql-eval.sh`, `FLEX_PROCESSING=--flex-processing`), not for interactive clients. The response echoes it as `flex_processing`, and `llm_usage` gives per task the tier OpenAI served (`service_tier`), the failed Flex attempts (`flex_retries`) and the calls that ended at the standard tier (`flex_fallbacks`). Other models (gpt-4o, gpt-4.1, the o-series, Claude, Gemini) ignore it, and so does the vision task, which the evaluator never triggers.
 
 **Supported LLM Values for the 5 model parameters:**
 
