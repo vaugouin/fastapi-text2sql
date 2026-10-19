@@ -725,10 +725,45 @@ CREATE TABLE T_WC_T2S_EPISODE (
 - LOCATION_TYPE says what kind of place it is: 'city', 'country', 'region', 'island',
   'structure', 'nature', 'fiction'. Filter on it when the question names a kind, for
   instance "which cities" or "which countries".
-- A location does NOT carry the place that contains it. "Movies shot in France" returns
-  the movies recorded against France itself, not those recorded against Paris. Do not
-  try to widen a place to its region or its country: the containment is not in the
-  database.
+- **A named place covers the places it contains.** Wikidata records a movie against
+  Paris, almost never against France, so "movies shot in France" must also return the
+  movies shot in Paris, Marseille or at the Eiffel Tower. The containment is stored in
+  T_WC_T2S_LOCATION_ANCESTOR, one row per (place, place that contains it):
+
+CREATE TABLE T_WC_T2S_LOCATION_ANCESTOR (
+  ID_LOCATION INT NOT NULL,
+  ID_ANCESTOR INT NOT NULL,
+  DEPTH INT NOT NULL
+);
+
+  Every place is in it as its own ancestor at DEPTH 0, so ONE pattern covers both the
+  place itself and everything inside it. Whenever a named place FILTERS movies, series or
+  episodes, put the ancestor table between the junction and T_WC_T2S_LOCATION, and match
+  the name on the ANCESTOR:
+
+  SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE, T_WC_T2S_MOVIE.MOVIE_TITLE, ...
+  FROM T_WC_T2S_MOVIE
+  JOIN T_WC_T2S_MOVIE_LOCATION ON T_WC_T2S_MOVIE_LOCATION.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE
+  JOIN T_WC_T2S_LOCATION_ANCESTOR ON T_WC_T2S_LOCATION_ANCESTOR.ID_LOCATION = T_WC_T2S_MOVIE_LOCATION.ID_LOCATION
+  JOIN T_WC_T2S_LOCATION ON T_WC_T2S_LOCATION.ID_LOCATION = T_WC_T2S_LOCATION_ANCESTOR.ID_ANCESTOR
+  WHERE T_WC_T2S_LOCATION.LOCATION_NAME = '{{Location_name1}}'
+    AND T_WC_T2S_LOCATION.DELETED = 0
+    AND T_WC_T2S_MOVIE_LOCATION.LOCATION_ROLE = 'filming'
+
+  The same holds for T_WC_T2S_SERIE_LOCATION and T_WC_T2S_EPISODE_LOCATION. Keep
+  `SELECT DISTINCT`: a movie set in Paris and in Marseille matches France twice. A smaller
+  place never covers a bigger one: "movies shot in Paris" does not return the movies
+  shot elsewhere in France, and the pattern above already guarantees it.
+- Do NOT use T_WC_T2S_LOCATION_ANCESTOR when the places ARE the answer ("where was
+  Pulp Fiction filmed", "which places appear in Amélie"): list the places linked to the
+  work directly, through its junction table. Use it for "places in X" questions only
+  ("which cities of France appear in movies"): the places whose ancestor is X with
+  DEPTH > 0, joined to T_WC_T2S_LOCATION twice under two aliases (the place, and X).
+- DEPTH counts steps in Wikidata and is not an administrative level: never filter on a
+  DEPTH value other than `DEPTH > 0` or `DEPTH = 0`, and do not order by it.
+- MOVIE_COUNT, SERIE_COUNT and EPISODE_COUNT count the works linked to the place
+  ITSELF, not to the places it contains. "How many movies were shot in France" is a
+  COUNT(DISTINCT ...) through T_WC_T2S_LOCATION_ANCESTOR, never France's MOVIE_COUNT.
 
 ### Source works (adaptations, "based on")
 The work a movie or a series is based on (Wikidata "based on", P144) is stored in `T_WC_T2S_SOURCE_WORK`: a novel, a manga, a play, a video game, a tale, or itself a movie or a series (remakes, a series from a film). When the user names a specific source work, use the `SOURCE_WORK_NAME` field (or `SOURCE_WORK_NAME_FR` for a French name) and the `{{Source_work_nameN}}` placeholder when present.
@@ -1546,6 +1581,10 @@ Time-of-day / "watch now" qualifiers — "tonight", "right now", "this evening",
 - T_WC_T2S_MOVIE_LOCATION.ID_LOCATION = T_WC_T2S_LOCATION.ID_LOCATION
 - T_WC_T2S_SERIE_LOCATION.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE
 - T_WC_T2S_SERIE_LOCATION.ID_LOCATION = T_WC_T2S_LOCATION.ID_LOCATION
+- T_WC_T2S_MOVIE_LOCATION.ID_LOCATION = T_WC_T2S_LOCATION_ANCESTOR.ID_LOCATION (a named place used as a filter, see Locations)
+- T_WC_T2S_SERIE_LOCATION.ID_LOCATION = T_WC_T2S_LOCATION_ANCESTOR.ID_LOCATION
+- T_WC_T2S_EPISODE_LOCATION.ID_LOCATION = T_WC_T2S_LOCATION_ANCESTOR.ID_LOCATION
+- T_WC_T2S_LOCATION_ANCESTOR.ID_ANCESTOR = T_WC_T2S_LOCATION.ID_LOCATION (the named place)
 - T_WC_T2S_MOVIE_SOURCE_WORK.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE
 - T_WC_T2S_MOVIE_SOURCE_WORK.ID_SOURCE_WORK = T_WC_T2S_SOURCE_WORK.ID_SOURCE_WORK
 - T_WC_T2S_SERIE_SOURCE_WORK.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE

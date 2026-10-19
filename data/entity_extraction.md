@@ -41,7 +41,7 @@ Classify the user's request before extracting entities:
 The three modes are exclusive, so apply them in this order:
 
 1. Is the user trying to recover the identity of one unnamed entity from remembered clues? Then `descriptive_identification`, whatever else the question contains.
-2. Otherwise, does the question name a specific real-world entity (a person, a movie or series, a collection or franchise, a company, a network, a group, an award or nomination, a curated list, a movement, a named event or character, a book, play or game named as the source of an adaptation) or carry an explicit identifier? Then `named_entity_query`, even when the question also asks for a set or applies filters.
+2. Otherwise, does the question name a specific real-world entity (a person, a movie or series, a collection or franchise, a company, a network, a group, an award or nomination, a curated list, a movement, a named event or character, a book, play or game named as the source of an adaptation, a place named as where a story is set or where a work was filmed) or carry an explicit identifier? Then `named_entity_query`, even when the question also asks for a set or applies filters.
 3. Otherwise `ordinary_filter_query`. Closed-vocabulary descriptors are filters, not named entities: genre, serie type, department, status, technical format, spoken language, cause of death, and years all fall here.
 
 `query_mode` is always present, in every answer, including when no entity is extracted.
@@ -87,8 +87,9 @@ Character names, fictional or real persons portrayed as a character, including r
 Examples: `James Bond`, `Sherlock Holmes`, `R2-D2`, `Hamlet`, `Philip Marlowe`, `Charlotte Corday`
 
 ### Location_name
-Location names used as story locations or filming locations.
+A place named as where the story takes place or where the work was filmed: "set in", "takes place in", "happening in", "shot in", "filmed in", "se passe à / en", "se déroule à / en", "tourné à / en". Any kind of place qualifies, a city, a country, a continent, a region, an island, a landmark, a fictional place: "movies shot in France" extracts `France`.
 Examples: `New York City`, `South America`, `Moon`, `France`, `Gotham City`, `British Columbia`, `Hollywood`
+A country that only says where a work comes from or where a person was born is NOT a `Location_name`: "French movies", "films produits en France", "Korean series", "actors born in Italy" keep the country in the question unchanged (see "Do not extract" below). When one question does both, extract the place only: in "French movies set in New York", `New York` is a `Location_name` and "French" stays in the question.
 
 ### Source_work_name
 The work a movie or a series is BASED ON or ADAPTED FROM, when the question names it: a novel, a short story, a manga, a comic, a play, a musical, an opera, a video game, a tale. Extract it only when the question says the work is a source: "based on", "adapted from", "adaptations of", "remakes of", "tiré de", "adapté de", "d'après", "adaptations de".
@@ -384,7 +385,7 @@ Do not extract as `Death_name` for diseases, injuries, crimes, or accidents when
 
 ### Do not extract these as entities unless they are explicit identifiers or exact supported placeholder values
 - spoken languages
-- countries or nationalities used only as descriptive filters
+- countries or nationalities used only as descriptive filters: production country or nationality of a work ("French movies", "films produits en France"), country of birth ("actors born in Italy"). A country named as the place where a story is set or a work was filmed is a `Location_name`, not a filter (see `Location_name` above).
 
 If such information appears, keep it in the anonymized `question` unchanged.
 
@@ -504,6 +505,37 @@ Output:
   "question": "Movies based on {{Source_work_name1}}",
   "query_mode": "named_entity_query",
   "Source_work_name1": "Dracula"
+}
+
+Input: `Movies shot in France`
+Output:
+{
+  "question": "Movies shot in {{Location_name1}}",
+  "query_mode": "named_entity_query",
+  "Location_name1": "France"
+}
+
+Input: `Films qui se passent à Paris`
+Output:
+{
+  "question": "Films qui se passent à {{Location_name1}}",
+  "query_mode": "named_entity_query",
+  "Location_name1": "Paris"
+}
+
+Input: `French movies set in New York`
+Output:
+{
+  "question": "French movies set in {{Location_name1}}",
+  "query_mode": "named_entity_query",
+  "Location_name1": "New York"
+}
+
+Input: `Korean movies`
+Output:
+{
+  "question": "Korean movies",
+  "query_mode": "ordinary_filter_query"
 }
 
 Input: `Films and series based on a manga`

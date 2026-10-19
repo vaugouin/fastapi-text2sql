@@ -986,6 +986,10 @@ Both endpoints also return `wikipedia_images` and `wikipedia_content` arrays —
 
 Returns all `T_WC_T2S_LOCATION` fields for the location `ID_LOCATION`, plus the movies, series and TV episodes linked to it. Each related row carries `LOCATION_ROLE`, `'narrative'` (the story happens there) or `'filming'` (it was shot there). Until 1.1.18 this route took a Wikidata Q-id and the role travelled as the raw property code `P840` / `P915`.
 
+**Row grain** (FASTAPI-TEXT2SQL-332): one row per work **and** role. A movie both set and shot in the place comes back twice, and the `_TOTAL_COUNT` behind `pagination` counts rows, not works; `MOVIE_COUNT`, `SERIE_COUNT` and `EPISODE_COUNT` on the location count distinct works. Optional `role=filming` or `role=narrative` keeps one role in the three lists (any other value is a 400); the MCP tool `get_location` takes the same `role`. Junction rows and works flagged `DELETED` are left out, as on `/movies/{id}` and `/series/{id}`.
+
+The lists hold the works linked to the place **itself**, not to the places it contains: France's sheet does not list the movies of Paris. The containment (`T_WC_T2S_LOCATION_ANCESTOR`, TMDB-MOVIE-PREPROCESS-048) is used by the text-to-SQL path only.
+
 | Field | Shape |
 |---|---|
 | `movies` | Array of `{ ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, IMDB_RATING_WEIGHTED, POSTER_PATH, LOCATION_ROLE }`, ordered by `IMDB_RATING_WEIGHTED DESC` |
@@ -995,7 +999,7 @@ Returns all `T_WC_T2S_LOCATION` fields for the location `ID_LOCATION`, plus the 
 | `wikipedia_content` | Array of `{ title, content }` from `T_WC_WIKIPEDIA_PAGE_LANG_SECTION` joined on `ID_WIKIDATA` (the route parameter), filtered to the requested `ui_language` (English fallback when that language has no sections) and `DELETED = 0`, ordered by `DISPLAY_ORDER ASC`. Each element exposes the section `TITLE` and `CONTENT` |
 | `wikipedia_page` | Resolved source article for `wikipedia_content`: `{ lang, title, url }` from `T_WC_WIKIPEDIA_PAGE_LANG`, using the same language resolution and the same page row that `data_freshness` dates (so `lang` always equals `data_freshness.wikipedia_lang`). **Absent**, not null, when there is no page. Required for CC BY-SA attribution when displaying `wikipedia_content` |
 
-Base location fields currently include `ID_WIKIDATA`, `ITEM_LABEL`, `DESCRIPTION`, `INSTANCE_OF`, and `WIKIPEDIA_IMAGE_PATH`.
+Base location fields include `ID_LOCATION`, `ID_WIKIDATA`, `LOCATION_NAME`, `LOCATION_NAME_FR`, `OVERVIEW` (the Wikidata description), `LOCATION_SOURCE`, `LOCATION_TYPE` (`city`, `country`, `region`, `island`, `structure`, `nature`, `fiction`, or null), `MOVIE_COUNT`, `SERIE_COUNT`, `EPISODE_COUNT`, `POSTER_PATH`, `WIKIPEDIA_IMAGE_PATH`, `WIKIPEDIA_MAIN_IMAGE_URL`, `WIKIPEDIA_MAIN_IMAGE_URL_FR`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED` and `POPULARITY`. A place flagged `DELETED` answers 404.
 
 ##### `GET /sourceworks/{id}`
 
@@ -1300,8 +1304,9 @@ Practical notes:
 - "Movies set in New York City"
 - "Films taking place in South America"
 - "Series set on the Moon"
-- "Movies filmed in Gotham City"
+- "Movies set in Gotham City" (a fictional place: a narrative location, never a filming one)
 - "Films set in Hollywood"
+- "Movies shot in France" (since TMDB-MOVIE-PREPROCESS-048, also returns the movies shot in Paris, Marseille or at the Eiffel Tower, through `T_WC_T2S_LOCATION_ANCESTOR`)
 
 **Note**: Questions can be expressed in English or any language understood by the underlying LLM (currently OpenAI's models). The API can handle complex multi-criteria searches involving actors, directors, genres, years, ratings, characters, locations, and technical specifications for both movies and TV series. Video search capabilities allow finding trailers, clips, and other media content associated with movies and series.
 
@@ -1467,7 +1472,7 @@ The current prompt template is specifically designed for a **movie and TV series
 - **Movements** (`T_WC_T2S_MOVEMENT`): Film movements and stylistic schools (Film Noir, French New Wave, etc.)
 - **Groups** (`T_WC_T2S_GROUP`): Organizations, publications, and musical/comedy groups associated with persons; their works through `T_WC_T2S_GROUP_MOVIE` / `T_WC_T2S_GROUP_SERIE`
 - **Deaths** (`T_WC_T2S_DEATH`): Causes and circumstances of persons' deaths
-- **Locations** (`T_WC_T2S_LOCATION` joined via `T_WC_T2S_MOVIE_LOCATION` / `T_WC_T2S_SERIE_LOCATION`, `LOCATION_ROLE` `'narrative'` or `'filming'`): places a movie or series is linked to
+- **Locations** (`T_WC_T2S_LOCATION` joined via `T_WC_T2S_MOVIE_LOCATION` / `T_WC_T2S_SERIE_LOCATION` / `T_WC_T2S_EPISODE_LOCATION`, `LOCATION_ROLE` `'narrative'` or `'filming'`): places a movie, series or episode is linked to. `T_WC_T2S_LOCATION_ANCESTOR` (TMDB-MOVIE-PREPROCESS-048) holds the place-in-place closure (Wikidata P131 / P17, the place itself at `DEPTH` 0), so that a question on a country or a region also returns the works linked to the places it contains
 - **Ratings**: IMDB ratings integration (raw and weighted)
 - **Genres** (`T_WC_T2S_GENRE` + `T_WC_T2S_GENRE_LANG`): closed-vocabulary reference table; 27 canonical English names plus multilingual aliases (currently French, extensible to any LANG); used by both `T_WC_T2S_MOVIE_GENRE` and `T_WC_T2S_SERIE_GENRE` join tables (shared ID space)
 - **Technical formats** (`T_WC_T2S_TECHNICAL`): closed-vocabulary reference table grouping 56 active rows by `TECHNICAL_TYPE` (sound systems, color/film/sound technologies, film formats — e.g. IMAX, Technicolor, CinemaScope, 35 mm, Dolby); joined to movies via `T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL`

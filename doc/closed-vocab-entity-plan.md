@@ -110,7 +110,7 @@ These have many values and would need a ChromaDB collection (or fuzzy text match
 - Vocabulary not enumerated in the prompt; rare in NLQ.
 
 ### C5. `Wikidata_property_label`
-- Wikidata properties (`P840` narrative location, `P915` filming location) are referenced by ID in the location endpoint but a name → ID map (the small subset actually used) could let users say "filming locations" naturally. Probably premature.
+- Superseded (FASTAPI-TEXT2SQL-247, 1.1.19): the location role no longer travels as a property ID. The junction tables carry `LOCATION_ROLE` = `'narrative'` or `'filming'`, words the model writes directly, so no name → ID map is needed for locations.
 
 ---
 
