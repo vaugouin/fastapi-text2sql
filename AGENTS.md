@@ -218,6 +218,7 @@ its own table `T_WC_T2S_VISION_CACHE`.
 **[language_family.py](language_family.py)** — `guess_language_family()` from Unicode code points (Latin / Hangul / Japanese / Chinese / Cyrillic / Arabic / Hebrew / Devanagari / etc.).
 
 **[logs.py](logs.py)** — `log_usage(endpoint, content, strapiversion)` and `log_hot_reload(filename)`. Filenames are `YYYYMMDD-HHMMSS_{endpoint}_{version}_{md5hash}.json`; never overwrite existing files.
+- `now_paris()` and `PARIS_TZ` are the one clock of the repo (FASTAPI-TEXT2SQL-328): every stamp a human reads goes through them, and every "now" compared with an upload horizon too. See *One clock: Paris time, with its offset* below.
 - `LOGS_FOLDER` is the **relative** `"logs"`, and that is load-bearing. Making it absolute or
   configurable would re-split the corpus per colour; see *`logs/` and `uploads/` are shared*.
 
@@ -1835,6 +1836,29 @@ narrower. After touching a `*.py`, run `restart.sh` in the checkout of the colou
 lives in and refuses to run anywhere else. Never infer the live colour from which checkout
 happened to be restarted last.
 
+### One clock: Paris time, with its offset (FASTAPI-TEXT2SQL-328)
+
+The stack-wide rule (DEPLOYMENT-015): every date a human reads is **Europe/Paris with its
+offset** (`2026-10-19T14:59:03+02:00`), always through the zone, never a fixed `+02:00`.
+Naive `DATETIME` values in the database stay naive Paris; the VPS host stays on `Etc/UTC` and
+the container sets no `TZ`, which is why the zone is named in `logs.py` (`PARIS_TZ`,
+`now_paris()`) and `tzdata` is in `requirements.txt` (the slim image has no zone database).
+
+**Switch date: 2026-10-19 (code), effective at the next deployment.** Before it, log and
+upload file names are **UTC with no offset**, and the log JSON carries no timestamp. After it,
+names are **Paris time** (same `YYYYMMDD-HHMMSS` shape) and every dict logged by `log_usage`
+starts with `"ts"`, the same moment with its offset. Read the `ts` when it is there; the name is
+for humans, repeats 02:00 to 03:00 on the last Sunday of October, and on the switch day sorts
+new Paris names before older UTC ones for up to two hours.
+
+- `uploads.deposited_at()` and `purge_after()` return **aware** Paris datetimes; compare them
+  with `logs.now_paris()`, never with `datetime.now()`, which is naive and raises `TypeError`.
+  An upload deposited before the switch reads one or two hours early: harmless on 30 days, and
+  `purge-uploads.sh` deletes by modification time anyway.
+- The startup banner and the Chroma cache metadata `dat_creat` are Paris ISO with offset.
+- Not this repo's clock: `NOW()` in `sql_cache.py` and `vision_cache.py` follows the MariaDB
+  server (TMDB-FRONT-100).
+
 ### `logs/` and `uploads/` are shared by every colour, with opposite retentions
 
 Both folders are bind-mounted from `shared_data/fastapi-text2sql/` by the two restart scripts:
@@ -1857,8 +1881,8 @@ mount is really shared, `OTHER_BASE_URL=...`.
 
 ---
 
-**Last Updated**: 2026-09-20
-**Current Version**: 1.1.20 (see `strapiversion` in [main.py:194](main.py#L194))
+**Last Updated**: 2026-10-19
+**Current Version**: 1.1.19 (see `strapiversion` in [main.py:194](main.py#L194))
 
 ## Backlog (Nestor second-brain)
 

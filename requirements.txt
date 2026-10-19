@@ -6,6 +6,7 @@ uvicorn>=0.24.0
 psutil>=5.9.0
 pymysql>=1.0.2
 rapidfuzz>=3.0.0
+tzdata  # Europe/Paris for zoneinfo: the slim image has no system zone database (FASTAPI-TEXT2SQL-328)
 
 # API and authentication
 openai>=1.0.0

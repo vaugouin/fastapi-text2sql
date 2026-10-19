@@ -3,6 +3,11 @@ import re
 import hashlib
 from datetime import datetime, timedelta
 
+# FASTAPI-TEXT2SQL-328: names are stamped in Paris time and read back as aware Paris datetimes,
+# so every comparison with "now" must use logs.now_paris(); a naive datetime.now() against an
+# aware horizon raises TypeError.
+from logs import PARIS_TZ, now_paris
+
 # FASTAPI-TEXT2SQL-275: the first binary input path of this repo. Everything else here is JSON
 # in and JSON out; this module owns the bytes.
 #
@@ -143,7 +148,7 @@ def f_getuploadfilename(kind, imagebytes, strapiversion, strextension):
     """
     folder = os.path.join(UPLOADS_FOLDER, kind)
     os.makedirs(folder, exist_ok=True)
-    now = datetime.now()
+    now = now_paris()
     date_time_str = now.strftime("%Y%m%d-%H%M%S")
     md5_hash = hashlib.md5(imagebytes).hexdigest()
     filename = f"{date_time_str}_{kind}_{strapiversion}_{md5_hash}.{strextension}"
@@ -185,8 +190,8 @@ def store_vision_image(imagebytes, strapiversion):
         "path": path,
         "bytes": len(imagebytes),
         "image_format": image_format,
-        "deposited_at": deposited_at(image_ref).isoformat(),
-        "purge_after": purge_after(image_ref).isoformat(),
+        "deposited_at": deposited_at(image_ref).isoformat(timespec="seconds"),
+        "purge_after": purge_after(image_ref).isoformat(timespec="seconds"),
     }
 
 
@@ -223,13 +228,17 @@ def deposited_at(image_ref):
         image_ref (str): The filename returned by a deposit.
 
     Returns:
-        datetime: The moment the file was named, which is the moment it was written.
+        datetime: The moment the file was named, which is the moment it was written, as an
+            aware Europe/Paris datetime. A reference deposited before the switch to Paris names
+            (2026-10-19, effective at the next deployment) carries a UTC stamp and reads one or
+            two hours early here: harmless on a 30-day window, and the purge itself goes by
+            modification time, not by this stamp.
 
     Raises:
         UploadRefInvalid: If the reference is malformed.
     """
     parts = parse_image_ref(image_ref)
-    return datetime.strptime(parts["stamp"], "%Y%m%d-%H%M%S")
+    return datetime.strptime(parts["stamp"], "%Y%m%d-%H%M%S").replace(tzinfo=PARIS_TZ)
 
 
 def purge_after(image_ref):
@@ -239,7 +248,7 @@ def purge_after(image_ref):
         image_ref (str): The filename returned by a deposit.
 
     Returns:
-        datetime: Deposit time plus UPLOAD_RETENTION_DAYS.
+        datetime: Deposit time plus UPLOAD_RETENTION_DAYS, aware, Europe/Paris.
 
     Raises:
         UploadRefInvalid: If the reference is malformed.
@@ -283,7 +292,7 @@ def load_vision_image(image_ref):
     if not os.path.exists(path):
         deposit = deposited_at(image_ref)
         horizon = purge_after(image_ref)
-        if datetime.now() >= horizon:
+        if now_paris() >= horizon:
             raise UploadUnavailable(
                 f"image {image_ref} is gone: deposited {deposit.date().isoformat()}, "
                 f"purged after {UPLOAD_RETENTION_DAYS} days (on or after {horizon.date().isoformat()}). "

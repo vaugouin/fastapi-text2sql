@@ -13,7 +13,6 @@ import text2sql as t2s
 import os
 import json
 import hashlib
-from datetime import datetime
 import time
 import threading
 from urllib.parse import unquote_plus
@@ -212,7 +211,7 @@ intcleanupenabled = False
 #intcleanupenabled = True
 
 _startup_t0 = time.perf_counter()
-print(f"[startup] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
+print(f"[startup] {logs.now_paris().isoformat(timespec='seconds')}", flush=True)
 print(f"[startup] Booting Text2SQL API version {strapiversion}...", flush=True)
 
 # An empty MCP_API_KEY makes _verify_mcp_bearer a no-op and leaves /mcp open, which is
@@ -2346,7 +2345,7 @@ async def get_vision_image(image_ref: str, api_key: str = Depends(get_api_key)):
     except uploads.UploadRefInvalid as e:
         raise HTTPException(status_code=400, detail=str(e))
     except uploads.UploadUnavailable as e:
-        lngstatus = 410 if datetime.now() >= uploads.purge_after(image_ref) else 404
+        lngstatus = 410 if logs.now_paris() >= uploads.purge_after(image_ref) else 404
         raise HTTPException(status_code=lngstatus, detail=str(e))
 
     logs.log_usage(
@@ -2818,7 +2817,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 # with its deposit date. 200 with an error_code rather than the 410 of
                 # GET /uploads/vision, because a client of this route parses a
                 # Text2SQLResponse and must not have to branch on the HTTP status.
-                intpurged = datetime.now() >= uploads.purge_after(strimageref)
+                intpurged = logs.now_paris() >= uploads.purge_after(strimageref)
                 messages.append(TextMessage(
                     position=position_counter,
                     text=f"Vision: the image could not be read ({vision_load_error})."
@@ -5461,7 +5460,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             "entity_variables": ",".join(entity_vars_for_metadata),  # Store as comma-separated string
                             "entity_extraction_processing_time": entity_extraction_processing_time,
                             "text2sql_processing_time": text2sql_processing_time,
-                            "dat_creat": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            "dat_creat": logs.now_paris().isoformat(timespec="seconds")
                     }]
                 )
                 print(f"Anonymized question added to embeddings cache with entity variables: {entity_vars_for_metadata}")

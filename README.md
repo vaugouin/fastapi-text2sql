@@ -1113,11 +1113,11 @@ curl -X POST -H "X-API-Key: $KEY" --data-binary @poster.jpg      https://www.vau
 
 ```json
 {
-  "image_ref": "20260920-084157_vision_1.1.19_c158099afc031554d3bb2133375c6f11.jpg",
+  "image_ref": "20261020-104157_vision_1.1.19_c158099afc031554d3bb2133375c6f11.jpg",
   "bytes": 204,
   "image_format": "jpg",
-  "deposited_at": "2026-09-20T08:41:57",
-  "purge_after": "2026-10-20T08:41:57",
+  "deposited_at": "2026-10-20T10:41:57+02:00",
+  "purge_after": "2026-11-19T10:41:57+01:00",
   "retention_days": 30,
   "api_version": "1.1.19"
 }
@@ -1132,7 +1132,9 @@ replayed from its log file alone.
 payload; the declared `Content-Type` is not read at all, so a GIF announced as `image/jpeg` is
 refused with 415. No filename travels with a raw body, so no filename can decide a path or an
 extension. The name on disk follows the house convention of [logs.py](logs.py), with the hash
-taken over the bytes: `YYYYMMDD-HHMMSS_vision_<version>_<md5>.<ext>`.
+taken over the bytes: `YYYYMMDD-HHMMSS_vision_<version>_<md5>.<ext>`. The stamp is Europe/Paris
+time (FASTAPI-TEXT2SQL-328), and `deposited_at` / `purge_after` carry the Paris offset; names
+deposited before the switch (2026-10-19, effective at the next deployment) are UTC.
 
 **There is no list of allowed extensions, because no extension is ever received.** The whitelist
 is a list of **magic numbers**, and the extension written to disk is derived from them. Three
