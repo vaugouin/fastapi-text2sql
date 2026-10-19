@@ -1,0 +1,95 @@
+-- check-cache-location-pre-hierarchy.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-10-19 22:21:19 +0200
+--
++-----------------------------------------------------------------------------+
+| SECTION                                                                     |
++-----------------------------------------------------------------------------+
+| 1. Living cache rows that read a location table, by version, language, side |
++-----------------------------------------------------------------------------+
++-------------+-------------+---------------+----------------+-------------------+---------------------+---------------------+
+| API_VERSION | UI_LANGUAGE | IS_ANONYMIZED | WITH_HIERARCHY | WITHOUT_HIERARCHY | OLDEST              | NEWEST              |
++-------------+-------------+---------------+----------------+-------------------+---------------------+---------------------+
+| 001.001.019 | en          |             0 |             72 |                46 | 2026-10-03 15:07:24 | 2026-10-19 19:37:54 |
+| 001.001.019 | en          |             1 |             71 |                35 | 2026-10-03 15:07:24 | 2026-10-19 19:37:41 |
+| 001.001.019 | fr          |             0 |              0 |                16 | 2026-10-03 17:01:28 | 2026-10-10 09:15:11 |
+| 001.001.019 | fr          |             1 |              0 |                14 | 2026-10-03 17:01:28 | 2026-10-10 09:15:11 |
++-------------+-------------+---------------+----------------+-------------------+---------------------+---------------------+
++-------------------------------------------------------------------------------+
+| SECTION                                                                       |
++-------------------------------------------------------------------------------+
+| 2. The rows the purge would hit (current version, no hierarchy), newest first |
++-------------------------------------------------------------------------------+
++--------+-------------+-------------+---------------+---------------------+------------------------------------------------------------------------------+----------------------------+
+| ID_ROW | API_VERSION | UI_LANGUAGE | IS_ANONYMIZED | TIM_UPDATED         | QUESTION                                                                     | KIND                       |
++--------+-------------+-------------+---------------+---------------------+------------------------------------------------------------------------------+----------------------------+
+|  21455 | 001.001.019 | en          |             0 | 2026-10-19 19:37:54 | Films qui se déroulent dans des lieux imaginaires                            | place filter or place list |
+|  21454 | 001.001.019 | en          |             0 | 2026-10-19 19:37:48 | Movies set in fictional places                                               | place filter or place list |
+|  21427 | 001.001.019 | en          |             1 | 2026-10-19 19:35:26 | What are the narrative locations of the movie {{Movie_title1}}?              | place filter or place list |
+|  21426 | 001.001.019 | en          |             0 | 2026-10-19 19:35:26 | What are the narrative locations of the movie 2001 A space odyssey?          | place filter or place list |
+|  21421 | 001.001.019 | en          |             1 | 2026-10-19 19:35:06 | Quels sont les lieux de tournage de la série télévisée {{Serie_title1}       | place filter or place list |
+|  21420 | 001.001.019 | en          |             0 | 2026-10-19 19:35:06 | Quels sont les lieux de tournage de la série télévisée Game of Thrones       | place filter or place list |
+|  21419 | 001.001.019 | en          |             1 | 2026-10-19 19:34:59 | What are the filming locations of tv series {{Serie_title1}}?                | place filter or place list |
+|  21418 | 001.001.019 | en          |             0 | 2026-10-19 19:34:59 | What are the filming locations of tv series Game of Thrones?                 | place filter or place list |
+|  21417 | 001.001.019 | en          |             1 | 2026-10-19 19:34:54 | Quels sont les lieux narratifs de la série télévisée {{Serie_title1}}        | place filter or place list |
+|  21416 | 001.001.019 | en          |             0 | 2026-10-19 19:34:54 | Quels sont les lieux narratifs de la série télévisée Game of Thrones ?       | place filter or place list |
+|  21415 | 001.001.019 | en          |             1 | 2026-10-19 19:34:48 | What are the narrative locations of tv series {{Serie_title1}}?              | place filter or place list |
+|  21414 | 001.001.019 | en          |             0 | 2026-10-19 19:34:48 | What are the narrative locations of tv series Game of Thrones?               | place filter or place list |
+|  21413 | 001.001.019 | en          |             1 | 2026-10-19 19:34:35 | Where was shot the movie {{Movie_title1}}?                                   | place filter or place list |
+|  21412 | 001.001.019 | en          |             0 | 2026-10-19 19:34:35 | Where was shot the movie 2001 A Space Odyssey?                               | place filter or place list |
+|  21393 | 001.001.019 | en          |             0 | 2026-10-19 19:28:48 | Films qui se déroulent dans des lieux imaginaires                            | place filter or place list |
+|  21392 | 001.001.019 | en          |             0 | 2026-10-19 19:28:42 | Movies set in fictional places                                               | place filter or place list |
+|  21363 | 001.001.019 | en          |             1 | 2026-10-19 19:23:45 | What are the narrative locations of the movie {{Movie_title1}}?              | place filter or place list |
+|  21362 | 001.001.019 | en          |             0 | 2026-10-19 19:23:45 | What are the narrative locations of the movie 2001 A space odyssey?          | place filter or place list |
+|  21349 | 001.001.019 | en          |             1 | 2026-10-19 19:23:02 | Quels sont les lieux de tournage de la série télévisée {{Serie_title1}       | place filter or place list |
+|  21348 | 001.001.019 | en          |             0 | 2026-10-19 19:23:02 | Quels sont les lieux de tournage de la série télévisée Game of Thrones       | place filter or place list |
+|  21347 | 001.001.019 | en          |             1 | 2026-10-19 19:22:55 | What are the filming locations of tv series {{Serie_title1}}?                | place filter or place list |
+|  21346 | 001.001.019 | en          |             0 | 2026-10-19 19:22:55 | What are the filming locations of tv series Game of Thrones?                 | place filter or place list |
+|  21345 | 001.001.019 | en          |             1 | 2026-10-19 19:22:49 | Quels sont les lieux narratifs de la série télévisée {{Serie_title1}}        | place filter or place list |
+|  21344 | 001.001.019 | en          |             0 | 2026-10-19 19:22:49 | Quels sont les lieux narratifs de la série télévisée Game of Thrones ?       | place filter or place list |
+|  21343 | 001.001.019 | en          |             1 | 2026-10-19 19:22:43 | What are the narrative locations of tv series {{Serie_title1}}?              | place filter or place list |
+|  21342 | 001.001.019 | en          |             0 | 2026-10-19 19:22:43 | What are the narrative locations of tv series Game of Thrones?               | place filter or place list |
+|  21341 | 001.001.019 | en          |             1 | 2026-10-19 19:22:31 | Where was shot the movie {{Movie_title1}}?                                   | place filter or place list |
+|  21340 | 001.001.019 | en          |             0 | 2026-10-19 19:22:31 | Where was shot the movie 2001 A Space Odyssey?                               | place filter or place list |
+|  21322 | 001.001.019 | en          |             0 | 2026-10-19 19:20:21 | List TV series happening in London                                           | place filter or place list |
+|  21319 | 001.001.019 | en          |             0 | 2026-10-19 19:20:06 | List movies shot in Tokyo                                                    | place filter or place list |
+|  21312 | 001.001.019 | en          |             1 | 2026-10-19 19:19:44 | Quels sont les lieux de tournage de la série télévisée {{Serie_title1}       | place filter or place list |
+|  21311 | 001.001.019 | en          |             0 | 2026-10-19 19:19:44 | Quels sont les lieux de tournage de la série télévisée Game of Thrones       | place filter or place list |
+|  21310 | 001.001.019 | en          |             1 | 2026-10-19 19:19:35 | Quels sont les lieux narratifs de la série télévisée {{Serie_title1}}        | place filter or place list |
+|  21309 | 001.001.019 | en          |             0 | 2026-10-19 19:19:35 | Quels sont les lieux narratifs de la série télévisée Game of Thrones ?       | place filter or place list |
+|  21275 | 001.001.019 | en          |             1 | 2026-10-19 09:28:01 | Which TV series have an episode filmed at {{Location_name1}}?                | place filter or place list |
+|  21274 | 001.001.019 | en          |             0 | 2026-10-19 09:28:01 | Which TV series have an episode filmed at Arlington National Cemetery?       | place filter or place list |
+|  21259 | 001.001.019 | en          |             0 | 2026-10-18 14:57:28 | Which places have been used as narrative locations for the most movies       | place filter or place list |
+|  21258 | 001.001.019 | en          |             0 | 2026-10-18 14:56:35 | What are the narrative locations of the movie 2001 A space odyssey?          | place filter or place list |
+|  21175 | 001.001.019 | en          |             1 | 2026-10-11 13:58:12 | Where was {{Serie_title1}} filmed?                                           | place filter or place list |
+|  21174 | 001.001.019 | en          |             0 | 2026-10-11 13:58:12 | Where was Game of Thrones filmed?                                            | place filter or place list |
+|  21173 | 001.001.019 | en          |             1 | 2026-10-11 13:57:42 | Which movies were filmed in {{Location_name1}} but set somewhere else?       | place filter or place list |
+|  21172 | 001.001.019 | en          |             0 | 2026-10-11 13:57:42 | Which movies were filmed in Iceland but set somewhere else?                  | place filter or place list |
+|  21171 | 001.001.019 | en          |             1 | 2026-10-11 13:57:01 | List movies and series with action happening on the {{Location_name1}}       | place filter or place list |
+|  21170 | 001.001.019 | en          |             0 | 2026-10-11 13:57:01 | List movies and series with action happening on the Moon.                    | place filter or place list |
+|  20990 | 001.001.019 | fr          |             1 | 2026-10-10 09:15:11 | liste les films et séries télévisées {{Movie_title1}} tournés à {{Loca       | place filter or place list |
+|  20989 | 001.001.019 | fr          |             0 | 2026-10-10 09:15:11 | liste les films et séries télévisées The Most Famous tournés à Vancouv       | place filter or place list |
+|  20988 | 001.001.019 | en          |             1 | 2026-10-10 09:14:59 | list the most famous movies and TV series shot in {{Location_name1}}         | place filter or place list |
+|  20987 | 001.001.019 | en          |             0 | 2026-10-10 09:14:59 | list the most famous movies and TV series shot in Vancouver                  | place filter or place list |
+|  20878 | 001.001.019 | en          |             1 | 2026-10-06 17:18:41 | list the most famous movies and TV series shot in {{Location_name1}}         | place filter or place list |
+|  20877 | 001.001.019 | en          |             0 | 2026-10-06 17:18:41 | list the most famous movies and TV series shot in Vancouver                  | place filter or place list |
+|  20876 | 001.001.019 | en          |             1 | 2026-10-06 17:14:39 | list the most famous movies shot in {{Location_name1}}                       | place filter or place list |
+|  20875 | 001.001.019 | en          |             0 | 2026-10-06 17:14:39 | list the most famous movies shot in Vancouver                                | place filter or place list |
+|  20874 | 001.001.019 | en          |             0 | 2026-10-06 17:13:13 | List most used filming locations                                             | place filter or place list |
+|  20773 | 001.001.019 | fr          |             1 | 2026-10-03 18:30:29 | Des films tournés W {{Location_name1}} mais dont l'intrigue se déroule       | place filter or place list |
+|  20772 | 001.001.019 | fr          |             0 | 2026-10-03 18:30:29 | Des films tournés W Islandii mais dont l'intrigue se déroule ailleurs        | place filter or place list |
+|  20753 | 001.001.019 | fr          |             1 | 2026-10-03 18:28:49 | Films et séries télévisées se déroulant à {{Location_name1}}                 | place filter or place list |
+|  20752 | 001.001.019 | fr          |             0 | 2026-10-03 18:28:49 | Films et séries télévisées se déroulant à Naples                             | place filter or place list |
+|  20637 | 001.001.019 | fr          |             0 | 2026-10-03 18:19:43 | Quels lieux ont servi de décor de tournage au plus grand nombre de fil       | place filter or place list |
+|  20495 | 001.001.019 | fr          |             0 | 2026-10-03 18:07:54 | Listez tous les lieux narratifs                                              | place filter or place list |
+|  20415 | 001.001.019 | fr          |             1 | 2026-10-03 18:01:55 | Listez les films et séries dont l'action se déroule sur la {{Location_       | place filter or place list |
++--------+-------------+-------------+---------------+---------------------+------------------------------------------------------------------------------+----------------------------+
++------------------------------+
+| SECTION                      |
++------------------------------+
+| 3. Count the purge would hit |
++------------------------------+
++-----+
+| N   |
++-----+
+| 111 |
++-----+
