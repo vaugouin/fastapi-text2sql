@@ -8911,7 +8911,7 @@ async def get_nomination(id: int, ui_language: Optional[str] = "en", collection:
 
 
 @app.get("/locations/{id}", summary="Location full detail", response_class=RoundedJSONResponse)
-async def get_location(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", role: Optional[str] = None, api_key: str = Depends(get_api_key)):
+async def get_location(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", role: Optional[str] = None, scope: Optional[str] = None, api_key: str = Depends(get_api_key)):
     """Return all fields for a location plus movies and series linked to it, ordered by
     adjusted IMDb rating. The id is ID_LOCATION.
 
@@ -8927,9 +8927,18 @@ async def get_location(id: int, ui_language: Optional[str] = "en", collection: O
     keeps one role in the three lists (any other value is a 400). As on /movies/{id} and
     /series/{id}, a junction row or a work flagged DELETED is left out.
 
-    The lists hold the works linked to the place itself, not to the places it contains:
-    a country's sheet does not list the movies of its cities. The containment table
-    T_WC_T2S_LOCATION_ANCESTOR (TMDB-MOVIE-PREPROCESS-048) serves the text-to-SQL path.
+    Scope (FASTAPI-TEXT2SQL-335): by default (scope=contained) the three lists hold the
+    works linked to the place AND to every place it contains, through
+    T_WC_T2S_LOCATION_ANCESTOR (TMDB-MOVIE-PREPROCESS-048): France's sheet lists the movies
+    shot in Paris or Marseille. scope=direct keeps the works linked to the place itself
+    only, the behaviour until FASTAPI-TEXT2SQL-335 (any other value is a 400).
+    The row grain does not change: one row per work and role, even when a work is linked
+    to several places inside the sheet's place. Each row carries VIA_ID_LOCATION and
+    VIA_LOCATION_NAME, the place the work is actually linked to: the sheet's own place
+    when it is linked there, else the most specific contained place (the fewest Wikidata
+    hops, then the lowest ID_LOCATION). MOVIE_COUNT / SERIE_COUNT / EPISODE_COUNT stay the
+    direct counts; MOVIE_COUNT_CONTAINED / SERIE_COUNT_CONTAINED / EPISODE_COUNT_CONTAINED
+    count the distinct works through the contained places too (full response only).
 
     The location itself includes WIKIPEDIA_IMAGE_PATH. Each nested list element carries
     POSTER_PATH for the related movie or TV series.
@@ -8985,6 +8994,9 @@ async def get_location(id: int, ui_language: Optional[str] = "en", collection: O
     strrole = str(role or "").strip().lower()
     if strrole and strrole not in ("filming", "narrative"):
         raise HTTPException(status_code=400, detail="role must be 'filming' or 'narrative'")
+    strscope = str(scope or "contained").strip().lower()
+    if strscope not in ("contained", "direct"):
+        raise HTTPException(status_code=400, detail="scope must be 'contained' or 'direct'")
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
@@ -8995,6 +9007,24 @@ async def get_location(id: int, ui_language: Optional[str] = "en", collection: O
             location = cursor.fetchone()
         if not location:
             raise HTTPException(status_code=404, detail=f"Location {id} not found")
+        # FASTAPI-TEXT2SQL-335: each list reads its junction through a source subquery that
+        # yields one row per (work, role) with the place it is linked to (VIA_ID_LOCATION).
+        # contained: the junction rows of every place whose ancestor is this one (the place
+        # itself is its own ancestor at DEPTH 0), keeping per work and role the most specific
+        # link, DEPTH 0 first. direct: the junction rows of the place itself, as before.
+        def _location_link_source(strjunction, strworkcol):
+            if strscope == "direct":
+                return f"""
+                    SELECT j.{strworkcol}, j.LOCATION_ROLE, j.ID_LOCATION AS VIA_ID_LOCATION, 1 AS RN
+                    FROM {strjunction} j
+                    WHERE j.ID_LOCATION = %s AND COALESCE(j.DELETED, 0) = 0""" + strroleclause.format(alias="j")
+            return f"""
+                    SELECT j.{strworkcol}, j.LOCATION_ROLE, j.ID_LOCATION AS VIA_ID_LOCATION,
+                           ROW_NUMBER() OVER (PARTITION BY j.{strworkcol}, j.LOCATION_ROLE
+                                              ORDER BY a.DEPTH ASC, j.ID_LOCATION ASC) AS RN
+                    FROM T_WC_T2S_LOCATION_ANCESTOR a
+                    JOIN {strjunction} j ON j.ID_LOCATION = a.ID_LOCATION AND COALESCE(j.DELETED, 0) = 0
+                    WHERE a.ID_ANCESTOR = %s""" + strroleclause.format(alias="j")
         # FASTAPI-TEXT2SQL-332: the junction DELETED and work DELETED filters of /movies/{id}
         # and /series/{id}, which this route lacked; the optional role filter applies to the
         # three lists alike. LOCATION_ROLE closes the ORDER BY so a work linked under both
@@ -9004,18 +9034,26 @@ async def get_location(id: int, ui_language: Optional[str] = "en", collection: O
         pcollections = {
             "movies": ("""
                 SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED,
-                       m.POSTER_PATH, ml.LOCATION_ROLE, COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_T2S_MOVIE_LOCATION ml
+                       m.POSTER_PATH, ml.LOCATION_ROLE, ml.VIA_ID_LOCATION,
+                       vl.LOCATION_NAME AS VIA_LOCATION_NAME, vl.LOCATION_NAME_FR AS VIA_LOCATION_NAME_FR,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM (""" + _location_link_source("T_WC_T2S_MOVIE_LOCATION", "ID_MOVIE") + """
+                ) ml
                 JOIN T_WC_T2S_MOVIE m ON ml.ID_MOVIE = m.ID_MOVIE AND COALESCE(m.DELETED, 0) = 0
-                WHERE ml.ID_LOCATION = %s AND COALESCE(ml.DELETED, 0) = 0""" + strroleclause.format(alias="ml") + """
+                JOIN T_WC_T2S_LOCATION vl ON vl.ID_LOCATION = ml.VIA_ID_LOCATION
+                WHERE ml.RN = 1
                 ORDER BY m.IMDB_RATING_WEIGHTED DESC, m.ID_MOVIE ASC, ml.LOCATION_ROLE ASC
             """, arrparams, "movie"),
             "series": ("""
                 SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED,
-                       s.POSTER_PATH, sl.LOCATION_ROLE, COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_T2S_SERIE_LOCATION sl
+                       s.POSTER_PATH, sl.LOCATION_ROLE, sl.VIA_ID_LOCATION,
+                       vl.LOCATION_NAME AS VIA_LOCATION_NAME, vl.LOCATION_NAME_FR AS VIA_LOCATION_NAME_FR,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM (""" + _location_link_source("T_WC_T2S_SERIE_LOCATION", "ID_SERIE") + """
+                ) sl
                 JOIN T_WC_T2S_SERIE s ON sl.ID_SERIE = s.ID_SERIE AND COALESCE(s.DELETED, 0) = 0
-                WHERE sl.ID_LOCATION = %s AND COALESCE(sl.DELETED, 0) = 0""" + strroleclause.format(alias="sl") + """
+                JOIN T_WC_T2S_LOCATION vl ON vl.ID_LOCATION = sl.VIA_ID_LOCATION
+                WHERE sl.RN = 1
                 ORDER BY s.IMDB_RATING_WEIGHTED DESC, s.ID_SERIE ASC, sl.LOCATION_ROLE ASC
             """, arrparams, "serie"),
             # Episodes (FASTAPI-TEXT2SQL-334): T_WC_T2S_EPISODE_LOCATION, filled since the night
@@ -9028,11 +9066,15 @@ async def get_location(id: int, ui_language: Optional[str] = "en", collection: O
                 SELECT e.ID_EPISODE, e.ID_SERIE, e.SEASON_NUMBER, e.EPISODE_NUMBER, e.EPISODE_TITLE,
                        e.DAT_AIR, e.AIR_YEAR, e.STILL_PATH, e.IMDB_RATING, e.IMDB_VOTES,
                        s.SERIE_TITLE, s.SERIE_TITLE_FR, s.POSTER_PATH,
-                       el.LOCATION_ROLE, COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_T2S_EPISODE_LOCATION el
+                       el.LOCATION_ROLE, el.VIA_ID_LOCATION,
+                       vl.LOCATION_NAME AS VIA_LOCATION_NAME, vl.LOCATION_NAME_FR AS VIA_LOCATION_NAME_FR,
+                       COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM (""" + _location_link_source("T_WC_T2S_EPISODE_LOCATION", "ID_EPISODE") + """
+                ) el
                 JOIN T_WC_T2S_EPISODE e ON el.ID_EPISODE = e.ID_EPISODE AND COALESCE(e.DELETED, 0) = 0
                 JOIN T_WC_T2S_SERIE s ON e.ID_SERIE = s.ID_SERIE
-                WHERE el.ID_LOCATION = %s AND COALESCE(el.DELETED, 0) = 0""" + strroleclause.format(alias="el") + """
+                JOIN T_WC_T2S_LOCATION vl ON vl.ID_LOCATION = el.VIA_ID_LOCATION
+                WHERE el.RN = 1
                 ORDER BY s.IMDB_RATING_WEIGHTED DESC, e.ID_SERIE ASC, e.SEASON_NUMBER ASC,
                          e.EPISODE_NUMBER ASC, el.LOCATION_ROLE ASC
             """, arrparams, "serie"),
@@ -9044,9 +9086,30 @@ async def get_location(id: int, ui_language: Optional[str] = "en", collection: O
                 wikipedia_content = _fetch_wikipedia_content(cursor, location.get("ID_WIKIDATA"), ui_language, wikipedia_format)
                 wikipedia_page = _fetch_wikipedia_page(cursor, location.get("ID_WIKIDATA"), ui_language)
                 data_freshness = _build_data_freshness(cursor, location, RECORD_SOURCE_WIKIDATA, ui_language)
+                # FASTAPI-TEXT2SQL-335: distinct works through the place and the places it
+                # contains, beside the direct MOVIE_COUNT / SERIE_COUNT / EPISODE_COUNT of the
+                # read-model. One indexed pass per kind (ancestor index, then the junction's
+                # IDX_LOCATION_ROLE); the work's own DELETED is honoured as in the lists.
+                cursor.execute("""
+                    SELECT
+                      (SELECT COUNT(DISTINCT j.ID_MOVIE) FROM T_WC_T2S_LOCATION_ANCESTOR a
+                         JOIN T_WC_T2S_MOVIE_LOCATION j ON j.ID_LOCATION = a.ID_LOCATION AND COALESCE(j.DELETED, 0) = 0
+                         JOIN T_WC_T2S_MOVIE w ON w.ID_MOVIE = j.ID_MOVIE AND COALESCE(w.DELETED, 0) = 0
+                        WHERE a.ID_ANCESTOR = %s) AS MOVIE_COUNT_CONTAINED,
+                      (SELECT COUNT(DISTINCT j.ID_SERIE) FROM T_WC_T2S_LOCATION_ANCESTOR a
+                         JOIN T_WC_T2S_SERIE_LOCATION j ON j.ID_LOCATION = a.ID_LOCATION AND COALESCE(j.DELETED, 0) = 0
+                         JOIN T_WC_T2S_SERIE w ON w.ID_SERIE = j.ID_SERIE AND COALESCE(w.DELETED, 0) = 0
+                        WHERE a.ID_ANCESTOR = %s) AS SERIE_COUNT_CONTAINED,
+                      (SELECT COUNT(DISTINCT j.ID_EPISODE) FROM T_WC_T2S_LOCATION_ANCESTOR a
+                         JOIN T_WC_T2S_EPISODE_LOCATION j ON j.ID_LOCATION = a.ID_LOCATION AND COALESCE(j.DELETED, 0) = 0
+                         JOIN T_WC_T2S_EPISODE w ON w.ID_EPISODE = j.ID_EPISODE AND COALESCE(w.DELETED, 0) = 0
+                        WHERE a.ID_ANCESTOR = %s) AS EPISODE_COUNT_CONTAINED
+                """, (id, id, id))
+                dctcontainedcounts = cursor.fetchone() or {}
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
-        result = {**location, "movies": data["movies"], "series": data["series"], "episodes": data["episodes"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
+        location = {**location, **{k: int(v or 0) for k, v in dctcontainedcounts.items()}}
+        result = {**location, "scope": strscope, "movies": data["movies"], "series": data["series"], "episodes": data["episodes"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         _attach_wikipedia_page(result, wikipedia_page)
         _attach_wikipedia_mentions(result, data)
         logs.log_usage("locations", {"id": id, "response": result}, strapiversion)
@@ -9727,7 +9790,7 @@ async def _mcp_sql_search(
 async def _mcp_get(path: str, ui_language: str = "en", collection: Optional[str] = None,
                    page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT,
                    sample_set: Optional[str] = None, wikipedia_format: Optional[str] = None,
-                   role: Optional[str] = None) -> str:
+                   role: Optional[str] = None, scope: Optional[str] = None) -> str:
     """Shared MCP helper: GET an internal entity endpoint and return its raw JSON text.
 
     Forwards the normalized ``ui_language`` (en/fr, English fallback) so every
@@ -9748,6 +9811,9 @@ async def _mcp_get(path: str, ui_language: str = "en", collection: Optional[str]
     # /locations/{id} only (FASTAPI-TEXT2SQL-332); forwarded when set, so other calls are unchanged.
     if role:
         params["role"] = role
+    # /locations/{id} only (FASTAPI-TEXT2SQL-335); forwarded when set.
+    if scope:
+        params["scope"] = scope
     # Forwarded only when Markdown is asked for, so the default call is unchanged.
     if normalize_wikipedia_format(wikipedia_format) == "md":
         params["wikipedia_format"] = "md"
@@ -10276,7 +10342,7 @@ async def _mcp_get_network(id: int, ui_language: str = "en", collection: Optiona
 
 
 @mcp.tool(name="get_location")
-async def _mcp_get_location(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text", role: Optional[str] = None) -> str:
+async def _mcp_get_location(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text", role: Optional[str] = None, scope: Optional[str] = None) -> str:
     """Get all fields for a location by ID_LOCATION plus the movies, series and TV episodes
     linked to it, each carrying LOCATION_ROLE, 'narrative' (the story happens there) or
     'filming' (it was shot there). The id is the integer ID_LOCATION, not the Wikidata
@@ -10285,9 +10351,12 @@ async def _mcp_get_location(id: int, ui_language: str = "en", collection: Option
     SERIE_TITLE; MOVIE_COUNT, SERIE_COUNT and EPISODE_COUNT give the three totals. Some
     places are linked to episodes only. Rows are one per work AND role: a movie both set
     and shot there appears twice, and pagination totals count rows, not works. Pass
-    role="filming" or role="narrative" to keep one role. The lists hold the works linked
-    to the place itself, not to the places it contains (a country's sheet does not list
-    its cities' movies).
+    role="filming" or role="narrative" to keep one role. By default the lists also hold
+    the works linked to the places the place contains (France lists the movies shot in
+    Paris); each row's VIA_ID_LOCATION / VIA_LOCATION_NAME name the place the work is
+    actually linked to. Pass scope="direct" to keep the place itself only.
+    MOVIE_COUNT / SERIE_COUNT / EPISODE_COUNT are direct; the *_COUNT_CONTAINED fields
+    include the contained places.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
     T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off the route's Wikidata ID.
@@ -10305,7 +10374,7 @@ async def _mcp_get_location(id: int, ui_language: str = "en", collection: Option
     title, which is not the entity's title and differs per language) and url. The key is
     absent, not null, when the entity has no Wikipedia page. Quoting wikipedia_content
     requires CC BY-SA attribution pointing at this url. Pass wikipedia_format="md" to get wikipedia_content as Markdown (tables, lists, links as Wikipedia URLs) with each section's footnotes in a references list; the default is plain text. mentions_persons / mentions_movies / mentions_series list the persons, movies and series the entity's Wikipedia article links to, and mentioned_in_persons / mentioned_in_movies / mentioned_in_series those whose article links to it."""
-    return await _mcp_get(f"/locations/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format, role=role)
+    return await _mcp_get(f"/locations/{id}", ui_language, collection, page, rows_per_page, wikipedia_format=wikipedia_format, role=role, scope=scope)
 
 
 @mcp.tool(name="get_source_work")
