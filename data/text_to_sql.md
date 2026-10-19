@@ -659,6 +659,7 @@ CREATE TABLE T_WC_T2S_LOCATION (
   DELETED INT,
   MOVIE_COUNT INT,
   SERIE_COUNT INT,
+  EPISODE_COUNT INT,
   POSTER_PATH VARCHAR(200),
   WIKIPEDIA_IMAGE_PATH VARCHAR(500),
   IMDB_RATING DOUBLE,
@@ -682,11 +683,42 @@ CREATE TABLE T_WC_T2S_SERIE_LOCATION (
   DISPLAY_ORDER INT
 );
 
+Some places are recorded against a single EPISODE of a series rather than the series
+itself, in `T_WC_T2S_EPISODE_LOCATION`, with the same `LOCATION_ROLE` values. Reach the
+series through `T_WC_T2S_EPISODE`:
+
+CREATE TABLE T_WC_T2S_EPISODE_LOCATION (
+  ID_ROW INT NOT NULL,
+  ID_EPISODE INT NOT NULL,
+  ID_LOCATION INT NOT NULL,
+  LOCATION_ROLE VARCHAR(20) NOT NULL,
+  DELETED INT
+);
+
+CREATE TABLE T_WC_T2S_EPISODE (
+  ID_EPISODE INT NOT NULL,
+  ID_SERIE INT NOT NULL,
+  SEASON_NUMBER INT,
+  EPISODE_NUMBER INT,
+  EPISODE_TITLE VARCHAR(250),
+  DELETED INT
+);
+
+- "Series set in X" / "series shot in X" stays on T_WC_T2S_SERIE_LOCATION. Use
+  T_WC_T2S_EPISODE_LOCATION only when the question speaks of EPISODES ("series with an
+  episode filmed at Arlington National Cemetery", "which series have an episode set at
+  Camp David"). The answer is still the SERIES: return the series columns with
+  `SELECT DISTINCT`, joined T_WC_T2S_EPISODE_LOCATION → T_WC_T2S_EPISODE (ID_EPISODE)
+  → T_WC_T2S_SERIE (ID_SERIE), filtering COALESCE(T_WC_T2S_EPISODE_LOCATION.DELETED, 0) = 0.
+  Never return episode rows: there is no episode answer entity.
+- `EPISODE_COUNT` on T_WC_T2S_LOCATION counts the episodes linked to the place, as
+  `MOVIE_COUNT` and `SERIE_COUNT` count the movies and the series.
+
 - T_WC_T2S_LOCATION carries NO notion of role. `LOCATION_ROLE` does not exist on it, and
   `T_WC_T2S_LOCATION.LOCATION_ROLE` is a fatal error (MariaDB 1054). The role describes the
   LINK between a work and a place, not the place, so it lives only on
-  T_WC_T2S_MOVIE_LOCATION and T_WC_T2S_SERIE_LOCATION. Filter it on the junction table you
-  joined, never on the location table.
+  T_WC_T2S_MOVIE_LOCATION, T_WC_T2S_SERIE_LOCATION and T_WC_T2S_EPISODE_LOCATION. Filter it
+  on the junction table you joined, never on the location table.
 - Always filter T_WC_T2S_LOCATION on DELETED = 0. The table keeps a row for a place that
   is no longer linked to anything, so that its ID_LOCATION is never given to another
   place; such a row is not a location the user can ask about.

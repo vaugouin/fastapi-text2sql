@@ -7382,6 +7382,12 @@ async def get_episode(
     at each end: they never cross into another season, since "the episode after the finale"
     would silently change context.
 
+    FASTAPI-TEXT2SQL-334: `locations` lists the places linked to this episode in
+    T_WC_T2S_EPISODE_LOCATION, same shape as the `locations` list of /series/{id}:
+    ID_LOCATION, LOCATION_NAME, LOCATION_TYPE, POSTER_PATH, WIKIPEDIA_IMAGE_PATH,
+    WIKIPEDIA_MAIN_IMAGE_URL and LOCATION_ROLE ('narrative' first, then 'filming'). Most
+    episodes have none; the places of the whole series are on /series/{id}.
+
     Every row comes from the T2S read-model (FASTAPI-TEXT2SQL-179): T_WC_T2S_EPISODE,
     T_WC_T2S_PERSON_EPISODE, T_WC_T2S_EPISODE_IMAGE, T_WC_T2S_EPISODE_VIDEO and
     T_WC_T2S_SEASON. An episode whose series or season is not in T2S returns 404. The
@@ -7476,6 +7482,19 @@ async def get_episode(
                 WHERE e.ID_SEASON = %s
                 ORDER BY e.EPISODE_NUMBER ASC
             """, (id_episode, id_season), None),
+            # Locations (FASTAPI-TEXT2SQL-334): the episode's own places from
+            # T_WC_T2S_EPISODE_LOCATION, same shape and order as the `locations` list of
+            # /series/{id}. Only the episode's links: the series' places are on the series.
+            "locations": ("""
+                SELECT l.ID_LOCATION, l.LOCATION_NAME, l.LOCATION_NAME_FR, l.LOCATION_TYPE,
+                       l.POSTER_PATH, l.WIKIPEDIA_IMAGE_PATH, l.WIKIPEDIA_MAIN_IMAGE_URL, l.WIKIPEDIA_MAIN_IMAGE_URL_FR,
+                       el.LOCATION_ROLE, el.DISPLAY_ORDER, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_EPISODE_LOCATION el
+                JOIN T_WC_T2S_LOCATION l ON el.ID_LOCATION = l.ID_LOCATION AND l.DELETED = 0
+                WHERE el.ID_EPISODE = %s AND COALESCE(el.DELETED, 0) = 0
+                ORDER BY CASE el.LOCATION_ROLE WHEN 'narrative' THEN 0 WHEN 'filming' THEN 1 ELSE 2 END ASC,
+                         el.DISPLAY_ORDER ASC, l.LOCATION_NAME ASC, l.ID_LOCATION ASC, el.LOCATION_ROLE ASC
+            """, (id_episode,), None),
         }
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(episode.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
@@ -7534,6 +7553,7 @@ async def get_episode(
             "episodes": data["episodes"],
             "episode_previous": episode_previous,
             "episode_next": episode_next,
+            "locations": data["locations"],
             "series": series,
             "wikipedia_images": wikipedia_images,
             "wikipedia_content": wikipedia_content,
@@ -8904,6 +8924,13 @@ async def get_location(id: int, ui_language: Optional[str] = "en", collection: O
     The location itself includes WIKIPEDIA_IMAGE_PATH. Each nested list element carries
     POSTER_PATH for the related movie or TV series.
 
+    The episodes list (FASTAPI-TEXT2SQL-334) holds the TV episodes linked to the place,
+    from T_WC_T2S_EPISODE_LOCATION, with the same LOCATION_ROLE. Each row carries
+    ID_EPISODE, ID_SERIE, SEASON_NUMBER, EPISODE_NUMBER, EPISODE_TITLE, DAT_AIR, AIR_YEAR,
+    STILL_PATH, IMDB_RATING, IMDB_VOTES, and the parent series' SERIE_TITLE and POSTER_PATH;
+    rows are grouped by series (best rated first), then season and episode. EPISODE_COUNT on
+    the location counts them; a place can have episodes and no movie or series.
+
     The wikipedia_images list contains the Wikipedia images for the requested ui_language (en/fr, English fallback) linked
     to ID_WIKIDATA from T_WC_WIKIPEDIA_PAGE_LANG_IMAGE; each element carries ID_ROW,
     LANG, SECTION_TITLE, IMAGE_URL, IMAGE_URL_NORMALIZED, THUMBNAIL_URL, MEDIA_TYPE,
@@ -8972,6 +8999,24 @@ async def get_location(id: int, ui_language: Optional[str] = "en", collection: O
                 WHERE sl.ID_LOCATION = %s
                 ORDER BY s.IMDB_RATING_WEIGHTED DESC, s.ID_SERIE ASC
             """, (id,), "serie"),
+            # Episodes (FASTAPI-TEXT2SQL-334): T_WC_T2S_EPISODE_LOCATION, filled since the night
+            # of 2026-10-18 (TMDB-MOVIE-PREPROCESS-062). 440 places are cited by episodes only,
+            # so without this list their sheet had nothing under it. Grouped by series (best
+            # rated first), then season and episode, so a series' episodes stay together. Each
+            # row carries the series title and poster, since an episode card means nothing
+            # without them. A junction row or an episode flagged DELETED is left out.
+            "episodes": ("""
+                SELECT e.ID_EPISODE, e.ID_SERIE, e.SEASON_NUMBER, e.EPISODE_NUMBER, e.EPISODE_TITLE,
+                       e.DAT_AIR, e.AIR_YEAR, e.STILL_PATH, e.IMDB_RATING, e.IMDB_VOTES,
+                       s.SERIE_TITLE, s.SERIE_TITLE_FR, s.POSTER_PATH,
+                       el.LOCATION_ROLE, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_EPISODE_LOCATION el
+                JOIN T_WC_T2S_EPISODE e ON el.ID_EPISODE = e.ID_EPISODE AND COALESCE(e.DELETED, 0) = 0
+                JOIN T_WC_T2S_SERIE s ON e.ID_SERIE = s.ID_SERIE
+                WHERE el.ID_LOCATION = %s AND COALESCE(el.DELETED, 0) = 0
+                ORDER BY s.IMDB_RATING_WEIGHTED DESC, e.ID_SERIE ASC, e.SEASON_NUMBER ASC,
+                         e.EPISODE_NUMBER ASC, el.LOCATION_ROLE ASC
+            """, (id,), "serie"),
         }
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(location.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
@@ -8982,7 +9027,7 @@ async def get_location(id: int, ui_language: Optional[str] = "en", collection: O
                 data_freshness = _build_data_freshness(cursor, location, RECORD_SOURCE_WIKIDATA, ui_language)
         if collection is not None:
             return _targeted_collection_response(conn, {"id": id}, collection, data, pagination, kinds, ui_language)
-        result = {**location, "movies": data["movies"], "series": data["series"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
+        result = {**location, "movies": data["movies"], "series": data["series"], "episodes": data["episodes"], "wikipedia_images": wikipedia_images, "wikipedia_content": wikipedia_content, "pagination": pagination, "data_freshness": data_freshness}
         _attach_wikipedia_page(result, wikipedia_page)
         _attach_wikipedia_mentions(result, data)
         logs.log_usage("locations", {"id": id, "response": result}, strapiversion)
@@ -9877,9 +9922,11 @@ async def _mcp_get_episode(id_serie: int, season_number: int, episode_number: in
     POSTER_PATH) are stubs for navigating back. episodes lists every episode of the same
     season, each with IS_CURRENT marking this one; episode_previous / episode_next are its
     neighbours within the season and are null at either end (they never cross into another
-    season).
+    season). locations lists the places linked to this episode itself (ID_LOCATION, open it
+    with get_location; LOCATION_NAME; LOCATION_ROLE 'narrative' or 'filming'); it is often
+    empty, the series-wide places are in get_series.
 
-    Embedded lists (cast, crew, episodes) are paginated: by default each is capped to its
+    Embedded lists (cast, crew, episodes, locations) are paginated: by default each is capped to its
     first page and a top-level `pagination` block reports each list's total. Set
     `collection` to one list's name with `page` / `rows_per_page` to get just that page.
 
@@ -10207,10 +10254,13 @@ async def _mcp_get_network(id: int, ui_language: str = "en", collection: Optiona
 
 @mcp.tool(name="get_location")
 async def _mcp_get_location(id: int, ui_language: str = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: str = "text") -> str:
-    """Get all fields for a location by ID_LOCATION plus the movies and series linked to
-    it, each carrying LOCATION_ROLE, 'narrative' (the story happens there) or 'filming'
-    (it was shot there). The id is the integer ID_LOCATION, not the Wikidata Q-id, which
-    this tool took until 1.1.18.
+    """Get all fields for a location by ID_LOCATION plus the movies, series and TV episodes
+    linked to it, each carrying LOCATION_ROLE, 'narrative' (the story happens there) or
+    'filming' (it was shot there). The id is the integer ID_LOCATION, not the Wikidata
+    Q-id, which this tool took until 1.1.18. episodes rows carry ID_SERIE, SEASON_NUMBER and
+    EPISODE_NUMBER (open one with get_episode), EPISODE_TITLE, AIR_YEAR and the series'
+    SERIE_TITLE; MOVIE_COUNT, SERIE_COUNT and EPISODE_COUNT give the three totals. Some
+    places are linked to episodes only.
     Also returns top-level wikipedia_images (Wikipedia image metadata in the requested ui_language (en/fr, English fallback)) and
     wikipedia_content (Wikipedia section title/content pairs in the requested ui_language from
     T_WC_WIKIPEDIA_PAGE_LANG_SECTION) keyed off the route's Wikidata ID.
@@ -10342,6 +10392,7 @@ async def _mcp_database_scope() -> str:
     - Nominations: T_WC_T2S_MOVIE_NOMINATION \u2192 T_WC_T2S_NOMINATION (DISPLAY_ORDER)
     - Locations: T_WC_T2S_MOVIE_LOCATION \u2192 T_WC_T2S_LOCATION
         LOCATION_ROLE = 'narrative' (the story happens there) or 'filming' (shot there)
+        Episodes: T_WC_T2S_EPISODE_LOCATION (ID_EPISODE, ID_LOCATION, LOCATION_ROLE)
     - Based on: T_WC_T2S_MOVIE_SOURCE_WORK \u2192 T_WC_T2S_SOURCE_WORK
         the work the movie is adapted from (novel, manga, play, game, or a movie / series:
         then T_WC_T2S_SOURCE_WORK.ID_MOVIE / ID_SERIE points to it)

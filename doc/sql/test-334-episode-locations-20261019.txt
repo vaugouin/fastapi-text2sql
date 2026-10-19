@@ -1,0 +1,36 @@
+-- test-334-episode-locations.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-10-19 06:56:16
+--
++------------+----------+---------------+----------------+--------------------+------------+----------+----------------------------------+-------------+------------+-----------------+------------------------------------+----------------------------------+---------------+--------------+
+| ID_EPISODE | ID_SERIE | SEASON_NUMBER | EPISODE_NUMBER | EPISODE_TITLE      | DAT_AIR    | AIR_YEAR | STILL_PATH                       | IMDB_RATING | IMDB_VOTES | SERIE_TITLE     | SERIE_TITLE_FR                     | POSTER_PATH                      | LOCATION_ROLE | _TOTAL_COUNT |
++------------+----------+---------------+----------------+--------------------+------------+----------+----------------------------------+-------------+------------+-----------------+------------------------------------+----------------------------------+---------------+--------------+
+|      38139 |      688 |             1 |             10 | In Excelsis Deo    | 1999-12-15 |     1999 | /631nPlejxz755a0eeL1jGgYmN9X.jpg |         9.2 |       2322 | The West Wing   | À la Maison Blanche                | /yz1qWFZ8kjgQjqB9NX5kWMetX4w.jpg | filming       |            5 |
+|      38174 |      688 |             3 |             20 | We Killed Yamamoto | 2002-05-15 |     2002 | /2LAX1cqNNtaC8yGqosU2FTzzeHL.jpg |         8.3 |       1024 | The West Wing   | À la Maison Blanche                | /yz1qWFZ8kjgQjqB9NX5kWMetX4w.jpg | filming       |            5 |
+|      38174 |      688 |             3 |             20 | We Killed Yamamoto | 2002-05-15 |     2002 | /2LAX1cqNNtaC8yGqosU2FTzzeHL.jpg |         8.3 |       1024 | The West Wing   | À la Maison Blanche                | /yz1qWFZ8kjgQjqB9NX5kWMetX4w.jpg | narrative     |            5 |
+|    1393711 |     4087 |            11 |              2 | This               | 2018-01-10 |     2018 | /uAnbfwHs5pN95FY5FXJDPpfwtCD.jpg |         7.2 |       3946 | The X-Files     | X-Files : Aux frontières du réel   | /rcBx0p8h51LHceyhquYMxbspJQu.jpg | narrative     |            5 |
+|    2529612 |    87917 |             2 |             10 | The Grey           | 2021-04-23 |     2021 | /xmlAfz45cCbYC8AJMnJGfhnR9LP.jpg |         9.4 |       4845 | For All Mankind | For All Mankind                    | /JP3DItWMbrrLiKR5AYUfpsNf2b.jpg  | narrative     |            5 |
++------------+----------+---------------+----------------+--------------------+------------+----------+----------------------------------+-------------+------------+-----------------+------------------------------------+----------------------------------+---------------+--------------+
++-------------+-----------------------------+-------------+-------------+---------------+
+| ID_LOCATION | LOCATION_NAME               | MOVIE_COUNT | SERIE_COUNT | EPISODE_COUNT |
++-------------+-----------------------------+-------------+-------------+---------------+
+|       12674 | Arlington National Cemetery |           0 |           0 |             4 |
++-------------+-----------------------------+-------------+-------------+---------------+
++-------------+---------------------------------+---------------------------------+---------------+-------------+------------------------------------------------------------------------------------------+---------------+---------------+--------------+
+| ID_LOCATION | LOCATION_NAME                   | LOCATION_NAME_FR                | LOCATION_TYPE | POSTER_PATH | WIKIPEDIA_IMAGE_PATH                                                                     | LOCATION_ROLE | DISPLAY_ORDER | _TOTAL_COUNT |
++-------------+---------------------------------+---------------------------------+---------------+-------------+------------------------------------------------------------------------------------------+---------------+---------------+--------------+
+|        2615 | West Wing                       | aile Ouest                      | structure     | NULL        | https://upload.wikimedia.org/wikipedia/commons/7/72/Westwing_commons.jpg                 | narrative     |          NULL |            3 |
+|       12674 | Arlington National Cemetery     | cimetière national d'Arlington  | structure     | NULL        | https://upload.wikimedia.org/wikipedia/commons/7/7c/Arlington_National_Cemetery_Seal.png | filming       |          NULL |            3 |
+|        4617 | Warner Brothers Burbank Studios | Warner Brothers Burbank Studios | structure     | NULL        | NULL                                                                                     | filming       |          NULL |            3 |
++-------------+---------------------------------+---------------------------------+---------------+-------------+------------------------------------------------------------------------------------------+---------------+---------------+--------------+
++----------+---------------+---------------+----------------------+
+| ID_SERIE | SERIE_TITLE   | DAT_FIRST_AIR | IMDB_RATING_WEIGHTED |
++----------+---------------+---------------+----------------------+
+|      688 | The West Wing | 1999-09-22    |    8.571217568966254 |
++----------+---------------+---------------+----------------------+
++-------------+---------------+-----+
+| ID_LOCATION | LOCATION_NAME | N   |
++-------------+---------------+-----+
+|        4001 | Springfield   | 762 |
+|        1051 | Quahog        | 388 |
+|         218 | Arlen         | 259 |
++-------------+---------------+-----+
