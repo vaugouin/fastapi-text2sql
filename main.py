@@ -438,13 +438,16 @@ def get_db_connection():
     strdbpassword = os.getenv('DB_PASSWORD')
     strdbname = os.getenv('DB_NAME')
 
+    # autocommit (FASTAPI-TEXT2SQL-336): without it the first SELECT opens a transaction
+    # that an idle connection (the startup one) holds for days, blocking InnoDB purge.
     return pymysql.connect(
         host=strdbhost,
         port=lngdbport,
         user=strdbuser,
         password=strdbpassword,
         database=strdbname,
-        cursorclass=pymysql.cursors.DictCursor
+        cursorclass=pymysql.cursors.DictCursor,
+        autocommit=True
     )
 
 answer=42
