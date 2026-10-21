@@ -1,6 +1,8 @@
 import os
 import json
+import time
 import hashlib
+import contextvars
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -24,6 +26,36 @@ def now_paris():
         datetime: Aware datetime; isoformat() carries the offset (+01:00 or +02:00).
     """
     return datetime.now(PARIS_TZ)
+
+
+# FASTAPI-TEXT2SQL-337. The cost price of a call needs its server time, and only /search had
+# one (total_processing_time); the entity endpoints, which spend no token, logged none at all.
+# The _RequestClock middleware of main.py starts this clock as each HTTP request enters, and
+# log_usage stamps every log written during the request with what it has taken so far.
+_request_clock: "contextvars.ContextVar" = contextvars.ContextVar("request_clock", default=None)
+
+
+def start_request_clock():
+    """Note the wall clock and the process CPU clock as the current request enters."""
+    _request_clock.set((time.perf_counter(), time.process_time()))
+
+
+def request_clock_readings():
+    """Return {"server_time", "cpu_time"} in seconds since the request entered, {} outside one.
+
+    server_time is the wall time inside the API, network and NGINX excluded. cpu_time is the
+    CPU the whole process spent meanwhile, every thread included: the right figure for a
+    /search, whose work runs in worker threads, but it also counts any request served at the
+    same moment. At a few dozen calls a day overlap is rare; read a median, not one record.
+    """
+    clock = _request_clock.get()
+    if clock is None:
+        return {}
+    wall_start, cpu_start = clock
+    return {
+        "server_time": round(time.perf_counter() - wall_start, 4),
+        "cpu_time": round(time.process_time() - cpu_start, 4),
+    }
 
 
 def f_getlogfilename(endpoint, contenttext, strapiversion, now=None):
@@ -68,6 +100,8 @@ def log_usage(endpoint, content, strapiversion):
         offset (FASTAPI-TEXT2SQL-328). It is the reference time of the record; the file name
         carries the same moment without offset, for humans, and repeats 02:00 to 03:00 on the
         last Sunday of October. A caller's own "ts" key, if any, is left as it is.
+        During an HTTP request, "server_time" and "cpu_time" follow "ts" (FASTAPI-TEXT2SQL-337):
+        seconds of wall time and of process CPU since the request entered the API.
     """
     def decimal_serializer(obj):
         """JSON serializer for objects not serializable by default json code"""
@@ -83,6 +117,11 @@ def log_usage(endpoint, content, strapiversion):
     now = now_paris()
     if isinstance(content, dict) and "ts" not in content:
         content = {"ts": now.isoformat(timespec="seconds"), **content}
+    if isinstance(content, dict) and "server_time" not in content:
+        # FASTAPI-TEXT2SQL-337: right after "ts", measured up to this line of the handler.
+        content = {**{k: v for k, v in content.items() if k == "ts"},
+                   **request_clock_readings(),
+                   **{k: v for k, v in content.items() if k != "ts"}}
     contenttext = json.dumps(content, indent=4, ensure_ascii=False, default=decimal_serializer)
     log_filename = f_getlogfilename(endpoint, contenttext, strapiversion, now)
     # Create the JSON file if it doesn't exist

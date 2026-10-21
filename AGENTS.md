@@ -217,7 +217,9 @@ its own table `T_WC_T2S_VISION_CACHE`.
 
 **[language_family.py](language_family.py)** — `guess_language_family()` from Unicode code points (Latin / Hangul / Japanese / Chinese / Cyrillic / Arabic / Hebrew / Devanagari / etc.).
 
-**[logs.py](logs.py)** — `log_usage(endpoint, content, strapiversion)` and `log_hot_reload(filename)`. Filenames are `YYYYMMDD-HHMMSS_{endpoint}_{version}_{md5hash}.json`; never overwrite existing files.
+**[logs.py](logs.py)** : `log_usage(endpoint, content, strapiversion)` and `log_hot_reload(filename)`. Filenames are `YYYYMMDD-HHMMSS_{endpoint}_{version}_{md5hash}.json`; never overwrite existing files. Also the request clock (`start_request_clock`, started by the `_RequestClock` middleware of `main.py`) that stamps `server_time` and `cpu_time` in every log written during a request (FASTAPI-TEXT2SQL-337).
+
+**[llm_costs.py](llm_costs.py)** : the price table (dollars per million tokens, with sources and date) and the arithmetic that turns `llm_usage` and `embedding_usage` into `llm_cost` (FASTAPI-TEXT2SQL-337). The only place a price lives; see *What a call costs*.
 - `now_paris()` and `PARIS_TZ` are the one clock of the repo (FASTAPI-TEXT2SQL-328): every stamp a human reads goes through them, and every "now" compared with an upload horizon too. See *One clock: Paris time, with its offset* below.
 - `LOGS_FOLDER` is the **relative** `"logs"`, and that is load-bearing. Making it absolute or
   configurable would re-split the corpus per colour; see *`logs/` and `uploads/` are shared*.
@@ -406,7 +408,9 @@ reasoning model (GPT-6) the reasoning tokens bill at the output price: read them
 comparing list prices. The evaluator stores the request totals in `LLM_PROMPT_TOKENS`,
 `LLM_CACHED_TOKENS`, `LLM_COMPLETION_TOKENS`, `LLM_REASONING_TOKENS` and prints the per-task
 table at the end of phase 20. Anthropic folds thinking into its output count, so its
-`reasoning_tokens` stays 0 (unknown, not absent); OpenRouter is not counted at all.
+`reasoning_tokens` stays 0 (unknown, not absent); OpenRouter is not counted at all. Its cache
+writes are passed as `cache_write_tokens` since FASTAPI-TEXT2SQL-337, inside `prompt_tokens`
+like OpenAI's.
 
 | Task | Prompt tok | Cache hit | Uncached in | Output tok |
 |---|---:|---:|---:|---:|
@@ -433,6 +437,37 @@ Latency baseline from the same run, for comparing any model swap against:
 | embeddings | 0.38 s | 0.02 s | 0.56 s | 99.09 s |
 | query execution | 0.08 s | 0.00 s | 0.07 s | 10.66 s |
 | **total** | **6.04 s** | **5.45 s** | **8.26 s** | **114.09 s** |
+
+### What a call costs: `llm_cost`, `embedding_usage` and the request clock (FASTAPI-TEXT2SQL-337)
+
+Since 2026-10-21 every response prices itself, and every log says how long the server worked.
+Before, the tokens were there but each analysis script carried its own copy of the prices, the
+embeddings were neither counted nor priced, Claude's cache writes were folded into its uncached
+input (priced $4 instead of $5 per million on Opus 5.5), and the entity endpoints had no timing.
+
+- **`llm_cost`** = `{total_usd, llm_usd, embeddings_usd, unpriced_models}`, and a `cost_usd` in
+  each `llm_usage` entry, computed by `t2s.snapshot_usage_fields()` from [llm_costs.py](llm_costs.py).
+  A list-price estimate: the invoice stays the reference, and a campaign is how the two are
+  checked against each other. Flex is counted at half price only when every call of the task was
+  served Flex. **A model missing from `PRICES` is named in `unpriced_models` and left out of the
+  totals, never priced at zero**: add its row (with source and date) when you add a model.
+- **`embedding_usage`** = `{model, calls, prompt_tokens, cost_usd}`, filled by
+  `OpenAIEmbeddingFunction._record_usage` through `t2s.record_embedding_usage`. **It is not a task
+  of `llm_usage`, on purpose**: the evaluator's token columns, `analyze-usage-logs.py` and
+  pipeline-3d sum the entries of `llm_usage` as chat calls. Do not merge them.
+- **The construction sites call `**t2s.snapshot_usage_fields()`**, which fills the three fields
+  at once; the complex retry assigns them with `setattr`. A new response site does the same.
+- **`server_time` and `cpu_time`** follow `ts` in every log written during an HTTP request:
+  wall seconds since the request entered the API, and process CPU seconds meanwhile (all
+  threads, so concurrent requests leak in: read medians). The `_RequestClock` middleware is
+  pure ASGI on purpose: with `BaseHTTPMiddleware` the endpoint would run in a child task and
+  the clock would still be visible, but a pure ASGI layer makes it certain and costs nothing.
+- **Where to read them over a period:** the *Cost price of a call* section of
+  `analyze-usage-logs.py` (search cost in production and campaign, by text-to-SQL model; server
+  and CPU time per endpoint, entity routes included); per campaign, the cost block the evaluator
+  prints at the end of phase 20 (text2sql-eval 2.14.0).
+- **What none of this covers:** the server bill itself. The infrastructure share of a call is
+  the VPS price divided among endpoints by their CPU and call counts, done outside the code.
 
 ### Who can drive the six, and the two gaps
 

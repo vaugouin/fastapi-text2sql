@@ -14,6 +14,7 @@ from typing import Optional
 
 import data_watcher
 import json_guardrails
+import llm_costs
 from dotenv import load_dotenv
 import openai
 try:
@@ -199,8 +200,52 @@ _llm_usage_lock = threading.Lock()
 
 
 def reset_llm_usage() -> None:
-    """Install a fresh, empty token-usage accumulator for the current request."""
+    """Install fresh, empty token-usage accumulators (LLM and embeddings) for the request."""
     _llm_usage.set({})
+    _embedding_usage.set({})
+
+
+# FASTAPI-TEXT2SQL-337. The text-embedding-3-large calls made by ChromaDB queries (entity
+# resolution, anonymized cache lookup) were neither counted nor priced. They get their own
+# accumulator rather than a task in `llm_usage`, because every reader of `llm_usage` (the
+# evaluator's token columns, analyze-usage-logs.py, pipeline-3d) sums its entries as chat
+# calls, and an embedding has no output, no cache and a price fifty times lower.
+_embedding_usage: "contextvars.ContextVar" = contextvars.ContextVar("embedding_usage", default=None)
+
+
+def record_embedding_usage(model: str, prompt_tokens: int) -> None:
+    """Add one embeddings call to the request accumulator; a no-op outside a request."""
+    usage = _embedding_usage.get()
+    if usage is None:
+        return
+    with _llm_usage_lock:
+        if not usage:
+            usage.update({"model": model, "calls": 0, "prompt_tokens": 0})
+        usage["calls"] += 1
+        usage["prompt_tokens"] += int(prompt_tokens or 0)
+
+
+def snapshot_usage_fields() -> dict:
+    """The three usage fields of a Text2SQLResponse, priced (FASTAPI-TEXT2SQL-337).
+
+    Returns {"llm_usage", "embedding_usage", "llm_cost"}: the per-task tokens, each entry now
+    carrying its `cost_usd`, the embeddings calls, and the request's cost summary. All three
+    are None when nothing was called (a cache hit).
+    """
+    llm_usage = snapshot_llm_usage()
+    embedding_usage = _embedding_usage.get()
+    if embedding_usage:
+        with _llm_usage_lock:
+            embedding_usage = dict(embedding_usage)
+    else:
+        embedding_usage = None
+    try:
+        llm_cost = llm_costs.request_cost(llm_usage, embedding_usage)
+    except Exception as cost_error:
+        # Never let the cost estimate break a request.
+        print(f"[llm-cost] pricing failed: {cost_error}")
+        llm_cost = None
+    return {"llm_usage": llm_usage, "embedding_usage": embedding_usage, "llm_cost": llm_cost}
 
 
 def snapshot_llm_usage() -> Optional[dict]:
@@ -507,8 +552,10 @@ def _log_anthropic_cache_usage(message, *, model_norm: str, label: str = "text2s
         # stays 0 here: unknown, not absent. The cost stays right (thinking bills at the output
         # rate), only the split is lost, and it is real spending on the models that always think
         # (see _CLAUDE_EFFORT_MODEL_PREFIXES).
+        # FASTAPI-TEXT2SQL-337: the write is passed on. Before, it was folded into the uncached
+        # input of `total` and priced at $4 instead of $5 per million on Opus 5.5.
         _record_llm_usage(label, model_norm, prompt_tokens=total, cached_tokens=cache_read,
-                          completion_tokens=output_tokens)
+                          completion_tokens=output_tokens, cache_write_tokens=cache_write)
     except Exception as cache_log_error:
         print(f"[prompt-cache][anthropic][{label}] usage logging failed: {cache_log_error}")
 

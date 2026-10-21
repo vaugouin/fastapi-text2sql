@@ -14,7 +14,9 @@ data-monitoring reports:
   api-usage-YYYYMMDD.html        how the pipeline actually behaves: caches (-003, -004a),
                                  answer_single_value (-010), the answer-entity guard (-008),
                                  the retry cache guards (-011), SQL execution feedback and
-                                 what escalation produces (-009), failures by cause (-001).
+                                 what escalation produces (-009), failures by cause (-001),
+                                 and the cost price of a call (-337): list-price dollars per
+                                 search, server and CPU time per endpoint, entity routes included.
   vision-evidence-YYYYMMDD.html  what the vision model (gpt-6-astra by default) read in each
                                  image, and what of it reaches `vision_evidence`
                                  (FASTAPI-TEXT2SQL-114 and followers).
@@ -22,7 +24,8 @@ data-monitoring reports:
 Two sources, read-only, never the database:
 
   logs   `*_text2sql_post_*.json` written by logs.py, loose and in the monthly tarballs that
-         archive-logs.sh produces under `logs/archive/<YYYYMM>.tar.gz`. The month being
+         archive-logs.sh produces under `logs/archive/<YYYYMM>.tar.gz`; for the cost section,
+         every other endpoint's log too (`*_movies_*.json` and so on). The month being
          archived can sit in both places: files are deduplicated by name.
   evals  the per-row JSON exports under `text2sql-eval/evaluation_execution/<run>/`, one folder
          per (version, language, models) run. Optional: without it, the evaluation sections
@@ -60,6 +63,8 @@ DEFAULT_LOGS = os.path.normpath(os.path.join(HERE, "..", "shared_data", "fastapi
 DEFAULT_EVALS = os.path.normpath(os.path.join(HERE, "..", "shared_data", "text2sql-eval", "evaluation_execution"))
 
 FILENAME_RE = re.compile(r"(\d{8}-\d{6})_([a-z0-9]+)_([a-z]+)_([\d.]+)_")
+# Any endpoint's log name: 20261021-101500_movies_1.1.19_<md5>.json (FASTAPI-TEXT2SQL-337).
+ANY_FILENAME_RE = re.compile(r"(\d{8}-\d{6})_(.+?)_(\d+\.\d+\.\d+)_[0-9a-f]{32}\.json$")
 
 # Message prefixes written by main.py. Matched on the start of the text, as main.py writes them.
 GUARD_DISAGREE = "Answer-entity expectation"
@@ -137,6 +142,14 @@ def log_record(name, raw):
         "error": resp.get("error"),
         "error_code": resp.get("error_code"),
         "t_total": resp.get("total_processing_time"),
+        # FASTAPI-TEXT2SQL-337. Top-level since the request clock; the cost since the API
+        # prices its calls. "has_cost" separates "not measured" (older API) from a free hit.
+        "server_time": d.get("server_time"),
+        "cpu_time": d.get("cpu_time"),
+        "has_cost": "llm_cost" in resp,
+        "cost_usd": ((resp.get("llm_cost") or {}).get("total_usd") or 0.0) if "llm_cost" in resp else None,
+        "emb_tokens": (resp.get("embedding_usage") or {}).get("prompt_tokens"),
+        "t2s_model": resp.get("llm_model_text2sql"),
         "nrows": len(res) if isinstance(res, list) else None,
         "answer": str(resp.get("answer") or "")[:300],
         "msgs": keep,
@@ -148,21 +161,45 @@ def log_record(name, raw):
     return rec
 
 
-def scan_logs(logs_dir, since=""):
+def timing_record(name, raw):
+    """Endpoint, server time and CPU time of a non-search log (FASTAPI-TEXT2SQL-337)."""
+    m = ANY_FILENAME_RE.search(name)
+    if not m:
+        return None
+    try:
+        d = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(d, dict):
+        return None
+    return {"ts": m.group(1), "endpoint": m.group(2),
+            "server_time": d.get("server_time"), "cpu_time": d.get("cpu_time")}
+
+
+def scan_logs(logs_dir, since="", others=None):
+    """Text-to-SQL records; with `others` (a list), every other endpoint's timing too."""
     seen, out = set(), []
 
     def take(name, raw):
         base = os.path.basename(name)
-        if "_text2sql_post_" not in base or base in seen:
+        if base in seen:
             return
         if since and base[:8] < since:
+            return
+        if "_text2sql_post_" not in base:
+            if others is not None and base.endswith(".json"):
+                seen.add(base)
+                rec = timing_record(base, raw)
+                if rec:
+                    others.append(rec)
             return
         seen.add(base)
         rec = log_record(base, raw)
         if rec:
             out.append(rec)
 
-    for path in sorted(glob.glob(os.path.join(logs_dir, "*_text2sql_post_*.json"))):
+    pattern = "*.json" if others is not None else "*_text2sql_post_*.json"
+    for path in sorted(glob.glob(os.path.join(logs_dir, pattern))):
         with open(path, "rb") as fh:
             take(path, fh.read().decode("utf-8", "replace"))
     for archive in sorted(glob.glob(os.path.join(logs_dir, "archive", "*.tar.gz"))):
@@ -367,6 +404,76 @@ def traffic_block(T):
             + table(["month", "production", "campaign", "unknown", ""], rows, numeric=(1, 2, 3))
             + table(["API version", "requests"], rows_v, numeric=(1,)))
     return block("Traffic", "context", body)
+
+
+def _usd(x):
+    return f"${x:.4f}" if isinstance(x, (int, float)) else "n/a"
+
+
+def _p90(values):
+    v = sorted(values)
+    return v[int(0.9 * (len(v) - 1))] if v else None
+
+
+def cost_block(T, others):
+    """Cost price of a call (FASTAPI-TEXT2SQL-337): provider dollars and server time."""
+    cards = []
+    priced = [r for r in T if r.get("has_cost")]
+    rows = []
+    for label, rr in (("production", [r for r in priced if r["retrieve"] is True]),
+                      ("campaign", [r for r in priced if r["retrieve"] is False])):
+        if not rr:
+            continue
+        costs = [r["cost_usd"] for r in rr]
+        free = sum(1 for c in costs if not c)
+        paid = [c for c in costs if c]
+        mean = sum(costs) / len(costs)
+        rows.append((label, len(rr), pct(free, len(rr)), _usd(mean),
+                     _usd(statistics.median(paid) if paid else None), _usd(_p90(paid)), f"${1000 * mean:.2f}"))
+        if label == "production":
+            cards.append(card("Search cost, production", "llm_cost.total_usd", _usd(mean),
+                              f"mean over {len(rr)} searches, cache hits at $0 included"))
+    by_model = defaultdict(list)
+    for r in priced:
+        if r["cost_usd"]:
+            kind = "production" if r["retrieve"] is True else "campaign"
+            by_model[(r["t2s_model"] or "?", kind)].append(r["cost_usd"])
+    rows_m = [(m, k, len(v), _usd(sum(v) / len(v)), _usd(statistics.median(v)))
+              for (m, k), v in sorted(by_model.items())]
+    emb = [r["emb_tokens"] for r in priced if r.get("emb_tokens")]
+    timed = [r for r in T + others if isinstance(r.get("server_time"), (int, float))]
+    by_ep = defaultdict(list)
+    for r in timed:
+        by_ep[r["endpoint"]].append(r)
+    rows_t = []
+    for ep, rr in sorted(by_ep.items(), key=lambda x: -len(x[1])):
+        st = [r["server_time"] for r in rr]
+        ct = [r["cpu_time"] for r in rr if isinstance(r.get("cpu_time"), (int, float))]
+        rows_t.append((ep, len(rr), f"{statistics.median(st):.3f}", f"{_p90(st):.3f}",
+                       f"{statistics.median(ct):.3f}" if ct else "n/a", f"{sum(ct):.1f}" if ct else "n/a"))
+    entity = [r for r in others if isinstance(r.get("server_time"), (int, float))]
+    if entity:
+        cards.append(card("Other calls, server time", "server_time",
+                          f"{statistics.median([r['server_time'] for r in entity]):.3f} s",
+                          f"median over {len(entity)} calls of every non-search endpoint"))
+    body = (f"<p>{len(priced)} of {len(T)} logged questions carry <code>llm_cost</code>, the list-price estimate "
+            "the API computes from its price table <code>llm_costs.py</code> (provider fees only: LLM tasks and "
+            "embeddings). A cache hit calls nothing and counts at $0; the mean includes them, the median and p90 are "
+            "over the paid searches. Older logs have no <code>llm_cost</code> and are left out, not counted at zero.</p>"
+            + table(["traffic", "searches", "free (cache)", "mean", "median paid", "p90 paid", "per 1,000"], rows,
+                    numeric=(1, 3, 4, 5, 6))
+            + "<p>Paid searches by text-to-SQL model:</p>"
+            + table(["text2sql model", "traffic", "searches", "mean", "median"], rows_m, numeric=(2, 3, 4))
+            + (f"<p>Embeddings: median {statistics.median(emb):.0f} tokens per search over {len(emb)} searches.</p>"
+               if emb else "")
+            + "<p>Server time is the wall time inside the API (NGINX and network excluded), CPU time the process CPU "
+            "meanwhile, all threads, so it also counts any request served at the same moment. Both are stamped in "
+            "every log written during a request; logs older than the request clock have neither and are left out. "
+            "The last column is the CPU seconds the endpoint used over the period, the figure to share a server "
+            "bill by.</p>"
+            + table(["endpoint", "calls", "server p50 (s)", "server p90 (s)", "CPU p50 (s)", "CPU total (s)"], rows_t,
+                    numeric=(1, 2, 3, 4, 5)))
+    return cards, block("Cost price of a call", "FASTAPI-TEXT2SQL-337", body)
 
 
 def cache_block(T):
@@ -826,7 +933,8 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     print(f"reading logs in {args.logs}", file=sys.stderr)
-    records = scan_logs(args.logs, args.since)
+    others = []
+    records = scan_logs(args.logs, args.since, others)
     T = outer(records)
     version = args.eval_version or (latest_eval_version(args.evals) if os.path.isdir(args.evals) else None)
     runs = load_eval_rows(args.evals, version) if version else {}
@@ -840,6 +948,9 @@ def main():
     links = [("API usage", usage_name), ("Vision evidence", vision_name)]
 
     cards, blocks = [], [traffic_block(T)]
+    c, b = cost_block(T, others)
+    cards += c
+    blocks.append(b)
     c, b = cache_block(T)
     cards += c
     blocks.append(b)

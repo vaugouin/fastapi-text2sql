@@ -23,6 +23,7 @@ import io
 import os
 import re
 import sys
+import types
 from decimal import Decimal
 from typing import List, Optional
 
@@ -31,7 +32,7 @@ sys.path.insert(0, RACINE)
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-from pydantic import BaseModel, field_serializer, field_validator, model_validator  # noqa: E402
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator  # noqa: E402
 
 from response_rounding import RoundedJSONResponse, round_number, round_tree  # noqa: E402
 
@@ -41,7 +42,9 @@ debut = src.index("class TextMessage(BaseModel):")  # suivie de Text2SQLResponse
 fin = src.index("\nclass ResultItem(BaseModel):", debut)
 espace = {"BaseModel": BaseModel, "Optional": Optional, "List": List, "round_tree": round_tree,
           "field_serializer": field_serializer, "field_validator": field_validator,
-          "model_validator": model_validator}
+          "model_validator": model_validator, "Field": Field,
+          # flex_processing (TEXT2SQL-EVAL-002) reads its default from the request context.
+          "t2s": types.SimpleNamespace(flex_processing_enabled=lambda: False)}
 exec(compile(src[debut:fin], SOURCE, "exec"), espace)
 Text2SQLResponse = espace["Text2SQLResponse"]
 
@@ -138,7 +141,7 @@ print("-- 5. Les endpoints d'entite de main.py")
 decorateurs = re.findall(r'@app\.get\(\s*"/([a-z]+)/\{[^)]*\)', src)
 sans = [d for d in decorateurs if "response_class=RoundedJSONResponse" not in
         src[src.index('"/' + d + '/{'):src.index(")", src.index('"/' + d + '/{'))]]
-verifie("endpoints d'entite trouves", len(decorateurs), 18)
+verifie("endpoints d'entite trouves", len(decorateurs), 19)  # 19 since /sourceworks (2026-10)
 verifie("tous portent RoundedJSONResponse", sans, [])
 
 print()

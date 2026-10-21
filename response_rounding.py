@@ -58,6 +58,8 @@ def _decimals_for(key):
         return 3  # the millisecond
     if upper.endswith("_DISTANCE"):
         return 4
+    if upper.endswith("_USD"):
+        return 6  # FASTAPI-TEXT2SQL-337: a millionth of a dollar, an embeddings call is 1e-6
     return DEFAULT_DECIMALS
 
 

@@ -534,6 +534,14 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   ],
   "query_execution_time": 0.08,
   "total_processing_time": 1.93,
+  "llm_usage": {
+    "entity_extraction": {"model": "gpt-6-sol", "calls": 1, "prompt_tokens": 11153, "cached_tokens": 11101,
+                          "completion_tokens": 41, "reasoning_tokens": 0, "cache_write_tokens": 0, "cost_usd": 0.002734},
+    "text2sql": {"model": "gpt-6-sol", "calls": 1, "prompt_tokens": 28324, "cached_tokens": 28211,
+                 "completion_tokens": 321, "reasoning_tokens": 0, "cache_write_tokens": 0, "cost_usd": 0.009078}
+  },
+  "embedding_usage": {"model": "text-embedding-3-large", "calls": 1, "prompt_tokens": 30, "cost_usd": 0.000004},
+  "llm_cost": {"total_usd": 0.011816, "llm_usd": 0.011812, "embeddings_usd": 0.000004, "unpriced_models": []},
   "page": 1,
   "llm_defined_limit": null,
   "llm_defined_offset": null,
@@ -630,6 +638,9 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `vision_identification_processing_time` (float): The sixth and last wall clock, the vision call that read the image and named what it points at (FASTAPI-TEXT2SQL-114). 0.0 when no image was sent **and** on a recognition-cache hit, which is the criterion that proves the cache: the same photo re-deposited answers with this at 0.0 and `vision_model_used` false, because the identification came from the fingerprint of the bytes rather than from a second call of about 4 cents
 - `query_execution_time` (float): Time for SQL execution in seconds
 - `total_processing_time` (float): Total request processing time in seconds
+- `llm_usage` (object or null): Tokens per LLM task for this request, summed over its calls (FASTAPI-TEXT2SQL-296): `{task: {model, calls, prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, cache_write_tokens, cost_usd}}`. `prompt_tokens` includes the cached and cache-write tokens, `completion_tokens` includes the reasoning tokens. `cost_usd` (FASTAPI-TEXT2SQL-337) is the task's list price in dollars, `null` when its model has no price in `llm_costs.py`. `null` when no LLM was called (cache hit)
+- `embedding_usage` (object or null): The `text-embedding-3-large` calls of this request, made by the ChromaDB queries of entity resolution and of the anonymized-cache lookup (FASTAPI-TEXT2SQL-337): `{model, calls, prompt_tokens, cost_usd}`. Kept apart from `llm_usage`, whose readers sum its entries as chat calls. `null` when none ran
+- `llm_cost` (object or null): **What the request cost in provider fees, at list prices** (FASTAPI-TEXT2SQL-337): `{total_usd, llm_usd, embeddings_usd, unpriced_models}`. An estimate computed from the token counts and the price table of `llm_costs.py`, not an invoice line; Flex calls are counted at half price. A model without a price is named in `unpriced_models` and left out of the totals, never priced at zero. `null` when nothing was called: an exact cache hit costs no token. It does not include the server: the infrastructure share of a call is read from `server_time` and `cpu_time` in the logs (see *Logging*)
 
 **Pagination:**
 - `page` (int, optional): Current page number
@@ -1687,6 +1698,8 @@ Log files are created in the `logs/` folder (via `logs.py`) for the following ev
 - Each processed `POST /search/text2sql` request (`text2sql_post` event)
 - Each entity detail endpoint request (`movies`, `series`, `persons`, `companies`, `networks`, `collections`, `topics`, `lists`, `movements`, `technicals`, `groups`, `deaths`, `awards`, `nominations`, `locations`)
 - Each successful hot-reload of a file in the `data/` folder (`data_hot_reload` event)
+
+Every log written while serving an HTTP request carries, right after `ts`, **`server_time`** and **`cpu_time`** (FASTAPI-TEXT2SQL-337): the wall time in seconds since the request entered the API (NGINX and network excluded) and the CPU the process spent meanwhile, all threads included. They are what the infrastructure share of a call is measured by, and the only timing the entity endpoints have. `cpu_time` also counts any request served at the same moment, so read medians, not single records. `uv run analyze-usage-logs.py` turns them, with `llm_cost`, into the *Cost price of a call* section of its report.
 
 API request/response log files include:
 - Timestamp

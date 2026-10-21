@@ -248,6 +248,7 @@ class OpenAIEmbeddingFunction:
             input=input, # Ensure parameter name matches ChromaDB's expectations
             model=self.model
         )
+        self._record_usage(response)
         # Convert to numpy arrays for ChromaDB compatibility
         embeddings = [item.embedding for item in response.data]
         return [np.array(embedding) for embedding in embeddings]
@@ -264,10 +265,20 @@ class OpenAIEmbeddingFunction:
             input=query_input,
             model=self.model
         )
+        self._record_usage(response)
         # Return as a list of numpy arrays (same format as __call__ method)
         embeddings = [item.embedding for item in response.data]
         return [np.array(embedding) for embedding in embeddings]
     
+    def _record_usage(self, response):
+        """Count the call in the request's embedding_usage (FASTAPI-TEXT2SQL-337)."""
+        try:
+            usage = getattr(response, "usage", None)
+            t2s.record_embedding_usage(self.model, getattr(usage, "prompt_tokens", 0) if usage else 0)
+        except Exception as usage_error:
+            # Never let usage accounting break a ChromaDB query.
+            print(f"[embeddings] usage logging failed: {usage_error}")
+
     def name(self):
         """Return the name of the embedding function for ChromaDB compatibility."""
         return f"openai_{self.model.replace('-', '_')}"
@@ -2063,6 +2074,16 @@ class Text2SQLResponse(BaseModel):
     # are the part no timing reveals. A retried request reports both passes. None when no LLM
     # was called (cache hit) or on a path that returns before the pipeline runs.
     llm_usage: Optional[dict] = None
+    # FASTAPI-TEXT2SQL-337. The text-embedding-3-large calls of THIS request (ChromaDB entity
+    # resolution and anonymized-cache lookup): {model, calls, prompt_tokens, cost_usd}. Kept
+    # out of llm_usage, whose readers sum its entries as chat calls. None when none ran.
+    embedding_usage: Optional[dict] = None
+    # FASTAPI-TEXT2SQL-337. What the request cost at list prices (llm_costs.py), in dollars:
+    # {total_usd, llm_usd, embeddings_usd, unpriced_models}; each llm_usage entry also carries
+    # its own cost_usd. An estimate, not an invoice line; a model without a price is named in
+    # unpriced_models and left out of the totals, never priced at zero. None when nothing
+    # was called (a cache hit costs no tokens).
+    llm_cost: Optional[dict] = None
     # TEXT2SQL-EVAL-002. Echo of the request's flex_processing, read from the request context
     # when the response is built, so every construction site carries it without passing it.
     # The tier OpenAI actually served, with retries and fallbacks, is per task in llm_usage.
@@ -2731,7 +2752,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             api_version=strapiversion,
             messages=messages,
             result=[],
-            llm_usage=t2s.snapshot_llm_usage(),
+            **t2s.snapshot_usage_fields(),
         )
         logs.log_usage(
             "text2sql_post",
@@ -3249,7 +3270,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             vision_evidence=vision_evidence,
             # FASTAPI-TEXT2SQL-307: a photo settled by the identity check lands here, and its
             # vision call has to be counted like on any other path (it was null on 2026-09-30).
-            llm_usage=t2s.snapshot_llm_usage(),
+            **t2s.snapshot_usage_fields(),
             ui_language=request.ui_language,
             api_version=strapiversion,
             result=fast_path_results,
@@ -4342,7 +4363,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 # FASTAPI-TEXT2SQL-296: the accumulator is shared with the inner pass, so this
                 # snapshot holds the first pass, the simplification call and the retry.
                 try:
-                    retry_response.llm_usage = t2s.snapshot_llm_usage()
+                    for _field, _value in t2s.snapshot_usage_fields().items():
+                        setattr(retry_response, _field, _value)
                 except Exception:
                     pass
 
@@ -5643,7 +5665,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         api_version=strapiversion,
         result=query_results,
         messages=messages,
-        llm_usage=t2s.snapshot_llm_usage(),
+        **t2s.snapshot_usage_fields(),
     )
     
     # Log the request and response
@@ -10586,6 +10608,26 @@ async def _verify_mcp_bearer(request: Request, call_next):
 
 
 app.add_middleware(BaseHTTPMiddleware, dispatch=_verify_mcp_bearer)
+
+
+class _RequestClock:
+    """Start the per-request clock that logs.log_usage reads (FASTAPI-TEXT2SQL-337).
+
+    Pure ASGI rather than BaseHTTPMiddleware: the endpoint runs in this very context, so the
+    clock set here is the one the handler's log_usage sees, entity endpoints included, which
+    had no timing at all. It only sets a ContextVar; nothing is written per request.
+    """
+
+    def __init__(self, asgi_app):
+        self.app = asgi_app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http":
+            logs.start_request_clock()
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(_RequestClock)
 # FastAPI mount: app.mount("/mcp", ...) → app.mount("", ...) (avoid double /mcp/mcp path)
 app.mount("", mcp_app)
 
