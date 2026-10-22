@@ -13,6 +13,7 @@ import text2sql as t2s
 import data_watcher
 import json_guardrails
 import closed_vocab
+import logs
 
 
 # Which sibling year placeholder dates which title placeholder: a movie by its release
@@ -1496,26 +1497,28 @@ def plan_entity_resolutions(
                         _year_ctx = _extract_year_context(entity_extraction, placeholder)
                         if _year_ctx is not None:
                             try:
-                                _filtered = current_collection.query(
-                                    query_texts=[raw_value],
-                                    n_results=10,
-                                    # FASTAPI-TEXT2SQL-245: two bounds on one field MUST be
-                                    # wrapped in $and. ChromaDB refuses a single operator dict
-                                    # carrying both ("Expected operator expression to have exactly
-                                    # one operator"), so until 2026-09-15 this filter raised on
-                                    # every dated question and the search silently ran unfiltered.
-                                    where={"$and": [
-                                        {"year": {"$gte": _year_ctx - 1}},
-                                        {"year": {"$lte": _year_ctx + 1}},
-                                    ]},
-                                )
+                                with logs.chroma_call():  # FASTAPI-TEXT2SQL-338
+                                    _filtered = current_collection.query(
+                                        query_texts=[raw_value],
+                                        n_results=10,
+                                        # FASTAPI-TEXT2SQL-245: two bounds on one field MUST be
+                                        # wrapped in $and. ChromaDB refuses a single operator dict
+                                        # carrying both ("Expected operator expression to have exactly
+                                        # one operator"), so until 2026-09-15 this filter raised on
+                                        # every dated question and the search silently ran unfiltered.
+                                        where={"$and": [
+                                            {"year": {"$gte": _year_ctx - 1}},
+                                            {"year": {"$lte": _year_ctx + 1}},
+                                        ]},
+                                    )
                                 if (_filtered.get("documents", [[]]) or [[]])[0] or []:
                                     results = _filtered
                             except Exception as _exc:
                                 planned.note(f"Entity resolution: {placeholder} year-filtered search raised {type(_exc).__name__}: {_exc}; falling back to the unfiltered search")
                                 results = None
                     if results is None:
-                        results = current_collection.query(query_texts=[raw_value], n_results=10)
+                        with logs.chroma_call():  # FASTAPI-TEXT2SQL-338
+                            results = current_collection.query(query_texts=[raw_value], n_results=10)
                     documents = (results.get("documents", [[]]) or [[]])[0] or []
                     ids = (results.get("ids", [[]]) or [[]])[0] or []
                     distances = (results.get("distances", [[]]) or [[]])[0] or []

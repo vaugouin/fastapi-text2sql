@@ -40,6 +40,15 @@ PRICES = {
 # OpenAI Flex processing bills at Batch API rates: half the standard price on the GPT-6 line.
 FLEX_FACTOR = 0.5
 
+# The server, in euros excluding VAT (FASTAPI-TEXT2SQL-338). OVH VPS Elite 8-32-640
+# (vps-adacb908.vps.ovh.net, 8 vCores, 32 GB, 640 GB), 93.50 € a month on the October 2026
+# invoice, committed until 2028-06-01. A fixed cost: a call adds nothing to the bill until the
+# server saturates, so a call's share is an ALLOCATION of a cost already paid, by the CPU
+# seconds it occupied, priced at the capacity of an average month.
+VPS_EUR_PER_MONTH = 93.50
+VPS_VCORES = 8
+EUR_PER_CPU_SECOND = VPS_EUR_PER_MONTH / (VPS_VCORES * 30.4375 * 86_400)
+
 _PRICE_KEYS = sorted(PRICES, key=len, reverse=True)
 
 
@@ -76,6 +85,18 @@ def task_cost_usd(entry: dict) -> Optional[float]:
     if str(entry.get("service_tier") or "") == "flex":
         cost *= FLEX_FACTOR
     return cost
+
+
+def server_cost_eur(cpu_time, sql_time=0.0, chroma_time=0.0) -> Optional[float]:
+    """The server's share of a request in euros: its CPU seconds at EUR_PER_CPU_SECOND.
+
+    cpu_time is the API process; sql_time and chroma_time stand in for MariaDB and ChromaDB,
+    which run in other containers and whose own CPU the API cannot read (an upper bound: see
+    logs.server_usage). None when the request clock did not run.
+    """
+    if not isinstance(cpu_time, (int, float)):
+        return None
+    return (cpu_time + (sql_time or 0.0) + (chroma_time or 0.0)) * EUR_PER_CPU_SECOND
 
 
 def request_cost(llm_usage: Optional[dict], embedding_usage: Optional[dict]) -> Optional[dict]:

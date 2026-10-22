@@ -3,8 +3,12 @@ import json
 import time
 import hashlib
 import contextvars
+import threading
+from contextlib import contextmanager
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+import llm_costs
 
 LOGS_FOLDER = "logs"
 
@@ -35,9 +39,57 @@ def now_paris():
 _request_clock: "contextvars.ContextVar" = contextvars.ContextVar("request_clock", default=None)
 
 
+# FASTAPI-TEXT2SQL-338. cpu_time counts the API process only; MariaDB and ChromaDB work in
+# their own containers, and neither tells a client how much CPU one query took. What the API
+# can measure is how long it WAITED for them, so it times every SQL statement (the cursor
+# class of main.get_db_connection) and every ChromaDB call (chroma_call). The accumulator is
+# a dict installed with the clock and mutated in place: the endpoint's child task (the bearer
+# middleware) and its asyncio.to_thread workers get a copy of the context, hence the SAME
+# dict, and two workers can add to it at once (entity resolution overlaps the text2sql call).
+_backend_usage: "contextvars.ContextVar" = contextvars.ContextVar("backend_usage", default=None)
+_backend_lock = threading.Lock()
+# Embedding seconds spent by THIS thread: a ChromaDB query embeds its text client-side, through
+# OpenAI, and that wait is the provider's, already priced by its tokens, not ChromaDB's work.
+_thread_waits = threading.local()
+
+
 def start_request_clock():
     """Note the wall clock and the process CPU clock as the current request enters."""
     _request_clock.set((time.perf_counter(), time.process_time()))
+    _backend_usage.set({"sql_calls": 0, "sql_time": 0.0, "sql_rows": 0,
+                        "chroma_calls": 0, "chroma_time": 0.0})
+
+
+def record_sql(seconds, rows):
+    """Add one SQL statement to the request's accounting; a no-op outside a request."""
+    usage = _backend_usage.get()
+    if usage is None:
+        return
+    with _backend_lock:
+        usage["sql_calls"] += 1
+        usage["sql_time"] += seconds
+        usage["sql_rows"] += max(int(rows or 0), 0)
+
+
+def record_embedding_wait(seconds):
+    """Note an OpenAI embeddings round trip made by this thread (see chroma_call)."""
+    _thread_waits.embedding = getattr(_thread_waits, "embedding", 0.0) + seconds
+
+
+@contextmanager
+def chroma_call():
+    """Time one ChromaDB call, minus the embedding round trip it made inside, for the request."""
+    start = time.perf_counter()
+    embedding_before = getattr(_thread_waits, "embedding", 0.0)
+    try:
+        yield
+    finally:
+        usage = _backend_usage.get()
+        if usage is not None:
+            embedding = getattr(_thread_waits, "embedding", 0.0) - embedding_before
+            with _backend_lock:
+                usage["chroma_calls"] += 1
+                usage["chroma_time"] += max(time.perf_counter() - start - embedding, 0.0)
 
 
 def request_clock_readings():
@@ -56,6 +108,33 @@ def request_clock_readings():
         "server_time": round(time.perf_counter() - wall_start, 4),
         "cpu_time": round(time.process_time() - cpu_start, 4),
     }
+
+
+def server_usage():
+    """The request's server accounting so far, priced; {} outside a request (FASTAPI-TEXT2SQL-338).
+
+    {server_time, cpu_time, sql_calls, sql_time, sql_rows, chroma_calls, chroma_time,
+    server_cost_eur}. sql_time and chroma_time are the API's WAITS on MariaDB and ChromaDB
+    (network and PyMySQL's row decoding included), the stand-in for their CPU, which the API
+    cannot read; server_cost_eur prices cpu_time + sql_time + chroma_time at the VPS rate of
+    llm_costs.py. An upper bound, on purpose: a wait is never shorter than the work.
+    """
+    readings = request_clock_readings()
+    if not readings:
+        return {}
+    usage = _backend_usage.get() or {}
+    with _backend_lock:
+        usage = dict(usage)
+    readings.update({
+        "sql_calls": usage.get("sql_calls", 0),
+        "sql_time": round(usage.get("sql_time", 0.0), 4),
+        "sql_rows": usage.get("sql_rows", 0),
+        "chroma_calls": usage.get("chroma_calls", 0),
+        "chroma_time": round(usage.get("chroma_time", 0.0), 4),
+    })
+    cost = llm_costs.server_cost_eur(readings["cpu_time"], readings["sql_time"], readings["chroma_time"])
+    readings["server_cost_eur"] = round(cost, 9) if cost is not None else None
+    return readings
 
 
 def f_getlogfilename(endpoint, contenttext, strapiversion, now=None):
@@ -120,7 +199,7 @@ def log_usage(endpoint, content, strapiversion):
     if isinstance(content, dict) and "server_time" not in content:
         # FASTAPI-TEXT2SQL-337: right after "ts", measured up to this line of the handler.
         content = {**{k: v for k, v in content.items() if k == "ts"},
-                   **request_clock_readings(),
+                   **server_usage(),
                    **{k: v for k, v in content.items() if k != "ts"}}
     contenttext = json.dumps(content, indent=4, ensure_ascii=False, default=decimal_serializer)
     log_filename = f_getlogfilename(endpoint, contenttext, strapiversion, now)

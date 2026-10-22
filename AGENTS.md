@@ -219,7 +219,7 @@ its own table `T_WC_T2S_VISION_CACHE`.
 
 **[logs.py](logs.py)** : `log_usage(endpoint, content, strapiversion)` and `log_hot_reload(filename)`. Filenames are `YYYYMMDD-HHMMSS_{endpoint}_{version}_{md5hash}.json`; never overwrite existing files. Also the request clock (`start_request_clock`, started by the `_RequestClock` middleware of `main.py`) that stamps `server_time` and `cpu_time` in every log written during a request (FASTAPI-TEXT2SQL-337).
 
-**[llm_costs.py](llm_costs.py)** : the price table (dollars per million tokens, with sources and date) and the arithmetic that turns `llm_usage` and `embedding_usage` into `llm_cost` (FASTAPI-TEXT2SQL-337). The only place a price lives; see *What a call costs*.
+**[llm_costs.py](llm_costs.py)** : the price table (dollars per million tokens, with sources and date) and the arithmetic that turns `llm_usage` and `embedding_usage` into `llm_cost` (FASTAPI-TEXT2SQL-337), plus the VPS rate (`VPS_EUR_PER_MONTH`, `EUR_PER_CPU_SECOND`) behind `server_cost_eur` (FASTAPI-TEXT2SQL-338). The only place a price lives; see *What a call costs*.
 - `now_paris()` and `PARIS_TZ` are the one clock of the repo (FASTAPI-TEXT2SQL-328): every stamp a human reads goes through them, and every "now" compared with an upload horizon too. See *One clock: Paris time, with its offset* below.
 - `LOGS_FOLDER` is the **relative** `"logs"`, and that is load-bearing. Making it absolute or
   configurable would re-split the corpus per colour; see *`logs/` and `uploads/` are shared*.
@@ -466,8 +466,23 @@ input (priced $4 instead of $5 per million on Opus 5.5), and the entity endpoint
   `analyze-usage-logs.py` (search cost in production and campaign, by text-to-SQL model; server
   and CPU time per endpoint, entity routes included); per campaign, the cost block the evaluator
   prints at the end of phase 20 (text2sql-eval 2.14.0).
-- **What none of this covers:** the server bill itself. The infrastructure share of a call is
-  the VPS price divided among endpoints by their CPU and call counts, done outside the code.
+- **The server's share (FASTAPI-TEXT2SQL-338).** Every log of a request also carries, after
+  `cpu_time`, `sql_calls`, `sql_time`, `sql_rows`, `chroma_calls`, `chroma_time` and
+  `server_cost_eur`; `/search/text2sql` returns the same block as `server_usage`, filled on a
+  cache hit too. MariaDB and ChromaDB run in other containers and expose no per-query CPU, so
+  the API times its **waits** on them: `_TimedDictCursor`, the cursor class of
+  `get_db_connection`, times every statement (no call site to touch; **a new connection must
+  come from `get_db_connection`** or it escapes the count), and `logs.chroma_call()` wraps each
+  ChromaDB call, **minus the OpenAI embedding round trip** it makes client-side
+  (`OpenAIEmbeddingFunction` reports it through `logs.record_embedding_wait`). **A new ChromaDB
+  call site goes inside `with logs.chroma_call():`.** `server_cost_eur` = (`cpu_time` +
+  `sql_time` + `chroma_time`) × `llm_costs.EUR_PER_CPU_SECOND`: an upper bound (a wait
+  includes the network, and PyMySQL's row decoding is in both `sql_time` and `cpu_time`), and
+  an allocation of a fixed, committed bill, not a marginal cost.
+- **Measured up to the log line.** The entity endpoints call `log_usage` before their
+  localization queries (`apply_localized_related_images`, `apply_localized_text`, `ui_language`
+  other than `en` only), and the `?collection=` path writes no log: those few statements are
+  not in the log's figures.
 
 ### Who can drive the six, and the two gaps
 

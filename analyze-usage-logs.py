@@ -146,6 +146,11 @@ def log_record(name, raw):
         # prices its calls. "has_cost" separates "not measured" (older API) from a free hit.
         "server_time": d.get("server_time"),
         "cpu_time": d.get("cpu_time"),
+        # FASTAPI-TEXT2SQL-338: the waits on MariaDB and ChromaDB, and the server's share in euros.
+        "sql_calls": d.get("sql_calls"),
+        "sql_time": d.get("sql_time"),
+        "chroma_time": d.get("chroma_time"),
+        "server_cost_eur": d.get("server_cost_eur"),
         "has_cost": "llm_cost" in resp,
         "cost_usd": ((resp.get("llm_cost") or {}).get("total_usd") or 0.0) if "llm_cost" in resp else None,
         "emb_tokens": (resp.get("embedding_usage") or {}).get("prompt_tokens"),
@@ -173,7 +178,9 @@ def timing_record(name, raw):
     if not isinstance(d, dict):
         return None
     return {"ts": m.group(1), "endpoint": m.group(2),
-            "server_time": d.get("server_time"), "cpu_time": d.get("cpu_time")}
+            "server_time": d.get("server_time"), "cpu_time": d.get("cpu_time"),
+            "sql_calls": d.get("sql_calls"), "sql_time": d.get("sql_time"),
+            "chroma_time": d.get("chroma_time"), "server_cost_eur": d.get("server_cost_eur")}
 
 
 def scan_logs(logs_dir, since="", others=None):
@@ -445,12 +452,19 @@ def cost_block(T, others):
     by_ep = defaultdict(list)
     for r in timed:
         by_ep[r["endpoint"]].append(r)
+    def _p50(rr, key, fmt="{:.3f}"):
+        v = [r[key] for r in rr if isinstance(r.get(key), (int, float))]
+        return fmt.format(statistics.median(v)) if v else "n/a"
+
     rows_t = []
     for ep, rr in sorted(by_ep.items(), key=lambda x: -len(x[1])):
         st = [r["server_time"] for r in rr]
         ct = [r["cpu_time"] for r in rr if isinstance(r.get("cpu_time"), (int, float))]
+        eur = [r["server_cost_eur"] for r in rr if isinstance(r.get("server_cost_eur"), (int, float))]
         rows_t.append((ep, len(rr), f"{statistics.median(st):.3f}", f"{_p90(st):.3f}",
-                       f"{statistics.median(ct):.3f}" if ct else "n/a", f"{sum(ct):.1f}" if ct else "n/a"))
+                       f"{statistics.median(ct):.3f}" if ct else "n/a", f"{sum(ct):.1f}" if ct else "n/a",
+                       _p50(rr, "sql_calls", "{:.0f}"), _p50(rr, "sql_time"), _p50(rr, "chroma_time"),
+                       f"{1000 * sum(eur) / len(eur):.4f} €" if eur else "n/a"))
     entity = [r for r in others if isinstance(r.get("server_time"), (int, float))]
     if entity:
         cards.append(card("Other calls, server time", "server_time",
@@ -469,10 +483,14 @@ def cost_block(T, others):
             + "<p>Server time is the wall time inside the API (NGINX and network excluded), CPU time the process CPU "
             "meanwhile, all threads, so it also counts any request served at the same moment. Both are stamped in "
             "every log written during a request; logs older than the request clock have neither and are left out. "
-            "The last column is the CPU seconds the endpoint used over the period, the figure to share a server "
-            "bill by.</p>"
-            + table(["endpoint", "calls", "server p50 (s)", "server p90 (s)", "CPU p50 (s)", "CPU total (s)"], rows_t,
-                    numeric=(1, 2, 3, 4, 5)))
+            "CPU total is the API's CPU seconds over the period. Since FASTAPI-TEXT2SQL-338 the logs also carry "
+            "the API's waits on MariaDB (SQL) and ChromaDB, which run in other containers and whose own CPU the API "
+            "cannot read, and <code>server_cost_eur</code>: CPU plus both waits at the VPS rate of "
+            "<code>llm_costs.py</code> (93.50 € excl. VAT a month, 8 vCores), an upper bound of the server's share. "
+            "The VPS is a fixed, committed cost: these euros allocate it, a call does not add them to the bill.</p>"
+            + table(["endpoint", "calls", "server p50 (s)", "server p90 (s)", "CPU p50 (s)", "CPU total (s)",
+                     "SQL p50", "SQL p50 (s)", "Chroma p50 (s)", "server € / 1,000"], rows_t,
+                    numeric=(1, 2, 3, 4, 5, 6, 7, 8, 9)))
     return cards, block("Cost price of a call", "FASTAPI-TEXT2SQL-337", body)
 
 

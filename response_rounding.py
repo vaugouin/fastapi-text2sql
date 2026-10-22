@@ -60,6 +60,8 @@ def _decimals_for(key):
         return 4
     if upper.endswith("_USD"):
         return 6  # FASTAPI-TEXT2SQL-337: a millionth of a dollar, an embeddings call is 1e-6
+    if upper.endswith("_EUR"):
+        return 9  # FASTAPI-TEXT2SQL-338: the server's share of an entity call is about 1e-7 €
     return DEFAULT_DECIMALS
 
 

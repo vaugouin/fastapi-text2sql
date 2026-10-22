@@ -244,10 +244,12 @@ class OpenAIEmbeddingFunction:
 
     def __call__(self, input):
         """Generate embeddings for a list of texts using OpenAI's embedding model."""
+        started = time.perf_counter()
         response = openai.embeddings.create(
             input=input, # Ensure parameter name matches ChromaDB's expectations
             model=self.model
         )
+        logs.record_embedding_wait(time.perf_counter() - started)  # FASTAPI-TEXT2SQL-338
         self._record_usage(response)
         # Convert to numpy arrays for ChromaDB compatibility
         embeddings = [item.embedding for item in response.data]
@@ -261,10 +263,12 @@ class OpenAIEmbeddingFunction:
         else:
             query_input = input
             
+        started = time.perf_counter()
         response = openai.embeddings.create(
             input=query_input,
             model=self.model
         )
+        logs.record_embedding_wait(time.perf_counter() - started)  # FASTAPI-TEXT2SQL-338
         self._record_usage(response)
         # Return as a list of numpy arrays (same format as __call__ method)
         embeddings = [item.embedding for item in response.data]
@@ -430,6 +434,28 @@ mcp_app = mcp.http_app(stateless_http=True)
 # FastMCP lifespan: Pass mcp_app.lifespan to the FastAPI constructor
 app = FastAPI(title="Text2SQL API", version=strapiversion, description="Text2SQL API for text to SQL query conversion", lifespan=mcp_app.lifespan)
 
+class _TimedDictCursor(pymysql.cursors.DictCursor):
+    """DictCursor that bills each statement's wait and rows to the request (FASTAPI-TEXT2SQL-338).
+
+    Every runtime connection comes from get_db_connection, so this one class sees every SQL
+    statement of a request, entity endpoints, caches and entity resolution included, without
+    touching the sixty call sites. The cursor is buffered: execute() returns once MariaDB has
+    answered and PyMySQL has read every row, so its duration is the whole wait. executemany()
+    goes through execute() and is counted once per statement it sends. Outside a request (the
+    BK-tree warm-up thread, startup) logs.record_sql is a no-op.
+    """
+
+    def execute(self, query, args=None):
+        started = time.perf_counter()
+        try:
+            return super().execute(query, args)
+        finally:
+            try:
+                logs.record_sql(time.perf_counter() - started, self.rowcount)
+            except Exception:
+                pass  # accounting must never break a query
+
+
 def get_db_connection():
     """Establish and return a database connection to MySQL.
     
@@ -457,7 +483,7 @@ def get_db_connection():
         user=strdbuser,
         password=strdbpassword,
         database=strdbname,
-        cursorclass=pymysql.cursors.DictCursor,
+        cursorclass=_TimedDictCursor,
         autocommit=True
     )
 
@@ -2084,6 +2110,12 @@ class Text2SQLResponse(BaseModel):
     # unpriced_models and left out of the totals, never priced at zero. None when nothing
     # was called (a cache hit costs no tokens).
     llm_cost: Optional[dict] = None
+    # FASTAPI-TEXT2SQL-338. The server's share of the request, measured when the response is
+    # built (logs.server_usage): {server_time, cpu_time, sql_calls, sql_time, sql_rows,
+    # chroma_calls, chroma_time, server_cost_eur}. sql_time and chroma_time are the API's waits
+    # on MariaDB and ChromaDB; server_cost_eur prices cpu_time + both waits at the VPS rate of
+    # llm_costs.py, in euros excl. VAT. Unlike llm_cost it is filled on a cache hit too.
+    server_usage: Optional[dict] = None
     # TEXT2SQL-EVAL-002. Echo of the request's flex_processing, read from the request context
     # when the response is built, so every construction site carries it without passing it.
     # The tier OpenAI actually served, with retries and fallbacks, is per task in llm_usage.
@@ -3581,11 +3613,12 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
 
                         # First, get more results to filter through
                         n_results_to_fetch = 10  # Get more results initially
-                        embedding_results = anonymizedqueries.query(
-                            query_texts=[input_text_anonymized],
-                            n_results=n_results_to_fetch,
-                            include=['documents', 'metadatas', 'distances']
-                        )
+                        with logs.chroma_call():  # FASTAPI-TEXT2SQL-338
+                            embedding_results = anonymizedqueries.query(
+                                query_texts=[input_text_anonymized],
+                                n_results=n_results_to_fetch,
+                                include=['documents', 'metadatas', 'distances']
+                            )
                         embeddings_cache_end_time = time.time()
                         embeddings_cache_search_time = embeddings_cache_end_time - embeddings_cache_start_time
 
@@ -5454,7 +5487,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             position_counter += 1
             strdocid = hashlib.sha256(input_text_anonymized.encode('utf-8')).hexdigest()
             print("Anonymized query ID:", strdocid)
-            existing_doc = anonymizedqueries.get(ids=[strdocid])
+            with logs.chroma_call():  # FASTAPI-TEXT2SQL-338
+                existing_doc = anonymizedqueries.get(ids=[strdocid])
             if existing_doc and existing_doc['ids']:
                 print("Anonymized question already exists in the embeddings cache")
                 messages.append(TextMessage(
@@ -5473,21 +5507,22 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 if isinstance(entity_extraction, dict) and 'error' not in entity_extraction:
                     entity_vars_for_metadata = [key for key, _ in entity.extracted_entity_items(entity_extraction)]
                 
-                anonymizedqueries.add(
-                    ids=[strdocid],
-                    documents=[input_text_anonymized],
-                    metadatas=[{
-                            "sql_query_anonymized": sql_query_anonymized,
-                            "justification": justification_anonymized or "",
-                            "answer": answer_anonymized or "",
-                            "result_entity": result_entity or "",
-                            "api_version": strapiversionformatted,
-                            "entity_variables": ",".join(entity_vars_for_metadata),  # Store as comma-separated string
-                            "entity_extraction_processing_time": entity_extraction_processing_time,
-                            "text2sql_processing_time": text2sql_processing_time,
-                            "dat_creat": logs.now_paris().isoformat(timespec="seconds")
-                    }]
-                )
+                with logs.chroma_call():  # FASTAPI-TEXT2SQL-338
+                    anonymizedqueries.add(
+                        ids=[strdocid],
+                        documents=[input_text_anonymized],
+                        metadatas=[{
+                                "sql_query_anonymized": sql_query_anonymized,
+                                "justification": justification_anonymized or "",
+                                "answer": answer_anonymized or "",
+                                "result_entity": result_entity or "",
+                                "api_version": strapiversionformatted,
+                                "entity_variables": ",".join(entity_vars_for_metadata),  # Store as comma-separated string
+                                "entity_extraction_processing_time": entity_extraction_processing_time,
+                                "text2sql_processing_time": text2sql_processing_time,
+                                "dat_creat": logs.now_paris().isoformat(timespec="seconds")
+                        }]
+                    )
                 print(f"Anonymized question added to embeddings cache with entity variables: {entity_vars_for_metadata}")
     
     # FASTAPI-TEXT2SQL-162 (post-process variant): localize movie/serie result rows by

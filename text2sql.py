@@ -15,6 +15,7 @@ from typing import Optional
 import data_watcher
 import json_guardrails
 import llm_costs
+import logs
 from dotenv import load_dotenv
 import openai
 try:
@@ -226,11 +227,12 @@ def record_embedding_usage(model: str, prompt_tokens: int) -> None:
 
 
 def snapshot_usage_fields() -> dict:
-    """The three usage fields of a Text2SQLResponse, priced (FASTAPI-TEXT2SQL-337).
+    """The four usage fields of a Text2SQLResponse, priced (FASTAPI-TEXT2SQL-337, -338).
 
-    Returns {"llm_usage", "embedding_usage", "llm_cost"}: the per-task tokens, each entry now
-    carrying its `cost_usd`, the embeddings calls, and the request's cost summary. All three
-    are None when nothing was called (a cache hit).
+    Returns {"llm_usage", "embedding_usage", "llm_cost", "server_usage"}: the per-task tokens,
+    each entry now carrying its `cost_usd`, the embeddings calls, the request's provider cost
+    summary (all three None when nothing was called, a cache hit), and the server's share so
+    far (logs.server_usage: time, CPU, SQL and ChromaDB waits, euros), None outside a request.
     """
     llm_usage = snapshot_llm_usage()
     embedding_usage = _embedding_usage.get()
@@ -245,7 +247,13 @@ def snapshot_usage_fields() -> dict:
         # Never let the cost estimate break a request.
         print(f"[llm-cost] pricing failed: {cost_error}")
         llm_cost = None
-    return {"llm_usage": llm_usage, "embedding_usage": embedding_usage, "llm_cost": llm_cost}
+    try:
+        server_usage = logs.server_usage() or None
+    except Exception as server_error:
+        print(f"[server-usage] snapshot failed: {server_error}")
+        server_usage = None
+    return {"llm_usage": llm_usage, "embedding_usage": embedding_usage, "llm_cost": llm_cost,
+            "server_usage": server_usage}
 
 
 def snapshot_llm_usage() -> Optional[dict]:

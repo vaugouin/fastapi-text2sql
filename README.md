@@ -542,6 +542,8 @@ curl -X POST "http://localhost:8000/search/text2sql" \
   },
   "embedding_usage": {"model": "text-embedding-3-large", "calls": 1, "prompt_tokens": 30, "cost_usd": 0.000004},
   "llm_cost": {"total_usd": 0.011816, "llm_usd": 0.011812, "embeddings_usd": 0.000004, "unpriced_models": []},
+  "server_usage": {"server_time": 6.412, "cpu_time": 0.183, "sql_calls": 31, "sql_time": 0.094, "sql_rows": 412,
+                   "chroma_calls": 1, "chroma_time": 0.012, "server_cost_eur": 0.000001284},
   "page": 1,
   "llm_defined_limit": null,
   "llm_defined_offset": null,
@@ -641,6 +643,7 @@ curl -X POST "http://localhost:8000/search/text2sql" \
 - `llm_usage` (object or null): Tokens per LLM task for this request, summed over its calls (FASTAPI-TEXT2SQL-296): `{task: {model, calls, prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, cache_write_tokens, cost_usd}}`. `prompt_tokens` includes the cached and cache-write tokens, `completion_tokens` includes the reasoning tokens. `cost_usd` (FASTAPI-TEXT2SQL-337) is the task's list price in dollars, `null` when its model has no price in `llm_costs.py`. `null` when no LLM was called (cache hit)
 - `embedding_usage` (object or null): The `text-embedding-3-large` calls of this request, made by the ChromaDB queries of entity resolution and of the anonymized-cache lookup (FASTAPI-TEXT2SQL-337): `{model, calls, prompt_tokens, cost_usd}`. Kept apart from `llm_usage`, whose readers sum its entries as chat calls. `null` when none ran
 - `llm_cost` (object or null): **What the request cost in provider fees, at list prices** (FASTAPI-TEXT2SQL-337): `{total_usd, llm_usd, embeddings_usd, unpriced_models}`. An estimate computed from the token counts and the price table of `llm_costs.py`, not an invoice line; Flex calls are counted at half price. A model without a price is named in `unpriced_models` and left out of the totals, never priced at zero. `null` when nothing was called: an exact cache hit costs no token. It does not include the server: the infrastructure share of a call is read from `server_time` and `cpu_time` in the logs (see *Logging*)
+- `server_usage` (object or null): **The server's share of the request** (FASTAPI-TEXT2SQL-338), measured when the response is built: `{server_time, cpu_time, sql_calls, sql_time, sql_rows, chroma_calls, chroma_time, server_cost_eur}`. `sql_time` and `chroma_time` are the seconds the API waited on MariaDB and ChromaDB (the embedding round trip to OpenAI excluded), which stand in for their CPU since neither reports it per query. `server_cost_eur` prices `cpu_time + sql_time + chroma_time` at the VPS rate of `llm_costs.py` (93.50 € excl. VAT a month, 8 vCores), in euros: an upper bound, and an allocation of a fixed bill rather than an extra expense. Filled on a cache hit too
 
 **Pagination:**
 - `page` (int, optional): Current page number
@@ -1700,6 +1703,8 @@ Log files are created in the `logs/` folder (via `logs.py`) for the following ev
 - Each successful hot-reload of a file in the `data/` folder (`data_hot_reload` event)
 
 Every log written while serving an HTTP request carries, right after `ts`, **`server_time`** and **`cpu_time`** (FASTAPI-TEXT2SQL-337): the wall time in seconds since the request entered the API (NGINX and network excluded) and the CPU the process spent meanwhile, all threads included. They are what the infrastructure share of a call is measured by, and the only timing the entity endpoints have. `cpu_time` also counts any request served at the same moment, so read medians, not single records. `uv run analyze-usage-logs.py` turns them, with `llm_cost`, into the *Cost price of a call* section of its report.
+
+They are followed by **`sql_calls`, `sql_time`, `sql_rows`, `chroma_calls`, `chroma_time`** and **`server_cost_eur`** (FASTAPI-TEXT2SQL-338): the statements sent to MariaDB, the seconds spent waiting on it and the rows it returned or changed, the ChromaDB calls and their wait, and the server's share of the request in euros (see `server_usage` above). Like `server_time`, they are measured up to the moment the log is written.
 
 API request/response log files include:
 - Timestamp
