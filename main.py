@@ -6353,6 +6353,13 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
     its narrative and filming locations (locations), cast, and crew. The id is the TMDb
     movie ID (ID_MOVIE).
 
+    adapted_movies and adapted_series are the reverse of based_on: when this movie is
+    itself a source work (a source-work row carries its ID_MOVIE, e.g. Yojimbo, the
+    source of A Fistful of Dollars), the films and series adapted from it, oldest first,
+    the movie excluded from its own list. Same card fields and pagination (collection =
+    'adapted_movies' | 'adapted_series') as the movies / series of /sourceworks/{id}.
+    Empty for an ordinary movie that is no one's source.
+
     similar and recommendations are the grounded TMDb neighbour movies (from
     T_WC_T2S_MOVIE_SIMILAR / T_WC_T2S_MOVIE_RECOMMENDATION): each element carries
     ID_MOVIE, MOVIE_TITLE (localized to ui_language), DAT_RELEASE,
@@ -6522,6 +6529,32 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
                 JOIN T_WC_T2S_SOURCE_WORK sw ON ms.ID_SOURCE_WORK = sw.ID_SOURCE_WORK AND sw.DELETED = 0
                 WHERE ms.ID_MOVIE = %s ORDER BY sw.SOURCE_WORK_YEAR ASC, sw.ID_SOURCE_WORK ASC
             """, (id,), None),
+            # The reverse of based_on: when THIS movie is itself a source work (a source-work row
+            # carries ID_MOVIE = this movie, e.g. Yojimbo, the source of A Fistful of Dollars), the
+            # films and series adapted from it. Mirrors the movies / series collections of
+            # /sourceworks/{id}, so a client shows the same two rails on the film sheet. The film
+            # excludes itself (ID_MOVIE <> %s); DISTINCT via GROUP BY in case it is the source of
+            # more than one source-work row. Oldest adaptation first.
+            "adapted_movies": ("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED,
+                       m.POSTER_PATH, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_SOURCE_WORK sw
+                JOIN T_WC_T2S_MOVIE_SOURCE_WORK ms ON ms.ID_SOURCE_WORK = sw.ID_SOURCE_WORK AND COALESCE(ms.DELETED, 0) = 0
+                JOIN T_WC_T2S_MOVIE m ON ms.ID_MOVIE = m.ID_MOVIE AND COALESCE(m.DELETED, 0) = 0
+                WHERE sw.ID_MOVIE = %s AND COALESCE(sw.DELETED, 0) = 0 AND m.ID_MOVIE <> %s
+                GROUP BY m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH
+                ORDER BY m.DAT_RELEASE IS NULL, m.DAT_RELEASE ASC, m.ID_MOVIE ASC
+            """, (id, id), "movie"),
+            "adapted_series": ("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED,
+                       s.POSTER_PATH, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_SOURCE_WORK sw
+                JOIN T_WC_T2S_SERIE_SOURCE_WORK ss ON ss.ID_SOURCE_WORK = sw.ID_SOURCE_WORK AND COALESCE(ss.DELETED, 0) = 0
+                JOIN T_WC_T2S_SERIE s ON ss.ID_SERIE = s.ID_SERIE AND COALESCE(s.DELETED, 0) = 0
+                WHERE sw.ID_MOVIE = %s AND COALESCE(sw.DELETED, 0) = 0
+                GROUP BY s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH
+                ORDER BY s.DAT_FIRST_AIR IS NULL, s.DAT_FIRST_AIR ASC, s.ID_SERIE ASC
+            """, (id,), "serie"),
             # Locations (FASTAPI-TEXT2SQL-329): where the story is set ('narrative') and where it
             # was shot ('filming'), the reverse of /locations/{id}. Narrative first, then filming,
             # then the junction DISPLAY_ORDER, then name. A tombstoned place (DELETED, see
@@ -6657,6 +6690,8 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
             "collections": data["collections"],
             "movements": data["movements"],
             "based_on": data["based_on"],
+            "adapted_movies": data["adapted_movies"],
+            "adapted_series": data["adapted_series"],
             "locations": data["locations"],
             "technicals": data["technicals"],
             "awards": data["awards"],
@@ -6699,6 +6734,12 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
     collections, movements, awards, nominations, the works it is based on (based_on),
     its narrative and filming locations (locations), cast, and crew. The id is the TMDb
     series ID (ID_SERIE).
+
+    adapted_movies and adapted_series are the reverse of based_on: when this series is
+    itself a source work (a source-work row carries its ID_SERIE), the films and series
+    adapted from it, oldest first, the series excluded from its own list. Same card
+    fields and pagination (collection = 'adapted_movies' | 'adapted_series') as the
+    movies / series of /sourceworks/{id}. Empty for an ordinary series.
 
     similar and recommendations are the grounded TMDb neighbour series (from
     T_WC_T2S_SERIE_SIMILAR / T_WC_T2S_SERIE_RECOMMENDATION): each element carries
@@ -6873,6 +6914,30 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
                 JOIN T_WC_T2S_SOURCE_WORK sw ON ss.ID_SOURCE_WORK = sw.ID_SOURCE_WORK AND sw.DELETED = 0
                 WHERE ss.ID_SERIE = %s ORDER BY sw.SOURCE_WORK_YEAR ASC, sw.ID_SOURCE_WORK ASC
             """, (id,), None),
+            # The reverse of based_on: when THIS series is itself a source work (a source-work row
+            # carries ID_SERIE = this series), the films and series adapted from it. Mirrors the
+            # movies / series collections of /sourceworks/{id}. The series excludes itself
+            # (ID_SERIE <> %s); DISTINCT via GROUP BY. Oldest adaptation first.
+            "adapted_movies": ("""
+                SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED,
+                       m.POSTER_PATH, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_SOURCE_WORK sw
+                JOIN T_WC_T2S_MOVIE_SOURCE_WORK ms ON ms.ID_SOURCE_WORK = sw.ID_SOURCE_WORK AND COALESCE(ms.DELETED, 0) = 0
+                JOIN T_WC_T2S_MOVIE m ON ms.ID_MOVIE = m.ID_MOVIE AND COALESCE(m.DELETED, 0) = 0
+                WHERE sw.ID_SERIE = %s AND COALESCE(sw.DELETED, 0) = 0
+                GROUP BY m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH
+                ORDER BY m.DAT_RELEASE IS NULL, m.DAT_RELEASE ASC, m.ID_MOVIE ASC
+            """, (id,), "movie"),
+            "adapted_series": ("""
+                SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED,
+                       s.POSTER_PATH, COUNT(*) OVER() AS _TOTAL_COUNT
+                FROM T_WC_T2S_SOURCE_WORK sw
+                JOIN T_WC_T2S_SERIE_SOURCE_WORK ss ON ss.ID_SOURCE_WORK = sw.ID_SOURCE_WORK AND COALESCE(ss.DELETED, 0) = 0
+                JOIN T_WC_T2S_SERIE s ON ss.ID_SERIE = s.ID_SERIE AND COALESCE(s.DELETED, 0) = 0
+                WHERE sw.ID_SERIE = %s AND COALESCE(sw.DELETED, 0) = 0 AND s.ID_SERIE <> %s
+                GROUP BY s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH
+                ORDER BY s.DAT_FIRST_AIR IS NULL, s.DAT_FIRST_AIR ASC, s.ID_SERIE ASC
+            """, (id, id), "serie"),
             # Locations (FASTAPI-TEXT2SQL-329): where the story is set ('narrative') and where it
             # was shot ('filming'), the reverse of /locations/{id}. Narrative first, then filming,
             # then the junction DISPLAY_ORDER, then name. A tombstoned place (DELETED, see
@@ -7020,6 +7085,8 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
             "collections": data["collections"],
             "movements": data["movements"],
             "based_on": data["based_on"],
+            "adapted_movies": data["adapted_movies"],
+            "adapted_series": data["adapted_series"],
             "locations": data["locations"],
             "awards": data["awards"],
             "nominations": data["nominations"],
