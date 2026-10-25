@@ -755,7 +755,8 @@ IMDb rating of Kubrick movies per decade", grouped by decade, became one row per
 ## Before and after an evaluation campaign: `off-all.sh`, then `on-all.sh`
 
 Every automated task on the VPS (crawlers, preprocessors, `embedding-update`, ...) is started by
-cron through a script that its folder's `off.sh` renames and `on.sh` restores. `docker stop` alone
+cron through a script that exits at once while its folder holds the flag file `CRON_OFF`: `off.sh`
+writes it, `on.sh` deletes it (2026-10-25; before, the pair renamed the script). `docker stop` alone
 is not enough: the next cron tick starts the container again, in the middle of a multi-hour
 campaign. And those tasks do not only slow the run down: `embedding-update` rewrites the ChromaDB
 collections the API resolves entities against, so it changes the **answers** being measured.
