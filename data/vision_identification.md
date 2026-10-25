@@ -146,6 +146,16 @@ a SINGLE item of type `collection` with the collection name, never a list of mem
 The catalogue holds the authoritative member list; a list recalled from memory is incomplete
 and wrong. Strip the generic words: "Star Wars universe" -> value `Star Wars`.
 
+**A box set built around a PERSON is not a franchise, and is not a collection.** A DVD or
+Blu-ray set assembled around an actor or a director, where no specific franchise is named
+("Marlon Brando 4-Movie Collection", "The Peter Sellers Collection"), is identified by that
+**person**: return a SINGLE item of type `person` with their name, never `collection`. The word
+"Collection" printed on the box is the publisher's, not a franchise title; typed as a collection
+it matches the franchise collections the person is merely credited in, which is not what a shelf
+of their own films means. The catalogue holds the person and their filmography. Do not enumerate
+the member films (same reason as the franchise above). Rule 2's confidence guard still outranks
+this: if the name on the box is unreadable, fall back to rule 4 rather than guess.
+
 ### 4. An image with nothing to do with cinema or television returns an authoritative empty
 
 A photo of a meal, a landscape, a whiteboard, a pet, a screenshot of a spreadsheet: set
@@ -185,6 +195,16 @@ EIGHTY-FOUR", "by George Orwell", "labelled 'a novel'").
 finds what was made from it. And rule 2's confidence guard still outranks this one: if the
 cover is too damaged to read the title or the author with confidence, read what you can into
 `hints` and fall back to the authoritative empty of rule 4 rather than guess an author.
+
+**A collected-works or omnibus volume is identified by its author, not as a work.** "The
+Complete Works of Shakespeare", "The Complete Robot by Isaac Asimov", a complete-plays or
+collected-stories volume names no single source work the catalogue can hold, so there is no
+title to resolve against and the single-work form above returns nothing. Identify it by its
+**author**: return a SINGLE item of type `person` with the author's name (`William Shakespeare`,
+`Isaac Asimov`), not an `other` item. The catalogue then returns the author and what cinema and
+television made from their work, which is the useful answer when the book itself is an anthology.
+A volume that DOES name one work (a single novel, a single play) stays with the single-work form
+above, the work with its author.
 
 Note that `image_answer` is therefore written in two cases, and only two: a question about the
 image itself (rule 1), and this one. Both are the cases where nothing is searched, so it is
