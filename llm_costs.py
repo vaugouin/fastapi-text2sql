@@ -26,7 +26,11 @@ from typing import Optional
 # aipricing.guru (GPT-6 family, cache-write rates included), developers.openai.com model page
 # (text-embedding-3-large), Anthropic's pricing page (Opus 5.5, 5-minute cache write). The
 # gpt-6-sol cached rate ($0.20) was confirmed by the 2026-10-03 invoice to 1.4 %.
+# gpt-6.1-terra (released 2026-10-26), added 2026-10-28 so a campaign on it is priced live:
+# input, cached and output from OpenAI's launch page as quoted by eesel.ai and datacamp.com;
+# cache write is the 30-minute retention rate ($2.50 for 12 hours), eesel.ai only.
 PRICES = {
+    "gpt-6.1-terra": {"input": 1.00, "cached": 0.05, "cache_write": 1.25, "output": 5.00},
     "gpt-6.1-sol": {"input": 2.00, "cached": 0.10, "cache_write": 2.50, "output": 10.00},
     "gpt-6-sol": {"input": 2.00, "cached": 0.20, "cache_write": 2.50, "output": 10.00},
     "gpt-6-luna": {"input": 0.10, "cached": 0.01, "cache_write": 0.125, "output": 0.50},
