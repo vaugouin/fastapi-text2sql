@@ -329,6 +329,32 @@ def set_flex_processing(enabled: bool) -> None:
     _flex_processing.set(bool(enabled))
 
 
+# FASTAPI-TEXT2SQL-347 (2026-10-28). OpenAI Fast mode (`service_tier="fast"`, the former Priority
+# processing; "priority" is served back as "fast"), asked per TASK, not per request: faster and
+# steadier token generation for about twice the standard price (aggregators), no latency SLA.
+# The set holds the cache labels of the tasks that asked for it ("entity_extraction", "text2sql",
+# "complex_question", "result_entity"). Same lifecycle as _flex_processing. On a task that asked
+# for Fast, Fast wins over a request-wide Flex: the per-task choice is the more specific one.
+# No "ultrafast" value exists on chat.completions for our key (probed 2026-10-28).
+_fast_tasks: "contextvars.ContextVar" = contextvars.ContextVar("fast_tasks", default=frozenset())
+_FAST_MODEL_PREFIXES = ("gpt-5", "gpt-6")
+
+
+def set_fast_tasks(labels) -> None:
+    """Ask for OpenAI Fast mode on the chat calls of these tasks (cache labels) in this request."""
+    _fast_tasks.set(frozenset(str(label) for label in (labels or ()) if label))
+
+
+def fast_tasks_enabled() -> list:
+    """The tasks of the current request that asked for Fast mode, sorted."""
+    return sorted(_fast_tasks.get())
+
+
+def _uses_openai_fast(model_norm: str, cache_label: str) -> bool:
+    return (cache_label in _fast_tasks.get()
+            and str(model_norm).strip().lower().startswith(_FAST_MODEL_PREFIXES))
+
+
 def flex_processing_enabled() -> bool:
     """True when the current request asked for OpenAI Flex processing."""
     return bool(_flex_processing.get())
@@ -917,7 +943,10 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
                 **extra,
             )
 
-        if _uses_openai_flex(model_norm):
+        if _uses_openai_fast(model_norm, cache_label):
+            response = _send({"service_tier": "fast"})
+            _record_service_tier(cache_label, model_norm, response)
+        elif _uses_openai_flex(model_norm):
             response = _openai_flex_call(_send, label=cache_label, model_norm=model_norm)
         else:
             response = _send({})

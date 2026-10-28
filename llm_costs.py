@@ -43,6 +43,10 @@ PRICES = {
 
 # OpenAI Flex processing bills at Batch API rates: half the standard price on the GPT-6 line.
 FLEX_FACTOR = 0.5
+# OpenAI Fast mode (FASTAPI-TEXT2SQL-347): about twice the standard price, from aggregators only
+# (2026-10-28); OpenAI's own figure is to be checked against the invoice. A task with any call
+# served Fast is priced at the Fast rate: the higher figure is the safe one.
+FAST_FACTOR = 2.0
 
 # Names that would fall into a priced row by prefix but are billed differently and at a price we
 # do not know: the Decisions API (FASTAPI-TEXT2SQL-310) is not a Luna chat call.
@@ -92,7 +96,10 @@ def task_cost_usd(entry: dict) -> Optional[float]:
     uncached = max(prompt - cached - write, 0)
     cost = (uncached * price["input"] + cached * price["cached"]
             + write * price["cache_write"] + output * price["output"]) / 1_000_000
-    if str(entry.get("service_tier") or "") == "flex":
+    tiers = str(entry.get("service_tier") or "")
+    if "fast" in tiers.split(","):
+        cost *= FAST_FACTOR
+    elif tiers == "flex":
         cost *= FLEX_FACTOR
     return cost
 

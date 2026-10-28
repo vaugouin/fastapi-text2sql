@@ -1990,6 +1990,13 @@ class Text2SQLRequest(BaseModel):
     # request: half the price, slower, retried on 429 and timeouts, then sent once at the
     # standard tier. Meant for evaluation campaigns; GPT-5.x and GPT-6 models only.
     flex_processing: bool = False
+    # FASTAPI-TEXT2SQL-347 (2026-10-28). OpenAI Fast mode per task, for the latency-sensitive
+    # path: faster, steadier generation for about twice the standard price. GPT-5.x and GPT-6
+    # models only; on a task that asks for it, Fast wins over flex_processing.
+    llm_fast_entity_extraction: bool = False
+    llm_fast_text2sql: bool = False
+    llm_fast_complex: bool = False
+    llm_fast_result_entity: bool = False
 
     @field_validator("ui_language", mode="before")
     @classmethod
@@ -2120,6 +2127,9 @@ class Text2SQLResponse(BaseModel):
     # when the response is built, so every construction site carries it without passing it.
     # The tier OpenAI actually served, with retries and fallbacks, is per task in llm_usage.
     flex_processing: bool = Field(default_factory=t2s.flex_processing_enabled)
+    # FASTAPI-TEXT2SQL-347. Echo of the tasks that asked for Fast mode (cache labels), read from
+    # the request context like flex_processing. The tier actually served is in llm_usage.
+    fast_tasks: list = Field(default_factory=t2s.fast_tasks_enabled)
     # True only when the vision model was actually invoked on this turn. Read it rather than
     # `llm_model_vision`, which is echoed even when no image was sent, exactly as
     # `complex_model_used` is read rather than `llm_model_complex`.
@@ -2497,6 +2507,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
               GPT-5.x and GPT-6 chat calls of this request, half price, slower, retried
               then sent once at the standard tier. For evaluation campaigns.
               TEXT2SQL-EVAL-002.
+            - llm_fast_entity_extraction, llm_fast_text2sql, llm_fast_complex,
+              llm_fast_result_entity (bool, default False): OpenAI Fast mode on that
+              task's GPT-5.x / GPT-6 calls, faster for about twice the price; wins over
+              flex_processing on that task. Echoed as `fast_tasks`. FASTAPI-TEXT2SQL-347.
             - llm_model_result_entity = "gpt-6-luna-decisions": the answer-entity
               classifier through OpenAI's Decisions API. FASTAPI-TEXT2SQL-310.
         api_key (str): Valid API key injected via X-API-Key header.
@@ -2589,6 +2603,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         t2s.reset_llm_usage()
     # TEXT2SQL-EVAL-002. Set on every pass; the retry copies the request, so the value is the same.
     t2s.set_flex_processing(getattr(request, "flex_processing", False))
+    # FASTAPI-TEXT2SQL-347. Same lifecycle: set on every pass from the (copied) request.
+    t2s.set_fast_tasks([label for label, field in (
+        ("entity_extraction", "llm_fast_entity_extraction"),
+        ("text2sql", "llm_fast_text2sql"),
+        ("complex_question", "llm_fast_complex"),
+        ("result_entity", "llm_fast_result_entity"),
+    ) if getattr(request, field, False)])
 
     # The user's own wording, as everything downstream reads it: the complex-question retry
     # rewrites THIS, and several branches read it without first testing that it exists.
