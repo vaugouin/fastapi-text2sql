@@ -2193,6 +2193,11 @@ class Text2SQLResponse(BaseModel):
     # (the new query is refused too), "regenerated" (it executed and returned rows),
     # "regenerated_empty" (it executed and returned none) or "error".
     sql_regeneration_outcome: str = ""
+    # FASTAPI-TEXT2SQL-345. Outcome of the best-effort filter asked of Text2SQL when it still
+    # requests complex resolution after the stronger model already ran: "" (not attempted),
+    # "filtered" (a SQL was adopted, the unapplied clauses declared in dropped_clause),
+    # "declined_again" (Text2SQL kept its refusal) or "error".
+    best_effort_filter_outcome: str = ""
     query_execution_time: float
     total_processing_time: float
     page: Optional[int] = None
@@ -2541,6 +2546,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
               guard_rejected, unbacked_entity_literal, error. Empty when not attempted.
               A broken SQL is a generator defect, not a question defect.
               FASTAPI-TEXT2SQL-262.
+            - best_effort_filter_outcome: When Text2SQL still requests complex resolution
+              after the stronger model already ran (or complex processing is off), it is
+              asked ONCE for the closest filter the database can apply, the rest declared
+              in dropped_clause: filtered, declined_again, error. Empty when not attempted.
+              FASTAPI-TEXT2SQL-345.
             - image_ref, vision_evidence, vision_model_used,
               vision_identification_processing_time, llm_model_vision: the vision half of
               the turn (FASTAPI-TEXT2SQL-114). `vision_evidence` carries what was read in
@@ -2665,6 +2675,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     # FASTAPI-TEXT2SQL-244: outcome of the no-entity rescue, "" until it is attempted.
     no_entity_rescue_outcome = ""
     sql_regeneration_outcome = ""
+    best_effort_filter_outcome = ""
     complex_question_processing_time = 0.0
     entity_match_scores = []
     entity_match_worst_distance = None
@@ -3784,6 +3795,75 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             )
             if not isinstance(json_content, dict):
                 json_content = {"error": str(json_content)}
+
+            # FASTAPI-TEXT2SQL-345. `requires_complex_resolution` hands the question to the
+            # stronger model. When that model already ran (this is the retry pass) or is
+            # switched off, nobody is left to identify titles, and the refusal became a dead
+            # end: "Hong Kong horror films in which high-density housing is a spooky backdrop..."
+            # went Text2SQL -> complex (which rewrote it, no title) -> Text2SQL, refused twice,
+            # zero rows, while the database could filter on the country and the genre. One
+            # more call, same model, asks for the closest filter the database can apply, the
+            # rest declared in dropped_clause. Exactly once, and a pure riddle with no
+            # applicable criterion keeps its refusal rather than becoming a catalogue dump.
+            if bool(json_content.get("requires_complex_resolution")) and (
+                getattr(request, "complex_question_already_resolved", False)
+                or not request.complex_question_processing
+            ):
+                try:
+                    _bef_hint = (
+                        "BEST-EFFORT FILTER: the stronger model that identifies works from descriptions "
+                        "has already run, or is not available. `requires_complex_resolution` is no longer "
+                        "a useful answer: nobody will identify the titles for you.\n"
+                        "Build the closest SQL from the criteria the database stores with certainty: the "
+                        "placeholders present in the question, the coded columns (production country, "
+                        "language, status, type) and the genre. Do NOT turn a theme, a setting, a mood or "
+                        "a plot described in a phrase into a topic or keyword literal. Declare everything "
+                        "the SQL does not apply in `dropped_clause`, and keep `answer` honest about it.\n"
+                        "If the question contains NO criterion the database can apply (it only describes "
+                        "one unnamed work), keep `requires_complex_resolution: true` with no SQL: never "
+                        "return a query over the whole catalogue."
+                    )
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text="Text2SQL requested complex resolution after the stronger model already ran (or with complex processing off); asking it once for a best-effort filter (FASTAPI-TEXT2SQL-345)."
+                    ))
+                    position_counter += 1
+                    _bef_json = await asyncio.to_thread(
+                        t2s.f_text2sql,
+                        input_text_anonymized, strtext2sqlmodel,
+                        ui_language=request.ui_language, correction_hint=_bef_hint,
+                    )
+                    if (
+                        isinstance(_bef_json, dict)
+                        and not bool(_bef_json.get("requires_complex_resolution"))
+                        and str(_bef_json.get("sql_query") or "").strip() != ""
+                    ):
+                        json_content = _bef_json
+                        best_effort_filter_outcome = "filtered"
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"Best-effort filter adopted; clauses not applied: {(_bef_json.get('dropped_clause') or '').strip() or '(none declared)'}."
+                        ))
+                    elif isinstance(_bef_json, dict) and bool(_bef_json.get("requires_complex_resolution")):
+                        best_effort_filter_outcome = "declined_again"
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text="Best-effort filter declined: the question carries no criterion the database can apply."
+                        ))
+                    else:
+                        best_effort_filter_outcome = "error"
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text="Best-effort filter returned no usable SQL; keeping the first refusal."
+                        ))
+                    position_counter += 1
+                except Exception as _bef_exc:
+                    best_effort_filter_outcome = "error"
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text=f"Best-effort filter failed ({type(_bef_exc).__name__}: {_bef_exc}); keeping the first refusal."
+                    ))
+                    position_counter += 1
 
             print("JSON content:", json_content)
             if bool(json_content.get("requires_complex_resolution")):
@@ -5668,6 +5748,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         no_entity_extracted=no_entity_extracted,
         no_entity_rescue_outcome=no_entity_rescue_outcome,
         sql_regeneration_outcome=sql_regeneration_outcome,
+        best_effort_filter_outcome=best_effort_filter_outcome,
         complex_question_processing_time=complex_question_processing_time,
         answer_single_value_processing_time=answer_single_value_processing_time,
         embeddings_processing_time=embeddings_processing_time,

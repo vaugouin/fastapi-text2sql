@@ -112,6 +112,19 @@ silently replace the user's filter with your guess.
 If the criterion is already worded as the app expects, return it unchanged: a criterion asked
 again can still resolve, a list from memory never returns its members.
 
+**A criterion PLUS a description is a description to guess from.** The rule above covers a
+bare criterion. When the question combines criteria the database stores (a genre, a country, a
+period) with a description it does not store (a setting, a plot, a mood, themes stated as a
+phrase rather than as a catalogued topic), you are called because the app could not filter on
+that description: it is exactly what you must infer. List up to 10 works that satisfy BOTH the
+stored criteria AND the description, with the Movies (or Series) pattern, most probable first,
+and keep only works you are confident really meet the stored criteria (the right country, the
+right genre). The app checks every title against the database.
+- `<Country> <genre> films in which <setting> is the backdrop for <themes>` -> question `Movies <Title1> (<Year1>), <Title2> (<Year2>), ...`
+- `<Country> <genre> films` alone, or `Films about <topic>` alone -> the criterion rule above, no titles
+The confidence guard still holds: if no work comes to mind that you are sure fits, return the
+question unchanged rather than invent one.
+
 **Named entities and their database relationships — NEVER enumerate from memory.**
 If the question names a real, resolvable entity (a person, movie, series, company,
 network, group, collection, …) and asks for its DATABASE relationships — e.g. the
