@@ -2497,6 +2497,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
               GPT-5.x and GPT-6 chat calls of this request, half price, slower, retried
               then sent once at the standard tier. For evaluation campaigns.
               TEXT2SQL-EVAL-002.
+            - llm_model_result_entity = "gpt-6-luna-decisions": the answer-entity
+              classifier through OpenAI's Decisions API. FASTAPI-TEXT2SQL-310.
         api_key (str): Valid API key injected via X-API-Key header.
 
     Returns:

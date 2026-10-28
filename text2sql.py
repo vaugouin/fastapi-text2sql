@@ -1112,6 +1112,79 @@ def f_text2sql(user_question: str, strtext2sqlmodel: str, ui_language: str = "en
         return {"error": f"Error: {str(e)}"}
 
 
+# FASTAPI-TEXT2SQL-310 (2026-10-28). OpenAI's Decisions API: gpt-6-luna in closed-choice mode,
+# `POST /v1/decisions`. Selected by this pseudo model name, from tmdb-front or the evaluator.
+# The request format is not published where we could read it; it was rebuilt field by field from
+# the API's own error messages on 2026-10-28: {"model", "input", "questions": [{"type": "choice",
+# "instructions", "choices": [{"value": ...}, ...]}]}. The answer carries one probability per choice
+# and a `confidence`, and counts input tokens only. Its price per decision is unknown, so
+# llm_costs leaves it unpriced rather than charge it as a Luna chat call.
+DECISIONS_RESULT_ENTITY_MODEL = "gpt-6-luna-decisions"
+_DECISIONS_BACKEND_MODEL = "gpt-6-luna"
+# Below this confidence the classifier abstains ("") and the caller keeps the text-to-SQL step's
+# own result_entity. 0 by default, so the Decisions arm behaves like the Luna one until the bench
+# says where the confidence is calibrated enough to abstain on.
+DECISIONS_MIN_CONFIDENCE = float(os.getenv("DECISIONS_MIN_CONFIDENCE", "0"))
+DECISIONS_TIMEOUT_SECONDS = float(os.getenv("DECISIONS_TIMEOUT_SECONDS", "30"))
+
+
+def _classify_result_entity_by_decisions(user_question: str, allowed, instructions: str) -> str:
+    """The answer-entity classification through the Decisions API; "" when unsure or on error.
+
+    "unknown" is offered as a choice so the model can abstain, as it can on the chat path.
+    The task's tokens, choice and confidence are recorded under `result_entity` in llm_usage.
+    """
+    import httpx  # a dependency of the openai SDK
+
+    if not api_key:
+        print("Error in result_entity classification (decisions): OPENAI_API_KEY not set")
+        return ""
+    choices = [{"value": entity} for entity in allowed] + [{"value": "unknown"}]
+    payload = {
+        "model": _DECISIONS_BACKEND_MODEL,
+        "input": user_question,
+        "questions": [{"type": "choice", "instructions": instructions, "choices": choices}],
+    }
+    try:
+        started = time.perf_counter()
+        response = httpx.post(
+            "https://api.openai.com/v1/decisions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=DECISIONS_TIMEOUT_SECONDS,
+        )
+        elapsed = time.perf_counter() - started
+        response.raise_for_status()
+        body = response.json()
+    except Exception as e:
+        # Classification is best-effort; never let it break a request.
+        print(f"Error in result_entity classification (decisions): {str(e)}")
+        return ""
+    answer = (body.get("answers") or [{}])[0] or {}
+    choice = str(answer.get("choice") or "").strip().lower()
+    confidence = answer.get("confidence")
+    usage_body = body.get("usage") or {}
+    _record_llm_usage(
+        "result_entity", DECISIONS_RESULT_ENTITY_MODEL,
+        prompt_tokens=usage_body.get("input_tokens", 0),
+        cached_tokens=(usage_body.get("input_tokens_details") or {}).get("cached_tokens", 0),
+        completion_tokens=usage_body.get("output_tokens", 0),
+    )
+    usage = _llm_usage.get()
+    if usage is not None:
+        with _llm_usage_lock:
+            entry = usage.get("result_entity")
+            if entry is not None:
+                entry["decision_choice"] = choice
+                entry["decision_confidence"] = confidence
+    print(f"[decisions] result_entity: {choice!r}, confidence {confidence}, {elapsed:.2f} s")
+    if choice not in allowed:
+        return ""
+    if isinstance(confidence, (int, float)) and confidence < DECISIONS_MIN_CONFIDENCE:
+        return ""
+    return choice
+
+
 def f_classify_result_entity(user_question: str, allowed_entities, strmodel: str = "default") -> str:
     """Classify which entity type the user wants *listed*, from the ORIGINAL question.
 
@@ -1179,6 +1252,8 @@ def f_classify_result_entity(user_question: str, allowed_entities, strmodel: str
         "unknown (the caller then trusts the SQL-generation step instead).\n"
         "Reply with only the single word: no punctuation, no quotes, no explanation."
     )
+    if model_to_use == DECISIONS_RESULT_ENTITY_MODEL:
+        return _classify_result_entity_by_decisions(user_question, allowed, system_prompt)
     try:
         raw = _call_chat_llm(
             model=model_to_use,

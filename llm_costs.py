@@ -44,6 +44,10 @@ PRICES = {
 # OpenAI Flex processing bills at Batch API rates: half the standard price on the GPT-6 line.
 FLEX_FACTOR = 0.5
 
+# Names that would fall into a priced row by prefix but are billed differently and at a price we
+# do not know: the Decisions API (FASTAPI-TEXT2SQL-310) is not a Luna chat call.
+_UNPRICED_MODELS = ("gpt-6-luna-decisions",)
+
 # The server, in euros excluding VAT (FASTAPI-TEXT2SQL-338). OVH VPS Elite 8-32-640
 # (vps-adacb908.vps.ovh.net, 8 vCores, 32 GB, 640 GB), 93.50 € a month on the October 2026
 # invoice, committed until 2028-06-01. A fixed cost: a call adds nothing to the bill until the
@@ -59,6 +63,8 @@ _PRICE_KEYS = sorted(PRICES, key=len, reverse=True)
 def price_for(model: str) -> Optional[dict]:
     """Return the price row of `model` ($ per million tokens), None when it is not listed."""
     name = str(model or "").strip().lower()
+    if name in _UNPRICED_MODELS:
+        return None
     for key in _PRICE_KEYS:
         if name.startswith(key):
             return PRICES[key]
