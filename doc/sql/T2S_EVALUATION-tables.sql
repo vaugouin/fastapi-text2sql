@@ -21,6 +21,7 @@ CREATE TABLE `T_WC_T2S_EVALUATION` (
   `ASSERTIONS_QUERY_RESULT` mediumtext DEFAULT NULL,
   `ASSERTIONS_ENTITY_EXTRACTION` mediumtext DEFAULT NULL,
   `ASSERTIONS_SQL_QUERY` mediumtext DEFAULT NULL,
+  `ASSERTIONS_RESULT_SHAPE` mediumtext DEFAULT NULL COMMENT 'FASTAPI-TEXT2SQL-349 : assertion sur l indice de rendu (result_kind / representation / unit de colonne), verifiee hors score par text2sql-eval/check-result-shape.py ; n entre jamais dans le score de campagne',
   `ASSERTION_REFRESH_SQL` mediumtext DEFAULT NULL COMMENT 'SQL canonique (SELECT une colonne ID ... ORDER BY ... LIMIT N) rejoue chaque jour pour reconstruire ASSERTIONS_QUERY_RESULT ; NULL = eval statique',
   `ASSERTION_REFRESH_LAST` datetime DEFAULT NULL COMMENT 'Date du dernier passage du job de refresh (fraicheur de l assertion)',
   `RESOLUTION_MODE` varchar(10) DEFAULT NULL COMMENT 'Mode qui doit resoudre la question : standard (sans escalade), complex (escalade indispensable), any (aucune attente). NULL = any.',
