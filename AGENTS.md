@@ -138,6 +138,35 @@ in an MCP `initialize` is FastMCP's own version (3.4.7), not the API's. All thre
 **A flip is complete when** every client reports the new version by the means above, and the
 instance reports `bktrees_ready: true`.
 
+### Probing the live API from the PC (Blue or Green)
+
+Both colour ports are reachable from the PC over Tailscale at the VPS address
+`100.113.161.122` (Blue `8186`, Green `8187`); a bare port with no key returns 401, which
+is itself proof the colour is up. The `X-API-Key` value is `TEXT2SQL_API_KEY` in
+`~/Code/text2sql-eval/.env` (which also holds `API_PORT_BLUE` / `API_PORT_GREEN` and
+`TEXT2SQL_API_URL`). Read the key from there, never hard-code or print it.
+
+```bash
+cd ~/Code/text2sql-eval
+KEY=$(grep '^TEXT2SQL_API_KEY=' .env | cut -d= -f2- | tr -d '"'\''\r')
+# Green = 8187, Blue = 8186. A bare identifier takes the fast path: no LLM call, no cache write.
+curl -s -H "X-API-Key: $KEY" -X POST http://100.113.161.122:8187/search/text2sql \
+  -H 'Content-Type: application/json' -d '{"question":"tt0033467"}' \
+  | python -c "import sys,json;d=json.load(sys.stdin);print({k:d.get(k) for k in ('api_version','result_kind','representation')})"
+```
+
+- **Use a capability probe, not the version.** An in-place redeploy keeps `api_version`
+  (e.g. 1.1.19), so to tell new code from old ask for a field only the new code emits
+  (`result_kind` for FASTAPI-TEXT2SQL-349), exactly as *Redeploying in place* says.
+- **The direct response is the API's own shape**, so `result_kind` / `representation` /
+  `result_columns` sit at top level. Through the public voice-agent route
+  (`https://www.vaugouin.com/voice-agent/tool/text2sql`, field named `query`, **no key
+  needed**) the same payload is nested under `upstream`, and it targets whichever colour the
+  voice-agent's `.env` points at, not a colour you choose.
+- A bare identifier (`tt0033467`) is the cheapest probe. A natural-language question runs the
+  whole pipeline and spends tokens on a cache miss; a question already in the bank is usually
+  a cache hit and therefore free.
+
 ---
 
 ## Where things live (file → role)

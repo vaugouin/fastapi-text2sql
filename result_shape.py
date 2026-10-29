@@ -160,9 +160,14 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None):
     ]
     columns = _columns_metadata(rows, ids)
     sql = sql_query or ""
-    has_entity = bool(str(result_entity or "").strip()) or any(
-        c["role"] == "entity_id" for c in columns
-    )
+    # The result is entity rows only when it actually projects an entity id column. NOT when
+    # result_entity is merely set: the answer-entity classifier returns "movie" even for
+    # "how many movies are there", whose result is a one-row scalar count with no id column
+    # (MOVIE_COUNT alone). Keying the branch on result_entity there drew the count as an
+    # entity page. The column structure is the authority; every genuine entity projection
+    # carries its ID_ column. result_entity is kept in the signature for callers and future
+    # use, but does not decide the shape.
+    has_entity = any(c["role"] == "entity_id" for c in columns)
     metric_cols = [c for c in columns if c["role"] == "metric"]
     label_cols = [c for c in columns if c["role"] == "label"]
 
@@ -178,9 +183,12 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None):
         return {"result_kind": "entity_rows", "columns": columns,
                 "representation": "card-grid"}
 
-    # No entity. With no rows there is nothing to draw: a table of the (empty) result, never
-    # an entity card.
+    # No rows: nothing to inspect, so result_entity is the only signal left for what was
+    # searched. An empty entity search degrades to an empty card grid; anything else to a
+    # table. Never an empty "Result" card. (A count never reaches here: it has one row.)
     if not rows:
+        if str(result_entity or "").strip():
+            return {"result_kind": "entity_rows", "columns": columns, "representation": "card-grid"}
         return {"result_kind": "unknown", "columns": columns, "representation": "table"}
 
     # One row, no entity: the scalar family. A COUNT is a count, otherwise a scalar; one
