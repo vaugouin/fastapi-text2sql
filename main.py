@@ -32,6 +32,7 @@ from response_rounding import RoundedJSONResponse, round_tree
 import vision_cache
 import vision_identity
 import sql_shapes
+import result_shape
 import closed_vocab
 import samples_assertions as sa
 
@@ -863,6 +864,12 @@ _RESULT_ENTITY_SOURCES = {
     "movie_image": ("ID_ROW", "T_WC_T2S_MOVIE_IMAGE"),
     "serie_image": ("ID_ROW", "T_WC_T2S_SERIE_IMAGE"),
 }
+
+# FASTAPI-TEXT2SQL-349: the authoritative set of entity id columns the result-shape
+# classifier reads to tell an entity result from an aggregate. Derived from the single
+# source of truth above so it never drifts; ID_CONTENT is the movie+series UNION key,
+# absent from _RESULT_ENTITY_SOURCES on purpose but still an entity id on the wire.
+_RESULT_ENTITY_ID_COLUMNS = {src[0] for src in _RESULT_ENTITY_SOURCES.values()} | {"ID_CONTENT"}
 
 # FASTAPI-TEXT2SQL-286: the result-entity classifier reads only the original question and
 # the label set, never the SQL, so it is started at request entry and joined just before
@@ -2046,6 +2053,20 @@ class Text2SQLResponse(BaseModel):
     answer: str = ""
     answer_anonymized: str = ""
     result_entity: str = ""
+    # FASTAPI-TEXT2SQL-349. The rendering hint, so a client dispatches on it instead of
+    # guessing from column names (which made a one-row aggregate land on the entity page
+    # as an empty "Result" card, VOICE-AGENT-243). Computed deterministically from the
+    # result shape and the generated SQL, no LLM call. All three are None on a path that
+    # returns before any rows exist (an error, an empty cache-miss stub), where there is
+    # nothing to draw. result_kind is the /samples vocabulary
+    # (entity_rows | scalar | count | bound | unknown); result_columns is one
+    # {name, role, unit} per projected column, the unit set server-side where the summed
+    # column is known so a runtime never reaches a client as dollars; representation is one
+    # of entity-page | card-grid | number-card | stat-strip | ranked-bars | table. See
+    # result_shape.py and the design note voice-agent-243-result-representations.md.
+    result_kind: Optional[str] = None
+    result_columns: Optional[list] = None
+    representation: Optional[str] = None
     # Neutral same-name-cluster flag (FASTAPI-TEXT2SQL-157); None unless the SQL is a
     # pure name/title equality on one literal returning >=2 distinct rows. Clients
     # decide what to do with it (voice-agent disambiguates; tmdb-front ignores it).
@@ -2532,6 +2553,16 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             - question_anonymized: Question with entity values replaced by placeholders.
             - result (list): Paginated rows, each as {"index": int, "data": dict}.
               Result columns depend on entity type — see data/text_to_sql.md Result Columns.
+            - result_kind, result_columns, representation (FASTAPI-TEXT2SQL-349): the
+              rendering hint, computed deterministically from the result shape and the
+              generated SQL (no LLM call), so a client draws the answer instead of guessing
+              from column names. result_kind is entity_rows | scalar | count | bound |
+              unknown; result_columns is one {name, role, unit} per projected column, the
+              role entity_id | label | metric | date | other and the unit minutes | usd |
+              years | count | ratio | null set server-side where the summed column is known;
+              representation is entity-page | card-grid | number-card | stat-strip |
+              ranked-bars | table. All three are null on a path that returns before any rows
+              exist. See result_shape.py.
             - page, limit, offset, rows_per_page: Pagination metadata.
             - llm_defined_limit, llm_defined_offset: LIMIT/OFFSET originally in LLM output.
             - cached_exact_question, cached_anonymized_question,
@@ -3294,6 +3325,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         total_processing_time = time.time() - total_start_time
 
         _apply_vision_credits_check(vision_evidence, fast_path_results)  # -321
+        # FASTAPI-TEXT2SQL-349: the bare-identifier fast path always returns entity rows,
+        # so the hint resolves to entity-page or card-grid; emit it like any other path.
+        _fp_result_shape = result_shape.classify_result(
+            sql_query, fast_path_results, result_entity_fp, _RESULT_ENTITY_ID_COLUMNS
+        )
         fast_path_response = Text2SQLResponse(
             question=input_text,
             question_hashed=fast_path_question_hash,
@@ -3340,6 +3376,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             ui_language=request.ui_language,
             api_version=strapiversion,
             result=fast_path_results,
+            result_kind=_fp_result_shape["result_kind"],
+            result_columns=_fp_result_shape["columns"],
+            representation=_fp_result_shape["representation"],
             messages=messages,
         )
         logs.log_usage(
@@ -5741,6 +5780,12 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 position_counter += 1
 
     _apply_vision_credits_check(vision_evidence, query_results)  # -321
+    # FASTAPI-TEXT2SQL-349: the rendering hint, from the result shape and the SQL. Pure and
+    # cheap, so it runs on every answer, cache hit included (query_results is filled there
+    # too), and never on a path that returned earlier with no rows.
+    _result_shape = result_shape.classify_result(
+        sql_query, query_results, result_entity, _RESULT_ENTITY_ID_COLUMNS
+    )
     response = Text2SQLResponse(
         question=input_text,
         question_hashed=response_question_hash,
@@ -5803,6 +5848,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         ui_language=request.ui_language,
         api_version=strapiversion,
         result=query_results,
+        result_kind=_result_shape["result_kind"],
+        result_columns=_result_shape["columns"],
+        representation=_result_shape["representation"],
         messages=messages,
         **t2s.snapshot_usage_fields(),
     )
