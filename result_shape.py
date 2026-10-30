@@ -77,6 +77,14 @@ _AGGREGATE_RE = re.compile(r"\b(?:SUM|COUNT|AVG|MIN|MAX|TOTAL)\s*\(", re.IGNOREC
 _GROUP_BY_RE = re.compile(r"\bGROUP\s+BY\b", re.IGNORECASE)
 _ORDER_BY_RE = re.compile(r"\bORDER\s+BY\b", re.IGNORECASE)
 _COUNT_RE = re.compile(r"\bCOUNT\s*\(", re.IGNORECASE)
+_ORDER_BY_CLAUSE_RE = re.compile(
+    r"\bORDER\s+BY\b(.*?)(?:\bLIMIT\b|\bOFFSET\b|\)|;|$)", re.IGNORECASE | re.DOTALL)
+
+# Metrics the pipeline projects by default on entity rows (FASTAPI-TEXT2SQL-350). A list of
+# actors carries POPULARITY, an image wall VOTE_AVERAGE, and both are ordered on them, so
+# "one metric plus ORDER BY" fired ranked-bars on 103 plain lists of the 2026-10-29 campaign.
+# They are sort keys, not the measure the question asked for: never a ranking on their own.
+_DEFAULT_ENTITY_METRICS = frozenset({"POPULARITY", "VOTE_AVERAGE", "VOTE_COUNT", "IMDB_VOTES"})
 
 
 def _is_numeric(value):
@@ -136,6 +144,43 @@ def _columns_metadata(rows, id_columns):
     return columns
 
 
+def _orders_by_metric(sql, metric_name, columns):
+    """Tell whether the outermost ORDER BY sorts on the metric column.
+
+    Reads the last ORDER BY clause of the SQL (the outer query's) and accepts the column
+    name or alias as a whole word, or its 1-based position in the projection. A bare
+    "ORDER BY" elsewhere in the query is not enough (FASTAPI-TEXT2SQL-350).
+    """
+    clauses = _ORDER_BY_CLAUSE_RE.findall(sql or "")
+    if not clauses:
+        return False
+    clause = clauses[-1]
+    if re.search(r"(?<![\w.])(?:\w+\.)?`?" + re.escape(metric_name) + r"`?(?!\w)", clause,
+                 re.IGNORECASE):
+        return True
+    names = [c["name"] for c in columns]
+    position = names.index(metric_name) + 1 if metric_name in names else 0
+    return bool(position) and re.search(r"(?<![\w.])" + str(position) + r"(?!\w)",
+                                        clause) is not None
+
+
+def _is_entity_ranking(sql, columns, metric_cols, result_entity):
+    """Decide whether N entity rows are a ranking (ranked-bars) rather than a grid.
+
+    All must hold: exactly one metric column, not a default projection (POPULARITY,
+    VOTE_AVERAGE...), the outer ORDER BY on that metric, and rows that are not images.
+    """
+    if len(metric_cols) != 1:
+        return False
+    metric = metric_cols[0]["name"]
+    if metric.upper() in _DEFAULT_ENTITY_METRICS:
+        return False
+    names = {c["name"].upper() for c in columns}
+    if str(result_entity or "").lower().endswith("_image") or {"ID_ROW", "TYPE_IMAGE"} <= names:
+        return False
+    return _orders_by_metric(sql, metric, columns)
+
+
 def classify_result(sql_query, result_rows, result_entity="", id_columns=None):
     """Classify a result into {result_kind, columns, representation}. Pure, no DB, no LLM.
 
@@ -172,12 +217,14 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None):
     label_cols = [c for c in columns if c["role"] == "label"]
 
     # Entity rows: one entity is a page, many are a grid, many ordered by one metric is a
-    # ranking (the poster-versus-bar choice is the client's, VOICE-AGENT-244).
+    # ranking (the poster-versus-bar choice is the client's, VOICE-AGENT-244). A ranking needs
+    # the ORDER BY on the one metric, a metric that is not a default sort key, and no image
+    # rows (FASTAPI-TEXT2SQL-350); a plain list ordered by POPULARITY stays a grid.
     if has_entity:
         if len(rows) <= 1:
             return {"result_kind": "entity_rows", "columns": columns,
                     "representation": "entity-page" if rows else "card-grid"}
-        if len(metric_cols) == 1 and _ORDER_BY_RE.search(sql):
+        if _is_entity_ranking(sql, columns, metric_cols, result_entity):
             return {"result_kind": "entity_rows", "columns": columns,
                     "representation": "ranked-bars"}
         return {"result_kind": "entity_rows", "columns": columns,
