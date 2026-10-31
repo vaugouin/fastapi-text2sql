@@ -72,6 +72,11 @@ _UNIT_PATTERNS = (
 )
 
 _LABEL_RE = re.compile(r"_(?:TITLE|NAME)$|^(?:TITLE|NAME)$|_LABEL$", re.IGNORECASE)
+# A 0/1 flag such as APPLIES_TO_MOVIE is numeric but never a measure: counted as a metric it
+# turned "movies per genre" (one count plus two flags) into a three-metric grid.
+_FLAG_RE = re.compile(r"^(?:IS|HAS|APPLIES_TO)_|_FLAG$", re.IGNORECASE)
+# A code column (COUNTRY_CODE, LANGUAGE_CODE) names the group of a grouped aggregate.
+_CODE_RE = re.compile(r"_CODE$|^CODE$", re.IGNORECASE)
 _DATE_NAME_RE = re.compile(r"^DAT_|_DATE$|^DATE_|_YEAR$", re.IGNORECASE)
 _AGGREGATE_RE = re.compile(r"\b(?:SUM|COUNT|AVG|MIN|MAX|TOTAL)\s*\(", re.IGNORECASE)
 _GROUP_BY_RE = re.compile(r"\bGROUP\s+BY\b", re.IGNORECASE)
@@ -114,6 +119,8 @@ def _column_role(name, sample_value, id_columns):
         return "label"
     if isinstance(sample_value, (date, datetime)) or _DATE_NAME_RE.search(name):
         return "date"
+    if _FLAG_RE.search(name):
+        return "other"
     if _is_numeric(sample_value):
         return "metric"
     return "other"
@@ -253,6 +260,13 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None):
     # Many rows, no entity: a grouped aggregate. A label plus exactly one metric, ordered,
     # is a ranking; anything wider is a table. No clean result_kind in the vocabulary, so
     # `unknown` with a usable representation.
+    # With no *_NAME column, a code or text column names the group (COUNTRY_CODE for "the ten
+    # countries that produced the most movies"); without it the ranking fell to a table.
+    if not label_cols:
+        label_cols = [c for c in columns if c["role"] == "other" and (
+            _CODE_RE.search(c["name"]) or isinstance(_first_non_null(rows, c["name"]), str))][:1]
+        for c in label_cols:
+            c["role"] = "label"  # so a client labels the bars without guessing
     if label_cols and len(metric_cols) == 1 and _ORDER_BY_RE.search(sql):
         return {"result_kind": "unknown", "columns": columns, "representation": "ranked-bars"}
     return {"result_kind": "unknown", "columns": columns, "representation": "table"}
