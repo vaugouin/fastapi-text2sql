@@ -10,6 +10,9 @@ moving either would break that convention.
 | document | read it when |
 |---|---|
 | [entity-resolution-thresholds.md](entity-resolution-thresholds.md) | **you are about to change a `min_fuzz_ratio`, or to add a new entity that needs one.** Method, data, traps and the exact bench commands |
+| [pipeline-internals.md](pipeline-internals.md) | you need the file-by-file map of the code, or the reasoning behind scheduling, SQL guards, retries and rescues, entity-endpoint contracts, typographic rescue, rounding, clock and shared folders |
+| [llm-tasks-and-costs.md](llm-tasks-and-costs.md) | changing a model, a prompt-cache setting or a reasoning family, reading costs and latencies, running a model bench, or adding a measured response indicator |
+| [vision-pre-stage.md](vision-pre-stage.md) | touching the image path of `/search/text2sql` or its recognition cache |
 | [MCP.md](MCP.md) | working on the MCP server: tool code, resource reference, client setup, bearer token, end-to-end flow |
 | [RAPIDFUZZ.md](RAPIDFUZZ.md) | touching the RapidFuzz path: setup, and the `*_NORM` / `*_KEY` generated columns and FULLTEXT indexes it requires |
 | [EXTEND_T2S_TECHNICAL.md](EXTEND_T2S_TECHNICAL.md) | extending `Technical_format`: schema, prompt and resolver changes, and the retired `Aspect_ratio` history |

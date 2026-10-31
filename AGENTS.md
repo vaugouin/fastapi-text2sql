@@ -1,794 +1,131 @@
 # AGENTS.md - Agent Guide for FastAPI Text2SQL
 
-This file gives you the agentic context you need to work on this codebase safely. For project overview, features, install / deploy steps, API request / response examples, sample queries, and human-facing security / performance / troubleshooting material, read @README.md — that file is canonical and not duplicated here.
+This file holds the rules an agent needs to work on this codebase safely. Project overview, install, deployment, request/response examples and troubleshooting are in @README.md, which is canonical. Assistant-specific files (@CLAUDE.md, a future `GEMINI.md`) only point here.
 
-This is the single canonical guide for autonomous coding agents in this repository. Assistant-specific files such as @CLAUDE.md, and any future tool-specific guide such as `GEMINI.md`, should only point here and should not duplicate repository instructions.
-
-Deeper specs live in their own files:
+Deeper references, read the one that matches the task:
 - @data/AGENTS.md : the hot-reloaded prompts and configuration, what each file must keep, and the three rules twinned between `complex_question.md` and `vision_identification.md` that must stay different
 - @doc/AGENTS.md : index of the reference documentation, and the rule that a new entity ships with a measured threshold
-- @doc/MCP.md — full MCP integration guide (tool code, resource reference, client setup, bearer token, end-to-end flow)
-- @doc/RAPIDFUZZ.md — RapidFuzz setup and SQL schema requirements
-- `../text2sql-eval/README.md` — the evaluator, a separate repository since 2026-10-12 ([github.com/vaugouin/text2sql-eval](https://github.com/vaugouin/text2sql-eval))
-- `checks/` — offline checks and benches that import this repository's modules (`verif-*`, `check-*`, `bench-*`, `eval-309`); they stayed here when the evaluator left
-- @doc/sql/*.sql — reference DDL for the database schema; treat these files as read-only unless the user explicitly asks you to edit schema documentation
+- `doc/pipeline-internals.md` : file-by-file map of the code, scheduling, SQL guards, retries and rescues, entity-endpoint contracts, typographic rescue, rounding, clock and shared folders
+- `doc/llm-tasks-and-costs.md` : the six LLM tasks, measured costs and latencies, model benches, prompt cache, reasoning-family block, resolution-mode verdicts, adding a response indicator
+- `doc/vision-pre-stage.md` : the image path (FASTAPI-TEXT2SQL-114, -275, -281, -307) and its recognition cache
+- @doc/MCP.md (MCP server), @doc/RAPIDFUZZ.md (RapidFuzz setup and schema), `doc/entity-resolution-thresholds.md` (how every `min_fuzz_ratio` was measured)
+- `maintenance/AGENTS.md` : one-shot operational SQL against production (`T_WC_T2S_CACHE` first); read it before adding or running anything there
+- `checks/` : offline checks and benches that import this repo's modules (`verif-*`, `check-*`, `bench-*`, `eval-309`)
+- `../text2sql-eval/README.md` : the evaluator, a separate repository since 2026-10-12
+- `doc/sql/*.sql` : reference DDL, **read-only** unless the user explicitly asks for schema-doc edits
 
-- For any project update, keep documentation aligned:
-  - Update `README.md` for user-facing behavior, configuration, setup, deployment, troubleshooting, or verification changes.
-  - Update also docstrings for API endpoints documentation when there are changes in the API. 
-  - Update this file only when agent workflow or safety context changes.
+Keep documentation aligned with every change: `README.md` for user-facing behaviour, configuration, setup, deployment and verification; endpoint docstrings when the API changes (the MCP tool docstrings are the MCP contract); the matching `doc/` file when its subject changes; this file only when agent workflow or safety context changes.
 
 ---
 
 ## Related repositories (project ecosystem)
 
-`fastapi-text2sql` is one stage of **Agent BBB**, a multi-repository movie/TV database system owned by GitHub user `vaugouin`. All sibling repos live under `%USERPROFILE%/Code/<repo>` and at `github.com/vaugouin/<repo>`; they are interdependent stages of one pipeline that converges on a shared MySQL/MariaDB database (`T_WC_*` tables) and a ChromaDB vector store. The canonical roster of sibling repositories is kept in `%USERPROFILE%/Nestor/projets/t2s-backlog/topics/related-repositories.txt` (documentation repo `Nestor`, outside `Code/`).
-
-Pipeline stages:
-- **Infrastructure** — `chromadb` (vector service), `reverseproxy` (NGINX TLS ingress), `chromadb-security-test` (firewall validation), `tools` (host-side operational scripts for the shared MariaDB: backups per perimeter, one-off `.sql` runs; **private repo**, it documents where the database lives and how it is restored).
-- **Acquisition** — `tmdb-crawler`, `imdb-crawler`, `sparql-crawler`, `sparql-movies-persons`, `wikidata-crawler`, `wikipedia-crawler`, `selenium-tmdb`, `download-images`, `synthetic-images` (style-locked illustrations for entities with no real image), `sqlite-plex-to-tmdb`, `movieparadise`, `open-credits` (crowdsourced OCR of on-screen credits into `T_WC_OC_*`).
-- **Preprocessing → `T_WC_T2S_*`** — `tmdb-movie-preprocess`, `tmdb-person-preprocess`, `keywords-processing`.
-- **Semantic index & name resolution** — `embedding-update`, `embedding-query`, `rapidfuzz_query`.
-- **Serving** — `fastapi-text2sql` (NL→SQL API + MCP server), `voice-agent`, `tmdb-front` (PHP web front-end).
-- **Evaluation** — `text2sql-eval` (the evaluator, an API client; it lived in this repo under `eval/` until 2026-10-12), `extract-movie-questions`.
-- **Maintenance & tooling** — `plex-duplicates`, `subtitle-translate`, `powershell`, `playwright-test`, `manual-refresh` (one-entity TMDb + Wikipedia refresh console, formerly `python`).
-- **Monitoring & observability** — `data-monitoring`, `pipeline-3d` (three.js replay of one question's execution trace through `voice-agent` and `fastapi-text2sql`).
-
-**This repository's role:** Serving stage and the engine of the system. A REST API (plus an MCP server) that converts natural-language questions into SQL over the `T_WC_T2S_*` read-model, resolving entities via the ChromaDB collections (`embedding-update`) and the `rapidfuzz_query` person-name module. It is the backend behind `tmdb-front`'s `text2sql-search.php` and the `voice-agent` conversational client, and the target scored by the evaluator in `eval/`.
+`fastapi-text2sql` is the serving stage of **Agent BBB**, a multi-repository movie/TV system (`%USERPROFILE%/Code/<repo>`, `github.com/vaugouin/<repo>`) converging on a shared MariaDB (`T_WC_*`) and a ChromaDB store whose collections `embedding-update` builds. Canonical roster: `%USERPROFILE%/Nestor/projets/t2s-backlog/topics/related-repositories.txt`. `tools` (private) holds the host-side scripts for the shared database.
 
 ---
 
 ## Clients of this API — read before flipping Blue/Green
 
-Bumping `strapiversion` moves the deployment to the other colour (even patch → Blue, `API_PORT_BLUE`, 8186; odd → Green, 8187). **Only one client follows that parity on its own.** Every other client has to be pointed by hand, and each does it differently, so the list below is the thing to check before and after a bump. Verified 2026-08-21 while moving to 1.1.18 on Blue.
+Bumping `strapiversion` moves the deployment to the other colour (even patch: Blue, `API_PORT_BLUE`, 8186; odd: Green, 8187). **Only the evaluator follows that parity on its own**; every other client is repointed by hand, so check this list before and after a bump.
 
 | client | how it picks a colour | what to change |
 |---|---|---|
-| **evaluator** (`text2sql-eval/text2sql-eval.py`) | derives the port from the parity of `--api-version`, [line 563](https://github.com/vaugouin/text2sql-eval/blob/main/text2sql-eval.py#L563), exactly like `main.py` does | nothing: pass the right `--api-version` |
-| **Claude, via MCP** | `https://www.vaugouin.com/mcp`, routed by **NGINX** | the `reverseproxy` repo, repoint the upstream port |
-| **tmdb-front** (PHP) | `$strtext2sqlapicolor`, **hard-coded** in `lib/global-light.inc.php` (~line 144); both URLs already sit in its `.env` as `TEXT2SQL_API_BLUE_URL` / `TEXT2SQL_API_GREEN_URL` | swap the two commented lines, then deploy the front |
-| **voice-agent** | `TEXT2SQL_BASE_URL` in its `.env`, port written in full | edit the port, restart the service |
+| **evaluator** (`text2sql-eval`) | port derived from the parity of `--api-version` | nothing |
+| **Claude, via MCP** | `https://www.vaugouin.com/mcp`, routed by NGINX | the `reverseproxy` repo: repoint the upstream port |
+| **tmdb-front** | `$strtext2sqlapicolor` hard-coded in `lib/global-light.inc.php`, plus the per-colour label `$strtext2sqlapiblueversion` | swap the commented lines and update the label (the samples page looks executions up by it and renders empty otherwise), deploy the front |
+| **voice-agent** | `TEXT2SQL_BASE_URL` in its `.env`, port in full | edit the port, then **recreate** the container (`restart.sh`): `--env-file` is read at `docker run`, a `docker restart` keeps the old value |
 
-Two things worth knowing.
+- **Redeploying in place** (shipping code without a bump) makes the table a no-op but blinds `api_version`: prove the new code with a **capability probe** (a field only the new code emits) on the bare-identifier fast path (`{"question":"tt0033467"}`, no LLM call, no cache write). Old `T_WC_T2S_CACHE` rows of the same version stay live, so never reuse the version for a change that alters generated SQL.
+- **Do not diagnose a deployment on its first requests**: wait for `bktrees_ready: true` in `GET /` (the warm-up competes for CPU for several minutes).
+- tmdb-front accepts `?apicolor=Blue` and keeps it in a one-year cookie: a cheap pre-test, and a trap afterwards (your own browser may be pinned).
+- From the PC, both colours answer over Tailscale at `100.113.161.122`; read the key from `TEXT2SQL_API_KEY` in `~/Code/text2sql-eval/.env`, never hard-code or print it.
 
-**tmdb-front can be tested on the other colour without switching anyone.** It accepts `?apicolor=Blue` on the URL and remembers it in a cookie, so the new version can be exercised through the real front-end, for one browser only, while everyone else stays on the live colour. That is the cheapest validation available and it needs no deployment.
-
-**The evaluator is its own repository, `text2sql-eval`, since 2026-10-12.** It is a client of this API like `voice-agent` or `tmdb-front`, and `~/docker/text2sql-eval` on the VPS is a git clone of it (it used to be a hand copy of `eval/*`, which drifted silently). A change to the API that the evaluator must follow (a new response field, a new model selector) is two commits in two repositories. The scripts that import this repository's modules stayed here, in `checks/`. `~/docker/fastapi-text2sql-blue` had the same flat-copy problem until 2026-08-21, when it was converted to a git clone.
-
-**Not clients, despite appearances:** `data-monitoring` (one mention, a design analogy in its `AGENTS.md`), `extract-movie-questions` (no reference at all). The old `eval-text2sql` repository no longer exists (404 on GitHub); its successor `text2sql-eval` is a client, above.
-
-### Redeploying in place, without bumping the version
-
-Sometimes the right call is to ship code **without** changing `strapiversion`, so the colour
-does not move and no client has to be repointed. Decided this way on 2026-08-30 for
-FASTAPI-TEXT2SQL-231/-232/-233, which stay on `1.1.18` on Blue.
-
-**What it buys.** Nothing to repoint. The evaluator derives its port from `--api-version`
-parity, tmdb-front keeps `$strtext2sqlapicolor` and `$strtext2sqlapiblueversion` as they are,
-NGINX keeps its upstream, voice-agent keeps its `.env`. The entire four-client table above
-becomes a no-op, which is the whole point.
-
-**What it costs, and it is not small: `api_version` stops discriminating.** `GET /` answers
-`1.1.18` before and after, so the standard check, "every client reports the new version", is
-blind. There is no way to tell the old code from the new one by asking for a version.
-
-**Use a capability probe instead of a version probe.** Ask for something only the new code can
-answer. For -232 that is the presence of `llm_model_result_entity` in a `/search/text2sql`
-payload. The cheapest form is the bare-identifier fast path, which costs no LLM call and writes
-no cache entry, and whose response carries the five model fields like any other:
-
-```bash
-curl -s -H "X-API-Key: …" -X POST http://<host>:8186/search/text2sql   -H "Content-Type: application/json" -d '{"question":"tt0033467"}'   | jq '{api_version, llm_model_result_entity, answer_single_value_processing_time}'
-```
-
-A response missing `llm_model_result_entity` is the old container, whatever the version says.
-
-**Two traps specific to redeploying in place.**
-
-1. **`T_WC_T2S_CACHE` is filtered by API version, so old rows written by the old code stay
-   live.** Harmless for -231/-232/-233, whose gpt-4o behaviour is byte-identical, and the
-   evaluator sends `retrieve_from_cache: False` anyway. It would NOT be harmless for a change
-   that alters generated SQL: there, reusing the version means serving yesterday's answers from
-   cache and concluding the change did nothing.
-2. **The execution folder no longer collides with the baseline** (FASTAPI-TEXT2SQL-234, closed
-   2026-09-25). A run moving only `--result-entity-model` gets its own folder,
-   `..._gpt-4o_gpt-4o_gpt-4o_re-<model>`, and its own skip namespace. An offline bench stays the
-   cheaper first measure of a classifier, but the evaluator can now carry the full campaign.
-
-### Verifying the flip actually took
-
-Changing a client's configuration is not evidence that it followed. Each one hides its
-upstream differently, and on 2026-08-23, moving all three to 1.1.18, none of them could be
-checked without first working out how. Here is what works, per client, so nobody has to
-work it out again.
-
-| what to check | how, and what it costs |
-|---|---|
-| **an instance's own version** | `curl -s -H "X-API-Key: …" http://<host>:8186/` returns `api_version` beside `bktrees_ready` (FASTAPI-TEXT2SQL-203). Free. An instance predating that ticket omits the key entirely, which is itself the answer. |
-| **evaluator** | nothing to check: the port is derived from `--api-version`. |
-| **voice-agent** | `curl -s https://www.vaugouin.com/voice-agent/tool/health` returns `api_version` and `api_ready` (VOICE-AGENT-166). Free. Before that endpoint existed, the version was reachable at `upstream.api_version` inside a `/tool/text2sql` answer, but reading it that way runs the whole pipeline and spends LLM tokens on a cache miss. |
-| **Claude, via MCP** | call `sql_search` with a **bare IMDb id** (`{"question": "tt0033467"}`): the bare-identifier fast path answers from an indexed lookup with no LLM call and no cache write, and the payload carries `api_version`. |
-| **tmdb-front** | no runtime marker is exposed to the outside; verification is at configuration level, `$strtext2sqlapicolor` **and** `$strtext2sqlapiblueversion` in `lib/global-light.inc.php`. |
-
-**What does NOT discriminate the colours, so do not spend time on it.** The MCP `tools/list`
-payload is byte-identical between Blue and Green, and so is `GET /samples`; `serverInfo.version`
-in an MCP `initialize` is FastMCP's own version (3.4.7), not the API's. All three were tried on
-2026-08-23 before the `sql_search` route above was found.
-
-**Four traps, each of which cost time on 2026-08-23.**
-
-1. **`--env-file` is read by Docker at `docker run`, not at process start.** A `docker restart`
-   relaunches the container with the old value baked into its configuration. A client whose
-   colour lives in an env file must be **recreated** (`restart.sh` does), never merely restarted.
-   This is voice-agent's case.
-2. **Do not diagnose a deployment on its first request.** Right after a restart `bktrees_ready`
-   is `false` for several minutes while the warm-up runs (FASTAPI-TEXT2SQL-145), and it competes
-   for CPU with the request path. Measured that day: 53 s on an entity extraction that takes
-   1.1 s once warm, and one `GET /` over 15 s between answers at 0.1 s. Both resolved on their
-   own. Wait for `bktrees_ready: true` before reading anything into a latency.
-3. **tmdb-front remembers the colour in a one-year cookie.** The same mechanism that makes
-   `?apicolor=` such a cheap pre-test, described above, is a trap afterwards: a browser that
-   ever used the switch stays pinned whatever the default says, so your own browser is the
-   worst place to validate the deployment. `index.php?apicolor=Blue` rewrites it.
-4. **tmdb-front's per-colour version label is not decorative.** `text2sql-samples.inc.php`
-   reformats `$strtext2sqlapiblueversion` into `001.001.018` to look up
-   `T_WC_T2S_EVALUATION_EXECUTION`. Flipping the colour while leaving the label on the old
-   version points the samples page at executions that do not exist, and it renders empty.
-
-**A flip is complete when** every client reports the new version by the means above, and the
-instance reports `bktrees_ready: true`.
-
-### Probing the live API from the PC (Blue or Green)
-
-Both colour ports are reachable from the PC over Tailscale at the VPS address
-`100.113.161.122` (Blue `8186`, Green `8187`); a bare port with no key returns 401, which
-is itself proof the colour is up. The `X-API-Key` value is `TEXT2SQL_API_KEY` in
-`~/Code/text2sql-eval/.env` (which also holds `API_PORT_BLUE` / `API_PORT_GREEN` and
-`TEXT2SQL_API_URL`). Read the key from there, never hard-code or print it.
-
-```bash
-cd ~/Code/text2sql-eval
-KEY=$(grep '^TEXT2SQL_API_KEY=' .env | cut -d= -f2- | tr -d '"'\''\r')
-# Green = 8187, Blue = 8186. A bare identifier takes the fast path: no LLM call, no cache write.
-curl -s -H "X-API-Key: $KEY" -X POST http://100.113.161.122:8187/search/text2sql \
-  -H 'Content-Type: application/json' -d '{"question":"tt0033467"}' \
-  | python -c "import sys,json;d=json.load(sys.stdin);print({k:d.get(k) for k in ('api_version','result_kind','representation')})"
-```
-
-- **Use a capability probe, not the version.** An in-place redeploy keeps `api_version`
-  (e.g. 1.1.19), so to tell new code from old ask for a field only the new code emits
-  (`result_kind` for FASTAPI-TEXT2SQL-349), exactly as *Redeploying in place* says.
-- **The direct response is the API's own shape**, so `result_kind` / `representation` /
-  `result_columns` sit at top level. Through the public voice-agent route
-  (`https://www.vaugouin.com/voice-agent/tool/text2sql`, field named `query`, **no key
-  needed**) the same payload is nested under `upstream`, and it targets whichever colour the
-  voice-agent's `.env` points at, not a colour you choose.
-- A bare identifier (`tt0033467`) is the cheapest probe. A natural-language question runs the
-  whole pipeline and spends tokens on a cache miss; a question already in the bank is usually
-  a cache hit and therefore free.
+A flip is complete when every client reports the new version and the instance reports `bktrees_ready: true`. Per-client verification commands and the full reasoning: `README.md` § *Blue/Green Deployment*.
 
 ---
 
-## Where things live (file → role)
+## Where things live
 
-Edit at the right layer; the architecture is intentionally split.
+Edit at the right layer: `main.py` orchestrates only, the LLM calls live in `text2sql.py`, extraction and resolution in `entity.py`. File-by-file map: `doc/pipeline-internals.md` § *Where things live*. Invariants not to break:
 
-**[main.py](main.py)** (~2460 lines) — FastAPI app, ChromaDB / DB startup, request orchestration only.
-- Version utilities: `format_api_version()` ([main.py:33](main.py#L33)), `compare_versions()` ([main.py:38](main.py#L38))
-- `strapiversion` lives at [main.py:137](main.py#L137) (also drives Blue/Green port parity and `MCP_INTERNAL_BASE_URL`)
-- `Text2SQLRequest` / `Text2SQLResponse` Pydantic models around [main.py:214-269](main.py#L214-L269); the response rounds its numbers on serialization through [response_rounding.py](response_rounding.py) (FASTAPI-TEXT2SQL-308), as do the entity endpoints via `RoundedJSONResponse`
-- `POST /search/text2sql` : main pipeline endpoint. Its first stage is the vision pre-stage
-  when the request carries an `image_ref` (FASTAPI-TEXT2SQL-114): identify, compose the
-  question, then fall through to the ordinary pipeline
-- `POST /uploads/vision` / `GET /uploads/vision/{image_ref}` : the binary deposit and its
-  replay read (FASTAPI-TEXT2SQL-275), the only routes in this repo that carry bytes
-- 19 entity detail endpoints (movies, series, seasons, episodes, persons, companies, networks, collections, topics, lists, movements, technicals, genres, groups, deaths, awards, nominations, locations, sourceworks). `/sourceworks/{id}` (FASTAPI-TEXT2SQL-323) is keyed on `ID_SOURCE_WORK`, the id every `based_on` item of `/movies/{id}` and `/series/{id}` carries; its `source_entity` stub names the T2S movie or series the source is (Scarface 1932), null otherwise, and its Wikipedia arrays stay empty until WIKIPEDIA-CRAWLER-023. The reverse of `based_on` now rides on `/movies/{id}` and `/series/{id}` too: `adapted_movies` and `adapted_series` (shipped in 1.1.19, in place) are the films and series adapted from THIS title when it is itself a source work (a source-work row carries its `ID_MOVIE` / `ID_SERIE`, e.g. Yojimbo for A Fistful of Dollars), paginated collections mirroring `/sourceworks/{id}`'s `movies` / `series` (`collection=adapted_movies|adapted_series`, image kind `movie` / `serie`, the title excluded from its own side), empty for an ordinary title. They let a client drop the two "adapted from this work" rails straight onto the film / series sheet instead of the source-work sheet. `seasons` and `episodes` are keyed on composite paths (`/seasons/{id_serie}/{season_number}`, `/episodes/{id_serie}/{season_number}/{episode_number}`) and read from the T2S read-model (`T_WC_T2S_SEASON`, `T_WC_T2S_EPISODE` and their credit, image and video tables) since FASTAPI-TEXT2SQL-179. `genres` reads the closed-vocabulary reference table `T_WC_T2S_GENRE` (PK `ID_GENRE`, no `ID_WIKIDATA`, so no Wikipedia arrays) since FASTAPI-TEXT2SQL-313; the API no longer reads `T_WC_TMDB_GENRE`, `T_WC_TMDB_GENRE_LANG` or `T_WC_TMDB_PERSON_ALSO_KNOWN_AS`.
-- FastMCP instance + 21 MCP tools (`sql_search`, 19 entity tools including `get_source_work`, `list_samples`), 1 resource (`context://database-scope`), bearer-token middleware, `app.mount("", mcp_app)` at root. Every detail endpoint has its `get_*` wrapper; `get_season` and `get_episode` (FASTAPI-TEXT2SQL-314) take the composite keys of their HTTP paths (`id_serie`, `season_number`, `episode_number`), not `ID_SEASON` / `ID_EPISODE`. `_mcp_get` turns an HTTP error into `{"error": <endpoint detail>, "status_code": <code>}`
-
-**[text2sql.py](text2sql.py)** — core LLM logic.
-- `_call_chat_llm()` — unified multi-provider dispatcher (OpenAI / Anthropic / Google). Routes on prefix: `gpt-*`/`o1*`/`o3*` → OpenAI; `claude-*` → Anthropic; `gemini-*` → Google.
-- `f_text2sql(user_question, model, ui_language)` — text-to-SQL conversion; replaces `{ui_language}` in the prompt template so the LLM generates the `answer` field in the requested language.
-- `f_resolve_complex_question()` / `f_resolve_complex_question_retry_payload()` — complex-question simplification via stronger model.
-- `f_build_retry_question_from_reasoning()` — deterministic retry-question composer (typed entities + years).
-- `f_identify_from_image()` / `_call_vision_llm()` : the sixth task, the only one whose input
-  is an image (FASTAPI-TEXT2SQL-114). OpenAI route only, and the error says so.
-- `compose_vision_question()` / `select_vision_candidates()` / `question_targets_the_image()` :
-  the deterministic half of the vision path: what the model identified becomes a question here,
-  never in the model. See *The vision pre-stage*.
-- Hot-reloads `text_to_sql.md`, `complex_question.md` and `vision_identification.md` via
-  `data_watcher`.
-
-**[entity.py](entity.py)** — entity extraction + resolution.
-- `f_entity_extraction()` — LLM-based extraction + anonymization.
-- `_run_extraction_prompt()` — the prompt-call + JSON-cleanup body behind it.
-- `plan_entity_resolutions()` — the expensive, SQL-independent half of resolution (regex, closed vocab, ChromaDB, RapidFuzz, row lookups). Returns `{"entities": [...], "planning_time": float}`.
-- `apply_entity_resolutions()` — the cheap half: substitution into SQL / justification / answer, plus the recorded diagnostics.
-- `resolve_entities()` — the two back to back; unchanged signature, still the right call when there is nothing to overlap with.
-- `_match_regex_placeholder_rule()` — dispatch helper for regex placeholders.
-- `_REGEX_PLACEHOLDER_RULES` — list of `(prefix, regex, is_numeric)` tuples; **order matters** (uses `startswith()`).
-- Hot-reloads `entity_extraction.md` and `entity_resolution.json` via `data_watcher`. Both must exist on disk at import time: `data_watcher.register()` reads them eagerly and raises if one is missing, which kills the container at boot.
-
-**[closed_vocab.py](closed_vocab.py)** — closed-vocabulary lookups (DB canonicals + JSON aliases + RapidFuzz typo tolerance).
-- `init(connection)` — loads canonicals at startup. Called once from `main.py` startup.
-- `resolve(entity, raw_value)` — string-canonical lookup (`Status_name`, `Serie_type`, `Department_name`).
-- `resolve_genre(raw)` / `resolve_technical(raw)` — integer-ID lookups (`ID_GENRE`, `ID_TECHNICAL`).
-- Aliases hot-reload from [data/closed_vocabularies.json](data/closed_vocabularies.json).
-
-**[rapidfuzz_query.py](rapidfuzz_query.py)** — lexical matching.
-- `search_first_match()` — exact-norm → key prefix → FULLTEXT → LIKE last resort, ranked with `fuzz.WRatio`.
-- Thresholds: `AUTO_SCORE = 90`, `MIN_MARGIN = 5`, `TOP_K = 10`.
-- Requires `*_NORM` / `*_KEY` generated columns and (optional) FULLTEXT index — see [RAPIDFUZZ.md](doc/RAPIDFUZZ.md).
-
-**[sql_cache.py](sql_cache.py)** — cache helpers.
-- `search_sql_cache_by_question_hash()`, `search_sql_cache_by_question_text()`, `write_sql_cache_entry()` — all take the **formatted** API version (`XXX.YYY.ZZZ`).
-- `_normalize_cache_row()` — picks `SQL_QUERY` over `SQL_PROCESSED` when needed to preserve a smaller LLM-defined `LIMIT` (see `used_raw_query_to_preserve_limit`).
-
-**[vision_cache.py](vision_cache.py)** : the recognition cache of the vision path
-(FASTAPI-TEXT2SQL-114), keyed on the MD5 of the image bytes and the formatted API version, in
-its own table `T_WC_T2S_VISION_CACHE`.
-- `search_vision_cache()` / `write_vision_cache_entry()` : degrade to a silent miss when the
-  table is absent, so the path works before the migration runs.
-- `identification_payload()` : **the contract**, what is stored is what depends on the image
-  and not on the question. Adding a question-dependent key here makes the cache serve
-  yesterday's answer to today's question.
-
-**[sql_shapes.py](sql_shapes.py)** : structural predicates over a generated SQL query. Pure string analysis, no DB and no LLM: it answers *what shape does this query have*, never *is it right*.
-- `detect_person_role_collapse(sql_query, result_entity)` : true when a person-listing query pins the `ID_PERSON` it projects to a person named in the question, a shape that can only ever return that named person (FASTAPI-TEXT2SQL-211).
-- It exists as its own module so the runtime guard in `main.py` and the measurement in `analyze-complex-retry-logs.py` share the **exact same predicate**. A guard measured with a rule other than the one it runs is a number about nothing; do not fork the logic back into either caller.
-
-**[analyze-usage-logs.py](analyze-usage-logs.py)** : the replayable measurements of the HARNESS-BRICKS backlog topic, read from the usage logs and the evaluation exports, written as two dated HTML pages. See *Replaying the usage measurements*.
-
-**[cleanup.py](cleanup.py)** — version-scoped purge utilities (off by default; see `intcleanupenabled` at [main.py:70-71](main.py#L70-L71)).
-
-**[auth.py](auth.py)** — `get_api_key()` Security dependency. Multi-key via `API_KEYS` (comma-separated); `secrets.compare_digest()` for constant-time comparison.
-
-**[data_watcher.py](data_watcher.py)** — `register(filename, callback)`; daemon thread polls `./data/` every 5 s on mtime; logs hot reloads via `logs.log_hot_reload()`.
-
-**[language_family.py](language_family.py)** — `guess_language_family()` from Unicode code points (Latin / Hangul / Japanese / Chinese / Cyrillic / Arabic / Hebrew / Devanagari / etc.).
-
-**[logs.py](logs.py)** : `log_usage(endpoint, content, strapiversion)` and `log_hot_reload(filename)`. Filenames are `YYYYMMDD-HHMMSS_{endpoint}_{version}_{md5hash}.json`; never overwrite existing files. Also the request clock (`start_request_clock`, started by the `_RequestClock` middleware of `main.py`) that stamps `server_time` and `cpu_time` in every log written during a request (FASTAPI-TEXT2SQL-337).
-
-**[llm_costs.py](llm_costs.py)** : the price table (dollars per million tokens, with sources and date) and the arithmetic that turns `llm_usage` and `embedding_usage` into `llm_cost` (FASTAPI-TEXT2SQL-337), plus the VPS rate (`VPS_EUR_PER_MONTH`, `EUR_PER_CPU_SECOND`) behind `server_cost_eur` (FASTAPI-TEXT2SQL-338). The only place a price lives; see *What a call costs*.
-- `now_paris()` and `PARIS_TZ` are the one clock of the repo (FASTAPI-TEXT2SQL-328): every stamp a human reads goes through them, and every "now" compared with an upload horizon too. See *One clock: Paris time, with its offset* below.
-- `LOGS_FOLDER` is the **relative** `"logs"`, and that is load-bearing. Making it absolute or
-  configurable would re-split the corpus per colour; see *`logs/` and `uploads/` are shared*.
-
-**[uploads.py](uploads.py)** — the vision-mode image deposits (FASTAPI-TEXT2SQL-275), the only binary path in this repo.
-- `store_vision_image(imagebytes, strapiversion)` — magic-number check, house filename, write, and the `image_ref` returned to the client.
-- `f_getuploadfilename()` — twin of `logs.f_getlogfilename`, same `YYYYMMDD-HHMMSS_<kind>_<version>_<md5>` shape, **hash over the raw bytes**; do not reuse the log one, it hashes `contenttext.encode('utf-8')`.
-- `parse_image_ref()` / `vision_image_path()` — the guard between a client string and the filesystem. Anything the generator could not have produced is refused before a path exists.
-- `load_vision_image()` — the replay read, raising `UploadUnavailable` **with the deposit date and the purge** when the file is gone.
-- `UPLOADS_FOLDER` is relative for exactly the same reason, and with a sharper failure mode:
-  absolute or per-colour makes a post-flip replay fail **silently**.
-
-**[data/](data/)** : hot-reloaded prompts and config. [data/AGENTS.md](data/AGENTS.md) carries
-what only matters when editing one of these files, in particular the three rules twinned
-between `complex_question.md` and `vision_identification.md`, which share a motive and must
-keep different instructions:
-- `text_to_sql.md` — main Text2SQL prompt (loaded by [text2sql.py](text2sql.py))
-- `complex_question.md` — complex-question resolver prompt (loaded by [text2sql.py](text2sql.py))
-- `entity_extraction.md` — entity extraction prompt (loaded by [entity.py](entity.py))
-- `entity_resolution.json` — per-placeholder resolution strategy list (loaded by [entity.py](entity.py))
-- `closed_vocabularies.json` — alias dictionaries (loaded by [closed_vocab.py](closed_vocab.py))
-- `vision_identification.md` : the image-reading prompt (loaded by [text2sql.py](text2sql.py))
-
-**[maintenance/](maintenance/)** — one-shot operational SQL, run by hand against the production DB, no code path loads it. Distinct from `doc/sql/` (reference DDL, read-only) and from `text2sql-eval/assertions-*.sql` (which writes to the evaluation bank): this folder writes to operational tables, `T_WC_T2S_CACHE` first among them. Conventions and the cache facts a cleanup relies on are in [maintenance/AGENTS.md](maintenance/AGENTS.md); read it before adding or running anything there.
+- `sql_shapes.py` is shared by the runtime guard in `main.py` and the measurement in `analyze-complex-retry-logs.py`: never fork the predicate back into either caller.
+- `vision_cache.identification_payload()` is the cache contract: store only what depends on the image, never on the question.
+- `logs.LOGS_FOLDER` and `uploads.UPLOADS_FOLDER` stay **relative**: absolute or per-colour would split the log corpus and make cross-colour image replays fail silently.
+- `uploads.f_getuploadfilename()` hashes the raw bytes; do not reuse `logs.f_getlogfilename`, which hashes text.
+- `data_watcher.register()` reads its files eagerly: a registered `data/` file missing at import kills the container at boot.
+- `llm_costs.PRICES` is the only place a price lives. A model missing from it is reported in `unpriced_models`, never priced at zero: add its row (source and date) when you add a model.
+- A new DB connection comes from `get_db_connection()` (its cursor times every statement) and a new ChromaDB call goes inside `with logs.chroma_call():`, or it escapes `server_usage`.
+- `maintenance/` writes to operational tables by hand; no code path loads it. Distinct from `doc/sql/` (reference DDL).
 
 ---
 
 ## Runtime dependencies
 
-The variables are documented in `README.md`, *Set up environment variables*. Three things that
-file does not say, and that bite an agent:
+The variables are in `README.md`, *Set up environment variables*. What it does not say:
 
-- **`OPENAI_API_KEY` is required at startup even when no OpenAI model is selected**: `main.py`
-  initializes the OpenAI embedding function for ChromaDB before it serves anything.
-- **`MCP_API_KEY` empty means `/mcp` is open**, not weakly protected. `_verify_mcp_bearer` only
-  enforces a bearer `if MCP_API_KEY:`, so `sql_search` and the 18 entity tools answer anyone who
-  reaches the port. Verified 2026-08-23: both colours and the public NGINX route returned 200 to
-  `tools/list` with no token and with a wrong one. Startup logs a warning, the only signal there is.
-- **`UPLOADS_FOLDER`, `UPLOAD_RETENTION_DAYS` (30) and `MAX_UPLOAD_IMAGE_BYTES` (25 MB)** are not
-  in that README block. They are read at import time like the three pipeline-shape flags, so a
-  change needs a restart, and `UPLOAD_RETENTION_DAYS` must match the `--days` the cron passes to
-  `purge-uploads.sh`.
+- **`OPENAI_API_KEY` is required at startup even when no OpenAI model is selected**: the ChromaDB embedding function is OpenAI.
+- **`MCP_API_KEY` empty means `/mcp` is open**, not weakly protected (`_verify_mcp_bearer` only enforces a bearer `if MCP_API_KEY:`). Startup logs a warning, the only signal.
+- **`UPLOADS_FOLDER`, `UPLOAD_RETENTION_DAYS` (30) and `MAX_UPLOAD_IMAGE_BYTES` (25 MB)** are read at import (restart to change), and `UPLOAD_RETENTION_DAYS` must match the `--days` the cron passes to `purge-uploads.sh`.
 
 ---
 
 ## ChromaDB collections
 
-`main.py` opens 14 entity collections with `get_or_create_collection` (the roster is in
-`README.md`, *Key Architecture Components*), then opens `t2slocations` with **`get_collection`,
-never `get_or_create_collection`** (FASTAPI-TEXT2SQL-247): that collection's HNSW configuration
-(`space l2`, `ef_search 100`) is written at creation by process 216 of `embedding-update` and
-cannot be changed afterwards, so the first program to create it decides it for every reader. A
-`get_or_create` here would silently recreate it with the server defaults on the day it is
-missing, with no error at query time, only worse ranking. The old QID-keyed `locations`
-collection was dropped from the list for the same reason: leaving it would recreate it empty
-once `embedding-update` deletes it.
-
-If schema, entity IDs, collection document IDs, or language-routed fields change, assume the
-relevant collection may need rebuilding or resyncing: stale embeddings resolve to IDs that no
-longer exist in the SQL tables.
+`t2slocations` is opened with **`get_collection`, never `get_or_create_collection`** (FASTAPI-TEXT2SQL-247): its HNSW configuration is fixed at creation by process 216 of `embedding-update`, and a `get_or_create` would silently recreate it with server defaults the day it is missing (no error, only worse ranking). The same reasoning dropped the old `locations` collection. If schema, entity IDs, document IDs or language-routed fields change, assume the collection needs rebuilding: stale embeddings resolve to IDs that no longer exist.
 
 ---
 
 ## Hot-reloaded vs restart-required
 
-**Hot-reloaded** (~5 s after an mtime change): anything under `data/`, see `README.md`.
-
-**Restart required** — consider whether a user-requested `strapiversion` bump is also needed so
-the cache key flips and the Blue/Green parity moves:
-- Any change to `*.py`.
-- Any new placeholder (it must dispatch through `entity.py`).
-- New `closed_vocab` canonical loader or query (touched in `closed_vocab.py`).
-
-Do not bump `strapiversion` automatically, see *Version management workflow*. When a prompt or
-config change ships without a bump, say so: cache rows for the current version may shadow it.
+Anything under `data/` hot-reloads about 5 s after an mtime change (in production `restart.sh` mounts the checkout as `/app`). A restart is required for any `*.py` change, a new placeholder, or a new `closed_vocab` loader or query. Do not bump `strapiversion` automatically (see *Version management workflow*); when a prompt or config change ships without a bump, say that cache rows of the current version may shadow it.
 
 ---
 
 ## Placeholder dispatch order
 
-Inside `entity.resolve_entities()` the four stages run in this order, and the order is the
-content of this section. `README.md` lists which placeholder belongs to which stage, with the
-patterns, the canonical sources and the substitution kinds; it does not say what follows.
+Inside `entity.resolve_entities()` four stages run in order (the placeholder-to-stage table is in `README.md`):
 
-1. **Regex-validated** ([entity.py](entity.py) `_REGEX_PLACEHOLDER_RULES`). Dispatch uses
-   `startswith()`, so **a more specific prefix must be listed before the prefix it extends**:
-   `IMDb_person_ID` before `IMDb_ID`, `Wikidata_property_ID` before `Wikidata_ID`. Getting this
-   wrong is silent: the shorter rule swallows the longer name and its pattern rejects the value.
-   A rejected value leaves the placeholder in place, which marks the question ambiguous.
-2. **Closed-vocabulary branches**, dispatched by name prefix in an `if/elif` chain calling
-   `closed_vocab.resolve*`. Genre and `Technical_format` substitute a bare integer, the other
-   three a single-quoted string; pick by the target column's SQL type.
-3. **Embeddings / RapidFuzz**, driven by `data/entity_resolution.json` `search_list` strategies,
-   with optional per-strategy language-family gating.
-4. **Raw fallback**: the raw extracted value, SQL-escaped, substituted directly. Anything still
-   unresolved after the loop sets `ambiguous_question_for_text2sql = 1`.
-
----
+1. **Regex-validated** (`_REGEX_PLACEHOLDER_RULES`). Dispatch uses `startswith()`, so **a more specific prefix must be listed before the one it extends** (`IMDb_person_ID` before `IMDb_ID`, `Wikidata_property_ID` before `Wikidata_ID`); getting it wrong is silent. A rejected value leaves the placeholder, which marks the question ambiguous. `is_numeric` follows the target column's SQL type.
+2. **Closed vocabulary**, `if/elif` on name prefix calling `closed_vocab.resolve*`: Genre and `Technical_format` substitute a bare integer, the others a quoted string.
+3. **Embeddings / RapidFuzz**, driven by `data/entity_resolution.json` `search_list`.
+4. **Raw fallback**, SQL-escaped. Anything still unresolved sets `ambiguous_question_for_text2sql`.
 
 ## Adding a new placeholder
 
-Pick the right kind, then follow the canonical pattern:
-
 | Kind | Where the resolver lives | What goes in `entity.py` | Schema edits |
 |---|---|---|---|
-| Regex (year, ID-style literal) | `_REGEX_PLACEHOLDER_RULES` tuple | nothing — dispatcher handles it | none |
-| Closed-vocab string (Status-shape) | `closed_vocab._XXX_QUERY` + `init()` block | name-prefix branch in `resolve_entities()` calling `closed_vocab.resolve("XXX", raw)` | optional aliases entry in `data/closed_vocabularies.json` |
-| Closed-vocab integer ID (Genre-shape) | `closed_vocab._XXX_CANONICALS_QUERY` + `init()` block + `resolve_xxx()` function (mirrors `resolve_genre`/`resolve_technical`) | name-prefix branch substituting the integer (no quotes) | aliases JSON; optional `_LANG` companion table |
-| Embeddings / RapidFuzz (open-vocab name) | new entry in `data/entity_resolution.json` (`search_list` with `embeddings` and/or `rapidfuzz` strategies) | nothing — config-driven | new ChromaDB collection + initialization in [main.py:124-143](main.py#L124-L143) for embeddings |
+| Regex (year, ID-style literal) | `_REGEX_PLACEHOLDER_RULES` tuple | nothing | none |
+| Closed-vocab string (Status-shape) | `closed_vocab._XXX_QUERY` + `init()` block | name-prefix branch calling `closed_vocab.resolve("XXX", raw)` | optional aliases in `data/closed_vocabularies.json` |
+| Closed-vocab integer ID (Genre-shape) | `closed_vocab._XXX_CANONICALS_QUERY` + `init()` + `resolve_xxx()` (mirror `resolve_genre`) | name-prefix branch substituting the integer, no quotes | aliases JSON; optional `_LANG` table |
+| Embeddings / RapidFuzz (open-vocab name) | entry in `data/entity_resolution.json` | nothing, config-driven | new ChromaDB collection opened in `main.py` |
 
-Always also:
-1. Add the placeholder definition + examples to `data/entity_extraction.md`.
-2. Add a placeholder reference (and any column-picking rule) to `data/text_to_sql.md`.
-3. Update [closed-vocab-entity-checklist.csv](closed-vocab-entity-checklist.csv) if it's a closed-vocab entity.
-4. Bump `strapiversion` only when explicitly requested; otherwise warn that current-version cache rows may shadow the new behavior.
+Always also: define the placeholder with examples in `data/entity_extraction.md`, reference it (and any column rule) in `data/text_to_sql.md`, update `closed-vocab-entity-checklist.csv` for a closed-vocab entity, ship a **measured** `min_fuzz_ratio` with an embeddings entity (`doc/AGENTS.md`), and bump `strapiversion` only on request.
 
 ---
 
-## Pipeline scheduling: what runs in parallel
+## Pipeline scheduling and the fork-join
 
-`/search/text2sql` used to be an `async def` that never awaited anything, so every LLM call blocked the event loop and requests serialized. Three calls now go through `asyncio.to_thread`: `f_text2sql`, `f_classify_result_entity` and the answer-entity guard's regeneration. Consequences worth knowing:
+LLM calls and the generated SQL run through `asyncio.to_thread`; a blocking call inside the async endpoint serializes every client. `plan_entity_resolutions()` is forked just before the text-to-SQL call and joined after the answer-entity guard: **the join is unconditional and must stay where it is**, because the complex-retry path below it closes the connection the worker uses. The result-entity classifier is a second fork (no DB connection, so an early return is harmless). Details and the one accepted behavioural divergence: `doc/pipeline-internals.md` § *Pipeline scheduling*.
 
-- **Four calls, not three, since the vision task.** `f_identify_from_image` goes through
-  `asyncio.to_thread` for the same reason as the other three: it is the slowest call of the
-  six, and blocking the event loop on it would serialize every concurrent request behind one
-  photo.
-- **Requests now genuinely interleave.** Per-request state (the DB connection, the messages list) is local; module state touched at request time is either read-only after startup (prompts, closed-vocab canonicals) or lock-protected (`_BKTREE_CACHE`). The prompt-cache buffer is a `ContextVar` holding a list, and `asyncio.to_thread` copies the context by reference, so appends from worker threads still reach the response.
-**The fork-join (FASTAPI-TEXT2SQL-201).** Entity resolution iterates over the extraction payload, not over the placeholders found in the SQL, and `f_text2sql` only ever sees `input_text_anonymized`. The two branches are therefore independent, and `plan_entity_resolutions()` is started in a worker thread just before the text-to-SQL call, then joined right after the answer-entity guard. **The join is unconditional and must stay where it is**: the complex-question retry path below it closes the connection the worker thread is using. A plan that raised degrades to `resolve_entities()` on the sequential path.
+## Generated SQL goes through `_run_generated_sql`, always (FASTAPI-TEXT2SQL-302)
 
-**The second fork (FASTAPI-TEXT2SQL-286).** `f_classify_result_entity` reads only the original question and the label set, so it is started as a task at the top of the text2sql block (after the anonymized-question cache lookup and the complex-question routing) and joined just before the answer-entity guard; it was first forked at request entry, but the join and the guard only run inside that block, so its label was dropped on every anonymized-cache hit and complex escalation (11 wasted calls out of 96, FASTAPI-TEXT2SQL-306); until 1.1.19 it ran serially after SQL generation (0.96 s median, 12.8 s p99). It holds **no** DB connection, so unlike the resolution fork an early return between fork and join is harmless: the thread finishes, the label is dropped. Consequences: `result_entity_processing_time` is the call's own duration and **overlaps** extraction and text2sql, so `total - sum of stages` goes negative; a wasted classification is paid on requests that end without SQL (errors, complex escalations), about a thousandth of a cent each; a failed call abstains. Not forked on the exact-cache hit (nothing to overlap) nor on the identity re-entry of -300. `RESULT_ENTITY_PARALLEL=0` restores the sequential call.
-
-**One accepted behavioural divergence.** When a placeholder is extracted but appears nowhere in the SQL, the justification or the answer, the old resolver ran *every* strategy and logged each one before discarding the result; the planner stops at the first strategy that resolves. The three texts come out identical, only the message trace is shorter. Everything else is byte-identical, message traces included.
-
----
+Any place that executes model-written SQL calls `_run_generated_sql` (off the event loop, capped by `SET STATEMENT max_statement_time`, `SQL_MAX_STATEMENT_TIME`, default 60 s). A query killed at the cap returns `sql_timeout` and is **not** regenerated nor retried on the stronger model. `COUNT(...) OVER ()` is refused before MariaDB (-303). The answer-entity guard exempts a single `COUNT` / `AVG` / `SUM` total and an attribute-keyed statistics table, never `MIN` / `MAX` (-303, -311; check with `uv run checks/verif-311.py`). Why and how it was measured: `doc/pipeline-internals.md`.
 
 ## The six LLM tasks, and what each one actually costs
 
-There are **six** LLM calls in this pipeline, not the three the `llm_model_*` parameters
-suggested until FASTAPI-TEXT2SQL-232. Five route through `text2sql._call_chat_llm` and the
-sixth, which reads an image, through `text2sql._call_vision_llm`; each is tagged with a
-`cache_label` that is also its key in the prompt-cache log and its default reasoning effort.
-Since -232 each has its own request selector, its own response field naming the model that
-served it, and since -233 its own wall clock.
+`entity_extraction`, `text2sql`, `result_entity`, `complex_question`, `vision_identification` (image only, OpenAI only), and the retired `answer_single_value` (-331, selector ignored). Each carries a `cache_label` (prompt-cache log key and default reasoning effort); find call sites with `grep -n 'cache_label="' text2sql.py entity.py`, never by line number. Extraction and text2sql carry 97 % of the bill: measure there first. `embedding_usage` is deliberately **not** a task of `llm_usage` (consumers sum its entries as chat calls). Measured costs, latencies, client selectors and the bench discipline (noise floor first, three outcomes, never one accuracy number): `doc/llm-tasks-and-costs.md`.
 
-| # | Task (`cache_label`) | Call site | Fires on | Selector |
-|---|---|---|---|---|
-| 1 | `entity_extraction` | `entity.py:269` | 100 % | `llm_model_entity_extraction` |
-| 2 | `text2sql` | `text2sql.py:518` | 100 % | `llm_model_text2sql` |
-| 3 | `result_entity` | `text2sql.py:629` | 99.9 % | `llm_model_result_entity` |
-| 4 | `complex_question` | `text2sql.py:663` | ~1 % | `llm_model_complex` |
-| 5 | ~~`answer_single_value`~~ | removed 2026-10-15 (FASTAPI-TEXT2SQL-331): it answered a single cell worth 0 from memory | never | `llm_model_answer_single_value`, accepted and ignored |
-| 6 | `vision_identification` | `text2sql._call_vision_llm` | only with an `image_ref` | `llm_model_vision` |
+When grepping the `Prompt cache (...)` log lines, use the class `[a-z0-9_]`: `text2sql` carries a digit and `[a-z_]` silently drops the most expensive task.
 
-Line numbers move; the `cache_label` does not. `grep -n 'cache_label="' text2sql.py entity.py`
-is the durable way to find them (five since -331 removed task 5).
+## Reasoning models and the provider prompt cache
 
-**Task 6 is priced apart from the five, and it is not in the table below.** It fires only on a
-request carrying an image, so it has no frequency in a text campaign; it costs about **4 cents
-a photo** (1229 tokens of image at `detail: "high"` plus the reasoning output, at gpt-6-astra's
-$10 / $50 per million), which is two orders of magnitude above any other task per call. That is
-what the recognition cache of *The vision pre-stage* exists to spend once rather than twice.
+There is no model allowlist: anything starting with `gpt-` goes to OpenAI. A new reasoning family needs **all four** entries of the block in `text2sql.py` (`_REASONING_MODEL_PREFIXES`, `_EFFORT_BY_FAMILY`, a rung for every `cache_label` in `_DEFAULT_EFFORT_TIER`, an endpoint decision in `_CHAT_COMPLETIONS_REASONING_PREFIXES`), or it spends silently. GPT-6 has no `none` rung. Function tools combined with `reasoning_effort` are refused for `gpt-5.6-sol` on chat completions, which is why the vision call's structured output degrades once to plain JSON. On gpt-5.6+ the explicit cache breakpoint at `<!--CACHE_BOUNDARY-->` decides the price: keep `{ui_language}` and anything else that varies below that boundary, and bench the cache with NEW questions only. Offline check: `uv run checks/verif-274.py`. Full reasoning: `doc/llm-tasks-and-costs.md`.
 
-### Measured token profile (gpt-4o, v1.1.17–1.1.18)
-
-Not estimates. Prompt and cache figures come from the 424 `Prompt cache (…)` records in
-`logs/`; frequencies and latencies from the 1,690 executions of eval run `001.001.018`
-(EN + FR). Reproduce with:
-
-```bash
-grep -rho "Prompt cache ([a-z0-9_]*): provider=[a-z]*, model=[^,]*, prompt_tokens=[0-9]*, cached_tokens=[0-9]*" logs/
-```
-
-Note the `[a-z0-9_]` character class: `text2sql` carries a digit, and a `[a-z_]` class
-silently drops the single most expensive task in the pipeline from the tally.
-
-**Output and reasoning tokens are measured since FASTAPI-TEXT2SQL-296 (2026-09-26).** The
-"Output tok" column below was estimated because the logger threw that half of the usage
-object away. Now every `Prompt cache (…)` message ends with `completion_tokens=` and
-`reasoning_tokens=`, and every response carries **`llm_usage`**, per task:
-`{task: {model, calls, prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens}}`,
-summed over the request's calls, both passes of a retried request included. As OpenAI bills
-them, `prompt_tokens` includes `cached_tokens` and `completion_tokens` includes
-`reasoning_tokens`. The accumulator is a `ContextVar` like the cache buffer, but it is only
-read, never drained, because the inner pass of a retry ends before the outer one. On a
-reasoning model (GPT-6) the reasoning tokens bill at the output price: read them before
-comparing list prices. The evaluator stores the request totals in `LLM_PROMPT_TOKENS`,
-`LLM_CACHED_TOKENS`, `LLM_COMPLETION_TOKENS`, `LLM_REASONING_TOKENS` and prints the per-task
-table at the end of phase 20. Anthropic folds thinking into its output count, so its
-`reasoning_tokens` stays 0 (unknown, not absent); OpenRouter is not counted at all. Its cache
-writes are passed as `cache_write_tokens` since FASTAPI-TEXT2SQL-337, inside `prompt_tokens`
-like OpenAI's.
-
-| Task | Prompt tok | Cache hit | Uncached in | Output tok |
-|---|---:|---:|---:|---:|
-| `entity_extraction` | 8,555 | 73.9 % | 2,339 | ~25 |
-| `text2sql` | 19,146 | 62.0 % | 7,378 | ~217 |
-| `result_entity` | 577 | 0 % | 577 | ~2 |
-| `complex_question` | 1,107 | 3.3 % | 1,073 | ~120 (est.) |
-| `answer_single_value` | ~60 | 0 % | 60 | ~5 (est.) |
-
-**`result_entity` never caches, and that is not a bug to fix by tuning.** At 577 tokens it
-sits under OpenAI's ~1,024-token caching floor. Making it cacheable would mean padding the
-prompt, which costs more than it saves.
-
-**Tasks 1 and 2 carry 97 % of the bill.** Anything spent optimising 3, 4 and 5 is rounding
-error, so measure before moving them. On gpt-4o the whole pipeline costs about **$50.69 per
-1,000 requests**, which puts a full 1,690-execution evaluator run at roughly **$86**.
-
-Latency baseline from the same run, for comparing any model swap against:
-
-| Phase | mean | p50 | p90 | max |
-|---|---:|---:|---:|---:|
-| `entity_extraction` | 1.06 s | 0.91 s | 1.34 s | 7.65 s |
-| `text2sql` | 3.61 s | 3.23 s | 5.39 s | 36.24 s |
-| embeddings | 0.38 s | 0.02 s | 0.56 s | 99.09 s |
-| query execution | 0.08 s | 0.00 s | 0.07 s | 10.66 s |
-| **total** | **6.04 s** | **5.45 s** | **8.26 s** | **114.09 s** |
-
-### What a call costs: `llm_cost`, `embedding_usage` and the request clock (FASTAPI-TEXT2SQL-337)
-
-Since 2026-10-21 every response prices itself, and every log says how long the server worked.
-Before, the tokens were there but each analysis script carried its own copy of the prices, the
-embeddings were neither counted nor priced, Claude's cache writes were folded into its uncached
-input (priced $4 instead of $5 per million on Opus 5.5), and the entity endpoints had no timing.
-
-- **`llm_cost`** = `{total_usd, llm_usd, embeddings_usd, unpriced_models}`, and a `cost_usd` in
-  each `llm_usage` entry, computed by `t2s.snapshot_usage_fields()` from [llm_costs.py](llm_costs.py).
-  A list-price estimate: the invoice stays the reference, and a campaign is how the two are
-  checked against each other. Flex is counted at half price only when every call of the task was
-  served Flex. **A model missing from `PRICES` is named in `unpriced_models` and left out of the
-  totals, never priced at zero**: add its row (with source and date) when you add a model.
-- **`embedding_usage`** = `{model, calls, prompt_tokens, cost_usd}`, filled by
-  `OpenAIEmbeddingFunction._record_usage` through `t2s.record_embedding_usage`. **It is not a task
-  of `llm_usage`, on purpose**: the evaluator's token columns, `analyze-usage-logs.py` and
-  pipeline-3d sum the entries of `llm_usage` as chat calls. Do not merge them.
-- **The construction sites call `**t2s.snapshot_usage_fields()`**, which fills the three fields
-  at once; the complex retry assigns them with `setattr`. A new response site does the same.
-- **`server_time` and `cpu_time`** follow `ts` in every log written during an HTTP request:
-  wall seconds since the request entered the API, and process CPU seconds meanwhile (all
-  threads, so concurrent requests leak in: read medians). The `_RequestClock` middleware is
-  pure ASGI on purpose: with `BaseHTTPMiddleware` the endpoint would run in a child task and
-  the clock would still be visible, but a pure ASGI layer makes it certain and costs nothing.
-- **Where to read them over a period:** the *Cost price of a call* section of
-  `analyze-usage-logs.py` (search cost in production and campaign, by text-to-SQL model; server
-  and CPU time per endpoint, entity routes included); per campaign, the cost block the evaluator
-  prints at the end of phase 20 (text2sql-eval 2.14.0).
-- **The server's share (FASTAPI-TEXT2SQL-338).** Every log of a request also carries, after
-  `cpu_time`, `sql_calls`, `sql_time`, `sql_rows`, `chroma_calls`, `chroma_time` and
-  `server_cost_eur`; `/search/text2sql` returns the same block as `server_usage`, filled on a
-  cache hit too. MariaDB and ChromaDB run in other containers and expose no per-query CPU, so
-  the API times its **waits** on them: `_TimedDictCursor`, the cursor class of
-  `get_db_connection`, times every statement (no call site to touch; **a new connection must
-  come from `get_db_connection`** or it escapes the count), and `logs.chroma_call()` wraps each
-  ChromaDB call, **minus the OpenAI embedding round trip** it makes client-side
-  (`OpenAIEmbeddingFunction` reports it through `logs.record_embedding_wait`). **A new ChromaDB
-  call site goes inside `with logs.chroma_call():`.** `server_cost_eur` = (`cpu_time` +
-  `sql_time` + `chroma_time`) × `llm_costs.EUR_PER_CPU_SECOND`: an upper bound (a wait
-  includes the network, and PyMySQL's row decoding is in both `sql_time` and `cpu_time`), and
-  an allocation of a fixed, committed bill, not a marginal cost.
-- **Measured up to the log line.** The entity endpoints call `log_usage` before their
-  localization queries (`apply_localized_related_images`, `apply_localized_text`, `ui_language`
-  other than `en` only), and the `?collection=` path writes no log: those few statements are
-  not in the log's figures.
-
-### Who can drive the six, and the two gaps
-
-| client | how it selects | state |
-|---|---|---|
-| **evaluator** (`text2sql-eval/text2sql-eval.py`) | `--entity-extraction-model`, `--text2sql-model`, `--complex-model`, `--result-entity-model`, `--answer-single-value-model` | five of six; it cannot send an image at all, which is FASTAPI-TEXT2SQL-277 |
-| **tmdb-front** | request params / cookies `eemodel`, `t2smodel`, `complexmodel`, `resultentitymodel`, `answermodel`, radio groups on the settings page | five of six; it sends `image_ref` but no vision-model selector (TMDB-FRONT-088) |
-| **Claude, via MCP** | the six arguments of `sql_search`, `llm_model_vision` included | all six |
-| **voice-agent** | does not send any; takes the server defaults | unchanged |
-
-**The gap is closed (FASTAPI-TEXT2SQL-234, 2026-09-25).** `T_WC_T2S_EVALUATION_EXECUTION`
-now stores all five models: `RESULT_ENTITY_MODEL` and `ANSWER_SINGLE_VALUE_MODEL` were added by
-`text2sql-eval/archive/migrate-evaluation-execution-late-models.sql`, which must run before the evaluator of the
-same commit. The folder suffix (`_re-<model>`, `_asv-<model>`) is built from the ROW, never from
-the CLI, and only when the value differs from `gpt-4o`, so a re-export never labels an old row
-with today's setting and the three-model folders keep their names. Rows older than the columns
-hold NULL, matched as the default and exported as null; never backfill them.
-
-### Measuring a model change on one task
-
-Two off-production benches exist, one per classification task, and they follow the same
-discipline: two configurations over the same questions in one process, no API server, no
-execution row, no cache write.
-
-| bench | task | ground truth |
-|---|---|---|
-| `checks/bench-entity-extraction.py` | 1, entity extraction | `ASSERTIONS_ENTITY_EXTRACTION` in the bank |
-| `checks/bench-result-entity.py` | 3, answer-entity classifier | `result_entity` of executions that PASSED |
-
-**Always measure the noise floor first, by running one model against itself.** At
-temperature 0 a configuration still disagrees with itself, and until that number exists a
-small delta cannot be told from a coin flip. Measured for the classifier on 2026-08-30,
-`gpt-4o` against `gpt-4o`, 689 EN questions: **1 confident error on the 631 questions in
-decidable classes, and 13 self-disagreements out of 689**. Eleven of those thirteen are an
-abstention appearing or vanishing, which costs nothing; the run repeated a day apart gave
-11 then 13, so treat the disagreement count as approximate and the confident-error floor,
-1, as the number the verdict uses. Latency was identical on both sides, median 0.59 s.
-
-So the bar for a challenger on this task is exact: **adopt it if it makes at most one more
-confident error than `gpt-4o` on the decidable classes**. The FR floor has not been
-measured.
-
-**Result, `gpt-5.6-luna` against `gpt-4o`, 689 EN questions, 2026-08-30: HOLD.**
-
-| | correct | abstained | **wrong** |
-|---|---:|---:|---:|
-| gpt-4o | 659 | 28 | **2** |
-| gpt-5.6-luna | 678 | 5 | **6** |
-
-On decidable classes only, which is what the verdict uses: 1 against 3, so **+2 against a
-floor of 1**. Latency is a wash (median 0.59 s against 0.64 s; Luna's worst case is
-actually better, 3.16 s against 13.58 s).
-
-**This is the case the three-outcome design exists for.** A single accuracy number would
-read "98.4 % against 95.6 %, adopt it", because Luna is right more often overall. It is
-right more often because it abstains 23 times less, and an abstention costs nothing: the
-caller falls back to the text-to-SQL model's own answer. What Luna actually does is convert
-those abstentions into answers, most of them right and four of them **confidently wrong**,
-and a confident error overrides a query that may have been correct. More correct and more
-dangerous at the same time.
-
-**The qualitative signal is worse than the count.** Of Luna's six, one is the known bad
-label on evaluation 948, two are defensible readings of genuinely ambiguous questions
-("Documentaries", "What talk shows are in the database?", both answered `genre`), and one
-is the exact failure the classifier exists to prevent: **"Which people died from a heart
-attack?" answered `death`**, taking the filter for the answer, when the prompt gives that
-very shape as a worked example. `gpt-4o` gets it right.
-
-**And the upside was never large.** This task costs $1.46 per 1,000 requests against Luna's
-$0.12: the swap saves **$1.34 per 1,000, 2.7 % of the pipeline's $50.69**. Four extra
-confident errors per 689 questions is a bad price for 2.7 %. Worth remembering when
-sequencing the remaining swaps: `text2sql` ($35.33) and `entity_extraction` ($13.87) hold
-97 % of the bill, so they are where a model change is worth the risk of measuring.
-
-**French, 643 questions, floor 2: HOLD more clearly still.**
-
-| | correct | abstained | **wrong** | wrong, decidable classes |
-|---|---:|---:|---:|---:|
-| gpt-4o | 618 | 23 | 2 | **0** |
-| gpt-5.6-luna | 630 | 6 | 7 | **5** |
-
-Same shape as English, wider gap: +5 against a floor of 2, and `gpt-4o` makes **no**
-confident error at all on the decidable classes in French (both of its errors are in the
-unscored tail). Latency again a wash.
-
-**The FR floor is 2 where the EN floor is 1**, and `gpt-4o` is a little less accurate in
-French across the board. That is the documented EN/FR gap showing up in this task too, and
-it means a French comparison tolerates more slack before it means anything.
-
-**Running both languages is what turns the result from a count into a diagnosis.** Three of
-Luna's failures reproduce in both:
-
-| eval | question | truth | Luna |
-|---|---|---|---|
-| 2467 | "Which people died from a heart attack?" / "Quelles personnes sont mortes d'une crise cardiaque ?" | person | **death** |
-| 2321 | "Documentaries" / "Documentaires" | movie | **genre** |
-| 825 | the Gendarme de Saint-Tropez collection | (differs, see below) | wrong both ways |
-
-Eval 2467 in both languages is the finding. It is not noise, it is not an ambiguous label,
-and it is exactly the confusion this classifier exists to prevent: the cause of death is the
-**filter**, the people are the answer, and the prompt gives that shape as a worked example.
-Luna takes the filter for the answer in both languages; `gpt-4o` gets it right in both.
-Together with the `-> genre` pair, the failure mode is systematic: **a weaker model
-generalises "the words in the question" into "the type of the answer"**, which is the single
-thing this task must not do.
-
-**A ground-truth caveat the two runs expose, and it is new.** The same evaluation carries a
-**different label in EN and FR on 5 of 622** shared questions (825, 948, 2179, 2323, 2457).
-The labels come from two separate executions, so this is the pipeline's own EN/FR divergence
-leaking into the ground truth. Half of Luna's raw errors land on those five. The verdict is
-unaffected, because only one of them (825) sits in a decidable class and the FR gap is +5
-against a floor of 2 with or without it, but any future reading of a small delta must check
-whether it rests on one of these.
-
-**Where to look next on this task, if it is worth revisiting:** the `-> genre` and
-`-> death` errors all say the same thing, that the prompt's "a genre used to scope a search
-is a filter, not the answer" guidance is not emphatic enough for a weaker model. That prompt
-is inline in `text2sql.f_classify_result_entity`, not a hot-reloaded file, so testing a
-rewrite means a code change and four bench runs, before and after in both languages. Given
-the task is 2.7 % of the bill, that is a poor use of the next hour compared with benching
-`entity_extraction` or `text2sql`.
-
-**Three outcomes, never one accuracy number**, and this is the part that transfers to any
-future classifier. *Correct*; *abstained*, where the caller falls back to the pre-existing
-behaviour so nothing is lost; and *confidently wrong*, a different valid label, which is
-the only outcome that overrides a query that may have been right. A model that abstains
-more is not a model that errs more, and one accuracy figure hides exactly that difference.
-
-**The label distribution decides how the result can be read.** `movie`, `person` and
-`serie` carry 90 % of the classifier's ground truth, so answering "movie" every time
-already scores 55.2 %. Eleven classes have fewer than 30 examples. The bench therefore
-prints the majority baseline beside every score and refuses a percentage below
-`--min-decidable`, listing those classes as counted-but-unscored instead. Same lesson as
-the ChromaDB `lists` check that returned OK at 9 % on 23 documents: a proportion computed
-on a handful of rows cannot discriminate, and a check that reports "fine" from too little
-data is worse than no check.
-
-**`--limit` samples round-robin across classes, rarest first, not off the top.** The
-exports open on a long run of `movie` questions, so a head slice of 12 was twelve movies
-and a perfect score. The stratified version surfaced something on its first 14-question
-run that the head slice could never have reached, and it turned out to be about the
-ground truth rather than about the model. See below.
-
-**A passing execution proves its assertions were satisfied, NOT that its `result_entity`
-is the label a human would pick.** That distinction is the one real weakness of harvesting
-labels this way, and it showed up immediately. Evaluation 948 is the single `serie_image`
-row in the EN set; its question is `Serie game of thrones`, which asks for nothing about
-images, yet the execution ran against `T_WC_T2S_SERIE_IMAGE` and passed. `gpt-4o` answers
-`serie`, which is defensible, and the bench scores it a confident error. So a
-confident-error line on a class with n=1 is a prompt to go read the case, never a verdict
-on the model. This is also why `--min-decidable` exists: at n=1 a single questionable
-label is 100 % of the class.
-
-**Bench artefacts are gitignored** (`checks/data/bench/`), for the same reason as the
-execution exports: they carry the evaluation questions verbatim.
-
-**Both benches preflight one call per model and abort before spending anything.** The
-failure they guard against is not a crash but a plausible-looking report: the classifier
-turns an exception into `""`, which scores as an abstention, and entity extraction turns
-one into `{"error": ...}`, which `score()` maps to `None` and which therefore leaves the
-DENOMINATOR rather than counting against the model. A configuration failing on every call
-reads as "abstained a lot" in one and "scored: 0" in the other; failing on half reads as a
-perfect record on the survivors. The entity bench now also states, at the top of its report
-rather than at the bottom, how many questions were dropped and warns past a tenth.
-
-**They do not run in the same places.** `bench-result-entity.py` reads its ground truth
-from the execution exports on disk and needs **no database**, so it runs anywhere the repo
-is checked out. `bench-entity-extraction.py` reads the bank from MariaDB and therefore only
-runs where the database is reachable, which is not a developer laptop. Plan the entity work
-on the VPS or behind a tunnel.
-
-## The provider prompt cache decides the price of a GPT-6 model (PROMPT-CACHING-010)
-
-Every OpenAI call now sends `prompt_cache_key = "t2s-<task label>"` through `extra_body`
-(`OPENAI_PROMPT_CACHE_KEY=0` turns it off), and the usage logger records `cache_write_tokens`
-beside `cached_tokens`, in the `Prompt cache (...)` message and in `llm_usage`. Why it matters:
-from gpt-5.6 on, a cache miss is not an uncached token but a **cache write at 1.25x** the input
-price, and the only retention is 30 minutes (`prompt_cache_options.ttl`, no 24 h option on GPT-6).
-On the 25 K-token text2sql prefix, gpt-6-sol costs about $8 per 1,000 calls when the cache holds
-and $34 to $41 when it misses: the whole saving of the GPT-6 line is the hit rate.
-
-**Why gpt-6-sol missed, established 2026-09-29 (FASTAPI-TEXT2SQL-304).** From gpt-5.6 on,
-OpenAI's default *implicit* cache writes its entry at the **end of the latest message**, which in
-our requests is the varying question. A later request can only reuse it if the **whole prompt is
-identical**; a new question never reads the 25.7 K static prefix and pays a full-prompt write at
-1.25x. gpt-4o, on the older prefix-interval rule, reads 97-99 % whatever the question. OpenAI's
-guide names the case ("a shared prefix is not always a cached prefix") and the remedy: an explicit
-`prompt_cache_breakpoint` after the static content, with `prompt_cache_options.mode = "explicit"`.
-`_openai_user_content` (text2sql.py) now sends, on gpt-5.6+ and when the prompt has a
-`<!--CACHE_BOUNDARY-->`, a user message in two text parts, the static one carrying the breakpoint;
-older models keep the plain string. Measured on Chat Completions: three new questions each read
-25,729 tokens with 0 written; without it, two new questions wrote the full prompt twice.
-`OPENAI_EXPLICIT_CACHE_BREAKPOINT=0` turns it off. The design note with the sources is
-`t2s-backlog/gpt6-sol-prompt-cache-misses.md` in Nestor.
-
-**What the earlier explanations got wrong, so nobody repeats them.** The "streaks", the
-`max_completion_tokens` "effect" and the English/French "eviction" were all the same rule seen
-through a flawed bench: it resent the same questions in the same order, so runs that re-sent
-already-sent questions hit and runs that sent new ones missed. Tested 2026-09-29: a capped call
-wrote, and the uncapped call on the same new prompt read 25,753 tokens; the cap plays no part.
-`prompt_cache_key` changed nothing (OpenAI keeps it for accounting on 5.6+). Keep `{ui_language}`
-and anything else that varies below the boundary: that part of the note still stands. Read the
-hit rate of every campaign from the per-task table of phase 20 before reading its cost, and bench
-the cache with NEW questions only.
-
-**The evaluator now stops a run whose cache does not hold** (`PromptCacheGuard` in
-`text2sql-eval/text2sql-eval.py`, 2026-09-28). After each stored execution it reads `llm_usage`; for every
-cacheable task (>= 1,024 prompt tokens per call) it ignores the first 3 calls, then stops the run
-with exit code 3 when fewer than 70 % of the last 20 calls read at least 90 % of their prompt from
-cache. Rows already written are kept and the same command resumes. Replayed on the 2026-09-27
-gpt-6-sol exports it stops at question 23 in both languages; on gpt-4o it never fires.
-`CACHE_GUARD_MIN_HIT` (script) / `--cache-guard-min-hit` (evaluator), 0 disables it.
-
-## One slow SQL query must not freeze the API (FASTAPI-TEXT2SQL-302)
-
-The generated SQL runs through `_run_generated_sql` (main.py), **never** with a bare
-`cursor.execute` inside the async endpoint. Two reasons, both learned the hard way on
-2026-09-27, when a gpt-6-sol query for "How many movies are there?" (`COUNT(*) OVER ()` over
-~688,000 rows) froze production until it was killed by hand:
-
-- **Off the event loop.** It is called through `asyncio.to_thread`, like every LLM call. A
-  blocking `execute` in the endpoint stops every other request of every client for as long as
-  the query runs.
-- **Capped in time.** It is sent as `SET STATEMENT max_statement_time=N FOR <query>`; MariaDB
-  kills it at N seconds (error 1969), so nothing survives in `PROCESSLIST`. `N` is
-  `SQL_MAX_STATEMENT_TIME` (env, default 60, 0 disables). 60 s was chosen on measurement: the
-  slowest of the 1,739 executions of the 1.1.19 baseline took 23.2 s.
-
-A query interrupted at the cap fails with `sql_execution_failure_code = "sql_timeout"`, the
-response carries `error_code: "sql_timeout"` and an explicit error, and it is **not** sent to
-the SQL regeneration nor to the stronger-model retry: a rewrite of a query that proved too heavy
-can be just as heavy, and would pay the cap a second time. Any new place that executes
-model-written SQL goes through the same helper.
-
-**A whole-result window count is refused before it reaches MariaDB** (FASTAPI-TEXT2SQL-303).
-`SQL_GUARD_WINDOW_COUNT` rejects `COUNT(...) OVER ()` like the leading-wildcard LIKE of -223,
-with `sql_guard_rejected`, so the targeted regeneration retries once with the reason and the shape
-to write. It is how gpt-6-sol answered "How many movies are there?": the prompt told it that a
-question which counts still returns entity rows. `data/text_to_sql.md` now has "A single total:
-one row, one column", and the aggregation rule says "per entity". A single total is one cell:
-`SELECT COUNT(DISTINCT <id>) AS <X>_COUNT FROM ... [WHERE ...]`.
-
-**The answer-entity guard exempts a single total** (FASTAPI-TEXT2SQL-303, 2026-09-29). The guard
-(-117/-136) regenerates any query that does not project the id column of the expected entity. A
-single total projects no id by design, so the guard used to demand entity rows: gpt-6-sol obeyed
-and failed its counts (793, 2169-2172, 2313), gpt-4o failed to regenerate and kept its count,
-passing by accident after a discarded LLM call. `_is_single_total_select` now lets through a query
-whose outer SELECT list is exactly one `COUNT(...)` with no `GROUP BY`. Not MIN or MAX, on
-purpose: "What is the longest movie?" written as `SELECT MAX(RUNTIME)` is still a wrong answer the
-guard must turn into the movie row.
-
-**Extended by FASTAPI-TEXT2SQL-311 (2026-10-04)**, on two measured cases (evaluations 2524 and
-2525): the generator wrote the right shape and the guard rewrote it wrong. "The average runtime of
-Christopher Nolan movies", one `AVG` cell, became one average per technical format; "the average
-IMDb rating of Kubrick movies per decade", grouped by decade, became one row per film.
-
-- The single total now also takes `AVG` and `SUM` (no single row can carry them), `ROUND()`
-  around the aggregate included. Still not `MIN` / `MAX`.
-- `_is_statistics_table_select` lets through a **statistics table**: a `GROUP BY` whose keys are
-  all attributes (decade, year, language), keys resolved through aliases and ordinals, every
-  projected column a key or an aggregate, no window function, no `UNION`. A key that is an
-  identity (`ID_*`, `*_NAME`, `*_TITLE`, `DESCRIPTION`) disqualifies it: "directors with the most
-  films" grouped on `PERSON_NAME` alone is exactly what the guard must still turn into person rows.
-- **Offline check:** `uv run checks/verif-311.py` (23 cases, both directions). **Replayed** on the
-  11,477 SQL statements of the 5,502 executions of the 1.1.19 campaigns: no `AVG`/`SUM` total and
-  no statistics table among them, and the 266 `GROUP BY` queries all project an entity id and are
-  all rejected by the new rule. So -311 changes no decision on the existing bank; its only
-  coverage is 2524 and 2525.
+---
 
 ## Before and after an evaluation campaign: `off-all.sh`, then `on-all.sh`
 
-Every automated task on the VPS (crawlers, preprocessors, `embedding-update`, ...) is started by
-cron through a script that exits at once while its folder holds the flag file `CRON_OFF`: `off.sh`
-writes it, `on.sh` deletes it (2026-10-25; before, the pair renamed the script). `docker stop` alone
-is not enough: the next cron tick starts the container again, in the middle of a multi-hour
-campaign. And those tasks do not only slow the run down: `embedding-update` rewrites the ChromaDB
-collections the API resolves entities against, so it changes the **answers** being measured.
+Every automated VPS task is started by cron through a script that exits at once while its folder holds `CRON_OFF` (`off.sh` writes it, `on.sh` deletes it). `docker stop` alone is not enough (the next cron tick restarts it), and `embedding-update` rewrites the ChromaDB collections, changing the **answers** being measured.
 
 ```bash
 bash ~/docker/off-all.sh      # before: every automated task off (one folder: bash ~/docker/<task>/off.sh)
@@ -797,487 +134,56 @@ docker stop <what is still running>   # off.sh only prevents the NEXT launch
 bash ~/docker/on-all.sh       # after the LAST campaign of the session: everything back on
 ```
 
-`text2sql-eval/text2sql-eval.sh` prints this at startup, checks the "off" half in its pre-flight (which
-tasks are still armed, which containers still run), and repeats the `on-all.sh` reminder at
-launch. Nothing can check the "on" half: forgetting it leaves the crawlers and the embeddings
-silently frozen for days. Rule set by Philippe on 2026-09-26.
+`text2sql-eval.sh` checks the "off" half in its pre-flight; nothing checks the "on" half, and forgetting it freezes crawlers and embeddings for days. Rule set by Philippe on 2026-09-26.
 
-**After the campaign, bring the results home** (Philippe, 2026-10-17): run `~/Code/voice-agent/doc/logs-download/sync_vps_docker.py` on the PC (`cd C:\Users\vaugo\Code\voice-agent\doc\logs-download` then `uv run --no-project --with paramiko python sync_vps_docker.py`, in a Windows terminal from that folder). It mirrors the VPS `~/docker` tree additively, so the new `shared_data/text2sql-eval/evaluation_execution/` exports and the API logs land locally before any analysis. It asks for the SSH key passphrase, so Philippe runs it in his own terminal: a session that sees a campaign end gives him the command and never launches it itself (it hangs on the prompt).
+**After the campaign, bring the results home** (Philippe, 2026-10-17): on the PC, `cd C:\Users\vaugo\Code\voice-agent\doc\logs-download` then `uv run --no-project --with paramiko python sync_vps_docker.py`. It mirrors the VPS `~/docker` tree additively (exports and API logs). It prompts for the SSH key passphrase, so give Philippe the command and never launch it yourself (it hangs).
 
-## An evaluation declares the path that must resolve it (FASTAPI-TEXT2SQL-257)
-
-`complex_model_used` was an **observation**: it described what happened and could never
-fail. Since -257 the bank declares, per question, which path *must* resolve it, in
-`T_WC_T2S_EVALUATION.RESOLUTION_MODE`.
-
-| value | meaning | verdict |
-|---|---|---|
-| `standard` | must resolve without escalation | escalation fired = **regression of the normal path**, even when the final answer is right |
-| `complex` | cannot resolve without escalation | resolved without it = the assertion is too loose, or the question is easier than thought |
-| `any` or NULL | no expectation | never judged |
-
-**NULL is not `any` in disguise.** Both are judged the same way, which is not at all, but
-only NULL lets you find what is still unqualified. Do not backfill the 1445 existing rows
-for tidiness: NULL says "this question was never examined under this angle".
-
-**The verdict stays out of `ASSERTIONS_TOTAL_SCORE`, and that is the important design
-decision.** That score is the one thing that makes a campaign comparable to the previous
-one. Folding a new failure reason into it would make 1.1.19 incomparable with 1.1.18,
-which is precisely the mistake this whole line of work exists to avoid. The mode verdict
-lives in its own column, `RESOLUTION_MODE_RESPECTED`, and the end-of-run recap prints the
-escalation rate per declared mode beside the assertion score. Two measures, two readings.
-
-**A `complex` evaluation tests the model, not the database.** *Groundhog Day* is not found
-by a join; it is named by the LLM from its parametric memory and then looked up. So its
-assertion must bear on the resolved title or id, never on a row set that depends on the
-read-model, and it is inherently unstable across a model swap. That is a feature for the
-GPT-5.6 comparison: descriptive questions are the most discriminating ground available,
-where gpt-4o already plateaus above 96 % on factual ones.
-
-**Why two extra columns shipped with it.** The verdict is computed on what the campaign
-records, and the recording was a quarter short. Measured 2026-09-14 on `001.001.018`:
-`complex_model_used` true on **46** executions, `COMPLEX_QUESTION_PROCESSING_TIME` positive
-on **34**. The missing 12 go through the direct scalar answer, which banks into
-`answer_single_value_processing_time`. Both are now persisted columns, so a campaign is
-sliced in SQL and never by reopening `JSON_RESULT`.
-
-**The schema change is applied since 2026-09-20 at 13:24:33**, and the output sits in
-`maintenance/eval-mode-de-resolution-20260920.txt`. All five columns exist. Two of them,
-`T_WC_T2S_EVALUATION.RESOLUTION_MODE` and `T_WC_T2S_EVALUATION_EXECUTION.COMPLEX_MODEL_USED`,
-answered `ERROR 1060 Duplicate column name`, so they had been added by an earlier, unrecorded
-run: this file was never as unapplied as its header claimed. The run used `--force`, so the
-statements after each error still went through.
-
-**And the figure quoted just above no longer reproduces.** Its own verification query, rerun on
-2026-09-20 over the same campaign `001.001.018` with the same `DELETED = 0`, returns **26
-escalations seen by the JSON against 15 seen by the time column**, on 1704 rows, where
-2026-09-14 recorded 46 against 34. The gap the columns exist to close is still there, and wider
-in proportion; the population underneath moved, which points at rows retired or re-executed
-since. Both measurements are kept, dated, because nothing here says which population is the
-right one to quote.
-
-### The cause of the escalation, not only its existence (FASTAPI-TEXT2SQL-271)
-
--257 answers *did this row escalate, and was it allowed to*. It cannot answer *why*, and the
-three causes that raise `requires_complex_resolution` do not carry the same verdict at all:
-`descriptive_identification` is the dispositif doing its job, `requires_complex_resolution` is
-Text2SQL admitting defeat, `unbacked_entity_literal` is a hallucination being caught. Two of
-them used to reach `first_pass_failure_code` under the **same** label, distinguishable only by
-the free-text `first_pass_failure_reason`, which no campaign can group by. `main.py` now sets
-`complex_resolution_code` at each point of decision, and `descriptive_identification` is a value
-of the closed vocabulary in its own right. Rows written before that carry the mixed label, and
-it was not a harmless one: measured 2026-09-17 on the 505 local logs, **35** retries filed under
-`requires_complex_resolution` and all 35 were descriptive routings, none from Text2SQL. The
-shared label carried the name of the case never observed, which does not look like an error, it
-looks like a statistic.
-
-Two columns follow, `FIRST_PASS_FAILURE_CODE` and `QUERY_MODE`, in
-`maintenance/eval-executions-cause-escalade.sql`, not applied either.
-
-**`QUERY_MODE` must be read from `first_pass_entity_extraction`, never from
-`entity_extraction`.** On a retried row the second describes the inner pass over the *rewritten*
-question, so it reads `named_entity_query`: measured 2026-09-17 on the 505 local logs, 30 rows
-classified `descriptive_identification` in the first pass, of which 27 show `named_entity_query`
-in `entity_extraction` and 3 show nothing. Reading the convenient field would have made the
-campaign report almost no descriptive questions at all, which is the failure mode this whole
-column exists to prevent.
-
-**`FIRST_PASS_FAILURE_CODE` NULL with `COMPLEX_MODEL_USED = 1` is a cause, not a gap.** It is
-the signature of the direct scalar answer, the only path that escalates without going through
-the retry helper. And `QUERY_MODE` is the only denominator available, since the failure code
-exists on retried rows alone: a rate of "descriptive questions that escalated" needs a
-classification on every row, escalated or not.
-
-## The vision pre-stage: an image becomes a question (FASTAPI-TEXT2SQL-114)
-
-`README.md` documents what a client sends and gets back: the optional `image_ref`, the
-`llm_model_vision` selector, and the five response fields. Below is only what breaks when you
-edit this path.
-
-**It is a PRE-STAGE, not a recursive re-entry, and that is the whole design.** The
-complex-question retry re-enters `search_text2sql`, which is why it has to merge and renumber
-two message arrays (`main.py`) and why it writes **two** log files per request (Gotcha #8d).
-The vision path composes the question in place and falls through to the ordinary pipeline: one
-message counter, **one** log file, and nothing new to teach whatever counts questions over
-`logs/`. Do not "harmonise" it with the retry helper.
-
-**The model identifies; the CODE composes the question.** `f_identify_from_image` returns
-`items[]` and never a question, and `compose_vision_question` builds the question from those
-items. That split is what makes the recognition cache sound: the identification of an image
-does not depend on the question asked about it, so it is stored under the MD5 of the bytes and
-reused on later turns. If the model composed the question, a cached turn and a fresh turn
-would produce **different questions for the same photo**, and the divergence would only show
-up on the second turn in production. `checks/verif-114.py` asserts the invariant directly: the
-identification round-tripped through the cache composes the same question as the fresh one.
-
-**Two shapes of composition, and the second one is the one to protect.** A lone photo goes
-through `f_build_retry_question_from_reasoning`, the same deterministic composer the
-complex-question retry uses. A photo carrying a question keeps the question and has the entity
-substituted into it (`who directed this film?` -> `who directed the movie Blade Runner
-(1982)?`). Flattening the second case into an entity card returns the film and answers
-nothing, which is the defect recorded as **-263**, and the vision prompt inherits that rule in
-so many words.
-
-**A question about the people IN the image is answered by the faces, not by the cast**
-(FASTAPI-TEXT2SQL-281, arbitrage of 2026-09-20, explicitly "let us try it and see"). The vision
-task declares the people it recognises as `person` items beside the `movie` item, and
-`compose_vision_question` prefers them when `question_targets_the_people_shown()` fires. Measured
-before the change: "who are the actors on this picture?" returned the 32 names of *The Big
-Sleep*, Dorothy Malone at rank 11, while the model had already read and named both visible faces
-in `hints.faces` and the pipeline threw that away.
-
-Three properties of that branch are worth knowing before touching it. It is **gated on a role
-verb being absent**, so "who directed this?" is never answered from faces, the director not being
-in the frame; the first draft of that list contained the stem `film`, which would have disabled
-the whole feature in French, since "qui sont les acteurs de ce film ?" contains it. It **falls
-back to the cast when no face was read**, so the behaviour is not uniform and that is the thing
-to watch in use. And it is what finally answers a **portrait with no work in it**, which had no
-answer at all before: with only `person` items, the composer builds `Person X`.
-
-**The cap is applied per kind, and that is not cosmetic.** `select_vision_candidates` keeps up to
-`VISION_MAX_CANDIDATES` works AND up to as many people. A single cap over a confidence-sorted
-list would let five recognised faces evict the film, and the photo would then be answered as if
-it showed nobody's film.
-
-**Three outcomes never reach the catalogue**, and none of them is an error: a question about
-the pixels (`about_image`, answered from the image), an image with nothing of cinema in it,
-and an image the model could not read. All three return an `answer`, an empty `result`, no SQL
-and `error: ""`, which is the `authoritative_empty` shape of **-221**: an affirmative
-emptiness. Do not turn them into errors to make them easier to spot.
-
-**`question_targets_the_image()` is a may-call gate, not a verdict.** It decides whether the
-vision model is called on an image the cache already holds, because a question about the
-pixels cannot be answered from a stored identification. When it is wrong in one direction it
-costs one cached turn; it cannot produce a wrong answer, because the model has the final word
-through `about_image` whenever it is actually called. Add markers to it freely; do not build a
-decision on it.
-
-**The two confidence constants are PROVISIONAL and unmeasured.** `VISION_CONFIDENCE_DOMINANT`
-(0.70) and `VISION_CONFIDENCE_MARGIN` (0.20) decide whether one candidate opens its entry with
-the alternative reported beside it, or whether all candidates are searched so the client can
-ask which one is meant (rule VOICE-AGENT-093). The ticket is explicit that the threshold is
-settled **on the twenty-image bench** and not guessed; that bench is FASTAPI-TEXT2SQL-277 and
-it does not exist yet. They are named constants so the measurement has somewhere to land.
-
-**`gpt-6-astra` is the default here, and it is the only default in this repository that is not
-`gpt-4o`.** It is the model the feature was tried on, it is the one the ~4 cents a photo figure
-was computed from, and its family is declared in the reasoning block (**-274**) with
-`vision_identification` at the cheapest rung, `reasoning_effort: "low"`. Raise the rung only if
-recognition weakens on the bench.
-
-**`_call_vision_llm` is OpenAI only, deliberately.** It is not folded into `_call_chat_llm`
-because that dispatcher takes a string and every provider encodes an image differently.
-Anthropic and Gemini both read images and neither is wired: an untested branch that formats
-bytes for a provider nobody has exercised is a liability. A non-OpenAI model name raises an
-error that says exactly that.
-
-**Structured outputs degrade once.** The contract is sent as a strict `json_schema`, which
-OpenAI documents as compatible with `reasoning_effort` on `chat.completions`. On a refusal
-`_VISION_STRUCTURED_OUTPUTS_AVAILABLE` flips and the rest of the process uses the plain-JSON
-contract the other five tasks use, cleaned and validated by `json_guardrails`. The fallback is
-there because a neighbouring combination IS refused (function tools with `reasoning_effort` on
-gpt-5.6-sol, see *The reasoning-family block*) and because this repository has never sent a
-`response_format` to the live API before.
-
-### The identity check: namesakes of the same title and year (FASTAPI-TEXT2SQL-307)
-
-Title plus year is not a unique key. On 2026-09-30 a still from Scorsese's *Taxi Driver*,
-recognised at 0.98, returned two cards, because the Turkish *Taksi Şoförü* (1976) carries the
-English title "Taxi Driver" on TMDb. The harvest of that day counts 7,788 such movie groups,
-433 of them with a film of 10,000 votes or more (`text2sql-eval/harvest-title-year-homonyms-20260930.txt`).
-
-- **The prompt** asks, for every `movie` / `serie` item, a `known_credits` block (directors or
-  creators, up to three leads, original title, original language): what the model KNOWS, never
-  a `person` item. Required in the strict schema, emitted empty for other types, dropped by
-  `_normalize_vision_items` when empty.
-- **The check** runs in the pre-stage when one work dominates (`identity_check_applies`) and the
-  question is not answered from faces. `_fetch_vision_identity_candidates` (main.py) lists the
-  rows sharing the title (the three title columns the generated SQL compares) and the exact year,
-  with their makers and cast; `vision_identity.pick_vision_identity` scores them against the
-  faces read and the known credits. It only chooses among the rows, never returns zero, and
-  never uses popularity.
-- **Photo alone, one winner**: the composed question becomes the winner's `ID_IMDB`, answered by
-  the bare-identifier fast path (-137) with no LLM call, and the answer names the work
-  ("Here is the movie Taxi Driver (1976), directed by Martin Scorsese.").
-  **Photo plus question**: the substituted phrase carries the credit that decided
-  ("the movie Taxi Driver (1976) directed by Martin Scorsese").
-- **Undecided** (no score, or a tie): the composed question is unchanged and all rows come back.
-- Traced in `vision_evidence.identity_check` (decision, discriminators, candidates, scores).
-- Offline check: `uv run checks/test-vision-homonyms.py`.
-- **Shipped on 1.1.19 without a version bump** (Philippe, 2026-09-30), so the version scope of
-  the recognition cache does not retire the rows written before it. `vision_cache.predates_known_credits`
-  spots them (a movie or serie item without the `known_credits` key) and the pre-stage reads
-  the image again once, the write then replacing the row; if the image is already purged, the
-  old identification is served as before. `identification_payload` stamps an empty block on
-  every new row, so a model that omits it is not re-read on every request.
-- Capability probe, since `api_version` does not move: a vision response carrying
-  `vision_evidence.identity_check` is the new code.
-
-### The recognition cache (`vision_cache.py`, `T_WC_T2S_VISION_CACHE`)
-
-No tier of `T_WC_T2S_CACHE` indexes bytes: its key is the question. Without this module the
-image path caches the **cheap** half of the work and repays the expensive one, about 4 cents,
-on every re-deposit. The key costs nothing because it already exists: `f_getuploadfilename`
-hashes the raw bytes into the deposit filename, so the same photo yields a new timestamp and
-the **same** MD5.
-
-- **Its own table**, not a column on `T_WC_T2S_CACHE`, whose contract is question to SQL.
-- **Scoped by formatted API version**, because the prompt is hot-reloaded: without the scope a
-  prompt correction shipped with no bump would keep serving identifications made by the old
-  one.
-- **Only the question-independent half is stored** (`hints`, `items`, `authoritative_empty`,
-  `justification`). `about_image` and `image_answer` are dropped by
-  `vision_cache.identification_payload`, and that function is the contract: adding a
-  question-dependent field to it makes the cache serve yesterday's answer to today's question.
-- **An `authoritative_empty` IS cached**, unlike the empty SQL result of Gotcha #8b. A photo of
-  a meal will still be a photo of a meal tomorrow.
-- **`retrieve_from_cache` and `store_to_cache` govern it** like every other tier, which is how
-  a model comparison switches it off without a new flag.
-- **The 30-day image purge does not invalidate a row**: the key is the fingerprint of the
-  bytes, not the file. The row then serves the identification and never the pixels.
-- The migration is `maintenance/vision-recognition-cache.sql`, **run in production on
-  2026-09-20 at 12:53:25**; its output sits beside it in
-  `maintenance/vision-recognition-cache-20260920.txt` and matches the DDL column for column and
-  index for index. The graceful degradation stays, for the day a deployment points at another
-  database: `vision_cache` flips to disabled on the first `Table doesn't exist` and the vision
-  path works, uncached. **That flag never flips back**, so a process that met the missing table
-  once stays uncached until it is restarted.
-
-**Offline check:** `uv run checks/verif-114.py` (62 cases, no API, no database and no image). It
-covers everything deterministic on this path: the may-call gate, the confidence rule, both
-shapes of composition, the cache round-trip invariant, the guardrail, the `image_ref` refusals
-and the Pydantic contract the two front clients depend on.
-
-**Before editing `data/vision_identification.md`, read [data/AGENTS.md](data/AGENTS.md).** Three
-of its rules have a twin in `complex_question.md`; they agree on the motive and disagree on the
-instruction, because the two tasks fill opposite fields. The confidence guard is the one place
-where letting them drift apart is dangerous rather than merely untidy.
-
-**Not done, and deliberately so: no bench, no evaluation campaign.** The twenty-image bench of
-FASTAPI-TEXT2SQL-277 does not exist, so recognition quality is unmeasured, the two confidence
-constants are unmeasured, and `T_WC_T2S_EVALUATION_EXECUTION` still has no column for a sixth
-model. Everything above is verified offline or by reading; nothing here was run against a live
-model.
-
-## The reasoning-family block in `text2sql.py` (FASTAPI-TEXT2SQL-231, -274)
-
-`README.md` states the user-visible rule: reasoning models reject `temperature` and get
-`reasoning_effort` instead, `_openai_sampling_kwargs` builds that half of the call per family,
-`gpt-4o` is unchanged, and effort is the real cost knob. What it cannot say is how the block fails
-when you extend it.
-
-**There is no allowlist, so an undeclared family does not bounce, it leaves.** `_call_chat_llm`
-routes on the prefix, anything starting with `gpt-` goes to OpenAI, and the five `llm_model_*`
-fields of `Text2SQLRequest` are `Optional[str]` with no validator. Before -274,
-`llm_model_text2sql: "gpt-6-astra"` was accepted, sent with `temperature=0` attached, and answered
-400; on a route that tolerates the parameter it would instead have run at the model's default
-effort with nobody able to read or set it. A family that is not declared here is a family that
-spends silently.
-
-**The four things a new family needs**, all in the same block and all four or none: the prefix in
-`_REASONING_MODEL_PREFIXES` (or `temperature` stays attached), a row in `_EFFORT_BY_FAMILY` (or
-the effort resolution falls back to the o-series vocabulary), a rung for every `cache_label` in
-`_DEFAULT_EFFORT_TIER`, and an endpoint decision via `_CHAT_COMPLETIONS_REASONING_PREFIXES`.
-
-**Note the indirection**: `_DEFAULT_EFFORT_TIER` holds a **tier name**, not a provider value, and
-`_EFFORT_BY_FAMILY` turns it into one, because the families share no vocabulary (`minimal` was a
-GPT-5.0-era value and exists nowhere now). **GPT-6 has no `none` rung**, and that one cell decides
-the bill: copying the GPT-5 row would 400 on every call, while "fixing" it to `medium` would
-quietly buy a thinking budget on the three tasks that fire on 100 % of requests. Only the two
-rungs this pipeline selects are declared, because a rung nobody selects is a rung nobody has
-measured. `vision_identification` sits in the table at the cheapest rung ahead of the task itself
-(-114), so the family table is complete the day it lands.
-
-**Four things NOT to assume.**
-
-- **The `responses.create` branch is restricted to the o-series.** GPT-5.x and GPT-6 both go
-  through `chat.completions`, which is also where the prompt-cache accounting this pipeline
-  reports was measured; the two routes name their usage fields differently, so a campaign compared
-  against the `gpt-4o` baseline needs both on the same route.
-- **The o-series was never getting its effort**, a defect found while deciding that branch.
-  `responses.create` takes `reasoning={"effort": "low"}`, not the flat `reasoning_effort="low"` of
-  `chat.completions`. The flat form was passed, rejected, and swallowed by the `try/except` that
-  falls back, so the o-series reached the fallback on **every** call and ran at its default
-  effort. `_as_responses_api_kwargs` now translates. Neither GPT-5.x nor GPT-6 uses that path.
-- **The cached prefix is 24.2 K tokens, not the 14.8 K measured in June.** Any cost estimate
-  starting from the old figure is a third too low. Full protocol and figures:
-  `%USERPROFILE%/Nestor/projets/t2s-backlog/topics/prompt-caching.md` PROMPT-CACHING-009.
-- **Function tools combined with `reasoning_effort` are refused for `gpt-5.6-sol`** on
-  `/v1/chat/completions`. It does not bite today, since this pipeline uses neither tools nor
-  `response_format`. It will the moment someone adds structured outputs.
-
-**Offline check:** `uv run checks/verif-274.py` (31 cases, no API and no database). It reads the
-family block out of `text2sql.py` and executes it in isolation, so it runs on a machine without
-the full stack.
-
-**Not done, and deliberately so: no evaluation campaign has been run on `gpt-6-astra`.** The
-family is selectable and its cache behaviour is measured; whether its SQL is as good as
-`gpt-4o`'s is unknown. `T_WC_T2S_EVALUATION_EXECUTION` already carries the model columns, so the
-comparison is mechanical when someone wants to spend the run.
+Evaluation verdicts (`RESOLUTION_MODE` and the escalation-cause columns): `doc/llm-tasks-and-costs.md`. Keep them out of `ASSERTIONS_TOTAL_SCORE` (comparability between campaigns), and never backfill NULL on old rows.
 
 ---
 
 ## Entity resolution thresholds (`min_fuzz_ratio`)
 
-Every resolver now carries a rejection threshold. Do NOT adjust one by hand on the strength of a
-single bad case: each value is the midpoint of a measured equivalence interval, and the method
-that produced it, the data it used and the traps it walked into are written up in
-[doc/entity-resolution-thresholds.md](doc/entity-resolution-thresholds.md). Re-run
-[checks/bench-entity-resolution.py](checks/bench-entity-resolution.py) and read the interval instead.
+Never adjust a threshold by hand on one bad case: each is the midpoint of a measured interval. Re-run `checks/bench-entity-resolution.py` and read `doc/entity-resolution-thresholds.md` (§10 first if a value looks wrong). `document_name_separator` and `score_stopwords` are declared **per entity, never globally**: a title can contain the separator ("Star Trek: The Next Generation"), and a word generic for one type is identifying for another (`Award_name`, `Movement_name` and `List_name` deliberately carry no stopwords). Never strip descriptions out of the embeddings to help the ratio; the durable fix is a bare-name metadata field in `embedding-update`. Adding stopwords to a gated type changes the gate: bench before and after. `rescue_normalizations` (FASTAPI-TEXT2SQL-309) is configured per type from measurement, bar "0 new wrong acceptances"; do not lower a threshold to get the same effect. Method and the `eval-309` stage commands: `doc/pipeline-internals.md` § *Typographic rescue of the gate*.
 
-Three things from that document are worth knowing before touching this area at all.
+## Entity-resolution config schema (`data/entity_resolution.json`)
 
-The gate lives on **both** paths since 2026-08-25. `min_fuzz_ratio` used to be read only in the
-embeddings branch, so declaring it on a rapidfuzz strategy did strictly nothing, which is why
-`Person_name` could never fail and invented names resolved to real people. An exact normalized
-match always passes; a rejection falls through to the next strategy and then to the raw fallback.
-
-The **ratio, not the distance**, and that was measured: 42 total errors against 94 for the vector
-distance over the twelve embeddings types, the conjunction saving only seven more at the price of
-a second parameter per entity. The expectation was the opposite.
-
-The `Person_name` alias strategy carries a **provisional, unmeasured** 90.0. That table was
-unreachable while the first strategy always resolved, and a strategy that cannot be reached cannot
-be measured, so calibrating it needs a second bench run after deployment. The two stages cannot be
-collapsed.
-
-## The indexed document is not the name (`document_name_separator`)
-
-Some collections index `name + " : " + description`, which helps the vector search a great deal
-and ruins the lexical one. Measured 2026-08-25: "Blaxploitation" against
-"Blaxploitation: Here is the list of..." scores **2.3** on `fuzz.ratio`, a perfect match graded as
-a disaster. 97% of `Death_name` candidates carry a description, 82% of `Nomination_name`, 81% of
-`Award_name`, 21% of `Movement_name`.
-
-Do NOT strip descriptions out of the embeddings to fix this. They are what lets "crise cardiaque"
-find "cardiac arrest", which the bare name cannot do. The description belongs in the vector space
-and has no business in an edit-distance ratio; the defect was in the score, not the indexing.
-
-`document_name_separator` declares the separator **per entity** in
-[data/entity_resolution.json](data/entity_resolution.json), and only the part before it is
-compared. Per entity and never globally, because a name can legitimately contain the separator:
-splitting "Star Trek: The Next Generation" blindly truncates it to "Star Trek", and 12% of
-`Movie_title` candidates carry a colon. The stripped name is also what gets reported as the
-candidate, so bench and logs show what was really compared.
-
-The durable fix belongs to `embedding-update`: store the bare name in the ChromaDB **metadata**
-alongside the document, and no separator can mislead anyone again.
-
-## Descriptor words in entity scoring (`score_stopwords`)
-
-A word shared by the value sought and the candidate found inflates the similarity without
-carrying any identifying signal. Measured 2026-08-24: `"wagonlit collection"` against
-`"Life Collection"` scores **76.5**, clears `Collection_name`'s threshold of 72, and returns
-three films for a collection that does not exist. Strip the descriptor from both sides and the
-same pair scores 33.3.
-
-Moving from `WRatio` to `fuzz.ratio` had already been tried against this family of defect
-(FASTAPI-TEXT2SQL-062, the "Mad Max collection" case) and was not enough: the descriptor
-survives the change of metric, only removing it works.
-
-`score_stopwords` declares that list **per strategy** in
-[data/entity_resolution.json](data/entity_resolution.json), and `entity.py` applies it to both
-sides before scoring. `fuzz_ratio_raw` in the response keeps the pre-strip score so the effect
-stays auditable.
-
-**Per entity, never global, and this is the whole point.** What is generic for a collection is
-identifying for an award. `Collection_name` and `Topic_name` are configured, on measured
-evidence from 3404 harvested values (`collection` x48 and `trilogy` x37 out of 128 collection
-values). `Award_name` is deliberately NOT: it carries `award` x28, `academy` x25 and `best` x19,
-but "Academy Award for Best Picture" is the canonical name, and stripping those words would draw
-distinct awards together instead of separating them. Same for `Movement_name` ("New Wave") and
-`List_name` ("Top 250", "Sight & Sound").
-
-Adding a list to a type that has a `min_fuzz_ratio` changes the gate, so measure before and
-after with [checks/bench-entity-resolution.py](checks/bench-entity-resolution.py). Note the effect
-runs both ways: neutralisation closed a false positive (76.5 to 33.3) and a false NEGATIVE in
-the same move ("star wars universe" against "Star Wars Collection", 57.9 to 100, where 57.9 sat
-below the threshold and would have been refused).
-
-## Adding an indicator to the response
-
-The measurement chain is already generic, and knowing that saves most of the work.
-`text2sql-eval/text2sql-eval.py` stores the **entire** HTTP response body in
-`T_WC_T2S_EVALUATION_EXECUTION.JSON_RESULT`, and the export phase copies that JSON verbatim
-into `api_output` in `/shared/evaluation_execution/`. So:
-
-1. **Add the field to `Text2SQLResponse` and populate it.** That alone puts it in the API
-   answer, in the database and in the export. Give it a default so the early-return response
-   sites (cache miss, bare-identifier fast path, complex-question retry) keep working.
-2. **Add a dedicated column only if you need to aggregate it in SQL.** The columns are a
-   duplicate of what `JSON_RESULT` already holds, kept so a campaign can be sliced without
-   `JSON_EXTRACT` on every row (the PHP graphs under `text2sql-eval/lib/` rely on them). That step is
-   four edits, not one: [doc/sql/T2S_EVALUATION-tables.sql](doc/sql/T2S_EVALUATION-tables.sql)
-   for the reference DDL, a migration under [maintenance/](maintenance/) for the live table,
-   the write in `text2sql-eval/text2sql-eval.py`, and the `timings` block of the export in that same
-   file. That fourth one is a hand-kept list and does **not** inherit from `JSON_RESULT` the
-   way `api_output` does, so forgetting it is invisible: the export keeps writing, simply
-   without the column. It happened, and 1.1.18 exports described a five-step pipeline while
-   six columns existed. `text2sql-eval/README.md` shows the block, so it drifts too.
-3. **Document it in `README.md`**, which describes the response in three separate places: the
-   example JSON, the detailed field list and the summary list. All three drift on their own.
-
-Rows written before an indicator existed keep `NULL`. That is the point: `NULL` says "not
-measured then", `0` would claim "measured at zero".
-
-A new numeric field is rounded on the way out by its name (next section): a timing ending in
-`_time` gets the millisecond, a distance four decimals, anything else two. Check that the
-default suits it, and add a rule to `response_rounding.py` if it does not.
+Key-by-key reference (`search_mode`, language gating, `languages` routing, `resolve_to_canonical`, and the opt-in confidence gates `min_fuzz_ratio`, `max_distance`, `rescue_normalizations`, `require_confident`): `doc/pipeline-internals.md` § *Entity-resolution config schema*. Gates use `fuzz.ratio`, **not** `WRatio`. ChromaDB document IDs are always `{entity}_{id}_{lang}`.
 
 ---
+
+## Retries, rescues and the cache
+
+The rules; the measurements and traces behind them are in `doc/pipeline-internals.md`.
+
+- **A retried request writes two log files** (inner pass with the rewritten question, outer with the user's wording and the `first_pass_*` fields). Anything counting questions over `logs/` skips the inner file (`request.complex_question_already_resolved` true).
+- **`first_pass_entity_extraction` says why a question was routed; `entity_extraction` says how the answer was built** (on a retry it describes the rewritten question). `QUERY_MODE` reads the first, never the second.
+- Retry and guard **message prefixes are a contract**: `analyze-complex-retry-logs.py` and `analyze-usage-logs.py` key on them. Grep both scripts before rewording a message.
+- A new `except` in the execution block sets its own `sql_execution_failure_code` / `_reason`.
+- The no-entity rescue (-244) runs before the stronger model, only on an empty page 1 with nothing extracted; a rescued SQL is adopted whatever its row count, anonymized copy included.
+- After a retry, the cache row under the original wording is skipped when the rewrite adds a year absent from the question (-242).
+- `complex_retry_seed` (-300) is ignored unless `complex_question_already_resolved` is true, so a client cannot bypass extraction.
+- **Entity identity boundary**: Text2SQL never identifies an unnamed real-world entity from clues; `descriptive_identification` routes to the stronger model first. `entity.find_unbacked_entity_literals()` stays before SQL execution and cache writes, and judges only SQL generated in the current request, never an exact-cache hit (-259). `query_mode` is validated but not required (-255). When adding a required key to a prompt contract, update every example of that prompt in the same commit.
+
+---
+
+## Entity endpoints
+
+`data/text_to_sql.md` (generated SQL) and the entity detail endpoints in `main.py` (hand-written SQL, plus their MCP `get_*` tools) are two SQL surfaces over the same data, kept in sync by hand. When working on either, scan the other for drift (filter predicates such as `CAST_CHARACTER` exclusions, default sorting, order of related lists, result columns, the *Aggregated questions* contract) and **surface any discrepancy to the user** rather than patching silently; `data/text_to_sql.md` is the spec unless the user says otherwise.
+
+Contracts that break silently when editing an endpoint (details: `doc/pipeline-internals.md` § *Entity endpoints*):
+- A new nested SELECT selects the `_FR` variants, and a new nested array of movie / serie / person / season rows is added to that endpoint's `apply_localized_related_images` call.
+- `record_source`: `RECORD_SOURCE_TMDB` only where `TIM_UPDATED` is copied verbatim from TMDb; elsewhere `tmdb_updated_at` stays null.
+- `wikipedia_page.lang == data_freshness.wikipedia_lang` on every response; `_resolve_wikipedia_page_row()` is the single home of the language rule, never resolve on a page row's mere existence. The `text` format of Wikipedia content stays byte-identical.
+- A new related list goes in the endpoint's `pcollections` registry (with `COUNT(*) OVER() AS _TOTAL_COUNT`, a deterministic `ORDER BY` with unique tiebreaker, no `LIMIT`, no semicolon), never a one-off `cursor.execute`.
+- A new collection is listed twice in its MCP tool docstring (relations and valid `collection` values), or MCP clients never see it.
+- A new entity endpoint declares `response_class=RoundedJSONResponse` (`checks/verif-308.py` counts them).
 
 ## Numbers are rounded on the way out, and only there (FASTAPI-TEXT2SQL-308)
 
-[response_rounding.py](response_rounding.py) rounds every number of a response at
-serialization time. Two hooks, one function (`round_tree`):
-
-- `Text2SQLResponse` carries a `@field_serializer("*", mode="wrap")`: every field, `result`
-  rows included, is rounded in `model_dump()` and in the JSON. **The attributes keep their raw
-  values**, so the code that reads a response after building it (the complex retry, the
-  first-pass record) still sees exact numbers, and the log, built from `model_dump()`, holds
-  what the client received.
-- The 18 entity endpoints declare `response_class=RoundedJSONResponse`. A new entity endpoint
-  must declare it too; `checks/verif-308.py` counts them and fails otherwise.
-
-Precision by key, case-insensitive: two decimals by default (a non-zero value under 0.1 keeps
-three significant digits instead of collapsing to 0.0), `*_time` / `*_seconds` three,
-`distance` / `*_distance` four, `fuzz_ratio*` one, `BUDGET` / `REVENUE` an integer when whole,
-`FRAME_RATE` three, the Wikidata quantities (`AMOUNT`, `AMOUNT_NORMALIZED`, `LOWER_BOUND`,
-`UPPER_BOUND`) and coordinates converted but never rounded.
-
-**Why not in SQL or in the prompt.** MariaDB sorts on the exact value before anything is
-rounded, so no `ORDER BY` changes; a `ROUND()` asked of the model would be forgotten some of
-the time, would change the shape of cached SQL, and an `ORDER BY` on a rounded alias creates
-ties. The entity-resolution thresholds compare the raw distances, upstream of serialization.
-
-**The `Decimal` trap this also closes.** MariaDB returns `AVG()` and `SUM()` over an integer
-column as `DECIMAL`, PyMySQL hands over a `decimal.Decimal`, and Pydantic v2 serializes a
-`Decimal` found inside `result: List[dict]` as a JSON **string** (`"148.4000"`), while the
-entity endpoints, through `jsonable_encoder`, emitted a number. Both now emit a number (an
-`int` when the value is whole). Do not reintroduce a `Decimal` path that bypasses the two hooks.
-
-**Offline check:** `uv run --with "fastapi>=0.104.1" --with httpx checks/verif-308.py`
-(38 cases, no API, no database). It reads `Text2SQLResponse` out of `main.py` like
-`verif-114.py` does; that script's model namespace now also carries `field_serializer` and
-`round_tree`, and any other script that execs the model block needs the same two names.
+`response_rounding.py` rounds at serialization; the attributes keep raw values. Never round in SQL or in the prompt, and do not reintroduce a `Decimal` path that bypasses the two hooks (a `Decimal` inside `result` would serialize as a string). A new numeric field is rounded by its name; check the default suits it. Any script that execs the `Text2SQLResponse` block needs `field_serializer` and `round_tree` in its namespace.
 
 ---
-
-## Replaying the usage measurements: `analyze-usage-logs.py`
-
-The HARNESS-BRICKS tickets (Nestor, `projets/t2s-backlog/topics/harness-bricks.md`) were first measured on 2026-10-10 by throwaway scripts. This script is those scripts kept, so the figures can be rebuilt after any deployment or campaign. It reads, never writes, and touches no database.
-
-```bash
-uv run analyze-usage-logs.py                     # defaults below, from the repo root, PC or VPS clone
-uv run analyze-usage-logs.py --since 20261001    # only the recent logs
-uv run analyze-usage-logs.py --eval-version 001.001.018
-```
-
-- **Inputs.** `../shared_data/fastapi-text2sql/logs` (loose files plus `archive/*.tar.gz`, deduplicated by file name because the month being archived sits in both) and `../shared_data/text2sql-eval/evaluation_execution` (one folder per run, latest execution kept per evaluation). The same relative layout holds on the PC and in `~/docker/fastapi-text2sql-<colour>`.
-- **Outputs**, in `../shared_data/fastapi-text2sql/reports/` by default: `api-usage-YYYYMMDD.html` (caches -003/-004a, `answer_single_value` -010, SQL execution feedback and escalation outputs -009, answer-entity guard -008, retry cache guards -011, failures by cause -001) and `vision-evidence-YYYYMMDD.html` (what the vision model read, the candidates, the identity and credits checks, field coverage of `vision_evidence`, the last 60 image requests with thumbnails from `uploads/vision/` while the deposit lasts). Inline CSS, no script, in the style of data-monitoring.
-- **Campaign versus production** is `retrieve_from_cache`: the evaluator sends `false`, the clients `true`. A test typed by hand in a front counts as production; nothing in a log can tell it apart.
-- **Message prefixes are the contract.** The guard, `answer_single_value` and escalation counts match the start of messages written by `main.py` (`Answer-entity guard: ...`, `SQL query returned a single-cell result with value 0`, `Complex question resolution output: `). Rewording one of those messages silently zeroes its section: grep the script before changing the text.
-- **`raw_identification`** only appears in logs written by an API that carries the patch. Until then the vision page says so, and its normalization-loss table stays empty.
 
 ## Run pyflakes before committing Python, and read the "undefined name" lines
 
@@ -1285,60 +191,33 @@ uv run analyze-usage-logs.py --eval-version 001.001.018
 uv run --with pyflakes python -m pyflakes *.py | grep "undefined name"
 ```
 
-**Why this is written down.** On 2026-08-29 a refactor moved
-`_score_stopwords = search_cfg.get("score_stopwords")` into a new closure under another name and
-left one reader behind, in the `match_scores` append. That line is unconditional, so **every**
-resolution reaching the embeddings branch raised `NameError` and returned 500: `Collection_name`,
-`Topic_name`, `Network_name`, `Company_name`, the titles, the awards. A total outage on that path,
-shipped and only found on the next restart.
-
-**Neither `ast.parse` nor `import` can catch it.** Both passed on the broken file: a name lookup
-inside a function body is resolved at call time, and no test imported that branch. `pyflakes`
-flagged it in under a second, by name and line number. The one-line command above is the cheapest
-guard this repo has against a whole class of defect, and the class is specific: **a refactor that
-moves a variable's definition is not verified by re-reading the new block, but by finding who else
-read the old name.**
-
-Read the `undefined name` lines as blocking. The `assigned to but never used` lines are worth a
-look too, since they usually mean a refactor left something behind, but they do not break anything.
+Blocking. On 2026-08-29 a refactor renamed a variable and left one reader behind; every embeddings resolution raised `NameError` (500) and neither `ast.parse` nor `import` caught it. A refactor that moves a definition is verified by finding who else read the old name.
 
 ## A new shell script needs its executable bit set IN GIT, not on disk
 
-`core.filemode` is **false** in this checkout, which is the Windows default: a `chmod +x` on
-the working copy changes the file and changes nothing git records, so the script lands in the
-repository as `100644` and the VPS answers `Permission denied` on the first `./script.sh` after
-the pull. The fix is one command, and it is the only one that works from Windows:
+`core.filemode` is false in this checkout, so `chmod +x` changes nothing git records and the VPS answers `Permission denied`. It has cost three deployments.
 
 ```bash
 git update-index --chmod=+x path/to/script.sh
 git ls-files -s '*.sh'          # every one of them must read 100755
 ```
 
-**This is the third time the same bit has cost a deployment.** `archive-logs.sh` never ran once
-before 2026-08-21, partly for this reason (the other being an impossible redirect target, both
-recorded in its own header), and `migrate-logs-to-shared.sh` was added on 2026-09-19 as `100644`
-and failed on its first run the next day. `checks/verif-206.sh` was found carrying the same defect
-while fixing it, never having been run. Check the listing above whenever a `.sh` is added, and
-prefer `bash script.sh` over `./script.sh` when a first run must not be about permissions.
+Prefer `bash script.sh` over `./script.sh` when a first run must not be about permissions.
 
 ## Code conventions
 
-- **Hungarian notation** for variables (legacy style):
-  - `str` — strings (`strtablename`, `strapiversion`)
-  - `lng` — integers (`lngpage`, `lngrowsperpage`)
-  - `dbl` — floats (`dblavailableram`)
-  - `arr` — lists / arrays
-  - `int` — boolean-like flags (`intcleanupenabled`, `intentity`)
-- **Function naming**: public pipeline entry points use `f_` (`f_text2sql`, `f_entity_extraction`, `f_resolve_complex_question`, `f_hello_world`); private helpers use `_` (`_call_chat_llm`, `_normalize_llm_model`).
+- **Hungarian notation** for variables (legacy style): `str` strings, `lng` integers, `dbl` floats, `arr` lists, `int` boolean-like flags (`strapiversion`, `lngpage`, `intcleanupenabled`).
+- **Function naming**: public pipeline entry points use `f_` (`f_text2sql`, `f_entity_extraction`); private helpers use `_`.
 - **Docstrings**: Google-style on public functions.
-- **Error handling**: broad try/except with console logging; surface failures via the `error` response field and the `messages` trace. Database execution errors are not returned directly to clients — they go through the complex-question retry path when enabled.
-- **JSON serialization**: use `logs.decimal_serializer()` for `Decimal` and `datetime`.
+- **Error handling**: broad try/except with console logging; surface failures via the `error` field and the `messages` trace. Database execution errors are not returned raw to clients; they go through the complex-question retry path when enabled.
+- **JSON serialization**: `logs.decimal_serializer()` for `Decimal` and `datetime`.
+- **Encoding**: Markdown, prompts, JSON config and logs are UTF-8 with non-ASCII names; avoid operations that rewrite them with mojibake.
 
 ---
 
 ## Applying a `.sql` file on the VPS: `runsqlvaugouindb.sh`, always
 
-Evaluation-bank scripts (`text2sql-eval/assertions-*.sql`, `text2sql-eval/update-*.sql`, `text2sql-eval/new-evaluations-*.sql`, `text2sql-eval/fix-*.sql`) and `maintenance/*.sql` are applied with the runner of the `tools` repository, never with a hand-built `docker exec ... mariadb` (Philippe, 2026-09-24):
+Evaluation-bank scripts (in `text2sql-eval`) and `maintenance/*.sql` run with the `tools` runner, never a hand-built `docker exec ... mariadb`. The `.sql` must be pushed first.
 
 ```bash
 cd ~/docker/fastapi-text2sql-green        # the clone of the live colour
@@ -1347,631 +226,128 @@ git pull
 # result: ~/docker/text2sql-eval/<file>-YYYYMMDD.txt, errors included
 ```
 
-This is the one procedure to hand Philippe (his template for every repository, 2026-09-30); the former `git fetch` + `git show origin/main:... > ~/<file>.sql` detour is retired. The `.sql` must be pushed first. `-f` overwrites a same-day result, `-e` stops at the first error. The `pull` also stages the code the next restart of that colour will load. After an evaluation-bank change, rescore with Phase 20 (offline, no token). Reference: `tools/AGENTS.md`, "Running a .sql file".
+`-f` overwrites a same-day result, `-e` stops at the first error. The `pull` also stages the code the next restart of that colour loads. After an evaluation-bank change, rescore with Phase 20 (offline, no token). Reference: `tools/AGENTS.md`, "Running a .sql file".
 
 ## SQL handling rules
 
-**Escaping** — SQL-style doubled single quotes, NOT backslash. `entity._sql_escape_literal()` centralizes this:
-```python
-"O'Brien".replace("'", "\\'")  # WRONG — breaks MariaDB
-"O'Brien".replace("'", "''")   # CORRECT → 'O''Brien'
-```
-
-**Pagination** — three regexes detect and strip LLM-emitted `LIMIT`/`OFFSET` clauses (`LIMIT n OFFSET m`, `LIMIT m, n`, `LIMIT n`); a smaller LLM-defined limit is respected when smaller than `rows_per_page`. Code at [main.py:1010-1046](main.py#L1010-L1046).
-
-**Ambiguous questions** — when the LLM cannot produce a valid query *or* entity resolution leaves unresolved placeholders, set `ambiguous_question_for_text2sql = True`, skip execution, and surface the LLM's explanation in `error`. The legacy `##AMBIGUOUS##` marker is gone — do not reintroduce it.
-
----
-
-## Text-to-SQL ↔ entity endpoint coherence
-
-[data/text_to_sql.md](data/text_to_sql.md) (drives LLM-generated SQL for `/search/text2sql`) and the 18 entity detail endpoints in [main.py](main.py) (hand-written SQL for `/movies/{id}`, `/persons/{id}`, `/seasons/{id_serie}/{season_number}`, etc., plus their MCP `get_*` proxies where they exist) are two independent SQL surfaces over the same data. They are kept in sync by hand, not enforced by code.
-
-When working on either side, scan the other for divergence and **surface any discrepancy to the user** — do not silently patch one to match the other, and do not treat this as an automatic refactor target. Default expectation: `data/text_to_sql.md` is the spec; the endpoints should match unless the user says otherwise. Categories of drift to watch for:
-
-- **Filter predicates** — e.g. the `CAST_CHARACTER NOT IN (...)` exclusion for non-documentary movie cast ([data/text_to_sql.md:850-851](data/text_to_sql.md#L850-L851)), `IS_DOCUMENTARY` / `IS_MOVIE` toggles, Criterion Collection criteria, technical / genre / aspect-ratio filters.
-- **Sort order** — the "Default Sorting" section (around line 876+) governs both: `ORDER BY` inside endpoint SQL, and the directional rules (e.g. movies-for-a-person vs persons-for-a-movie) that drive what the text-to-SQL prompt emits.
-- **Included related lists and their key order** — the order in which related-entity lists appear in entity detail responses should track the order of rules in the "Default Sorting" section.
-- **Result columns**: the `Result Columns` section of [data/text_to_sql.md](data/text_to_sql.md) specifies which columns each entity surface should expose. Its opening subsection, *Aggregated questions: the contract survives `GROUP BY`*, is the one to re-read before touching anything about counting or ranking: a `COUNT` query that drops the entity's image column (`PROFILE_PATH` / `POSTER_PATH` / `LOGO_PATH`) returns correct rows the client cannot render, and one that omits `GROUP BY` entirely collapses the ranking to a single arbitrary row (FASTAPI-TEXT2SQL-191 and -186).
-
-When you spot a divergence, describe it (which side has which behavior, where in the spec/code), and let the user decide which side is authoritative for the fix.
-
-### Entity endpoints: the contracts to preserve
-
-`README.md` documents what these endpoints **return**: the `ui_language` collapse, the
-`data_freshness` block, the `wikipedia_page` credit and the `collection` pagination. Below is only
-what **breaks when you edit them**.
-
-**Localization.** `localize_response()` collapses each `<COL>`/`<COL>_FR` pair, so it can only
-collapse what the SELECT fetched: a new nested related-entity SELECT **must select the `_FR`
-variant** alongside the canonical column. Image paths have no `_FR`, so they go through
-`apply_localized_main_image()` (top-level entity) and `apply_localized_related_images()` (nested
-rows, one batched query per kind declared in `_RELATED_IMAGE_SOURCES`: `movie` / `serie` →
-`POSTER_PATH`, `person` → `PROFILE_PATH`, `season` → `POSTER_PATH`), so a new nested array of
-movie / serie / person / season rows **must be added to that endpoint's
-`apply_localized_related_images` call**. Both run after `logs.log_usage` and before
-`localize_response`, which is why logs keep the canonical path and both language columns.
-Episodes are excluded: `STILL_PATH` frames are not language-specific.
-
-**Data freshness.** `_build_data_freshness(cursor, row, record_source, ui_language)`. The argument
-to get right is `record_source`, because it is what licenses labelling `TIM_UPDATED` as a TMDb
-date. `RECORD_SOURCE_TMDB` only where `tmdb-movie-preprocess` copies `TIM_UPDATED` **verbatim**
-from the `T_WC_TMDB_*` row (movies, series, seasons, episodes, persons, companies, networks);
-`RECORD_SOURCE_WIKIDATA` everywhere else, where `tmdb_updated_at` **must stay null**, since
-labelling a Wikidata refresh as a TMDb date is a lie a voice client repeats out loud;
-`RECORD_SOURCE_REFERENCE` for `/genres`, all nulls.
-
-**One language resolution, two consumers.** `_resolve_wikipedia_page_row()` is the single home of
-the rule (the requested language wins only when it actually has sections, English otherwise).
-`_fetch_wikipedia_freshness()` *dates* the content and `_fetch_wikipedia_page()` *credits* it from
-the same row, so `wikipedia_page.lang == data_freshness.wikipedia_lang` must hold on every
-response. That invariant is the cheapest regression check in the repo, internal and needing no
-fixture. If you change the fallback in `_fetch_wikipedia_content` or `_fetch_wikipedia_images`,
-change it there too, or a response dates one language and credits another. Do not add a third
-resolution, and never resolve on the page row's *existence*: a row can exist for a language
-carrying zero sections, and crediting that article over English prose is a false attribution,
-worse than no credit. `verify_wikipedia_page.py` checks all of it against a deployed API and
-reports what it could not reach as SKIPPED rather than passing it. Every source column stays in an
-allowed table, so the restricted-DB table-scope contract (DATA-DISTRIBUTION-008) holds without new
-promotions.
-
-**Wikipedia Markdown and mentions (2026-10-16).** `_fetch_wikipedia_content(..., wikipedia_format)` serves `CONTENT_MD` per section when asked (`format`, `references` per element); the `text` branch must stay byte for byte what it was, since every existing client reads it. The six `mentions_*` / `mentioned_in_*` lists come from `_wikipedia_mention_collections()`, merged into each endpoint's registry at the `_run_collections` call and attached by `_attach_wikipedia_mentions()`, so a new Wikipedia-carrying endpoint needs those three calls plus the `wikipedia_format` parameter on the route and on its MCP tool. tmdb-front's `f_wikipediamentions()` applies the same rules (date links out, 20,000-page cap backward, adult and deleted rows out); change both together. `checks/test-wikipedia-md-mentions.py` checks the helpers and the wiring of all 16 endpoints offline. The two tables are in the T2S backup perimeter (`tools/backupvaugouindb-t2s.sh`).
-
-**Pagination.** Each endpoint declares a local `pcollections` registry mapping
-`collection_name -> (sql, params, image_kind)`, driven by `_run_collections()`. It is the single
-source of truth for both the untargeted and the targeted mode, so a new nested related-entity list
-**goes in the registry**, never in a one-off `cursor.execute`. Every registry SQL must select
-`COUNT(*) OVER() AS _TOTAL_COUNT` (MariaDB >= 10.2; stripped by `_paginate_collection`), carry a
-deterministic `ORDER BY` with a unique tiebreaker, and omit its own `LIMIT` and semicolon, which
-the helper appends. `cast` / `crew` and the four person variants are split per `CREDIT_TYPE` with
-`CAST_CHARACTER_EXCLUSIONS` pushed into SQL.
-
-**MCP alignment.** The `get_*` tools relay the endpoint JSON verbatim (`_mcp_get` returns
-`r.text`), so a new collection's **data** appears in MCP with no code at all. Its **docstring does
-not**: that is hand-maintained and it is the MCP contract. List the new collection there twice, in
-the relations enumeration and among the valid `collection` values, or it stays invisible to MCP
-clients although the data is present.
-
----
-
-## Typographic rescue of the gate (`rescue_normalizations`, FASTAPI-TEXT2SQL-309)
-
-**What it fixes.** Eval 475, "Movie Bell' Antonio": the vector search put *Il bell'Antonio* (TMDb
-76157) at rank 1 of the shortlist, distance 0.361, and the gate refused it at `fuzz.ratio` **85.7**
-for a movie threshold of **85.85**. One of the four characters counted against it is the space typed
-after the elision apostrophe; the French spelling of the same eval, `Bell'Antonio`, scores 88.9 and
-passes. The question then escalated to the complex model, which on gpt-4o returned it unchanged.
-
-**How.** A **second pass** over the same shortlist, reached only when the first pass (gate plus the
--224 walk) has refused **every** candidate. Same thresholds, same `score_stopwords`; only the strings
-compared are normalised, on both sides, by the normalisers the strategy names in
-`rescue_normalizations` (registry: `RESCUE_NORMALIZERS` in [rapidfuzz_query.py](rapidfuzz_query.py)).
-Three properties follow, and they are why it was built as a second pass and not as a change to the
-gate:
-
-- A value that resolves today never reaches the new code, so **no current answer can change**. Only
-  today's raw fallbacks can, and those are already failures (0 rows, then the complex model).
-- The first pass computes exactly what it computed before: `_score_candidate` only normalises when
-  the second pass passes it normalisers.
-- What is written into the SQL is the stored document, never the normalised form.
-
-**Normalisers** (`RESCUE_NORMALIZERS` in [rapidfuzz_query.py](rapidfuzz_query.py), applied in a
-fixed order whatever the order of the list): `apostrophes` (every form of `’ ‘ ʼ ´`, backtick and
-prime becomes `'`, no space around it), `accents` (diacritics folded: `amelie` against `amélie`
-scores 83.3, refused at 85.85), `dashes` (every dash becomes a space), `punctuation` (`. , : ; ! ?`,
-quotes, brackets removed; NOT the apostrophe, NOT `&`, NOT digits). An unknown name is refused when
-the configuration loads, so a typo keeps the previous configuration instead of reaching a request.
-
-**The second pass takes the best normalised score**, not the first candidate that passes; a tie
-keeps the walk order. Measured by eval-309 on 2026-10-04: "Prete a tout" (accents dropped) took
-*Prêt à tout* first in rank order at 95.7, while *Prête à tout*, further down, scored 100.
-Normalising brings near-homonyms closer together, so the pass must compare them.
-
-**Configured per type, from the eval-309 run of 2026-10-04** (3,557 values; `none` to `full`:
-46 changes, read one by one), never by intuition:
-
-| Type | `rescue_normalizations` | Why |
-|---|---|---|
-| `Movie_title`, `Serie_title`, `Network_name`, `Group_name`, `Location_name`, `Topic_name` | all four | rescues right; the only "errors" were homonyms (two *S.O.S. Fantômes*, two *E!*) and *Prête à tout*, fixed by the best-score rule |
-| `Company_name` | apostrophes, accents, dashes | punctuation took "Warner Bros" to *Warner Bros. China* (75.9 to 78.6, threshold 77.5) |
-| `Collection_name` | none | no right rescue in any stage, two wrong ones: dashes took "Collection Dracula" to *Dracula 2000 - Saga* (66.7 to 73.7, threshold 73.5); without dashes, accents took "Miss Detective - Saga" to *Détective K - Saga* (69.0 to 75.9), the right collection not being among the ten candidates. The ` - Saga` documents and the low threshold make any normaliser risky here |
-| `Award_name`, `Death_name`, `List_name`, `Movement_name`, `Nomination_name` | none | no rescue measured, so no evidence either way |
-
-**Deliberately not normalised:** leading articles (they raise every score carrying one, so they
-loosen the gate, and *Die*, *Las*, *El*, *Le* are words in other titles), `&` ("and" or "et"),
-numbers (`2` against `II`). Do not lower a threshold to get the same effect: that widens -299, where
-the gate already accepts wrong candidates. The collision to watch with `punctuation`: *mother!*
-(2017) and *Mother* (2009).
-
-**Reading it.** The trace says `typographic rescue (apostrophes) accepted rank N '...'` with both
-scores; `match_scores` carries `rescue_normalizations` (empty when the first pass decided),
-`fuzz_ratio_first_pass` and `candidate_id` (the ChromaDB id of the candidate weighed).
-
-**The stage evaluation, in Docker only** (`uv` is not available on the VPS). [checks/eval-309.sh](checks/eval-309.sh)
-runs [checks/eval-309.py](checks/eval-309.py) in a throwaway container built from the API image, with
-this checkout mounted read-only and the share at `/shared`. The stage is set in memory inside that
-container, so the running API and `data/entity_resolution.json` are untouched, and the three stages
-are measured on the same pulled checkout before any restart:
-
-```bash
-cd ~/docker/fastapi-text2sql-green && git pull          # the running API is not affected
-cd checks
-./eval-309.sh none            # the gate as it was: no second pass
-./eval-309.sh apostrophes     # the first fix
-./eval-309.sh full            # apostrophes, accents, dashes, punctuation
-./eval-309.sh configured      # each type with its list from entity_resolution.json: what the restart deploys
-./eval-309.sh compare         # what changed between stages: NEW WRONG, UNKNOWN and HOMONYM acceptances
-NORMALIZERS=accents ./eval-309.sh custom   # one normaliser alone, to isolate it
-```
-
-Corpus: values the gate refused in the exports (right or wrong read from the row's
-`ID_... IN (...)` assertion), catalogue values, the same retyped (space after the apostrophe,
-curly apostrophe, accents dropped, dash as a space, punctuation dropped), values of other types and
-invented names, some with apostrophes and accents so the normalisers get every chance to admit
-them. The bar for switching a normaliser on for a type: **0 new wrong acceptances** against
-`none`. Results in `shared_data/text2sql-eval/eval-309/`. `checks/check-rescue-309.py` (the real
-branch with eval 475's shortlist, no database) and `checks/replay-rescue-309.py` (every refusal of the
-exports, rescored offline from the traces) are the offline checks; run them in the same container
-when on the VPS.
-
-The offline replay of 2026-10-04, stage `apostrophes`, over the 17 runs then on disk: 230 refusals
-of a title resolver, **one** distinct rescue (*Bell' Antonio*), no wrong acceptance. It reads only
-the five candidates the trace prints, so it is a lower bound.
-
-## Entity-resolution config schema (`data/entity_resolution.json`)
-
-Each entry has a `placeholder_prefix` and a `search_list`. Each search entry can define:
-- `search_mode`: `"embeddings"` or `"rapidfuzz"`
-- `apply_when_language_family_in` / `apply_when_language_family_not_in`: gate by script family
-- `strtablename`, `strtableid`, `default_field`: SQL table / PK / display column
-- `collection`: ChromaDB collection name (embeddings mode)
-- `languages`: `{ "en": FIELD, "fr": FIELD, "*": FIELD }` for language-routed column selection on document IDs formatted as `{entity}_{id}_{lang}`
-- `rapidfuzz_col_norm`, `rapidfuzz_col_key`, `rapidfuzz_col_popularity`: generated/norm columns for lexical matching
-- `resolve_to_canonical`: when an AKA table returns a row, look up the canonical value in another table (e.g., `T_WC_T2S_PERSON_ALSO_KNOWN_AS.ID_PERSON` → `T_WC_T2S_PERSON.PERSON_NAME`)
-
-**Confidence gating (opt-in, per strategy).** By default both search modes always substitute their best candidate — a degraded shortlist or a near-miss then produces a *confidently wrong* entity rather than an error. Three optional keys make a strategy fail safe (fall through to the next strategy, then to raw fallback / ambiguous) instead:
-- `min_fuzz_ratio` (embeddings): reject the chosen candidate when `fuzz.ratio(query, candidate) < min_fuzz_ratio`. Uses `fuzz.ratio` (edit distance), **not** `WRatio` — titles sharing a suffix (e.g. "… Collection") inflate WRatio's token_set component and let unrelated entries through. An exact normalized document match always passes. When rejected, a diagnostic message logs the chosen candidate and the top-5 shortlist with distances.
-- `max_distance` (embeddings): reject when the ChromaDB distance of the chosen candidate exceeds this. Weak discriminator for short proper nouns (near-duplicates sit at similar distances), so prefer `min_fuzz_ratio`; combine both only when distances are meaningful for that collection.
-- `rescue_normalizations` (embeddings): a list of normaliser names (`apostrophes`, `accents`, `dashes`, `punctuation`) for a second scoring pass when the gate has refused every candidate; see *Typographic rescue of the gate* above (FASTAPI-TEXT2SQL-309).
-- `require_confident` (rapidfuzz): only accept an exact / high-confidence auto-correct (`auto` True); a low-confidence lexical guess falls through. Off by default so `Person_name` keeps always-resolve behaviour.
-
-`Collection_name` uses both: a `require_confident` **rapidfuzz** strategy first (exact-normalized DB match — robust and independent of ChromaDB/RAM state), then the gated **embeddings** strategy (`min_fuzz_ratio: 72`) as a semantic/French fallback. The rapidfuzz strategy needs the generated columns in [doc/sql/T2S_COLLECTION-rapidfuzz.sql](doc/sql/T2S_COLLECTION-rapidfuzz.sql); until that migration runs it no-ops and only the embeddings strategy is active.
-
-ChromaDB document ID format is always `{entity}_{id}_{lang}` (e.g., `movie_12345_fr`). Language drives the SQL field via the `languages` map.
-
----
+- **Escaping**: doubled single quotes (`'O''Brien'`), never backslash, which breaks MariaDB. Use `entity._sql_escape_literal()`.
+- **Pagination**: LLM-emitted `LIMIT` / `OFFSET` clauses are stripped by regex; a smaller LLM-defined limit is respected.
+- **Ambiguous questions**: when the LLM cannot produce a valid query or placeholders stay unresolved, set `ambiguous_question_for_text2sql = True`, skip execution, surface the explanation in `error`. The legacy `##AMBIGUOUS##` marker is gone; do not reintroduce it.
+- **Read-only**: generated SQL is SELECT only; never add write queries to prompt examples or generated paths. Cache writes live in `sql_cache.py`, cleanup deletes in `cleanup.py`. Prefer parameterized SQL for application-owned queries.
 
 ## Messages array invariant
 
-Every processing step appends `TextMessage(position=int, text=str)` with a monotonically increasing `position_counter`:
-```python
-messages.append(TextMessage(position=position_counter, text="..."))
-position_counter += 1
-```
-When delegating to `entity.resolve_entities()` or `_retry_with_resolved_complex_question()`, the updated counter is threaded through the return dict. On complex-question retry, the messages from the outer and inner runs are renumbered and merged (see [main.py:879-891](main.py#L879-L891)).
-
----
-
-## The first pass of a retried request is recorded (FASTAPI-TEXT2SQL-241)
-
-When one of the three complex-retry paths fires (text2sql error, execution failure, 0 rows on
-page 1), `_retry_with_resolved_complex_question` reruns the whole pipeline on the stronger
-model's rewrite and returns the INNER response, with the outer messages merged in front. Before
--241 the SQL that failed and the reason it failed survived nowhere: that early return skipped the
-`logs.log_usage` call at the end of `search_text2sql`, so the only file on disk was the inner
-pass's, whose `request.question` is the rewritten question.
-
-`README.md` documents the five `first_pass_*` / `complex_retry_*` response fields and the closed
-vocabulary of `first_pass_failure_code`. Five things it does not say:
-
-- **The fields are set on the inner response right after it is produced**, so the returned object
-  and the **outer** log file carry them; the inner log file, written before that, does not.
-- **`entity_extraction` and `first_pass_entity_extraction` answer different questions.** The
-  first describes the pass that produced the returned rows, so on a retry it holds the INNER
-  extraction of the rewritten question (`Serie Twin Peaks`), and it is `null` when that inner
-  pass hit the exact-question cache and never extracted anything. The second holds what the
-  user's own wording produced, which is where `query_mode` reads `descriptive_identification`
-  and explains why the retry fired at all. Read the second one when asking **why** a question
-  was routed; read the first when asking **how** the answer was built.
-- **Three messages**, written by the retry helper BEFORE the stronger model is called:
-  `First-pass SQL query (before the stronger-model retry): ...`, `First-pass failure reason
-  [<code>]: ...`, and once the rewrite is known, `Stronger model rewrote the question as: '...'
-  (original question: '...').` The wording of the pre-existing retry messages is untouched:
-  `analyze-complex-retry-logs.py` keys on `SQL query returned 0 rows; attempting to simplify`.
-- **A retried question produces TWO log files**, since the outer request is logged too from the
-  helper's return: the inner one (`request.complex_question_already_resolved` true, rewritten
-  question, no first-pass fields) and the outer one (the user's own wording, merged messages,
-  first-pass fields). Anything that counts questions from `logs/` must skip the inner file
-  (FASTAPI-TEXT2SQL-246).
-- **The execution branch records its own code** in `sql_execution_failure_code` / `_reason`, set
-  by the three `except` clauses of the execution block; extend that pair when you add an `except`.
-
-What the "Pour le plaisir" trace taught, and why it is worth reading a first pass: extraction
-returned no entity for the bare French phrase, so no ChromaDB resolution ran and no
-language-specific expansion (`MOVIE_TITLE_FR` / `ORIGINAL_TITLE`, added by the resolver for
-`lang=fr`) was applied. The generated `MOVIE_TITLE = 'Pour le plaisir'` compared the French
-title to the English column and found nothing. `_localize_search_rows` then displays the French
-title in `MOVIE_TITLE` for a `fr` UI, which hides the mismatch from anyone reading results.
-
-## The no-entity rescue runs before the stronger model (FASTAPI-TEXT2SQL-244)
-
-When extraction returns no entity, the text-to-SQL prompt still writes the user's words as a
-literal equality on a canonical column (`MOVIE_TITLE = 'Pour le plaisir'`), and nothing looks at
-that literal: `plan_entity_resolutions` iterates over extracted keys, of which there are none,
-so no ChromaDB lookup runs and the language-aware OR expansion of `_substitute_entity_row` never
-fires. On a French title that means comparing it to the English column, 0 rows, and a trip to
-the stronger model, which then adds a year from memory (-243). Since -244, right after the
-execution block and before any retry, when page 1 returned 0 rows with `no_entity_extracted`
-true and no exact-cache hit:
-
-1. `entity.find_literal_equalities(sql)` lists the literal equalities on resolvable columns.
-   The column set is derived from `data/entity_resolution.json`: the `default_field` of each
-   resolver's first strategy (`MOVIE_TITLE`, `SERIE_TITLE`, `PERSON_NAME`, ...); a column
-   claimed by two prefixes is dropped as ambiguous.
-2. `entity.placeholderize_literals` puts each literal back into placeholder form
-   (`MOVIE_TITLE = '{{Movie_title1}}'`) and main.py builds the matching synthetic extraction.
-3. The ORDINARY resolver runs on it (`plan_entity_resolutions` in a thread, then
-   `apply_entity_resolutions`): ChromaDB shortlist, fuzz gate, canonical value, language OR
-   expansion, and its messages land in the response like any resolution.
-4. If the resolver found nothing better than the raw words (raw fallback, unresolved
-   placeholder, or an unchanged SQL), the first-pass SQL stands and the usual retry rules
-   apply. Otherwise the rescued SQL is re-executed and **adopted whatever the row count**: it
-   replaces `sql_query`, `sql_query_processed_base` and the anonymized copies, so the cache
-   holds the language-aware form and a retry reports it as the first pass. With nothing
-   extracted, the anonymized question IS the raw question, which is why the anonymized copy
-   must follow: otherwise its row would keep serving the equality that just failed.
-
-Zero LLM call. `README.md` lists the `no_entity_rescue_outcome` values. The rescue's candidates
-join `entity_match_scores`, and its re-execution time is added to `query_execution_time`. The
-rescue is gated on the EMPTY result on purpose: a first pass that returns rows is left alone,
-whatever column it compared. Not covered: a raw fallback (the resolver's own thresholds decide),
-and a literal that is not an equality (`LIKE`, `IN`).
-
-## The retry never caches a narrowed rewrite under the original question (FASTAPI-TEXT2SQL-242)
-
-After a successful stronger-model retry, the helper writes the retry's SQL to `T_WC_T2S_CACHE`
-under the ORIGINAL wording, so the next identical question costs 60 ms instead of seven LLM
-calls. That row is legitimate when the rewrite repaired a resolution (`Marion Morrison` ->
-`John Wayne`) and poison when it added information: on 2026-09-08 "Pour le plaisir" was
-rewritten "Movie Pour le plaisir (2004)" from the model's memory, and the year-filtered SQL
-served every following "Pour le plaisir" for two days, hiding the 2026 film. Since -242 the
-write is skipped when the rewrite carries a four-digit year absent from the original question,
-or (second belt) when the inner extraction produced a `Release_year` / `First_air_year` /
-`Birth_year` / `Death_year` placeholder while the original question holds no year. The decision is written to
-the messages and to `complex_retry_cache_policy`, whose values `README.md` lists. The rewritten
-question stays cached under its own wording by the inner pass, so nothing is lost. Not done:
-marking retry-derived rows, which would need a column in `T_WC_T2S_CACHE`.
-
-## An identity retry carries the resolver's type as data (FASTAPI-TEXT2SQL-300)
-
-When the complex step answers with exactly one typed item and an identity card of that type
-(`Serie Sherlock`, `Movie Alien (1979)`, `Person John Wayne`), `f_build_identity_retry_seed`
-builds the extraction the retry would have needed and `main.py` passes it on
-`retry_request.complex_retry_seed`. The inner pass then skips the LLM extraction, skips the
-SQL caches (exact, anonymized, embeddings), and expects the item's type as `result_entity`,
-with no classifier call. The answer-entity guard regenerates once when the result entity
-differs, **even if the id token is in the SELECT**, because the series' images also project
-`ID_SERIE`. Why: on 2026-09-24 and -25, eighteen riddles came back as zero rows (`Sherlock`
-re-extracted as a character) or as `serie_image` (a bare `Serie {{Serie_title1}}` read as a
-picture request, then served from cache). Relation questions (`In which city…`) and lists get
-no seed and keep the full pipeline. The field is ignored unless `complex_question_already_resolved`
-is true, so a client cannot use it to bypass extraction. A movie keeps its year in parentheses.
+Every step appends `TextMessage(position=position_counter, text=...)` then increments the counter. Delegated calls (`entity.resolve_entities()`, `_retry_with_resolved_complex_question()`) return the updated counter in their result dict; on a complex retry the outer and inner messages are renumbered and merged.
 
 ## Cache API-version filtering
 
-Reads and writes take the **formatted** version (`XXX.YYY.ZZZ`), never the raw `strapiversion`;
-the `sql_cache` helpers already receive it as a parameter, so pass it through rather than
-recomputing it. Lookups also filter on `UI_LANGUAGE`, with `OR UI_LANGUAGE IS NULL` for rows
-written before that column existed. Which SQL column a hit prefers is in *Where things live*,
-under `sql_cache.py`.
+Cache reads and writes take the **formatted** version (`XXX.YYY.ZZZ`, from `format_api_version()`), never the raw `strapiversion`; the `sql_cache` helpers receive it as a parameter, so pass it through. Lookups also filter on `UI_LANGUAGE`, with `OR UI_LANGUAGE IS NULL` for older rows. An empty result is never cached (Gotcha #8b); an `authoritative_empty` vision identification is.
 
 ---
 
 ## Version management workflow
 
 When updating prompt templates, schema, or resolver behavior:
-1. Edit the hot-reloaded file in `data/` directly — no versioned filename suffix; hot-reload picks the change up within ~5 s without a restart.
-2. Bump `strapiversion` in [main.py:137](main.py#L137) only when the user explicitly asks for a version bump. This also flips Blue/Green port parity when the patch number changes.
-3. Restart only if you also touched `*.py`.
-4. If `intcleanupenabled = True`, startup cleanup will purge old cached queries for the previous version.
-5. If you do not bump the version after a prompt/config change, tell the user that existing cache rows for the current formatted version may still shadow the new behavior.
-
-Filenames registered at module import time are static:
-- `text_to_sql.md`, `complex_question.md` (registered in [text2sql.py:36,40](text2sql.py#L36))
-- `entity_extraction.md`, `entity_resolution.json` (registered in [entity.py:12-13](entity.py#L12-L13))
-- `closed_vocabularies.json` (registered in [closed_vocab.py](closed_vocab.py))
-
-Version format: input `"1.1.16"` → stored `"001.001.016"` via `format_api_version()` (in both [main.py:33](main.py#L33) and [cleanup.py:5](cleanup.py#L5)).
-
----
+1. Edit the hot-reloaded file in `data/` directly (no versioned filename suffix).
+2. Bump `strapiversion` in `main.py` only when the user explicitly asks for a version bump. This also flips the Blue/Green parity, so the client table above applies.
+3. Restart only if you also touched `*.py`, in the checkout whose colour matches the **current** version's parity (`restart.sh` reads its colour from its folder and refuses to run elsewhere). Never infer the live colour from which checkout was restarted last.
+4. If `intcleanupenabled = True`, startup cleanup purges cached queries of the previous version.
+5. If you do not bump after a prompt/config change, tell the user that current-version cache rows may still shadow the new behavior. The same holds for the recognition cache of `vision_cache.py`.
 
 ## Verification workflow
 
-Pick verification based on blast radius:
+Pick verification by blast radius, and say exactly what was not run and why when MariaDB, ChromaDB, keys or quota are unavailable.
 
-- For small Python-only changes, run the narrowest relevant smoke test or command available in the repo.
-- For prompt, placeholder, resolver, cache, or schema-facing changes, run representative `/search/text2sql` questions when credentials and services are available.
-- For evaluation-sensitive changes, use `../text2sql-eval/README.md` and prefer a focused evaluator subset before a full run.
-- For RapidFuzz behavior, check @doc/RAPIDFUZZ.md and the relevant `doc/sql/*-rapidfuzz.sql` generated-column/index requirements.
-- For the vision path, run `uv run checks/verif-114.py` (no API, no database, no image): it
-  covers the deterministic half, which is the half that fails silently. Recognition quality
-  itself needs the twenty-image bench of FASTAPI-TEXT2SQL-277, which does not exist yet, and a
-  real image deposited through `POST /uploads/vision`.
-- For the vision identity check (title + year homonyms, FASTAPI-TEXT2SQL-307), run
-  `uv run checks/test-vision-homonyms.py` (no API, no database): it pins the decision of the pure
-  module `vision_identity.py`, including the reverse case that proves popularity never decides.
-  Real homonym pairs for the live bench come from `text2sql-eval/harvest-title-year-homonyms.sql`.
-- For any change to the answer-entity guard or its exemptions, run `uv run checks/verif-311.py`
-  (no API, no database): it checks both directions, what must pass and what must still regenerate.
-- For anything that touches how the response is serialized (a new field, a new entity endpoint,
-  a rounding rule), run `uv run --with "fastapi>=0.104.1" --with httpx checks/verif-308.py`
-  (no API, no database), then `uv run checks/verif-114.py`, which execs the same model block.
-- **Prefer the MCP tools over raw `curl` for entity/detail checks, and propose MCP as the verification path.** The MCP server is the *same deployed app* as the REST API (mounted at `/mcp`, same `strapiversion`, same Blue/Green process) and its `get_*` tools return the endpoint JSON **verbatim**, so exercising a detail endpoint through its MCP tool (e.g. `get_movie(id=…)` on `https://www.vaugouin.com/mcp`) validates both surfaces at once and needs no API-key/URL juggling. When suggesting how to verify a detail-endpoint change, propose an MCP-tool call rather than a `curl`. This relies on the MCP tools staying aligned with the REST endpoints — see *Entity endpoint collection pagination → MCP alignment*.
-- If you cannot run verification because MariaDB, ChromaDB, API keys, or model quota are unavailable, say exactly what was not run and why.
-
-Do not silently populate caches during ad hoc testing when the goal is behavior inspection; use request options such as `store_to_cache=false` where appropriate.
+- Python-only change: the narrowest relevant check, plus pyflakes.
+- Prompt, placeholder, resolver, cache or schema-facing change: representative `/search/text2sql` questions, with `store_to_cache=false` when inspecting behaviour.
+- Evaluation-sensitive change: a focused evaluator subset before a full run (`../text2sql-eval/README.md`).
+- Offline checks (no API, no database): `checks/verif-114.py` (vision path), `checks/test-vision-homonyms.py` (vision identity), `checks/verif-311.py` (answer-entity guard), `checks/verif-274.py` (reasoning families), `uv run --with "fastapi>=0.104.1" --with httpx checks/verif-308.py` then `verif-114.py` (serialization), `checks/test-wikipedia-md-mentions.py` (Wikipedia Markdown and mentions).
+- **Prefer the MCP tools over raw `curl` for entity-endpoint checks**, and propose them: the `get_*` tools on `https://www.vaugouin.com/mcp` return the endpoint JSON verbatim from the same deployed app, so one call validates both surfaces.
 
 ---
 
 ## Common gotchas (do NOT step on these)
 
 ### Gotcha #1 — SQL Quote Escaping
-Use `''`, never `\'`. Centralize via `entity._sql_escape_literal()`. Backslash escaping breaks MariaDB.
+`''`, never `\'`. See *SQL handling rules*.
 
 ### Gotcha #2 — Cache API Version Filtering
-Always pass `strapiversionformatted` (`XXX.YYY.ZZZ`), never raw `strapiversion`, to `sql_cache` helpers.
+Pass the formatted version to `sql_cache` helpers. See *Cache API-version filtering*.
 
 ### Gotcha #3 — ChromaDB Document IDs
-Format `{entity}_{id}_{lang}` (e.g. `movie_12345_fr`); the language drives the SQL field through
-the `languages` map. See *Entity-resolution config schema*.
+`{entity}_{id}_{lang}`; the language drives the SQL field through the `languages` map.
 
 ### Gotcha #4 — Entity Variable Matching in Embeddings Cache
-A candidate document is only accepted when **all** extracted entity variables appear in it ([main.py:671](main.py#L671)):
-```python
-if all(var in doc_entity_vars for var in entity_variables):
-```
+A cached candidate document is only accepted when **all** extracted entity variables appear in it (`if all(var in doc_entity_vars for var in entity_variables)` in `main.py`).
 
 ### Gotcha #5 — Messages Position Counter
-Always increment after appending. See *Messages array invariant* for how the counter comes back
-from a delegated call.
+Always increment after appending. See *Messages array invariant*.
 
 ### Gotcha #6 — Database Connection Lifecycle
-Open once per request, pass the connection around, close in a `finally`. Do NOT call `get_db_connection()` inside loops.
+Open once per request, pass it around, close in a `finally`. Never call `get_db_connection()` inside loops.
 
 ### Gotcha #7 — Custom Embedding Function Interface
-`OpenAIEmbeddingFunction` ([main.py:80](main.py#L80)) must implement both `__call__()` (batch) and `embed_query()` (single query) — ChromaDB needs both.
+`OpenAIEmbeddingFunction` must implement both `__call__()` (batch) and `embed_query()` (single query).
 
 ### Gotcha #8 — Complex Question Retry Recursion Guard
-The pipeline can retry via the stronger model, but only when `complex_question_already_resolved = False`. The recursive call sets it to `True` to prevent runaway retries.
+The stronger-model retry only fires when `complex_question_already_resolved = False`; the recursive call sets it to `True`.
 
 ### Gotcha #8b : An empty result is never cached (FASTAPI-TEXT2SQL-212)
-`README.md` says why (the anonymized row freezes the whole **template**, so one defective query
-poisons every entity pair on that pattern) and how to override it (`CACHE_EMPTY_RESULTS=1`). The
-code rule: all four tiers go through the single `store_to_cache_allowed` / `retry_store_allowed`
-gate, so do not reintroduce a bare `request.store_to_cache` in a write.
+All four cache tiers go through the single `store_to_cache_allowed` / `retry_store_allowed` gate; never reintroduce a bare `request.store_to_cache` in a write. Why, and the `CACHE_EMPTY_RESULTS=1` override: `README.md`.
 
 ### Gotcha #8c : Signal (d) of the no-results guard reads the SQL, not the resolution (FASTAPI-TEXT2SQL-211)
-The three original signals of **-156** all watch **entity resolution**, so an empty result whose entities all resolved was declared authoritative. Signal (d) is the first one to look at the query itself, via `sql_shapes.detect_person_role_collapse`. It is a **suspicion, not a proof**, and that is deliberate: firing wrongly costs one stronger-model call on a result that was **already empty**, while missing it hands the user a silent "no results" on an answerable question. Keep that asymmetry in mind before tightening it. Before widening it, run `analyze-complex-retry-logs.py`, whose `person-role collapse` column reports how many blocked empties, and how many **authoritative** ones, the signal moves. Local corpus on 2026-08-26: 4 fires out of 438 logs, all 4 the same defect, 2 of them previously classified AUTHORITATIVE.
+`sql_shapes.detect_person_role_collapse` is a **suspicion, not a proof**, deliberately: firing wrongly costs one stronger-model call on an already empty result, missing it hands the user a silent "no results". Before widening it, run `analyze-complex-retry-logs.py` and read its `person-role collapse` column.
 
 ### Gotcha #8d : A retried request writes two log files (FASTAPI-TEXT2SQL-241)
-See *The first pass of a retried request is recorded*. Counting questions over `logs/` without
-skipping the inner file counts a retried question twice; the outer file is the complete record.
+Skip the inner file when counting questions over `logs/`; the outer file is the complete record. See *Retries, rescues and the cache*.
 
 ### Gotcha #9 — Closed-vocabulary resolution: order, and where aspect ratios live
-`README.md` lists the six placeholders, their canonical sources, their substitution kinds (integer
-for the genres and `Technical_format`, quoted string for the other three), the `APPLIES_TO_MOVIE` /
-`APPLIES_TO_SERIE` split, the `Department_name` crew-only rule and which placeholders have a
-`_LANG` companion table. Two things it does not carry:
-
-**Resolver order matters.** In `_resolve_closed_vocab`, canonical exact match runs **before** alias
-match. If a user-typed value happens to be a literal canonical, the canonical wins and the alias
-never fires, so remapping noisy DB variants onto one dominant form means **excluding them from the
-canonicals in the loader query**, never adding an alias.
-
-**Aspect ratios are rows of `T_WC_T2S_TECHNICAL`**, carrying `TECHNICAL_TYPE='aspect_ratio'` and
-dot-decimal `DESCRIPTION` values (`'1.85'`, `'2.35'`), with the surface variants as aliases under
-`Technical_format`. There is no `Aspect_ratio` placeholder and no `T_WC_T2S_MOVIE.ASPECT_RATIO`
-filter: everything goes through `{{Technical_formatN}}` and the `T_WC_T2S_MOVIE_TECHNICAL`
-junction like every other technical, which is what makes a movie shipping in several ratios match
-on any of them.
+Canonical exact match runs **before** alias match in `_resolve_closed_vocab`, so remapping noisy DB variants onto one form means **excluding them from the canonicals in the loader query**, never adding an alias. Aspect ratios are rows of `T_WC_T2S_TECHNICAL` (`TECHNICAL_TYPE='aspect_ratio'`, dot-decimal `DESCRIPTION`), resolved through `{{Technical_formatN}}` and `T_WC_T2S_MOVIE_TECHNICAL`; there is no `Aspect_ratio` placeholder and no `T_WC_T2S_MOVIE.ASPECT_RATIO` filter. The placeholder table is in `README.md`.
 
 ### Gotcha #10 — Regex Placeholders Reject Malformed Values
-Rejection and the prefix-ordering rule are in *Placeholder dispatch order*; the patterns are in
-`README.md`. The one choice left when adding a rule: `is_numeric` follows the **target column's
-SQL type**, since numeric rules substitute a bare integer (stripping surrounding quotes in two
-regex passes) and string rules substitute a quoted SQL literal.
+See *Placeholder dispatch order*: prefix order, and `is_numeric` follows the target column's SQL type.
 
 ### Gotcha #11 — MCP Mount Path
-`app.mount("", mcp_app)` (empty string), not `"/mcp"`. Nginx strips/preserves `/mcp` upstream, and FastMCP's own routes live under `/mcp/…`. Mounting under `/mcp` produces `/mcp/mcp` paths.
+`app.mount("", mcp_app)` (empty string), not `"/mcp"`: FastMCP's routes already live under `/mcp/...`, so mounting under `/mcp` produces `/mcp/mcp`.
 
 ### Gotcha #12 — The Fork-Join Must Be Joined
-See *Pipeline scheduling*: `plan_entity_resolutions()` holds this request's DB connection and the
-retry path closes it. Do not move the join, and do not add a `return` between the fork and it.
+Do not move the join of `plan_entity_resolutions()`, and do not add a `return` between the fork and it. See *Pipeline scheduling and the fork-join*.
 
 ### Gotcha #13 : An image_ref is a client string, never a path (FASTAPI-TEXT2SQL-275)
-Anything arriving as an `image_ref` goes through `uploads.parse_image_ref()` first, which accepts
-only a name the generator itself could have produced. Do not join it to a folder, do not
-`os.path.basename()` it and hope: the whole upload path takes no filename from the client, and the
-extension comes from the magic number of the bytes.
-
-**Adding a format is two edits and a decision, not one edit** (FASTAPI-TEXT2SQL-279). The
-signature goes in `uploads.py`, `_IMAGE_REF_PATTERN` has to learn the new extension or every
-deposit becomes unreadable on the way back, and `_MEDIA_TYPES` decides what the read route
-announces. The decision is whether the VISION MODEL reads the format: WEBP was accepted because
-it does, HEIC was refused because it does not, and accepting HEIC would mean converting it here,
-which means putting the first image decoder of this repository on a path that handles bytes a
-stranger chose.
+Every `image_ref` goes through `uploads.parse_image_ref()` first; never join it to a folder or `basename()` it. A new format needs its signature in `uploads.py`, `_IMAGE_REF_PATTERN` and `_MEDIA_TYPES`, and only if the vision model reads it (HEIC refused: no image decoder on a path handling a stranger's bytes).
 
 ### Gotcha #14 : The vision model identifies, it never writes the question (FASTAPI-TEXT2SQL-114)
-`compose_vision_question()` builds the question from `items[]`, in code. Letting the model
-return the question instead would look simpler and would break the recognition cache: a cached
-turn and a fresh turn would compose **different questions for the same photo**, so the page-2
-hash would miss and the second turn of a conversation would repay the whole pipeline. The same
-rule forbids putting anything question-dependent into `vision_cache.identification_payload()`.
-See *The vision pre-stage*, and `checks/verif-114.py`, which asserts the invariant.
+`compose_vision_question()` builds the question from `items[]` in code, so cached and fresh turns compose the same question. The path is a **pre-stage**, not a recursive re-entry (one log file): do not "harmonise" it with the retry helper. `_call_vision_llm` is OpenAI only, deliberately. See `doc/vision-pre-stage.md`; `checks/verif-114.py` asserts the invariant.
 
 ---
 
-## Database tables you'll touch most
+## Database tables and naming
 
-Prompt-visible schema rules live in [data/text_to_sql.md](data/text_to_sql.md), the DDL in
-[doc/sql/](doc/sql/), the entity roster in `README.md` (*Database Schema Coverage*), the naming
-rules below in *SQL Object Naming Conventions*, and MCP clients also see the
-`context://database-scope` resource. One table is described nowhere else:
+Prompt-visible schema rules: `data/text_to_sql.md`. DDL: `doc/sql/` (`*-tables.sql`, and the `*-rapidfuzz.sql` generated columns and indexes RapidFuzz needs). Entity roster: `README.md` (*Database Schema Coverage*). The cache tables are described in `doc/pipeline-internals.md` and `doc/vision-pre-stage.md`. The API reads the `T_WC_T2S_*` copies (genres, also-known-as), not the `T_WC_TMDB_*` sources. When SQL-facing behaviour changes, update `data/text_to_sql.md`; edit `doc/sql/` only on request.
 
-- `T_WC_T2S_VISION_CACHE` : the recognition cache of the vision path, keys `IMAGE_MD5` (the
-  fingerprint of the deposited bytes, read off the `image_ref`) and `API_VERSION`
-  (`XXX.YYY.ZZZ`), payload `IDENTIFICATION` (JSON), plus `IMAGE_REF`, `VISION_MODEL`,
-  `AUTHORITATIVE_EMPTY`, `VISION_IDENTIFICATION_PROCESSING_TIME`, `DELETED` and the two
-  timestamps. Read and written by [vision_cache.py](vision_cache.py) with graceful
-  degradation: while the table is absent the whole module is a silent miss. Created by
-  `maintenance/vision-recognition-cache.sql`, run in production 2026-09-20.
-- `T_WC_T2S_CACHE` — keys `QUESTION`, `QUESTION_HASHED`, `SQL_QUERY`, `SQL_PROCESSED`,
-  `JUSTIFICATION`, `ANSWER`, `RESULT_ENTITY`, `API_VERSION` (`XXX.YYY.ZZZ`), `UI_LANGUAGE`,
-  `IS_ANONYMIZED`, `DELETED`, plus timing columns. `RESULT_ENTITY` is written and read by
-  [sql_cache.py](sql_cache.py) with **graceful degradation**: when the column is absent
-  (pre-migration), reads and writes fall back to the legacy column set and treat it as empty
-  rather than failing.
-
----
-
-## Database Schema Sources
-
-Full DDL lives under [doc/sql/](doc/sql/); do not duplicate table definitions here. Treat these files as reference-only unless the user explicitly asks for schema-doc edits.
-
-- [doc/sql/T2S\_Evaluation-tables.sql](doc/sql/T2S-tables.sql) — tables used by the evaluation process.
-- [doc/sql/T2S-tables.sql](doc/sql/T2S-tables.sql) — canonical Text2SQL read-model tables used by prompts, API detail endpoints, cache, and evaluation tables.
-- [doc/sql/TMDb-tables.sql](doc/sql/TMDb-tables.sql) — upstream/source TMDb tables and reference tables.
-- [doc/sql/Wikidata-tables.sql](doc/sql/Wikidata-tables.sql) — Wikidata staging and canonical tables.
-- [doc/sql/Wikipedia-tables.sql](doc/sql/Wikipedia-tables.sql) — Wikipedia section tables.
-- [doc/sql/T_WC_TMDB_GENRE.sql](doc/sql/T_WC_TMDB_GENRE.sql) — DDL of the TMDb source genre table. Since FASTAPI-TEXT2SQL-313 the API reads its T2S copy, `T_WC_T2S_GENRE` / `T_WC_T2S_GENRE_LANG` (columns `ID_GENRE`, `GENRE_NAME`), in `T2S-tables.sql`.
-- [doc/sql/T_WC_T2S_TECHNICAL.sql](doc/sql/T_WC_T2S_TECHNICAL.sql) — focused technical-format reference DDL.
-- [doc/sql/T2S_PERSON-rapidfuzz.sql](doc/sql/T2S_PERSON-rapidfuzz.sql), [doc/sql/T_WC_TMDB_PERSON_ALSO_KNOWN_AS-rapidfuzz.sql](doc/sql/T_WC_TMDB_PERSON_ALSO_KNOWN_AS-rapidfuzz.sql) (the TMDb source; its T2S copy `T_WC_T2S_PERSON_ALSO_KNOWN_AS`, restricted to the persons of `T_WC_T2S_PERSON`, carries the same generated columns and is the one the API reads), and [doc/sql/T2S_COLLECTION-rapidfuzz.sql](doc/sql/T2S_COLLECTION-rapidfuzz.sql) — generated columns, indexes, and FULLTEXT setup required by RapidFuzz.
-
-When changing SQL-facing behavior:
-
-1. Check [data/text_to_sql.md](data/text_to_sql.md) for the prompt-visible schema and query rules.
-2. Check [doc/sql/](doc/sql/) for real DDL.
-3. Check code users in [main.py](main.py), [entity.py](entity.py), [closed_vocab.py](closed_vocab.py), [sql_cache.py](sql_cache.py), and [rapidfuzz_query.py](rapidfuzz_query.py).
-4. If schema or prompt-visible behavior changes, update [data/text_to_sql.md](data/text_to_sql.md) and relevant docs. Edit [doc/sql/](doc/sql/) only when explicitly requested.
-5. Bump `strapiversion` only when explicitly requested.
-
----
-
-## SQL Object Naming Conventions
-
-- SQL table and column names are uppercase snake case. The TMDb source genre tables keep their legacy lowercase `id` and `name`; their T2S copies (`T_WC_T2S_GENRE`, `T_WC_T2S_GENRE_LANG`), which the API reads, use `ID_GENRE` and `GENRE_NAME`.
-- Persistent tables use `T_WC_*`.
-- Text2SQL read-model tables use `T_WC_T2S_*`.
-- TMDb source/reference tables use `T_WC_TMDB_*`.
-- Wikidata tables use `T_WC_WIKIDATA_*`; staging tables use `STG_T_WC_WIKIDATA_*`.
-- Wikipedia tables use `T_WC_WIKIPEDIA_*`.
-- Join tables usually follow `T_WC_T2S_{PARENT}_{CHILD}`, for example `T_WC_T2S_MOVIE_GENRE`, `T_WC_T2S_PERSON_MOVIE`.
-- Primary keys are usually `ID_{ENTITY}` for entity tables, `ID_ROW` for generic/join rows, or a table-specific surrogate such as `ID_T2S_PERSON_MOVIE`.
-- Foreign keys reuse the referenced primary-key name, for example `ID_MOVIE`, `ID_PERSON`, `ID_GENRE`.
-- Date columns use `DAT_*`; datetime/timestamp columns use `TIM_*`.
-- Boolean-like flags use `IS_*` or legacy integer flags such as `DELETED`.
-- Ordering uses `DISPLAY_ORDER`.
-- Aggregate counters use `*_COUNT`.
-- Media paths use `*_PATH`.
-- Language-specific labels/titles often use suffixes such as `_FR`; generic language rows use `LANG`.
-- RapidFuzz/generated search columns use `*_NORM` and `*_KEY`; popularity tie-breakers commonly use `POPULARITY`.
-- Index names are mixed legacy style. Preserve existing style: simple `KEY COLUMN_NAME`, `IDX_*` for indexes, `UK_*` for unique keys, `FK_*` for foreign keys, and `ft_*` for FULLTEXT indexes.
-
----
-
-## SQL execution safety
-
-The text-to-SQL prompt should generate read-only SELECT queries. Do not add write queries to prompt examples or generated-query paths. Cache writes are centralized in [sql_cache.py](sql_cache.py), cleanup deletes are centralized in [cleanup.py](cleanup.py), and schema/reference SQL under [doc/sql/](doc/sql/) is documentation unless the user explicitly asks otherwise.
-
-Prefer parameterized SQL for application-owned queries. Placeholder de-anonymization is a special pipeline step; when inlining placeholder values, use `entity._sql_escape_literal()` and SQL doubled single quotes.
-
-### Entity identity boundary
-
-Text2SQL owns relational structure, never the identification of an unnamed real-world entity from remembered clues. `data/entity_extraction.md` classifies each request with `query_mode`; `descriptive_identification` routes to the stronger model before Text2SQL. Text2SQL may also emit `requires_complex_resolution: true`. The two reach `first_pass_failure_code` as distinct values since FASTAPI-TEXT2SQL-271, so a campaign can tell a deliberate routing from an admission of defeat. Independently of both prompts, `entity.find_unbacked_entity_literals()` rejects resolvable entity equalities whose value occurs in neither the original question nor extracted entities. Keep this guard before SQL execution and cache writes. A literal explicitly present in the original question remains grounded even when extraction missed it, which preserves the `Pour le plaisir` rescue path.
-
-**The guard judges SQL generated in the current request, never an exact-question cache hit (FASTAPI-TEXT2SQL-259).** Two facts make it unsatisfiable on that path, and both are properties of the cache rather than accidents: `sql_cache` returns `SQL_PROCESSED`, the already entity-resolved SQL whose literal is the canonical database value, and entity extraction is skipped on a cache hit, so `entity_extraction` is `None`. Left ungated, the guard rejected SQL the pipeline itself had resolved and stored, for every cached question whose title needed any normalization at all: a colon, an accent, a leading article, a French title resolved onto the English column. Grounding also folds case, diacritics and punctuation before comparing, so `2001: A Space Odyssey` matches a user who typed `2001 A space odyssey`; it folds surface form only, never words, so a title recalled from a plot description still shares nothing with the question. The anonymized and embeddings cache paths keep the guard: extraction runs there, and their SQL still carries placeholders, which `find_literal_equalities` skips.
-
-`query_mode` is a soft field (FASTAPI-TEXT2SQL-255): [json_guardrails.py](json_guardrails.py) validates its value against the closed vocabulary but does not require its presence. A missing mode costs the descriptive routing only, while rejecting the payload discarded a usable extraction and handed Text2SQL the raw, non-anonymized question. The lesson for any prompt-and-guardrail pair: a rule stated once in the spec loses to the shape demonstrated by the examples. When adding a required key to a prompt contract, update every example in that prompt in the same commit, or the model will keep answering in the shape it was shown.
-
----
-
-## Encoding
-
-Keep Markdown, prompt files, JSON config, and logs UTF-8. These files contain non-ASCII names and multilingual examples. Avoid editor or terminal operations that rewrite them with mojibake.
+Naming, to preserve in any new SQL: uppercase snake case (the TMDb genre source tables keep legacy lowercase `id` / `name`); `T_WC_*` persistent, `T_WC_T2S_*` read-model, `T_WC_TMDB_*`, `T_WC_WIKIDATA_*` (staging `STG_T_WC_WIKIDATA_*`), `T_WC_WIKIPEDIA_*`; join tables `T_WC_T2S_{PARENT}_{CHILD}`; keys `ID_{ENTITY}` or `ID_ROW`, foreign keys reuse the referenced name; `DAT_*` dates, `TIM_*` datetimes, `IS_*` or legacy `DELETED` flags, `DISPLAY_ORDER`, `*_COUNT`, `*_PATH`, `_FR` suffixes and `LANG` rows, `*_NORM` / `*_KEY` RapidFuzz columns with `POPULARITY` tie-breakers; indexes keep the mixed legacy style (`IDX_*`, `UK_*`, `FK_*`, `ft_*`).
 
 ---
 
 ## Build & deployment (Docker)
 
-The API/MCP server is built and run as a Docker container via the repo's `Dockerfile` (base image `python:3.12-slim-bookworm`, `PYTHONUNBUFFERED=1`). The build compiles SQLite 3.40.1 from source (set on `LD_LIBRARY_PATH`) for ChromaDB compatibility, installs `requirements.txt`, copies `*.py` and `./data/`, and runs `CMD ["python", "./main.py"]`. The `Dockerfile` does not declare an `EXPOSE` or `VOLUME`; the runtime config (the `.env` variables in "Runtime dependencies", including the Blue/Green `API_PORT_*` ports) is supplied at `docker run` time. Note `data/` is hot-reloaded from inside the image, so prompt/config edits need a rebuilt (or volume-mounted) `data/` to take effect in a running container.
-
-### Which Blue/Green slot is live: read it off the version's patch number
-
-Odd patch means Green, even patch means Blue. The rule itself, the real ports and the four
-clients that have to be repointed are in "Clients of this API" above; the consequence here is
-narrower. After touching a `*.py`, run `restart.sh` in the checkout of the colour matching the
-**current** version's parity, `~/docker/fastapi-text2sql-green` on an odd patch,
-`~/docker/fastapi-text2sql-blue` on an even one. The script reads its colour from the folder it
-lives in and refuses to run anywhere else. Never infer the live colour from which checkout
-happened to be restarted last.
+Build and run are in `README.md` § *Docker Deployment* and `restart.sh`. Odd patch means Green, even means Blue; see *Version management workflow* for which checkout to restart.
 
 ### One clock: Paris time, with its offset (FASTAPI-TEXT2SQL-328)
 
-The stack-wide rule (DEPLOYMENT-015): every date a human reads is **Europe/Paris with its
-offset** (`2026-10-19T14:59:03+02:00`), always through the zone, never a fixed `+02:00`.
-Naive `DATETIME` values in the database stay naive Paris; the VPS host stays on `Etc/UTC` and
-the container sets no `TZ`, which is why the zone is named in `logs.py` (`PARIS_TZ`,
-`now_paris()`) and `tzdata` is in `requirements.txt` (the slim image has no zone database).
+Every date a human reads is **Europe/Paris with its offset**, through `logs.now_paris()` / `PARIS_TZ`, never a fixed `+02:00` (host and container stay on UTC). Compare `uploads.deposited_at()` / `purge_after()` with `logs.now_paris()`, never `datetime.now()` (naive, raises `TypeError`). File names before 2026-10-19 are UTC with no offset; after, Paris time, and every log dict starts with `"ts"`, which is the value to read. Details: `doc/pipeline-internals.md`.
 
-**Switch date: 2026-10-19 (code), effective at the next deployment.** Before it, log and
-upload file names are **UTC with no offset**, and the log JSON carries no timestamp. After it,
-names are **Paris time** (same `YYYYMMDD-HHMMSS` shape) and every dict logged by `log_usage`
-starts with `"ts"`, the same moment with its offset. Read the `ts` when it is there; the name is
-for humans, repeats 02:00 to 03:00 on the last Sunday of October, and on the switch day sorts
-new Paris names before older UTC ones for up to two hours.
+### `logs/` and `uploads/` are shared by every colour
 
-- `uploads.deposited_at()` and `purge_after()` return **aware** Paris datetimes; compare them
-  with `logs.now_paris()`, never with `datetime.now()`, which is naive and raises `TypeError`.
-  An upload deposited before the switch reads one or two hours early: harmless on 30 days, and
-  `purge-uploads.sh` deletes by modification time anyway.
-- The startup banner and the Chroma cache metadata `dat_creat` are Paris ISO with offset.
-- Not this repo's clock: `NOW()` in `sql_cache.py` and `vision_cache.py` follows the MariaDB
-  server (TMDB-FRONT-100).
-
-### `logs/` and `uploads/` are shared by every colour, with opposite retentions
-
-Both folders are bind-mounted from `shared_data/fastapi-text2sql/` by the two restart scripts:
-every deployment writes into one log corpus (FASTAPI-TEXT2SQL-276), and an image deposited on one
-colour is readable from the other (FASTAPI-TEXT2SQL-275). That is why `LOGS_FOLDER` and
-`UPLOADS_FOLDER` stay relative, see "Where things live" above. The mount lines, the
-host-directory ownership trap, the archive merge and the inverse retention table (`logs/` kept
-without limit and backed up, `uploads/` purged at 30 days and neither backed up nor mirrored)
-are in `README.md`, sections *The second mount*, *The third mount* and *Vision uploads*. Do not
-restate them here.
-
-**What this changes for an agent reading the logs.** A path no longer says which colour served
-a request; the **version component of the filename** does, and it always did. Anything counting
-questions over `logs/` now sees every colour at once, which is what makes a figure like "35
-retries out of 505 local logs" a statement about the system rather than about one port.
-
-**Verifying the shared mount.** `checks/verif-275.sh` exercises the upload path against a running
-deployment. Its one check that cannot run on a laptop is the cross-colour read that proves the
-mount is really shared, `OTHER_BASE_URL=...`.
+Both are bind-mounted from `shared_data/fastapi-text2sql/` (mounts, retentions and the ownership trap: `README.md`). A log's colour is read from the **version component of its filename**, never its path. `checks/verif-275.sh` verifies the shared mount, the cross-colour read included (`OTHER_BASE_URL=...`).
 
 ---
 
-**Last Updated**: 2026-10-19
-**Current Version**: 1.1.19 (see `strapiversion` in [main.py:194](main.py#L194))
-
 ## Backlog (Nestor second-brain)
 
-The prioritized, agent-ready implementation backlog for this repo lives in the **Nestor**
-knowledge repo (a separate repo, not cloned alongside this one):
+The prioritized backlog for this repo lives in the **Nestor** repo, not cloned alongside this one:
 
 - This repo: `C:\Users\vaugo\Nestor\projets\t2s-backlog\repos\fastapi-text2sql.md`
 - Cross-repo dashboard: `C:\Users\vaugo\Nestor\projets\t2s-backlog\index.md`
 
-Consult it before implementing: tasks are `FASTAPI-TEXT2SQL-NNN` with status (done / in-progress /
-todo), priority, and quick-wins. NOTE: these are local paths on Philippe's PC and do not
-resolve on the VPS or on cloud agents (claude.ai/code).
+Consult it before implementing: tasks are `FASTAPI-TEXT2SQL-NNN` with status, priority and quick-wins. These are local paths on Philippe's PC; they do not resolve on the VPS or on cloud agents.

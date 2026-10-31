@@ -14,7 +14,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **DB-driven Canonicals with Hot-Reloaded Aliases**: `Movie_genre`, `Serie_genre`, and `Technical_format` canonicals load at startup from reference tables (`T_WC_T2S_GENRE` + `T_WC_T2S_GENRE_LANG`, filtered by `APPLIES_TO_MOVIE` / `APPLIES_TO_SERIE` flags; `T_WC_T2S_TECHNICAL`); `Status_name`, `Serie_type`, and `Department_name` load via DISTINCT queries; format / typo / multilingual aliases live in `data/closed_vocabularies.json` and hot-reload within ~5 seconds
 - **Hot-Reloaded `data/` Files**: Prompt templates and entity-resolution configuration under `data/` are reloaded automatically when they change
 - **RapidFuzz Person Matching (language-family aware)**: Person resolution uses `guess_language_family()` to route Latin names to `T_WC_T2S_PERSON` and non-Latin names to `T_WC_T2S_PERSON_ALSO_KNOWN_AS`, while keeping SQL replacement canonical when needed
-- **Multi-Level Caching**: Sophisticated three-tier caching system (exact questions, anonymized questions, vector embeddings)
+- **Multi-Level Caching**: Sophisticated four-tier caching system (exact questions, anonymized questions, vector embeddings, image recognitions)
 - **Comprehensive Logging**: Automatic logging of all API requests and responses with detailed timing metrics
 - **Memory Monitoring**: Built-in system memory usage tracking and reporting
 - **Pagination Support**: Built-in pagination with configurable page sizes and question hashing
@@ -35,7 +35,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **Retry Model Visibility**: Retry messages explicitly display the selected complex-question model used during reasoning escalation
 - **No-Results Escalation**: If SQL executes successfully but returns 0 rows (page 1), the question can be escalated to the stronger model and retried once
 - **Automatic Cache Cleanup**: On-startup cache cleanup to remove outdated entries from previous versions
-- **Blue/Green Deployment**: Version-based automatic port selection (even versions: port 8000, odd: port 8001)
+- **Blue/Green Deployment**: Version-based automatic port selection (even patch: `API_PORT_BLUE`, 8186 in production; odd: `API_PORT_GREEN`, 8187)
 - **Ambiguous Question Handling**: Best-effort SQL generation even for vague or ambiguous questions — the model always makes a choice rather than requesting clarification
 - **Question Hashing**: SHA256 hashing for efficient pagination and cache lookup
 - **Fuzzy Entity Matching**: Vector similarity search handles misspellings and variations in entity names
@@ -223,7 +223,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 
 ## 📋 Requirements
 
-- Python 3.8+
+- Python 3.9+ (the Docker image uses 3.12)
 - OpenAI API key
 - ChromaDB server (for vector search functionality)
 - MariaDB/MySQL database
@@ -267,9 +267,9 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    CHROMADB_HOST=localhost
    CHROMADB_PORT=8000
    
-   # API Port Configuration (Blue/Green deployment)
-   API_PORT_BLUE=8000
-   API_PORT_GREEN=8001
+   # API Port Configuration (Blue/Green deployment; production uses 8186 / 8187, code defaults 8000 / 8001)
+   API_PORT_BLUE=8186
+   API_PORT_GREEN=8187
    
    # MCP (Model Context Protocol) — Claude connector at /mcp
    MCP_API_KEY=your_mcp_bearer_token_here
@@ -296,13 +296,13 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 python main.py
 ```
 
-The API will be available at `http://localhost:8000`
+The API listens on `API_PORT_BLUE` for an even patch version and `API_PORT_GREEN` for an odd one (1.1.19: Green, `http://localhost:8187` with the production ports)
 
 ### API Documentation
 
 Once the server is running, visit:
-- **Interactive API docs**: `http://localhost:8000/docs`
-- **ReDoc documentation**: `http://localhost:8000/redoc`
+- **Interactive API docs**: `http://localhost:<port>/docs`
+- **ReDoc documentation**: `http://localhost:<port>/redoc`
 
 ### API Endpoints
 
@@ -466,7 +466,7 @@ Content-Type: application/json
 
 **Example:**
 ```bash
-curl -X POST "http://localhost:8000/search/text2sql" \
+curl -X POST "http://localhost:8187/search/text2sql" \
      -H "X-API-Key: your_api_key" \
      -H "Content-Type: application/json" \
      -d '{
@@ -1418,6 +1418,16 @@ fastapi-text2sql/
 ├── language_family.py       # Latin vs non-Latin script detection for person name routing
 ├── rapidfuzz_query.py       # RapidFuzz + MariaDB/MySQL lexical matching utilities
 ├── cleanup.py               # Cache cleanup functions (ChromaDB and SQL)
+├── json_guardrails.py       # Schema validation of the JSON each LLM step returns (FASTAPI-TEXT2SQL-038)
+├── llm_costs.py             # Price table and per-request cost in US dollars (FASTAPI-TEXT2SQL-337)
+├── response_rounding.py     # Rounds the numbers of a response at serialization time (FASTAPI-TEXT2SQL-308)
+├── result_shape.py          # Rendering hint of a result (`result_kind`, FASTAPI-TEXT2SQL-349)
+├── samples_assertions.py    # Parser of the evaluation ASSERTIONS_QUERY_RESULT DSL, for /samples
+├── sql_shapes.py            # Structural predicates over a generated query, shared by main.py and analyze-complex-retry-logs.py
+├── vision_identity.py       # Identity check of the vision pre-stage (FASTAPI-TEXT2SQL-307)
+├── verify_wikipedia_page.py # Checks the wikipedia_page block of every entity endpoint against a deployed API
+├── analyze-complex-retry-logs.py # Counts and classifies the empty results the no-results retry declines to rescue (FASTAPI-TEXT2SQL-156)
+├── analyze-usage-logs.py    # Rebuilds the harness-bricks measurements from the usage logs and evaluation exports (dated HTML reports)
 ├── requirements.txt         # Python dependencies
 ├── Dockerfile               # Docker configuration for containerized deployment
 ├── .env.example             # Example environment variables template
@@ -1440,17 +1450,23 @@ fastapi-text2sql/
 │   ├── bench-entity-extraction.py                                    # Offline A/B comparison of two extraction configurations
 │   ├── bench-entity-resolution.py                                    # Offline bench that calibrates the entity-resolution thresholds
 │   ├── harvest-archived-entities.py                                  # Harvests entity values from the archived VPS logs
-│   └── verif-206.sh                                                  # Three-question production probe of the resolution measurement
+│   ├── verif-206.sh                                                  # Three-question production probe of the resolution measurement
+│   └── ...                                                           # Other verif-*, check-*, bench-*, test-* and eval-309 scripts (see checks/README.md)
 ├── doc/                     # Reference documentation (see doc/AGENTS.md for the index)
 │   ├── entity-resolution-thresholds.md                               # How each min_fuzz_ratio was measured, and how to redo it
+│   ├── pipeline-internals.md                                         # Code map; scheduling, guards, retries, rescues, endpoint contracts
+│   ├── llm-tasks-and-costs.md                                        # The six LLM tasks, measured costs, model benches, prompt cache
+│   ├── vision-pre-stage.md                                           # The image path and its recognition cache
 │   ├── MCP.md                                                        # MCP integration guide (tools, resources, deployment, Claude connector)
 │   ├── RAPIDFUZZ.md                                                  # RapidFuzz module documentation
 │   ├── EXTEND_T2S_TECHNICAL.md                                       # Technical_format extension: schema, prompt and resolver changes
 │   ├── closed-vocab-entity-plan.md                                   # Closed-vocabulary entity rollout plan
-│   └── sql/                 # Reference SQL dumps for canonical tables
+│   └── sql/                 # Reference SQL: table DDL (T2S-tables.sql, TMDb-tables.sql, Wikidata-tables.sql, Wikipedia-tables.sql, T2S_EVALUATION-tables.sql), RapidFuzz indexes, one-off checks
 │       └── T_WC_T2S_TECHNICAL.sql                                    # 56-row Technical_format canonical table
+├── maintenance/             # Cache and evaluation maintenance SQL with their dated results (see maintenance/AGENTS.md)
 ├── logs/                    # API usage logs with timing metrics (auto-created; on the VPS a bind mount onto shared_data/fastapi-text2sql/logs, shared by every colour)
-├── CLAUDE.md                # AI assistant guide for understanding the codebase
+├── AGENTS.md                # Rules for agents working in this repo
+├── CLAUDE.md                # Pointer to AGENTS.md
 └── README.md                # This file
 ```
 
@@ -1459,13 +1475,13 @@ fastapi-text2sql/
 - **Multi-Level Caching**: SQL cache + embeddings cache for performance optimization with automatic cleanup
 - **Entity Extraction**: `entity.py` handles GPT-powered entity recognition and anonymization for supported entity types
 - **Fork-Join Scheduling**: entity resolution runs in a worker thread while the text-to-SQL call is in flight (`ENTITY_RESOLUTION_PARALLEL`), since it depends only on the extraction output. The result-entity classifier is forked at the same point, once the caches have missed and the question is not routed to the complex path, and joined before the answer-entity guard (`RESULT_ENTITY_PARALLEL`, FASTAPI-TEXT2SQL-286/-306), since it reads only the original question
-- **Unified LLM Dispatch**: `text2sql.py` routes to OpenAI (native SDK), Anthropic (native `anthropic` SDK), or Google Gemini (`google-generativeai`) based on model name
+- **Unified LLM Dispatch**: `text2sql.py` routes to OpenAI (native SDK), Anthropic (native `anthropic` SDK), or Google Gemini (`google-genai`) based on model name
 - **Vision Pre-stage**: with an `image_ref`, `text2sql.py` reads the image (OpenAI route only), the code composes the question deterministically from what was identified, and the ordinary pipeline answers it. The identification is cached on the fingerprint of the bytes (`vision_cache.py`), so the same photo is never read twice
 - **Reasoning Retry Helpers**: `text2sql.py` contains stronger-model calls and retry-question construction helpers
 - **Endpoint Orchestration**: `main.py` coordinates request flow, recursive retry execution, and response/message merging
 - **Entity Detail Endpoints**: 18 endpoints returning full entity data with embedded relations, each with usage logging
 - **MCP Server**: FastMCP 2.x tools and resource exposed at `/mcp` for Claude clients (see `doc/MCP.md`)
-- **Blue/Green Deployment**: Automatic port selection based on API version (even: port 8000, odd: port 8001)
+- **Blue/Green Deployment**: Automatic port selection based on API version (even: `API_PORT_BLUE`, 8186; odd: `API_PORT_GREEN`, 8187)
 - **Processing Transparency**: Messages array tracks every processing step for debugging and analysis
 - **Version Management**: Utility functions for version comparison and automatic cache cleanup
 
@@ -1534,7 +1550,7 @@ This makes the API particularly powerful for film enthusiasts, researchers, and 
 
 ### Multi-Level Caching System
 
-The API implements a sophisticated three-tier caching system for optimal performance:
+The API implements a sophisticated four-tier caching system for optimal performance:
 
 #### 1. **Exact Question Cache (SQL Database)**
 - Stores exact question-to-SQL mappings in `T_WC_T2S_CACHE` table
@@ -1690,10 +1706,10 @@ Each API response includes a detailed `messages` array that tracks every process
 The API supports Blue/Green deployment strategy for zero-downtime updates:
 
 **How It Works:**
-- **Even patch versions** (1.1.0, 1.1.2, 1.1.4, etc.) → **Blue environment** on port 8000
-- **Odd patch versions** (1.1.1, 1.1.3, 1.1.5, etc.) → **Green environment** on port 8001
+- **Even patch versions** (1.1.0, 1.1.2, 1.1.4, etc.) → **Blue environment** on `API_PORT_BLUE` (8186 in production)
+- **Odd patch versions** (1.1.1, 1.1.3, 1.1.5, etc.) → **Green environment** on `API_PORT_GREEN` (8187 in production)
 - Version controlled by `strapiversion` variable in `main.py`
-- Automatic port selection on startup
+- Automatic port selection on startup (the code falls back to 8000 / 8001 when the two variables are unset)
 
 **Deployment Scripts:**
 - `restart.sh`: Deploys the colour of the checkout it lives in, Blue from `/home/debian/docker/fastapi-text2sql-blue`, Green from `/home/debian/docker/fastapi-text2sql-green`; stops anywhere else
@@ -1703,6 +1719,135 @@ The API supports Blue/Green deployment strategy for zero-downtime updates:
 - Easy rollback to previous version
 - A/B testing capabilities
 - Parallel version testing
+
+#### Clients of this API: read before flipping Blue/Green
+
+Bumping `strapiversion` moves the deployment to the other colour (even patch → Blue, `API_PORT_BLUE`, 8186; odd → Green, 8187). **Only one client follows that parity on its own.** Every other client has to be pointed by hand, and each does it differently, so the list below is the thing to check before and after a bump. Verified 2026-08-21 while moving to 1.1.18 on Blue.
+
+| client | how it picks a colour | what to change |
+|---|---|---|
+| **evaluator** (`text2sql-eval/text2sql-eval.py`) | derives the port from the parity of `--api-version`, [line 563](https://github.com/vaugouin/text2sql-eval/blob/main/text2sql-eval.py#L563), exactly like `main.py` does | nothing: pass the right `--api-version` |
+| **Claude, via MCP** | `https://www.vaugouin.com/mcp`, routed by **NGINX** | the `reverseproxy` repo, repoint the upstream port |
+| **tmdb-front** (PHP) | `$strtext2sqlapicolor`, **hard-coded** in `lib/global-light.inc.php` (~line 144); both URLs already sit in its `.env` as `TEXT2SQL_API_BLUE_URL` / `TEXT2SQL_API_GREEN_URL` | swap the two commented lines, then deploy the front |
+| **voice-agent** | `TEXT2SQL_BASE_URL` in its `.env`, port written in full | edit the port, restart the service |
+
+Two things worth knowing.
+
+**tmdb-front can be tested on the other colour without switching anyone.** It accepts `?apicolor=Blue` on the URL and remembers it in a cookie, so the new version can be exercised through the real front-end, for one browser only, while everyone else stays on the live colour. That is the cheapest validation available and it needs no deployment.
+
+**The evaluator is its own repository, `text2sql-eval`, since 2026-10-12.** It is a client of this API like `voice-agent` or `tmdb-front`, and `~/docker/text2sql-eval` on the VPS is a git clone of it (it used to be a hand copy of `eval/*`, which drifted silently). A change to the API that the evaluator must follow (a new response field, a new model selector) is two commits in two repositories. The scripts that import this repository's modules stayed here, in `checks/`. `~/docker/fastapi-text2sql-blue` had the same flat-copy problem until 2026-08-21, when it was converted to a git clone.
+
+**Not clients, despite appearances:** `data-monitoring` (one mention, a design analogy in its `AGENTS.md`), `extract-movie-questions` (no reference at all). The old `eval-text2sql` repository no longer exists (404 on GitHub); its successor `text2sql-eval` is a client, above.
+
+##### Redeploying in place, without bumping the version
+
+Sometimes the right call is to ship code **without** changing `strapiversion`, so the colour
+does not move and no client has to be repointed. Decided this way on 2026-08-30 for
+FASTAPI-TEXT2SQL-231/-232/-233, which stay on `1.1.18` on Blue.
+
+**What it buys.** Nothing to repoint. The evaluator derives its port from `--api-version`
+parity, tmdb-front keeps `$strtext2sqlapicolor` and `$strtext2sqlapiblueversion` as they are,
+NGINX keeps its upstream, voice-agent keeps its `.env`. The entire four-client table above
+becomes a no-op, which is the whole point.
+
+**What it costs, and it is not small: `api_version` stops discriminating.** `GET /` answers
+`1.1.18` before and after, so the standard check, "every client reports the new version", is
+blind. There is no way to tell the old code from the new one by asking for a version.
+
+**Use a capability probe instead of a version probe.** Ask for something only the new code can
+answer. For -232 that is the presence of `llm_model_result_entity` in a `/search/text2sql`
+payload. The cheapest form is the bare-identifier fast path, which costs no LLM call and writes
+no cache entry, and whose response carries the five model fields like any other:
+
+```bash
+curl -s -H "X-API-Key: …" -X POST http://<host>:8186/search/text2sql   -H "Content-Type: application/json" -d '{"question":"tt0033467"}'   | jq '{api_version, llm_model_result_entity, answer_single_value_processing_time}'
+```
+
+A response missing `llm_model_result_entity` is the old container, whatever the version says.
+
+**Two traps specific to redeploying in place.**
+
+1. **`T_WC_T2S_CACHE` is filtered by API version, so old rows written by the old code stay
+   live.** Harmless for -231/-232/-233, whose gpt-4o behaviour is byte-identical, and the
+   evaluator sends `retrieve_from_cache: False` anyway. It would NOT be harmless for a change
+   that alters generated SQL: there, reusing the version means serving yesterday's answers from
+   cache and concluding the change did nothing.
+2. **The execution folder no longer collides with the baseline** (FASTAPI-TEXT2SQL-234, closed
+   2026-09-25). A run moving only `--result-entity-model` gets its own folder,
+   `..._gpt-4o_gpt-4o_gpt-4o_re-<model>`, and its own skip namespace. An offline bench stays the
+   cheaper first measure of a classifier, but the evaluator can now carry the full campaign.
+
+##### Verifying the flip actually took
+
+Changing a client's configuration is not evidence that it followed. Each one hides its
+upstream differently, and on 2026-08-23, moving all three to 1.1.18, none of them could be
+checked without first working out how. Here is what works, per client, so nobody has to
+work it out again.
+
+| what to check | how, and what it costs |
+|---|---|
+| **an instance's own version** | `curl -s -H "X-API-Key: …" http://<host>:8186/` returns `api_version` beside `bktrees_ready` (FASTAPI-TEXT2SQL-203). Free. An instance predating that ticket omits the key entirely, which is itself the answer. |
+| **evaluator** | nothing to check: the port is derived from `--api-version`. |
+| **voice-agent** | `curl -s https://www.vaugouin.com/voice-agent/tool/health` returns `api_version` and `api_ready` (VOICE-AGENT-166). Free. Before that endpoint existed, the version was reachable at `upstream.api_version` inside a `/tool/text2sql` answer, but reading it that way runs the whole pipeline and spends LLM tokens on a cache miss. |
+| **Claude, via MCP** | call `sql_search` with a **bare IMDb id** (`{"question": "tt0033467"}`): the bare-identifier fast path answers from an indexed lookup with no LLM call and no cache write, and the payload carries `api_version`. |
+| **tmdb-front** | no runtime marker is exposed to the outside; verification is at configuration level, `$strtext2sqlapicolor` **and** `$strtext2sqlapiblueversion` in `lib/global-light.inc.php`. |
+
+**What does NOT discriminate the colours, so do not spend time on it.** The MCP `tools/list`
+payload is byte-identical between Blue and Green, and so is `GET /samples`; `serverInfo.version`
+in an MCP `initialize` is FastMCP's own version (3.4.7), not the API's. All three were tried on
+2026-08-23 before the `sql_search` route above was found.
+
+**Four traps, each of which cost time on 2026-08-23.**
+
+1. **`--env-file` is read by Docker at `docker run`, not at process start.** A `docker restart`
+   relaunches the container with the old value baked into its configuration. A client whose
+   colour lives in an env file must be **recreated** (`restart.sh` does), never merely restarted.
+   This is voice-agent's case.
+2. **Do not diagnose a deployment on its first request.** Right after a restart `bktrees_ready`
+   is `false` for several minutes while the warm-up runs (FASTAPI-TEXT2SQL-145), and it competes
+   for CPU with the request path. Measured that day: 53 s on an entity extraction that takes
+   1.1 s once warm, and one `GET /` over 15 s between answers at 0.1 s. Both resolved on their
+   own. Wait for `bktrees_ready: true` before reading anything into a latency.
+3. **tmdb-front remembers the colour in a one-year cookie.** The same mechanism that makes
+   `?apicolor=` such a cheap pre-test, described above, is a trap afterwards: a browser that
+   ever used the switch stays pinned whatever the default says, so your own browser is the
+   worst place to validate the deployment. `index.php?apicolor=Blue` rewrites it.
+4. **tmdb-front's per-colour version label is not decorative.** `text2sql-samples.inc.php`
+   reformats `$strtext2sqlapiblueversion` into `001.001.018` to look up
+   `T_WC_T2S_EVALUATION_EXECUTION`. Flipping the colour while leaving the label on the old
+   version points the samples page at executions that do not exist, and it renders empty.
+
+**A flip is complete when** every client reports the new version by the means above, and the
+instance reports `bktrees_ready: true`.
+
+##### Probing the live API from the PC (Blue or Green)
+
+Both colour ports are reachable from the PC over Tailscale at the VPS address
+`100.113.161.122` (Blue `8186`, Green `8187`); a bare port with no key returns 401, which
+is itself proof the colour is up. The `X-API-Key` value is `TEXT2SQL_API_KEY` in
+`~/Code/text2sql-eval/.env` (which also holds `API_PORT_BLUE` / `API_PORT_GREEN` and
+`TEXT2SQL_API_URL`). Read the key from there, never hard-code or print it.
+
+```bash
+cd ~/Code/text2sql-eval
+KEY=$(grep '^TEXT2SQL_API_KEY=' .env | cut -d= -f2- | tr -d '"'\''\r')
+# Green = 8187, Blue = 8186. A bare identifier takes the fast path: no LLM call, no cache write.
+curl -s -H "X-API-Key: $KEY" -X POST http://100.113.161.122:8187/search/text2sql \
+  -H 'Content-Type: application/json' -d '{"question":"tt0033467"}' \
+  | python -c "import sys,json;d=json.load(sys.stdin);print({k:d.get(k) for k in ('api_version','result_kind','representation')})"
+```
+
+- **Use a capability probe, not the version.** An in-place redeploy keeps `api_version`
+  (e.g. 1.1.19), so to tell new code from old ask for a field only the new code emits
+  (`result_kind` for FASTAPI-TEXT2SQL-349), exactly as *Redeploying in place* says.
+- **The direct response is the API's own shape**, so `result_kind` / `representation` /
+  `result_columns` sit at top level. Through the public voice-agent route
+  (`https://www.vaugouin.com/voice-agent/tool/text2sql`, field named `query`, **no key
+  needed**) the same payload is nested under `upstream`, and it targets whichever colour the
+  voice-agent's `.env` points at, not a colour you choose.
+- A bare identifier (`tt0033467`) is the cheapest probe. A natural-language question runs the
+  whole pipeline and spends tokens on a cache miss; a question already in the bank is usually
+  a cache hit and therefore free.
 
 ### Logging
 Log files are created in the `logs/` folder (via `logs.py`) for the following events:
