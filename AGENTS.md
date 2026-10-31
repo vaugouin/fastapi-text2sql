@@ -185,6 +185,12 @@ Contracts that break silently when editing an endpoint (details: `doc/pipeline-i
 
 ---
 
+## The representation hint has two consumers, keep them in step (FASTAPI-TEXT2SQL-349, -350)
+
+`result_shape.py` (`classify_result`) emits `representation`, `result_kind` and `result_columns` on every live result. Two fronts dispatch on them: voice-agent (`app/static/app.js`, `chooseText2SqlRepresentation()`) and tmdb-front (`lib/t2s-representation.inc.php`, called by `lib/text2sql-search.inc.php`; TMDB-FRONT-112). Rule set by Philippe on 2026-10-31: a representation added or changed here ships on both fronts in the same batch. Before committing a classifier change, run the offline census (recompute every export of the latest campaign with the old and the new module and diff the representations, as for -350): a rule that looks local can flip a hundred evals, as the first entity-ranking rule did.
+
+---
+
 ## Run pyflakes before committing Python, and read the "undefined name" lines
 
 ```bash
