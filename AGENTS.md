@@ -1,5 +1,9 @@
 # AGENTS.md - Agent Guide for FastAPI Text2SQL
 
+## Canary
+
+Start every reply with "Philippe,": no exceptions, including short replies and tool summaries.
+
 This file holds the rules an agent needs to work on this codebase safely. Project overview, install, deployment, request/response examples and troubleshooting are in @README.md, which is canonical. Assistant-specific files (@CLAUDE.md, a future `GEMINI.md`) only point here.
 
 Deeper references, read the one that matches the task:
@@ -182,6 +186,12 @@ Contracts that break silently when editing an endpoint (details: `doc/pipeline-i
 ## Numbers are rounded on the way out, and only there (FASTAPI-TEXT2SQL-308)
 
 `response_rounding.py` rounds at serialization; the attributes keep raw values. Never round in SQL or in the prompt, and do not reintroduce a `Decimal` path that bypasses the two hooks (a `Decimal` inside `result` would serialize as a string). A new numeric field is rounded by its name; check the default suits it. Any script that execs the `Text2SQLResponse` block needs `field_serializer` and `round_tree` in its namespace.
+
+---
+
+## A feature that changes what the API answers starts with its evaluations
+
+Rule set by Philippe on 2026-10-31. Before a new response field, a classifier rule, a prompt change or a new representation, write the `text2sql-eval` questions that state the intended behaviour (about ten per case, EN with FR twins, assertions that fail today), run them on the current version as the baseline, implement, run again. Flag them `IS_SAMPLE`; `IS_SHOWCASE` when the assertion lists entity ids with an image. Propose this sequence with any impacting feature, unprompted. Detail: `%USERPROFILE%/Nestor/projets/t2s-backlog/AGENTS.md`, "A feature that changes the API's behaviour starts with its evaluations".
 
 ---
 
