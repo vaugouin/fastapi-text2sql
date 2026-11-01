@@ -1,0 +1,192 @@
+-- check-360-lexical-pool-census.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-11-01 14:47:51 +0100
+--
++---------------+
+| SECTION       |
++---------------+
+| A. pool sizes |
++---------------+
++--------------+-------------+------------+--------------+--------------------+
+| FAMILY       | LIVING_ROWS | FR_DIFFERS | ORIG_DIFFERS | DISTINCT_FOLDED_EN |
++--------------+-------------+------------+--------------+--------------------+
+| movie        |      695329 |     222215 |       197742 |             581550 |
+| serie        |      103352 |      29018 |        27166 |              97317 |
+| company      |      182617 |       NULL |         NULL |             177786 |
+| network      |        3555 |       NULL |         NULL |               3219 |
+| topic        |       14523 |          0 |         NULL |              14520 |
+| award        |       18094 |       8649 |         NULL |              15894 |
+| nomination   |        2988 |       1316 |         NULL |               2866 |
+| list         |          22 |          0 |         NULL |                 22 |
+| collection   |        5225 |       3064 |         NULL |               5207 |
+| movement     |          21 |          8 |         NULL |                 21 |
+| death        |         390 |        359 |         NULL |                381 |
+| group        |        9076 |       3021 |         NULL |               8797 |
+| location     |       13047 |       3620 |         NULL |              12759 |
+| source_work  |       17921 |       6210 |         NULL |              16903 |
+| person       |      344600 |       NULL |         NULL |             339095 |
+| person_alias |      645369 |       NULL |         NULL |             628901 |
++--------------+-------------+------------+--------------+--------------------+
++-----------------------------------------+
+| SECTION                                 |
++-----------------------------------------+
+| B. rows the ChromaDB builder leaves out |
++-----------------------------------------+
++--------+-------------+----------------+-------------+----------+-------------------+--------------+--------------------+---------------+
+| FAMILY | LIVING_ROWS | NO_TMDB_FR_ROW | NO_WIKIDATA | EXCLUDED | EXCLUDED_1K_VOTES | ALL_1K_VOTES | EXCLUDED_10K_VOTES | ALL_10K_VOTES |
++--------+-------------+----------------+-------------+----------+-------------------+--------------+--------------------+---------------+
+| movie  |      695329 |              0 |      419257 |   419257 |              3070 |        56888 |                 66 |         13150 |
++--------+-------------+----------------+-------------+----------+-------------------+--------------+--------------------+---------------+
++--------+-------------+----------------+-------------+----------+-------------------+--------------+
+| FAMILY | LIVING_ROWS | NO_TMDB_FR_ROW | NO_WIKIDATA | EXCLUDED | EXCLUDED_1K_VOTES | ALL_1K_VOTES |
++--------+-------------+----------------+-------------+----------+-------------------+--------------+
+| serie  |      103352 |              0 |       46458 |    46458 |               948 |        12872 |
++--------+-------------+----------------+-------------+----------+-------------------+--------------+
++----------+---------------------------------------------------+--------------+------------+----------------+-------------+
+| ID_MOVIE | MOVIE_TITLE                                       | RELEASE_YEAR | IMDB_VOTES | NO_TMDB_FR_ROW | NO_WIKIDATA |
++----------+---------------------------------------------------+--------------+------------+----------------+-------------+
+|  1812777 | Fleabag (S1)                                      |         2016 |     255729 |              0 |           1 |
+|  1806341 | The End of the F***ing world                      |         2018 |     251229 |              0 |           1 |
+|  1753955 | Ratched                                           |         NULL |      81374 |              0 |           1 |
+|  1798468 | The Last Man on Earth                             |         NULL |      69406 |              0 |           1 |
+|   874957 | My Little Princess                                |         2010 |      43321 |              0 |           1 |
+|   585240 | The Curious Birth of Benjamin Button              |         2009 |      42291 |              0 |           1 |
+|  1503446 | The Stand                                         |         1994 |      41830 |              0 |           1 |
+|  1232895 | Color of Victory                                  |         2024 |      40552 |              0 |           1 |
+|  1036194 | As Above, So Below: The Underworld of 'John Wick' |         2017 |      39921 |              0 |           1 |
+|   388754 | New Zealand - Home of Middle-earth - Part 3       |         2015 |      39578 |              0 |           1 |
++----------+---------------------------------------------------+--------------+------------+----------------+-------------+
++--------------------------------------------+
+| SECTION                                    |
++--------------------------------------------+
+| C. surface-form pool for movies and series |
++--------------------------------------------+
++--------+--------+-----------------------+
+| FAMILY | FORMS  | DISTINCT_FOLDED_FORMS |
++--------+--------+-----------------------+
+| movie  | 940937 |                810342 |
+| serie  | 140153 |                133154 |
++--------+--------+-----------------------+
++------+-----------------+---------+
+| LANG | ROWS_WITH_TITLE | MOVIES  |
++------+-----------------+---------+
+| fr   |         1410279 | 1410279 |
++------+-----------------+---------+
++--------+--------------+---------------------+--------------------+
+| FAMILY | WITH_ALIASES | WITH_WIKIDATA_TITLE | WIKIDATA_TITLE_NEW |
++--------+--------------+---------------------+--------------------+
+| movie  |       232995 |              229035 |              37320 |
+| serie  |            0 |               48070 |               8143 |
++--------+--------------+---------------------+--------------------+
++---------------------------------+
+| SECTION                         |
++---------------------------------+
+| D. cross-form ambiguity, movies |
++---------------------------------+
++-----------------+-----------------+---------------------+
+| AMBIGUOUS_FORMS | MOVIES_INVOLVED | MAX_MOVIES_PER_FORM |
++-----------------+-----------------+---------------------+
+|           55270 |          185865 |                 121 |
++-----------------+-----------------+---------------------+
++--------------------+--------------------+
+| AMBIGUOUS_FORMS_1K | MOVIES_INVOLVED_1K |
++--------------------+--------------------+
+|               4485 |              10701 |
++--------------------+--------------------+
++---------------------------------------+
+| SECTION                               |
++---------------------------------------+
+| E. hard cases of the 1.1.19 campaigns |
++---------------------------------------+
++-------------------------------+------------+-----------------------------------------------------------------------------------------------+
+| SOUGHT                        | EXACT_HITS | TOP_HITS                                                                                      |
++-------------------------------+------------+-----------------------------------------------------------------------------------------------+
+| 12 Monkeys                    |          0 | NULL                                                                                          |
+| 2001 : L'Odyssée de l'espace  |          1 | 62 2001: A Space Odyssey (1968, 796265 votes)                                                 |
+| 2001, l'Odyssée de l'espace   |          0 | NULL                                                                                          |
+| amelie                        |          1 | 194 Amélie (2001, 849576 votes)                                                               |
+| dark knight                   |          0 | NULL                                                                                          |
+| Dirty Dancing                 |          2 | 88 Dirty Dancing (1987, 285892 votes) | 444902 Dirty Dancing (2017, 6891 votes)               |
+| Docteur Folamour              |          1 | 935 Dr. Strangelove or: How I Learned to Stop Worrying and Love the Bomb (1964, 556517 votes) |
+| Flashdance                    |          1 | 535 Flashdance (1983, 65475 votes)                                                            |
+| Footloose                     |          2 | 1788 Footloose (1984, 103714 votes) | 68817 Footloose (2011, 56167 votes)                     |
+| L'Armée des 12 singes         |          1 | 63 Twelve Monkeys (1995, 686457 votes)                                                        |
+| La Chevauchée fantastique     |          1 | 995 Stagecoach (1939, 59979 votes)                                                            |
+| La Veuve Insatiable           |          0 | NULL                                                                                          |
+| Le Grand Sommeil              |          2 | 910 The Big Sleep (1946, 95331 votes) | 1815 The Big Sleep (1978, 6258 votes)                 |
+| Noroît                        |          0 | NULL                                                                                          |
+| Psychose                      |          1 | 539 Psycho (1960, 798819 votes)                                                               |
+| Sailor et Lula                |          1 | 483 Wild at Heart (1990, 113886 votes)                                                        |
+| Saturday Night Fever          |          1 | 11009 Saturday Night Fever (1977, 96334 votes)                                                |
+| Step Up                       |          1 | 9762 Step Up (2006, 136084 votes)                                                             |
+| the big lebowski              |          1 | 115 The Big Lebowski (1998, 927320 votes)                                                     |
+| The Dark Knight               |          2 | 155 The Dark Knight (2008, 3245557 votes) | 72003 Dark Nemesis (2011, 256 votes)              |
+| Twelve Monkeys                |          1 | 63 Twelve Monkeys (1995, 686457 votes)                                                        |
+| Vingt-quatre heures pour tuer |          0 | NULL                                                                                          |
++-------------------------------+------------+-----------------------------------------------------------------------------------------------+
++-------------+------------+
+| TOKEN       | CANDIDATES |
++-------------+------------+
+| amélie      |         23 |
+| footloose   |         15 |
+| knight      |        440 |
+| lebowski    |          3 |
+| monkeys     |         74 |
+| odyssée     |         95 |
+| sommeil     |         30 |
+| strangelove |          9 |
++-------------+------------+
++--------------------------------------------+
+| SECTION                                    |
++--------------------------------------------+
+| F. awards: what a synonym table must cover |
++--------------------------------------------+
++------------------+-----------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| SHORT_FORM       | AWARDS_MATCHING | TOP_AWARDS                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
++------------------+-----------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| Academy Award    |              94 | Academy Award for Best Actor / oscar du meilleur acteur (99) | Academy Award for Best Picture / Oscar du meilleur film (98) | Academy Award for Best Actress / Oscar de la meilleure actrice (97) | Academy Award for Best Director / Oscar du meilleur réalisateur (95)                                                                                                                                                                                                                                                       |
+| BAFTA            |              49 | BAFTA Award for Best Film / British Academy Film Award du meilleur film (32) | BAFTA's Children & Young People Award - Feature Film / BAFTA's Children & Young People Award - Feature Film (20) | BAFTA Award for Best Sound / British Academy Film Award du meilleur son (13) | BAFTA Award for Best Film Not in the English Language / British Academy Film Award du meilleur film en langue étrangère (13)                                                                                                                  |
+| Bear             |              26 | Golden Bear / Ours d'or (90) | Silver Bear Grand Jury Prize / grand prix du jury de la Berlinale (65) | Crystal Bear / Ours de cristal (25) | Silver Bear for Best Director / Ours d'argent du meilleur réalisateur (10)                                                                                                                                                                                                                                                                                                       |
+| César            |              41 | César Award for Best Foreign Film / César du meilleur film étranger (44) | César Award for Best Supporting Actress / César de la meilleure actrice dans un second rôle (44) | César Award for Best Film / César du meilleur film (26) | César Award for Best Director / César de la meilleure réalisation (17)                                                                                                                                                                                                                 |
+| Emmy             |             170 | Daytime Emmy Award for Outstanding Game/Audience Participation Show / Daytime Emmy Award for Outstanding Game/Audience Participation Show (23) | Primetime Emmy Award for Outstanding Animated Program / Primetime Emmy Award du meilleur programme d'animation (19) | Daytime Emmy Award for Outstanding Drama Series / Daytime Emmy Award de la meilleure série télévisée dramatique (12) | Primetime Emmy Award for Outstanding Drama Series / Primetime Emmy Award de la meilleure série télévisée dramatique (11)         |
+| Golden Globe     |              42 | Golden Globe Award for Best Motion Picture – Drama / Golden Globe du meilleur film dramatique (27) | Golden Globe Award for Best Non-English Language Film / Golden Globe du meilleur film en langue étrangère (22) | Golden Globe Award for Best Film Promoting International Understanding / Golden Globe de la meilleure promotion pour l'entente internationale (18) | Golden Globe Award for Best Supporting Actress – Motion Picture / Golden Globe de la meilleure actrice dans un second rôle (17)                     |
+| Golden Raspberry |              15 | Golden Raspberry Award for Worst Picture / Golden Raspberry Award for Worst Picture (35) | Golden Raspberry Award for Worst Actress / Golden Raspberry Award for Worst Actress (20) | Golden Raspberry Award for Worst Director / Golden Raspberry Award for Worst Director (20) | Golden Raspberry Award for Worst Supporting Actress / Golden Raspberry Award for Worst Supporting Actress (19)                                                                                                                              |
+| Lion             |              84 | Golden Lion / Lion d'or (67) | Czech Lion for Best Film / Lion tchèque du meilleur film (24) | Queer Lion / Queer Lion (18) | Czech Lion Award for Best Documentary / Czech Lion Award for Best Documentary (17)                                                                                                                                                                                                                                                                                                               |
+| Oscar            |              62 | Academy Award for Best Actor / oscar du meilleur acteur (99) | Academy Award for Best Picture / Oscar du meilleur film (98) | Academy Award for Best Actress / Oscar de la meilleure actrice (97) | Academy Award for Best Director / Oscar du meilleur réalisateur (95)                                                                                                                                                                                                                                                       |
+| Ours             |              51 | Golden Bear / Ours d'or (90) | Crystal Bear / Ours de cristal (25) | Silver Bear for Best Director / Ours d'argent du meilleur réalisateur (10) | Silver Bear for Best Actor / Ours d'argent du meilleur acteur (7)                                                                                                                                                                                                                                                                                                            |
+| Palme            |              13 | Palme d'Or / Palme d'or (84) | Short Film Palme d'Or / Palme d'or du court métrage (15) | Palm Dog Award / Palme Dog (1) | Commander of the French Order of Academic Palms / commandeur des Palmes académiques (0)                                                                                                                                                                                                                                                                                                             |
+| Razzie           |               7 | Golden Raspberry Award for Worst Supporting Actor - Razzie Award / Golden Raspberry Award for Worst Supporting Actor - Razzie Award (19) | Golden Raspberry Award for Worst Actor / Razzie Award du pire acteur (19) | Golden Raspberry Award for Worst Screenplay / Razzie Award du pire film (18) | Golden Raspberry Award for Worst Screen Couple/Ensemble / prix Razzie Award pour le pire couple à l’écran (5)                                                                                                            |
++------------------+-----------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
++----------+-----------------------------------------------------+----------------------------------------------------+--------+
+| ID_AWARD | AWARD_NAME                                          | AWARD_NAME_FR                                      | VOLUME |
++----------+-----------------------------------------------------+----------------------------------------------------+--------+
+|    10830 | National Board of Review: Top Ten Films             | National Board of Review: Top Ten Films            |    894 |
+|     4076 | Huabiao Award for Outstanding Film                  | Huabiao Award for Outstanding Film                 |    237 |
+|     5573 | Genesis Award                                       | Genesis Award                                      |    110 |
+|      297 | Academy Award for Best Actor                        | oscar du meilleur acteur                           |     99 |
+|      146 | Academy Award for Best Picture                      | Oscar du meilleur film                             |     98 |
+|      269 | Academy Award for Best Actress                      | Oscar de la meilleure actrice                      |     97 |
+|     9494 | National Board of Review Award for Best Film        | National Board of Review Award du meilleur film    |     95 |
+|      228 | Academy Award for Best Director                     | Oscar du meilleur réalisateur                      |     95 |
+|    29909 | Academy Award for Best Animated Short Film          | Oscar du meilleur court métrage d'animation        |     92 |
+|      985 | Academy Award for Best Writing, Adapted Screenplay  | Oscar du meilleur scénario adapté                  |     92 |
+|     7043 | Golden Bear                                         | Ours d'or                                          |     90 |
+|    28960 | Academy Award for Best Sound                        | Oscar du meilleur mixage de son                    |     89 |
+|    15462 | Academy Award for Best Film Editing                 | Oscar du meilleur montage                          |     88 |
+|      752 | Academy Award for Best Supporting Actor             | Oscar du meilleur acteur dans un second rôle       |     87 |
+|     8753 | Golden Leopard                                      | Léopard d'or                                       |     85 |
+|     1730 | Academy Award for Best Documentary Feature Film     | Oscar du meilleur film documentaire                |     85 |
+|      753 | Academy Award for Best Supporting Actress           | Oscar de la meilleure actrice dans un second rôle  |     85 |
+|     9539 | Palme d'Or                                          | Palme d'or                                         |     84 |
+|    27380 | Louis Delluc Prize                                  | prix Louis-Delluc                                  |     84 |
+|    19715 | Academy Award for Best Writing, Original Screenplay | Oscar du meilleur scénario original                |     83 |
+|     6157 | Academy Award for Best Documentary (Short Subject)  | Oscar du meilleur court métrage documentaire       |     82 |
+|    24416 | Hundred Flowers Award for Best Picture              | prix des Cent Fleurs du meilleur film              |     82 |
+|      542 | Academy Award for Best International Feature Film   | Oscar du meilleur film international               |     71 |
+|    15189 | Academy Award for Best Production Design            | Oscar de la meilleure direction artistique         |     70 |
+|    11809 | Golden Lion                                         | Lion d'or                                          |     67 |
++----------+-----------------------------------------------------+----------------------------------------------------+--------+
++-----------------+--------------+------------+----------+
+| AWARDS_100_PLUS | AWARDS_10_99 | AWARDS_1_9 | AWARDS_0 |
++-----------------+--------------+------------+----------+
+|               3 |          320 |       2381 |    15390 |
++-----------------+--------------+------------+----------+
