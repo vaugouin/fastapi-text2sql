@@ -25,6 +25,7 @@ import openai
 import chromadb
 import cleanup
 import entity
+import title_lexicon
 import logs
 import uploads
 import sql_cache
@@ -530,6 +531,15 @@ def _warm_bktrees_background():
             except Exception:
                 pass
 threading.Thread(target=_warm_bktrees_background, name="bktree-warmup", daemon=True).start()
+
+# FASTAPI-TEXT2SQL-360: title lexicons (search_mode "lexicon") build in their own background
+# threads with their own connections; until one is ready its strategy falls through to the next.
+entity.LEXICON_CONNECTION_FACTORY = get_db_connection
+try:
+    title_lexicon.prebuild(get_db_connection, entity.ENTITY_RESOLUTION_CONFIG)
+    print("[startup] Title lexicon builds started in the background.", flush=True)
+except Exception as e:
+    print(f"[startup] Title lexicon prebuild failed to start: {e}", flush=True)
 
 print(f"[startup] Startup tasks complete in {time.perf_counter() - _startup_t0:.2f}s. Handing off to uvicorn.", flush=True)
 
@@ -2295,13 +2305,16 @@ async def f_hello_world(api_key: str = Depends(get_api_key)):
     Example:
         GET / with X-API-Key header
         Returns: {"message": "hello world! The universal answer is 42",
-                  "bktrees_ready": true, "api_version": "1.1.18"}
+                  "bktrees_ready": true, "api_version": "1.1.18",
+                  "lexicons": {"T_WC_T2S_MOVIE": {"rows": 695578, ...}}}
     """
     global answer
     result = {
         "message": "hello world! The universal answer is " + str(answer),
         "bktrees_ready": entity.BKTREES_READY,
         "api_version": strapiversion,
+        # FASTAPI-TEXT2SQL-360: which title lexicons are built (table -> rows, forms, built_at).
+        "lexicons": title_lexicon.status(),
     }
     logs.log_usage("hello", result, strapiversion)
     return result

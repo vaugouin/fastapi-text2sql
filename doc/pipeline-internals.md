@@ -358,7 +358,8 @@ the five candidates the trace prints, so it is a lower bound.
 ## Entity-resolution config schema (`data/entity_resolution.json`)
 
 Each entry has a `placeholder_prefix` and a `search_list`. Each search entry can define:
-- `search_mode`: `"embeddings"` or `"rapidfuzz"`
+- `search_mode`: `"embeddings"`, `"rapidfuzz"` or `"lexicon"` (FASTAPI-TEXT2SQL-360: in-memory index of the title forms, `title_lexicon.py`; keys `languages` (the columns indexed, and the column whose value is substituted), `lexicon_year_column`, `lexicon_votes_column`, `order_by` (popularity), `lexicon_refresh_hours` (background rebuild, default 24), `min_fuzz_ratio` (fuzzy stage only). A miss, or a lexicon still building, falls through to the next strategy and the embeddings acceptance that follows is marked `after_lexicon_miss`)
+- `enabled`: `false` switches a strategy off without removing it (hot reload); absent means on
 - `apply_when_language_family_in` / `apply_when_language_family_not_in`: gate by script family
 - `strtablename`, `strtableid`, `default_field`: SQL table / PK / display column
 - `collection`: ChromaDB collection name (embeddings mode)

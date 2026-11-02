@@ -9,6 +9,7 @@ from typing import Any
 from language_family import guess_language_family
 from rapidfuzz import fuzz
 import rapidfuzz_query
+import title_lexicon
 import text2sql as t2s
 import data_watcher
 import json_guardrails
@@ -160,6 +161,11 @@ def _estimate_table_rows(cursor, strtablename: str) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 1 << 62
+
+
+# FASTAPI-TEXT2SQL-360: how a lexicon (re)build gets its own DB connection. Set by main.py at
+# startup; while None (offline checks), a lexicon strategy only uses a lexicon already built.
+LEXICON_CONNECTION_FACTORY = None
 
 
 def prebuild_bktrees(connection) -> None:
@@ -1098,7 +1104,12 @@ def plan_entity_resolutions(
                         language_family = None
                     planned.note(f"Entity resolution: {placeholder} guessed language family = {language_family or 'unknown'}")
 
+                _lexicon_missed = False
                 for search_cfg in searches:
+                    # FASTAPI-TEXT2SQL-360: a strategy can ship switched off ("enabled": false)
+                    # and be switched on by hot reload, without a restart.
+                    if search_cfg.get("enabled") is False:
+                        continue
                     apply_when_language_family_in = search_cfg.get("apply_when_language_family_in")
                     if isinstance(apply_when_language_family_in, list):
                         if language_family is None or language_family not in apply_when_language_family_in:
@@ -1474,6 +1485,69 @@ def plan_entity_resolutions(
                         ):
                             resolved = True
                             break
+                        continue
+
+                    if search_mode == "lexicon":
+                        # FASTAPI-TEXT2SQL-360: in-memory index of every title form (EN, FR,
+                        # original), exact / prefix / fuzzy, ranked year then votes. A miss, or a
+                        # lexicon not built yet, falls through to the next strategy (ChromaDB
+                        # during the trial), and that fallback is logged.
+                        if LEXICON_CONNECTION_FACTORY is not None:
+                            lex = title_lexicon.ensure(
+                                LEXICON_CONNECTION_FACTORY, search_cfg,
+                                float(search_cfg.get("lexicon_refresh_hours") or 24))
+                        else:
+                            lex = title_lexicon.get(search_cfg)
+                        if lex is None:
+                            planned.note(f"Entity resolution: {placeholder} lexicon for {search_cfg.get('strtablename')} not built yet; falling through to the next strategy")
+                            _lexicon_missed = True
+                            continue
+                        _year_ctx = _extract_year_context(entity_extraction, placeholder)
+                        _min = search_cfg.get("min_fuzz_ratio")
+                        try:
+                            lres = lex.search(raw_value, _year_ctx, float(_min) if _min is not None else 85.85)
+                        except Exception as _exc:
+                            planned.note(f"Entity resolution: {placeholder} lexicon search raised {type(_exc).__name__}: {_exc}; falling through")
+                            _lexicon_missed = True
+                            continue
+                        _lm = lres.get("matches") or []
+                        match_scores.append({
+                            "placeholder": placeholder,
+                            "search_mode": "lexicon",
+                            "collection": search_cfg.get("collection"),
+                            "table": search_cfg.get("strtablename"),
+                            "sought": raw_value,
+                            "candidate": lres.get("form") or "",
+                            "candidate_id": (f"{_lm[0][0]}_{_lm[0][1]}" if _lm else ""),
+                            "distance": None,
+                            "fuzz_ratio": round(float(lres.get("score") or 0.0), 1),
+                            "exact_match": lres.get("stage") == "exact",
+                            "lexicon_stage": lres.get("stage"),
+                            "lexicon_candidates": lres.get("n_candidates", 0),
+                            "year_context": _year_ctx,
+                            "rejected": not _lm,
+                            "min_fuzz_ratio": _min,
+                        })
+                        if not _lm:
+                            planned.note(f"Entity resolution: {placeholder} lexicon miss for '{raw_value}' in {search_cfg.get('strtablename')}; falling through to the next strategy")
+                            _lexicon_missed = True
+                            continue
+                        _docid, _col = _lm[0][0], _lm[0][1]
+                        _doclang = next((k for k, v in (search_cfg.get("languages") or {}).items() if v == _col), "*")
+                        _others = ", ".join(f"{m[0]}({m[2] or '?'})" for m in _lm[1:4])
+                        if _plan_entity_row_substitution(
+                            cursor=cursor,
+                            planned=planned,
+                            cfg=search_cfg,
+                            docid=_docid,
+                            doclang=_doclang,
+                            message=(f"Entity resolution: {{placeholder}} -> {{resolved}} (lexicon {lres.get('stage')}, "
+                                     f"id={_docid}, column={_col}, year={_year_ctx or '-'}, "
+                                     f"{lres.get('n_candidates', 0)} candidate(s){'; next: ' + _others if _others else ''})"),
+                        ):
+                            resolved = True
+                            break
+                        _lexicon_missed = True
                         continue
 
                     if search_mode != "embeddings":
@@ -1892,8 +1966,15 @@ def plan_entity_resolutions(
                         cfg=search_cfg,
                         docid=docid,
                         doclang=doclang,
-                        message=f"Entity resolution: {{placeholder}} -> {{resolved}} (lang={doclang})",
+                        message=(f"Entity resolution: {{placeholder}} -> {{resolved}} (lang={doclang})"
+                                 # FASTAPI-TEXT2SQL-360: the trial counts what only ChromaDB found.
+                                 + (" (embeddings fallback after a lexicon miss)" if _lexicon_missed else "")),
                     ):
+                        if _lexicon_missed:
+                            for _ms in reversed(match_scores):
+                                if _ms.get("placeholder") == placeholder and _ms.get("search_mode") == "embeddings":
+                                    _ms["after_lexicon_miss"] = True
+                                    break
                         resolved = True
                         break
 
