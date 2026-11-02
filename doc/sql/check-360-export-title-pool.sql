@@ -9,7 +9,7 @@
 -- LABELS_JSON (en, fr, mul) and ALIASES_JSON (en, fr; arrays kept as JSON text).
 -- Output format: the client prints a padded table, so records are packed 400 per row with
 -- GROUP_CONCAT (rows of similar length, little padding): fields separated by CHAR(31), records
--- by CHAR(30), control characters inside values replaced by spaces.
+-- by the literal '@@REC@@' (SEPARATOR takes a string literal only), control characters inside values replaced by spaces.
 --
 -- The result is a data file (about 800,000 rows). It is NOT committed beside this .sql: the
 -- bench reads it from shared_data/fastapi-text2sql/bench-360/ (see the script's docstring).
@@ -19,7 +19,7 @@ SET SESSION group_concat_max_len = 16777216;
 
 -- Header, for the parser: FAM, ID, YR, VOTES, POP, QID, T_EN, T_FR, T_ORIG, WL_EN, WL_FR, WL_MUL, WA_EN, WA_FR
 
-SELECT GROUP_CONCAT(REC ORDER BY RN SEPARATOR CHAR(30)) AS RECS
+SELECT GROUP_CONCAT(REC ORDER BY RN SEPARATOR '@@REC@@') AS RECS
   FROM (
     SELECT ROW_NUMBER() OVER (ORDER BY m.ID_MOVIE) AS RN,
       CONCAT_WS(CHAR(31),
@@ -43,7 +43,7 @@ SELECT GROUP_CONCAT(REC ORDER BY RN SEPARATOR CHAR(30)) AS RECS
   ) x
  GROUP BY (RN - 1) DIV 400;
 
-SELECT GROUP_CONCAT(REC ORDER BY RN SEPARATOR CHAR(30)) AS RECS
+SELECT GROUP_CONCAT(REC ORDER BY RN SEPARATOR '@@REC@@') AS RECS
   FROM (
     SELECT ROW_NUMBER() OVER (ORDER BY s.ID_SERIE) AS RN,
       CONCAT_WS(CHAR(31),
