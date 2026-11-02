@@ -1,0 +1,17 @@
+-- cache-mcu-stale-answers.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-10-31 23:24:59 +0100
+--
++--------+-------------+-------------+---------------+------------+---------------+---------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------+
+| ID_ROW | API_VERSION | UI_LANGUAGE | IS_ANONYMIZED | DAT_CREAT  | RESULT_ENTITY | QUESTION                                                                                    | ANSWER                                                                                                                |
++--------+-------------+-------------+---------------+------------+---------------+---------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------+
+|  21048 | 001.001.019 | en          |             0 | 2026-10-10 | movie         | And now, how long would it take to watch every Marvel movie?                                | Here are the Univers cinématographique Marvel movies, with each runtime and the total time needed to watch them all.  |
+|  21050 | 001.001.019 | en          |             0 | 2026-10-10 | movie         | What is the total runtime in minutes of all movies in the Univers cinématographique Marvel  | Here’s the total runtime, in minutes, of the movies in Univers cinématographique Marvel.                              |
+|  21702 | 001.001.019 | en          |             0 | 2026-10-29 | movie         | A Marvel Television Special Presentation - The Punisher: One Last Kill (2026)               | Here’s the movie The Punisher: One Last Kill from around 2026.                                                        |
+|  21792 | 001.001.019 | en          |             0 | 2026-10-31 | movie         | In which order should I watch the Marvel Cinematic Universe films, by release date?         | Here are the Univers cinématographique Marvel films in release-date order, from earliest to latest.                   |
+|  21921 | 001.001.019 | en          |             0 | 2026-10-31 | movie         | How long would it take to watch every MCU movie?                                            | Here’s the total time, in minutes, to watch every movie in MCU.                                                       |
++--------+-------------+-------------+---------------+------------+---------------+---------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------+
++------------------+-------------+
+| LIVE_MARVEL_ROWS | WITH_ANSWER |
++------------------+-------------+
+|                0 |        NULL |
++------------------+-------------+

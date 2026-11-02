@@ -1447,6 +1447,18 @@ Do NOT confuse these with quality terms:
 
 Time-of-day / "watch now" qualifiers — "tonight", "right now", "this evening", "to watch now", "ce soir", "en ce moment", "maintenant" — are NOT date filters: never add a `DAT_RELEASE`/`DAT_FIRST_AIR = today` (or similar) constraint for them. When such a phrase frames a recommendation ("what to watch tonight", "a good thriller to watch right now", "quoi regarder ce soir"), read it as a request for popular content → apply `POPULARITY DESC` (per the list above) and add no date filter.
 
+### Rankings and comparisons by a quantity
+
+A question that **ranks** entities by a quantity ("the highest grossing films", "the ten biggest budgets", "the series with the most seasons", "les films les plus longs") or **compares** named entities on one ("which earned more, Barbie (2023) or Oppenheimer?", "lequel est le plus long, Titanic ou Avatar ?") is answered with the entity rows **and the quantity itself**, so the client can draw the ranking and the user can read the numbers.
+
+- **Project the quantity you order by**, after the Result Columns of the entity, under its own column name: `..., T_WC_T2S_MOVIE.ID_CRITERION_SPINE, T_WC_T2S_MOVIE.REVENUE FROM ... ORDER BY T_WC_T2S_MOVIE.REVENUE DESC`. A stored column (`REVENUE`, `BUDGET`, `RUNTIME`, `NUMBER_OF_SEASONS`, `NUMBER_OF_EPISODES`, `IMDB_VOTES`) is projected as is; a computed one gets an explicit alias (`COUNT(DISTINCT ...) AS FILM_COUNT`, see *Aggregated questions*). An `ORDER BY` on a column the SELECT does not project sorts the rows but shows nothing to rank them by.
+- **Order on that quantity**: `DESC` for "most / highest / longest / biggest", `ASC` for "fewest / lowest / shortest", and keep the `LIMIT n` the question names ("top ten", "the five longest").
+- **A comparison of named works or persons returns every one of them, never `LIMIT 1`.** "Which earned more, A or B?", "who has directed more films, X or Y?", "which has more episodes, A or B?", "lequel a le plus d'épisodes, A ou B ?", "compare the budgets of A and B" names two or three entities and asks which one is more, less, longer, higher: filter on all the names, project the quantity, `ORDER BY` it, and return the two or three rows. The verdict is the client's to speak from the ordered rows; a `LIMIT 1` returns the winner alone and the user can no longer compare.
+- A **superlative over a set** is a different question and keeps its limit: "the longest Scorsese film" is `ORDER BY T_WC_T2S_MOVIE.RUNTIME DESC LIMIT 1`, "the five longest" `LIMIT 5`.
+
+Example, the shape to follow for a comparison (a year named with a title narrows it as in the title-disambiguation rule):
+`SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE, T_WC_T2S_MOVIE.MOVIE_TITLE, T_WC_T2S_MOVIE.DAT_RELEASE, T_WC_T2S_MOVIE.ID_IMDB, T_WC_T2S_MOVIE.IMDB_RATING, T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED, T_WC_T2S_MOVIE.IMDB_VOTES, T_WC_T2S_MOVIE.POSTER_PATH, T_WC_T2S_MOVIE.RUNTIME, T_WC_T2S_MOVIE.TAGLINE, T_WC_T2S_MOVIE.ID_CRITERION_SPINE, T_WC_T2S_MOVIE.REVENUE FROM T_WC_T2S_MOVIE WHERE (T_WC_T2S_MOVIE.MOVIE_TITLE = '{{Movie_title1}}' OR T_WC_T2S_MOVIE.MOVIE_TITLE_FR = '{{Movie_title1}}' OR T_WC_T2S_MOVIE.ORIGINAL_TITLE = '{{Movie_title1}}') OR (T_WC_T2S_MOVIE.MOVIE_TITLE = '{{Movie_title2}}' OR T_WC_T2S_MOVIE.MOVIE_TITLE_FR = '{{Movie_title2}}' OR T_WC_T2S_MOVIE.ORIGINAL_TITLE = '{{Movie_title2}}') ORDER BY T_WC_T2S_MOVIE.REVENUE DESC`
+
 ### Default Sorting
 - Movies → IMDB_RATING_WEIGHTED DESC
 - Series → IMDB_RATING_WEIGHTED DESC
@@ -1507,6 +1519,15 @@ Time-of-day / "watch now" qualifiers — "tonight", "right now", "this evening",
 - Company images → ORDER BY VOTE_AVERAGE DESC
 - Network images → ORDER BY VOTE_AVERAGE DESC
 - Person images → ORDER BY VOTE_AVERAGE DESC
+
+### Ordering by a date or a year: unknowns last, never first
+
+MariaDB sorts `NULL` **first** in an ascending order. A nullable date or year column (`DAT_RELEASE`, `RELEASE_YEAR`, `DAT_FIRST_AIR`, `FIRST_AIR_YEAR`, `DAT_AIR`, `BIRTH_YEAR`, `DEATH_YEAR`) ordered `ASC` therefore opens on the rows whose date is unknown: "Pixar films from oldest to newest" started with three undated future films, and "the oldest actor" is someone with no birth year.
+
+- **Every ascending order on a nullable date or year pushes the unknowns to the end**, with the same guard as the Criterion spine: `ORDER BY CASE WHEN T_WC_T2S_MOVIE.DAT_RELEASE IS NULL THEN 1 ELSE 0 END, T_WC_T2S_MOVIE.DAT_RELEASE ASC`. Applies to "oldest", "earliest", "first", "from oldest to newest", "in chronological order", "le plus ancien", "du plus ancien au plus récent", "par ordre chronologique".
+- **A superlative on a date excludes them instead**: "the oldest living actor", "the first film of ..." add `AND <column> IS NOT NULL` and keep `ORDER BY <column> ASC LIMIT 1`; a row with no date cannot be the oldest.
+- **A `GROUP BY` on a year or a decade excludes the unknown year**: "how many films per year", "combien de films par décennie" add `WHERE <year column> IS NOT NULL`, otherwise the first group is a `NULL` year with a count nobody asked for.
+- A descending order ("most recent", "newest", "latest", "le plus récent") already puts the unknowns last: leave it as it is.
 
 ### Genre filtering
 - Movies: filter on `T_WC_T2S_MOVIE_GENRE.ID_GENRE` (integer FK to `T_WC_T2S_GENRE.ID_GENRE`, restricted to rows with `APPLIES_TO_MOVIE = 1`). Always reference the genre via the `{{Movie_genreN}}` placeholder.

@@ -77,19 +77,48 @@ _LABEL_RE = re.compile(r"_(?:TITLE|NAME)$|^(?:TITLE|NAME)$|_LABEL$", re.IGNORECA
 _FLAG_RE = re.compile(r"^(?:IS|HAS|APPLIES_TO)_|_FLAG$", re.IGNORECASE)
 # A code column (COUNTRY_CODE, LANGUAGE_CODE) names the group of a grouped aggregate.
 _CODE_RE = re.compile(r"_CODE$|^CODE$", re.IGNORECASE)
-_DATE_NAME_RE = re.compile(r"^DAT_|_DATE$|^DATE_|_YEAR$", re.IGNORECASE)
+# A year or a decade is a point in time, not a quantity: a GROUP BY key such as DECADE typed
+# metric made "average runtime by decade" a two-metric result, and DECENNIE ordered ASC a
+# ranking (FASTAPI-TEXT2SQL-351 side note). The French aliases the model writes are covered.
+_DATE_NAME_RE = re.compile(
+    r"^DAT_|_DATE$|^DATE_|_YEAR$|^YEAR$|DECADE|DECENNIE|^ANNEE$|_ANNEE$", re.IGNORECASE)
+# An identifier that is not an entity key (ID_IMDB, ID_CRITERION_SPINE, ID_RECORD) is a number
+# to sort on, never a measure to draw: "ORDER BY ID_CRITERION_SPINE" is a sequence, not a ranking.
+_OTHER_ID_RE = re.compile(r"^ID_", re.IGNORECASE)
 _AGGREGATE_RE = re.compile(r"\b(?:SUM|COUNT|AVG|MIN|MAX|TOTAL)\s*\(", re.IGNORECASE)
 _GROUP_BY_RE = re.compile(r"\bGROUP\s+BY\b", re.IGNORECASE)
 _ORDER_BY_RE = re.compile(r"\bORDER\s+BY\b", re.IGNORECASE)
 _COUNT_RE = re.compile(r"\bCOUNT\s*\(", re.IGNORECASE)
 _ORDER_BY_CLAUSE_RE = re.compile(
     r"\bORDER\s+BY\b(.*?)(?:\bLIMIT\b|\bOFFSET\b|\)|;|$)", re.IGNORECASE | re.DOTALL)
+_ORDER_DIRECTION_RE = re.compile(r"\s+(ASC|DESC)\s*$", re.IGNORECASE)
 
-# Metrics the pipeline projects by default on entity rows (FASTAPI-TEXT2SQL-350). A list of
-# actors carries POPULARITY, an image wall VOTE_AVERAGE, and both are ordered on them, so
-# "one metric plus ORDER BY" fired ranked-bars on 103 plain lists of the 2026-10-29 campaign.
-# They are sort keys, not the measure the question asked for: never a ranking on their own.
-_DEFAULT_ENTITY_METRICS = frozenset({"POPULARITY", "VOTE_AVERAGE", "VOTE_COUNT", "IMDB_VOTES"})
+# Metrics the pipeline projects by default on entity rows (FASTAPI-TEXT2SQL-350, -351). A list
+# of actors carries POPULARITY, an image wall VOTE_AVERAGE, a movie list IMDB_RATING_WEIGHTED
+# (the prompt's default sort, kept even for "best rated"), a collection or location list
+# IMDB_RATING and the stored MOVIE_COUNT / SERIE_COUNT, and each is ordered on it, so "one
+# metric plus ORDER BY" fired ranked-bars on 103 plain lists of the 2026-10-29 campaign. They
+# are sort keys, not the measure the question asked for: never a ranking on their own. The
+# exception is a COMPUTED column that happens to reuse one of these names (`COUNT(DISTINCT
+# T_WC_T2S_MOVIE.ID_MOVIE) AS MOVIE_COUNT` for "directors with the most films"): an aggregate
+# the model wrote is the measure the question asked for (_COMPUTED_ALIAS_RE below).
+# A ranking on a rating stays a grid in phase 0: the SQL alone cannot tell "ordered by IMDb
+# rating because asked" (2216) from the default sort of a collection list (2481); the intent of
+# phase 1 (FASTAPI-TEXT2SQL-353, -354) breaks that tie, and a grid is the cheaper miss.
+_DEFAULT_ENTITY_METRICS = frozenset({
+    "POPULARITY", "VOTE_AVERAGE", "VOTE_COUNT", "IMDB_VOTES", "IMDB_RATING", "IMDB_RATING_WEIGHTED",
+    "MOVIE_COUNT", "SERIE_COUNT",
+})
+
+
+def _is_computed_alias(sql, name):
+    """Tell whether `name` is the alias of an expression in the SQL (`... ) AS name`).
+
+    A stored column is projected bare (`T_WC_T2S_LOCATION.MOVIE_COUNT`); an aggregate or any
+    parenthesised expression the model wrote closes with `)` right before its alias.
+    """
+    return re.search(r"\)\s*AS\s+`?" + re.escape(name) + r"`?(?!\w)", sql or "",
+                     re.IGNORECASE) is not None
 
 
 def _is_numeric(value):
@@ -119,7 +148,7 @@ def _column_role(name, sample_value, id_columns):
         return "label"
     if isinstance(sample_value, (date, datetime)) or _DATE_NAME_RE.search(name):
         return "date"
-    if _FLAG_RE.search(name):
+    if _FLAG_RE.search(name) or _OTHER_ID_RE.search(name):
         return "other"
     if _is_numeric(sample_value):
         return "metric"
@@ -151,41 +180,71 @@ def _columns_metadata(rows, id_columns):
     return columns
 
 
-def _orders_by_metric(sql, metric_name, columns):
-    """Tell whether the outermost ORDER BY sorts on the metric column.
+def _split_order_terms(clause):
+    """Split an ORDER BY clause on the commas outside parentheses, stripped, empties dropped."""
+    terms, current, depth = [], [], 0
+    for ch in clause:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            terms.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    terms.append("".join(current))
+    return [t.strip() for t in terms if t.strip()]
 
-    Reads the last ORDER BY clause of the SQL (the outer query's) and accepts the column
-    name or alias as a whole word, or its 1-based position in the projection. A bare
-    "ORDER BY" elsewhere in the query is not enough (FASTAPI-TEXT2SQL-350).
+
+def _order_key(sql, columns):
+    """Return (column name, "asc" | "desc") for the column the outer ORDER BY sorts on first.
+
+    Reads the last ORDER BY clause of the SQL (the outer query's) and walks its terms in
+    order; the first one that resolves to a projected column, by name or alias (optionally
+    table-qualified or backquoted) or by its 1-based position, wins. A term that resolves to
+    nothing is skipped, which is what lets the NULLs-last guard the prompt prescribes
+    (`CASE WHEN x IS NULL THEN 1 ELSE 0 END, x ASC`) name `x` (FASTAPI-TEXT2SQL-155). A
+    bare "ORDER BY" elsewhere in the query is not enough (FASTAPI-TEXT2SQL-350).
+
+    Returns (None, None) when there is no ORDER BY or no term resolves.
     """
     clauses = _ORDER_BY_CLAUSE_RE.findall(sql or "")
     if not clauses:
-        return False
-    clause = clauses[-1]
-    if re.search(r"(?<![\w.])(?:\w+\.)?`?" + re.escape(metric_name) + r"`?(?!\w)", clause,
-                 re.IGNORECASE):
-        return True
+        return None, None
     names = [c["name"] for c in columns]
-    position = names.index(metric_name) + 1 if metric_name in names else 0
-    return bool(position) and re.search(r"(?<![\w.])" + str(position) + r"(?!\w)",
-                                        clause) is not None
+    for term in _split_order_terms(clauses[-1]):
+        direction = "desc" if re.search(r"\bDESC\s*$", term, re.IGNORECASE) else "asc"
+        body = _ORDER_DIRECTION_RE.sub("", term).strip()
+        for name in names:
+            if re.fullmatch(r"(?:\w+\.)?`?" + re.escape(name) + r"`?", body, re.IGNORECASE):
+                return name, direction
+        if body.isdigit() and 1 <= int(body) <= len(names):
+            return names[int(body) - 1], direction
+    return None, None
 
 
-def _is_entity_ranking(sql, columns, metric_cols, result_entity):
+def _is_entity_ranking(sql, order_col, columns, result_entity):
     """Decide whether N entity rows are a ranking (ranked-bars) rather than a grid.
 
-    All must hold: exactly one metric column, not a default projection (POPULARITY,
-    VOTE_AVERAGE...), the outer ORDER BY on that metric, and rows that are not images.
+    A ranking is the metric the outer ORDER BY names, whatever else is projected
+    (FASTAPI-TEXT2SQL-351: the standard movie projection carries four metrics, so "exactly
+    one metric" missed every "highest grossing" or "most seasons" question). All must hold:
+    the outer ORDER BY resolves to a projected column (`order_col`), that column has the
+    metric role, it is not a default sort key (POPULARITY, IMDB_RATING_WEIGHTED, a stored
+    MOVIE_COUNT...) unless the model computed it, and the rows are not images.
     """
-    if len(metric_cols) != 1:
+    if not order_col:
         return False
-    metric = metric_cols[0]["name"]
-    if metric.upper() in _DEFAULT_ENTITY_METRICS:
+    column = next((c for c in columns if c["name"] == order_col), None)
+    if column is None or column["role"] != "metric":
+        return False
+    if order_col.upper() in _DEFAULT_ENTITY_METRICS and not _is_computed_alias(sql, order_col):
         return False
     names = {c["name"].upper() for c in columns}
     if str(result_entity or "").lower().endswith("_image") or {"ID_ROW", "TYPE_IMAGE"} <= names:
         return False
-    return _orders_by_metric(sql, metric, columns)
+    return True
 
 
 def classify_result(sql_query, result_rows, result_entity="", id_columns=None):
@@ -203,6 +262,9 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None):
         A dict with:
           - result_kind: one of RESULT_KINDS;
           - columns: list of {name, role, unit}, in projection order (empty with no rows);
+            the one column the outer ORDER BY sorts on first, when it is projected, also
+            carries `"ordered": "asc" | "desc"` (FASTAPI-TEXT2SQL-351), so a client draws
+            the ranked quantity and not the first metric it meets;
           - representation: one of REPRESENTATIONS.
     """
     ids = frozenset(id_columns) if id_columns is not None else _DEFAULT_ID_COLUMNS
@@ -212,6 +274,10 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None):
     ]
     columns = _columns_metadata(rows, ids)
     sql = sql_query or ""
+    order_col, order_dir = _order_key(sql, columns)
+    for c in columns:
+        if c["name"] == order_col:
+            c["ordered"] = order_dir
     # The result is entity rows only when it actually projects an entity id column. NOT when
     # result_entity is merely set: the answer-entity classifier returns "movie" even for
     # "how many movies are there", whose result is a one-row scalar count with no id column
@@ -223,15 +289,17 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None):
     metric_cols = [c for c in columns if c["role"] == "metric"]
     label_cols = [c for c in columns if c["role"] == "label"]
 
-    # Entity rows: one entity is a page, many are a grid, many ordered by one metric is a
-    # ranking (the poster-versus-bar choice is the client's, VOICE-AGENT-244). A ranking needs
-    # the ORDER BY on the one metric, a metric that is not a default sort key, and no image
-    # rows (FASTAPI-TEXT2SQL-350); a plain list ordered by POPULARITY stays a grid.
+    # Entity rows: one entity is a page, many are a grid, many ordered by a metric is a
+    # ranking (the poster-versus-bar choice is the client's, VOICE-AGENT-244). A ranking is
+    # the metric the outer ORDER BY names, whatever else is projected (FASTAPI-TEXT2SQL-351),
+    # a metric that is not a default sort key, and no image rows (FASTAPI-TEXT2SQL-350); a
+    # plain list ordered by POPULARITY or IMDB_RATING_WEIGHTED stays a grid, and so does a
+    # sequence ordered by a date or a collection order.
     if has_entity:
         if len(rows) <= 1:
             return {"result_kind": "entity_rows", "columns": columns,
                     "representation": "entity-page" if rows else "card-grid"}
-        if _is_entity_ranking(sql, columns, metric_cols, result_entity):
+        if _is_entity_ranking(sql, order_col, columns, result_entity):
             return {"result_kind": "entity_rows", "columns": columns,
                     "representation": "ranked-bars"}
         return {"result_kind": "entity_rows", "columns": columns,

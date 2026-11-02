@@ -494,6 +494,7 @@ curl -X POST "http://localhost:8187/search/text2sql" \
   "result_columns": [
     {"name": "ID_MOVIE", "role": "entity_id", "unit": null},
     {"name": "MOVIE_TITLE", "role": "label", "unit": null},
+    {"name": "IMDB_RATING_WEIGHTED", "role": "metric", "unit": null, "ordered": "desc"},
     {"name": "RUNTIME", "role": "metric", "unit": "minutes"}
   ],
   "representation": "card-grid",
@@ -610,7 +611,7 @@ curl -X POST "http://localhost:8187/search/text2sql" \
 - `answer` (str): User-oriented plain-language description of what the query returns, written in the language specified by `ui_language`. Contains no table/column names or SQL details. Intended to be displayed above query results.
 - `answer_anonymized` (str): The `answer` before entity de-anonymization (with placeholders)
 - `result_entity` (str): The kind of row the result set lists — one of `movie`, `serie`, `person`, `collection`, `list`, `topic`, `movement`, `technical`, `group`, `death`, `award`, `nomination`, `company`, `network`, `location`, `source_work`, `genre` (empty when not determined, e.g. ambiguous questions or `movie_serie` UNION results). `genre` is only chosen when the genres themselves are the answer ("what are the movie genres?"); a genre used to scope a search ("Sci-Fi movies") is a filter and yields `movie` / `serie`. It is the answer type enforced by the answer-entity guard, stored in the cache (`T_WC_T2S_CACHE.RESULT_ENTITY`) so it is also returned on cache hits.
-- `result_kind`, `result_columns`, `representation` (FASTAPI-TEXT2SQL-349): **the rendering hint, so a client draws the answer instead of guessing from column names.** Computed deterministically from the result shape and the generated SQL (no LLM call, so no extra latency and no cost), and emitted on every result including cache hits; all three are `null` on a path that returns before any rows exist (an error, an empty cache-miss stub). `result_kind` keeps the `/samples` vocabulary — `entity_rows | scalar | count | bound | unknown` — where a grouped aggregate with no clean kind is `unknown` but still carries a usable `representation`. `result_columns` is one `{ "name", "role", "unit" }` per projected column, in projection order: `role` is `entity_id | label | metric | date | other`, and `unit` is `minutes | usd | years | count | ratio | null`, **set on the API side where the summed column is known**, so a runtime total is `minutes` and never reaches a client as dollars (the bug that motivated this: a front formatting any `TOTAL_*` column as US dollars). A computed column whose alias says nothing (e.g. `PROFIT` from `SUM(REVENUE) - SUM(BUDGET)`) stays `null` rather than guessed. `representation` is the value a client switches on — `entity-page` (one entity), `card-grid` (many entities), `number-card` (one metric or count), `stat-strip` (two to five metrics), `ranked-bars` (a label or entity plus one ordered metric), `table` (the honest fallback, never an empty card). Shape decides; only when it leaves two renderings tied does the SQL break the tie, never the question's phrasing (design note `voice-agent-243-result-representations.md`). Consumed by VOICE-AGENT-243 (number card, stat strip) and VOICE-AGENT-244 (ranked bars).
+- `result_kind`, `result_columns`, `representation` (FASTAPI-TEXT2SQL-349): **the rendering hint, so a client draws the answer instead of guessing from column names.** Computed deterministically from the result shape and the generated SQL (no LLM call, so no extra latency and no cost), and emitted on every result including cache hits; all three are `null` on a path that returns before any rows exist (an error, an empty cache-miss stub). `result_kind` keeps the `/samples` vocabulary — `entity_rows | scalar | count | bound | unknown` — where a grouped aggregate with no clean kind is `unknown` but still carries a usable `representation`. `result_columns` is one `{ "name", "role", "unit" }` per projected column, in projection order: `role` is `entity_id | label | metric | date | other`, and `unit` is `minutes | usd | years | count | ratio | null`, **set on the API side where the summed column is known**, so a runtime total is `minutes` and never reaches a client as dollars (the bug that motivated this: a front formatting any `TOTAL_*` column as US dollars). A computed column whose alias says nothing (e.g. `PROFIT` from `SUM(REVENUE) - SUM(BUDGET)`) stays `null` rather than guessed. The one column the outer `ORDER BY` sorts on first, when it is projected, also carries `"ordered": "asc" | "desc"` (FASTAPI-TEXT2SQL-351, 1.1.20): on a `ranked-bars` result it is the ranked quantity, and both fronts draw that column rather than the first metric they meet; absent on every other column. `representation` is the value a client switches on — `entity-page` (one entity), `card-grid` (many entities), `number-card` (one metric or count), `stat-strip` (two to five metrics), `ranked-bars` (a label or entity plus one ordered metric), `table` (the honest fallback, never an empty card). Shape decides; only when it leaves two renderings tied does the SQL break the tie, never the question's phrasing (design note `voice-agent-243-result-representations.md`). The full contract, one table per representation with the renderer of each front, is in [Result representations: the contract](#-result-representations-the-contract-for-both-fronts) below. Consumed by VOICE-AGENT-243 (number card, stat strip) and VOICE-AGENT-244 (ranked bars).
 - `dropped_clause` (str): **What the SQL does not implement.** Names the part of the question the generator had to abandon, empty when the SQL implements all of it (FASTAPI-TEXT2SQL-220). It is filled when a filter would have needed a placeholder that entity extraction never produced: dropping the filter widens the result, and saying nothing would present a narrower answer as a complete one. Example: `"genre filter: science-fiction"`. Neutral like `name_ambiguity`: the API states the fact, each client decides whether to show it. It is deliberately NOT used to decide whether an empty result is authoritative; that call belongs to FASTAPI-TEXT2SQL-207 and wants measuring first.
 - `name_ambiguity` (dict, optional): **Neutral same-name-cluster signal** — present only when the generated SQL is a *pure* exact-equality match on an entity's name/title column(s) against a single literal (never `LIKE`) and returns **≥2 distinct rows**, i.e. the user named one entity (`movie` / `serie` / `person`) but the database holds several homonyms or duplicate titles (e.g. *"Steve McQueen"* → actor + director; *"Le Bonheur"* → four films). It is a **fact about the result, not an instruction**: the API does not decide whether to disambiguate — intent (*"tell me about Dracula"* vs *"list all movies called Dracula"*) is **not** in the SQL (both produce the identical `WHERE`), so a conversational client (voice-agent) reads this flag and asks *"which one?"* while a plain display client (tmdb-front) ignores it. `null` otherwise, so ignoring clients are unaffected. Shape: `{ "entity": "movie", "anchor": "Le bonheur", "count": 4, "candidates": [ { "id": 53023, "display": "Le Bonheur", "discriminator": { "year": 1965, "release_date": "1965-02-17", "directors": ["Agnès Varda"], "top_cast": ["Jean-Claude Drouot", "Claire Drouot", "Marie-France Boyer"] } }, … ] }` — for `movie` / `serie` the discriminator carries the `year` (human phrasing, "the 1969 one"), the full `release_date` (`YYYY-MM-DD`, `null` when only a year is known), the **`directors`** and the top-3 billed **`top_cast`** (plus **`creators`** for `serie`) — so twins sharing *both* title AND year (e.g. *The Odyssey*'s two 2026 films, Nolan vs Walz) are told apart by the director/cast name, not only the date (FASTAPI-TEXT2SQL-176). For `person` the discriminator is `{ "birth_year", "death_year", "role", "birth_date", "death_date", "country_of_birth", "known_for" }`, where **`known_for`** lists up to 3 of the person's best-rated titles (by `IMDB_RATING_WEIGHTED`, movies + series) so two homonyms (e.g. *Steve McQueen* the actor vs the director) are separable by their notable works, nationality and full dates. `candidates` is ordered **chronologically, oldest first** (by `release_date`, else the year — `birth_year` for a person — with undated candidates last, ties keeping DB order). DB order is arbitrary, which misled consumers twice: an agent enumerating candidates read them out of order, and a *positional* reading of a superlative (*"the latest one"* = the last item) picked the wrong entity. Ordering by date makes position agree with time, so the last candidate really is the most recent. Only **true duplicates** (rows sharing the same `ID_IMDB`) are collapsed; distinct works that merely share a title and year are kept as separate candidates (e.g. two different *Dracula* films from 2025). Computed on page 1 only.
 - `image_ref` (str): The image this turn was built from, echoed back so a client can keep holding it across the turns of one conversation without ever re-sending the bytes. Empty when no image was sent
@@ -1333,6 +1334,114 @@ Practical notes:
 - "Movies shot in France" (since TMDB-MOVIE-PREPROCESS-048, also returns the movies shot in Paris, Marseille or at the Eiffel Tower, through `T_WC_T2S_LOCATION_ANCESTOR`)
 
 **Note**: Questions can be expressed in English or any language understood by the underlying LLM (currently OpenAI's models). The API can handle complex multi-criteria searches involving actors, directors, genres, years, ratings, characters, locations, and technical specifications for both movies and TV series. Video search capabilities allow finding trailers, clips, and other media content associated with movies and series.
+
+## 🧭 Result representations: the contract for both fronts
+
+This section is the **single source of truth** for the two clients that draw a `/search/text2sql` answer, voice-agent (`app/static/app.js`) and tmdb-front (`lib/t2s-representation.inc.php`, `lib/text2sql-search.inc.php`). Rule set by Philippe on 2026-10-31 (TMDB-FRONT-112): every representation ships on both fronts in the same batch, and **adding a representation means adding its table here first** (FASTAPI-TEXT2SQL-352). The `AGENTS.md` of both fronts point here; nothing below is duplicated elsewhere.
+
+**Decision order, stated once.** The shape rules of `result_shape.py` define the valid set of representations for a result and pick the default (`representation`); the intent of the question, once the API emits it (1.2.0, FASTAPI-TEXT2SQL-353 and -354), picks within that set, never outside it; the user's override, when a front offers one, wins and is remembered for the conversation. Shape decides, intent disambiguates, the user has the last word.
+
+**The fields** (every live result, `null` on a path that returns before rows exist):
+
+| field | since | content |
+|---|---|---|
+| `representation` | 1.1.19 | the value a client switches on, one of the seven below (`value-cards` from 1.2.0) |
+| `result_kind` | 1.1.19 | `entity_rows`, `scalar`, `count`, `bound` or `unknown`: the `/samples` vocabulary, kept for the evaluations |
+| `result_columns` | 1.1.19 | one `{name, role, unit}` per projected column, in projection order. `role`: `entity_id`, `label`, `metric`, `date`, `other`. `unit`: `minutes`, `usd`, `count`, `ratio`, `years` or `null`, set from the column name on the API side. Since 1.1.20 the column the outer `ORDER BY` sorts on first carries `"ordered": "asc"` or `"desc"` (FASTAPI-TEXT2SQL-351); in 1.2.0 the column the question names carries `"focus": true` |
+| `representation_options` | 1.2.0 (planned) | the valid set for this shape, default first: what a front shows as override chips (VOICE-AGENT-247, TMDB-FRONT-114) |
+| `intent` | 1.2.0 (planned) | `{task, focus_columns, requested_view, source}` from the parallel result-entity classifier, `source` in `llm`, `rules`, `none` |
+| `summary_facts` | 1.2.0 (planned) | numbers only, language neutral: `count`, `total` (`null` when unknown), `unit`, `order` (`collection`, `date`, a metric name or `null`), `top` (label and value of the extremum). Each front builds its spoken line or caption from it (VOICE-AGENT-248, TMDB-FRONT-115) |
+
+**The representations.** "When" is the rule as `result_shape.py` applies it; "spoken" is the sentence each front builds from `summary_facts` once 1.2.0 ships (until then voice-agent speaks the API's `answer`). Renderers: voice-agent functions live in `app/static/app.js`, tmdb-front functions in `lib/t2s-representation.inc.php` unless stated.
+
+| `entity-page` | |
+|---|---|
+| Meaning | one entity, shown as its sheet |
+| When | entity rows (an `entity_id` column is projected) and exactly one row |
+| Columns used | every column of the row; `entity_id` picks the detail route |
+| Limits | one row |
+| Spoken | the title and one fact of the entity |
+| voice-agent | `renderSingleRecordResult()` (the detail sheet) |
+| tmdb-front | the card renderer of `lib/text2sql-search.inc.php` (`case "card":`), one card |
+
+| `card-grid` | |
+|---|---|
+| Meaning | N entities as poster cards, in the order the SQL returned them (default sort, collection order, date) |
+| When | entity rows, two rows or more, and the result is not a ranking (below); also an empty entity search |
+| Columns used | `entity_id`, `label`, the image path of the entity; metrics are not shown |
+| Limits | paged by `rows_per_page`; no caption of the total |
+| Spoken | the count and the order ("eight films in collection order") |
+| voice-agent | the poster grid of `renderText2SqlResult()` (`search-poster-card-grid`) |
+| tmdb-front | the card renderer of `lib/text2sql-search.inc.php`, infinite scroll |
+
+| `value-cards` (1.2.0, planned) | |
+|---|---|
+| Meaning | the card grid with the quantity the question asked for under each card, order kept |
+| When | entity rows, `intent.task == value`, a `focus` column projected and the order not on it ("Harry Potter films with their duration") |
+| Columns used | as `card-grid` plus the `focus` metric, formatted by its unit; a row with no value shows nothing, never "0" |
+| Limits | as `card-grid` |
+| Spoken | count, order, one extremum ("Eight films in collection order; the longest is Order of the Phoenix, 2 h 18") |
+| voice-agent | VOICE-AGENT-246 |
+| tmdb-front | TMDB-FRONT-113 |
+
+| `number-card` | |
+|---|---|
+| Meaning | one number, large, with its unit and a label |
+| When | one row, no entity column, exactly one `metric` column, no `GROUP BY`; `result_kind` is `count` when the SQL counts, `scalar` otherwise |
+| Columns used | the metric (`name`, `unit`) |
+| Limits | one row, one metric |
+| Spoken | the value with its unit ("1,178 minutes, 19 hours 38") |
+| voice-agent | `renderScalarCards()` (`t2sNumberCardWrap`) |
+| tmdb-front | `f_t2srep_render_scalar_cards()` |
+
+| `stat-strip` | |
+|---|---|
+| Meaning | two to five numbers side by side, each with its unit and label |
+| When | one row, no entity column, two to five `metric` columns, no `GROUP BY` |
+| Columns used | every metric, in projection order |
+| Limits | five metrics; wider falls to `table` |
+| Spoken | each value in turn |
+| voice-agent | `renderScalarCards()` (`t2sStatStrip`) |
+| tmdb-front | `f_t2srep_render_scalar_cards()` |
+
+| `ranked-bars` | |
+|---|---|
+| Meaning | N rows ordered by one quantity, the quantity drawn |
+| When | (a) entity rows, two or more, whose outer `ORDER BY` sorts first on a projected `metric` column that is not a default sort key (`POPULARITY`, `VOTE_AVERAGE`, `VOTE_COUNT`, `IMDB_VOTES`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, a stored `MOVIE_COUNT` or `SERIE_COUNT`) unless the model computed it (`COUNT(...) AS MOVIE_COUNT`), and the rows are not images; whatever else is projected (FASTAPI-TEXT2SQL-350, -351); (b) a grouped aggregate with no entity: a `label` (or code, or text) column plus exactly one `metric`, with an `ORDER BY`. A ranking by rating stays `card-grid` until the intent tells it from the default sort |
+| Columns used | the metric marked `ordered` (else the first `metric`), its `unit`; the `label` column or the entity title for the label; the entity image when every row has one |
+| Limits | 12 rows or fewer with a poster on every row: the poster ranking (rank, poster, title, value); otherwise horizontal bars with text labels. A paged ranking without `LIMIT` is captioned "the first N by <metric>" from 1.2.0 (no total query, decision of 2026-10-31) |
+| Spoken | "the first N by <metric>; <top label>, <top value>" |
+| voice-agent | `renderRankedBars()`, metric from `pickBarMetric()` |
+| tmdb-front | `f_t2srep_render_ranked_bars()`, metric from `f_t2srep_pick_bar_metric()` |
+
+| `table` | |
+|---|---|
+| Meaning | the honest fallback: every column, metrics formatted by unit |
+| When | anything the rules above do not claim: a one-row text fact, a grouped aggregate wider than label plus one metric (a trend by decade, an average per year), an empty non-entity result |
+| Columns used | all, in projection order |
+| Limits | none; a header row plus the rows |
+| Spoken | the row count and the column names |
+| voice-agent | `renderRawTable()` |
+| tmdb-front | `f_t2srep_render_table()` |
+
+**Formatting contract per unit**, the fixtures both test suites pin (`voice-agent` `formatMetric()`, tmdb-front `f_t2srep_format_metric()` and `test/t2s-representation-test.php`). English and French share the digits; only the `years` word changes.
+
+| unit | value | rendered | note |
+|---|---|---|---|
+| `minutes` | 1178 | `1,178 min · 19 h 38` | minutes first, then hours and zero-padded minutes |
+| `minutes` | 45 | `45 min · 45 min` | under an hour the second part repeats the minutes |
+| `usd` | 1200000000 | `$1,200,000,000` | no decimals, dollar sign, a minus before the sign for a negative |
+| `count` | 342753 | `342,753` | rounded, thousands separator |
+| `ratio` | 6.4 | `×6.4` | one decimal, none when whole (`×3`) |
+| `years` | 12 | `12 years` / `12 ans` | singular `1 year` / `1 an` |
+| `null` | 1178 | `1,178` | **never dollars without the `usd` unit** (the bug of VOICE-AGENT-243) |
+| `null` | 7.256 | `7.26` | two decimals at most |
+| any | `"Drama"` | `Drama` | text passes through |
+| any | `"  "` or `null` | `` | blank shows nothing |
+
+**Hintless result** (an API colour predating 1.1.19): a one-row result with a number and no entity column is still a number card; everything else keeps the card renderer of each front.
+
+**Keeping the two fronts in step.** Before committing a change to `result_shape.py`, run the offline census: recompute every export of the latest campaign with the committed module and the working copy and diff the representations (the first entity-ranking rule flipped 103 evaluations; the -351 rule flipped 14 in English and 16 in French, listed in `AGENTS.md`). The bank evaluations 2560 to 2619 (TEXT2SQL-EVAL-003) carry a shape assertion per form; `text2sql-eval/check-result-shape.py` checks them out of score.
 
 ## 🐳 Docker Deployment
 

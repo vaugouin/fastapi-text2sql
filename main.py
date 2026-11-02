@@ -192,7 +192,7 @@ def _run_generated_sql(db_connection, sql_text: str):
 
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
-strapiversion = "1.1.19"
+strapiversion = "1.1.20"
 # Convert API version to XXX.YYY.ZZZ format
 strapiversionformatted = format_api_version(strapiversion)
 
@@ -2061,9 +2061,12 @@ class Text2SQLResponse(BaseModel):
     # nothing to draw. result_kind is the /samples vocabulary
     # (entity_rows | scalar | count | bound | unknown); result_columns is one
     # {name, role, unit} per projected column, the unit set server-side where the summed
-    # column is known so a runtime never reaches a client as dollars; representation is one
+    # column is known so a runtime never reaches a client as dollars, plus
+    # "ordered": "asc" | "desc" on the one column the outer ORDER BY sorts on first
+    # (FASTAPI-TEXT2SQL-351, the ranked quantity a client draws); representation is one
     # of entity-page | card-grid | number-card | stat-strip | ranked-bars | table. See
-    # result_shape.py and the design note voice-agent-243-result-representations.md.
+    # result_shape.py, README "Result representations: the contract" and the design note
+    # voice-agent-243-result-representations.md.
     result_kind: Optional[str] = None
     result_columns: Optional[list] = None
     representation: Optional[str] = None
@@ -2559,10 +2562,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
               from column names. result_kind is entity_rows | scalar | count | bound |
               unknown; result_columns is one {name, role, unit} per projected column, the
               role entity_id | label | metric | date | other and the unit minutes | usd |
-              years | count | ratio | null set server-side where the summed column is known;
+              years | count | ratio | null set server-side where the summed column is known,
+              plus ordered asc | desc on the column the outer ORDER BY sorts on first;
               representation is entity-page | card-grid | number-card | stat-strip |
               ranked-bars | table. All three are null on a path that returns before any rows
-              exist. See result_shape.py.
+              exist. See result_shape.py and README "Result representations: the contract".
             - page, limit, offset, rows_per_page: Pagination metadata.
             - llm_defined_limit, llm_defined_offset: LIMIT/OFFSET originally in LLM output.
             - cached_exact_question, cached_anonymized_question,
