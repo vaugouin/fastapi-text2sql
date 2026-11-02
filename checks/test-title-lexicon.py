@@ -161,11 +161,42 @@ def test_entity(lex, verbose):
     return bad
 
 
+YEAR_CASES = [
+    # (extraction, title key, expected year): the template links a year to its title.
+    ({"question": "Compare {{Movie_title1}} and {{Movie_title2}} ({{Release_year1}})",
+      "Movie_title1": "Seven Samurai", "Movie_title2": "The Magnificent Seven", "Release_year1": "1960"},
+     "Movie_title2", 1960),
+    ({"question": "Compare {{Movie_title1}} and {{Movie_title2}} ({{Release_year1}})",
+      "Movie_title1": "Seven Samurai", "Movie_title2": "The Magnificent Seven", "Release_year1": "1960"},
+     "Movie_title1", None),
+    ({"question": "Movies {{Movie_title1}} ({{Release_year1}}), {{Movie_title2}} ({{Release_year2}})",
+      "Movie_title1": "La La Land", "Release_year1": "2016", "Movie_title2": "Casablanca", "Release_year2": "1942"},
+     "Movie_title2", 1942),
+    ({"question": "Movie {{Movie_title1}} from {{Release_year1}}", "Movie_title1": "x", "Release_year1": "1999"},
+     "Movie_title1", 1999),
+    ({"Movie_title3": "x", "Release_year3": "1984", "Movie_title1": "y", "Release_year1": "2011"},
+     "Movie_title3", 1984),
+]
+
+
+def test_years(verbose):
+    bad = 0
+    for ee, key, expected in YEAR_CASES:
+        got = tl.year_for_title(ee, key, "Release_year")
+        ok = got == expected
+        bad += not ok
+        if verbose or not ok:
+            print(f"{'ok ' if ok else 'BAD'} year of {key} in {ee.get('question', ee)!r}: {got} (expected {expected})")
+    return bad
+
+
 def main():
     verbose = "--verbose" in sys.argv
     bad, lex = test_search(verbose)
+    bad += test_years(verbose)
     bad += test_entity(lex, verbose)
-    print(f"{len(CASES) + 3 - bad}/{len(CASES) + 3} passed")
+    total = len(CASES) + len(YEAR_CASES) + 3
+    print(f"{total - bad}/{total} passed")
     return 1 if bad else 0
 
 

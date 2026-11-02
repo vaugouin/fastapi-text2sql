@@ -127,9 +127,7 @@ def harvest(version: str):
                 typ = re.sub(r"\d+$", "", ph)
                 if typ not in FAMILY:
                     continue
-                n = ph[len(typ):]
-                yv = ee.get(YEAR_KEY[typ] + n) or ee.get(YEAR_KEY[typ] + "1")
-                year = int(str(yv)[:4]) if yv and str(yv)[:4].isdigit() else None
+                year = tl.year_for_title(ee, ph, YEAR_KEY[typ])   # same rule as the API
                 rows.append(dict(campaign=camp, eid=eid, type=typ, sought=e.get("sought") or "",
                                  year=year, chroma_title=e.get("candidate") or "",
                                  chroma_rejected=bool(e.get("rejected")),

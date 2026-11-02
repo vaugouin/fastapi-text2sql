@@ -40,15 +40,11 @@ def _extract_year_context(entity_extraction, placeholder=None):
         if strkey.startswith(strtitleprefix):
             stryearprefix = strcandidate
             break
-    for k, v in entity_extraction.items():
-        if isinstance(k, str) and k.startswith(stryearprefix):
-            try:
-                y = int(str(v).strip())
-            except (TypeError, ValueError):
-                continue
-            if 1800 <= y <= 2200:
-                return y
-    return None
+    # FASTAPI-TEXT2SQL-360: the year that dates THIS title (title_lexicon.year_for_title). Taking
+    # the first year key gave every title of a list the year of the first one: in "La La Land
+    # (2016), Pulp Fiction (1994), ... Casablanca (1942)" all were filtered on 2015-2017, and
+    # ChromaDB answered 'Andalusian Dance' for Casablanca (evaluations 2135, 2137).
+    return title_lexicon.year_for_title(entity_extraction, strkey, stryearprefix)
 
 
 # Descriptor words that can trail a resolved franchise/collection name and get

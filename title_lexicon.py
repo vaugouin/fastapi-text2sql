@@ -91,6 +91,51 @@ def strip_article(folded: str) -> str:
     return _ARTICLES.sub("", folded)
 
 
+# --------------------------------------------------------------------------- year of a title
+
+def _year_value(v) -> Optional[int]:
+    try:
+        y = int(str(v).strip()[:4])
+    except (TypeError, ValueError):
+        return None
+    return y if 1800 <= y <= 2200 else None
+
+
+def year_for_title(entity_extraction: dict, title_key: str, year_prefix: str) -> Optional[int]:
+    """The year that dates ``title_key`` ('Movie_title2') among the ``year_prefix`` keys
+    ('Release_year1'...), or None.
+
+    The extraction numbers years and titles separately ("Seven Samurai and The Magnificent Seven
+    (1960)" gives Movie_title2 with Release_year1), so the index is not a link. The link is the
+    anonymised question template: the year placeholder right after the title placeholder
+    ('{{Movie_title2}} ({{Release_year1}})'). Without a template, the year of the same index.
+    A single year with a single title dates it; anything else gives None rather than a guess."""
+    if not isinstance(entity_extraction, dict):
+        return None
+    title_key = str(title_key or "").strip("{}")
+    years = {k: _year_value(v) for k, v in entity_extraction.items()
+             if isinstance(k, str) and k.startswith(year_prefix)}
+    years = {k: y for k, y in years.items() if y}
+    if not years:
+        return None
+    template = entity_extraction.get("question")
+    if isinstance(template, str) and "{{" in template:
+        m = re.search(r"\{\{" + re.escape(title_key) + r"\}\}[^{}]{0,4}\{\{(" + re.escape(year_prefix)
+                      + r"\d*)\}\}", template)
+        if m:
+            return years.get(m.group(1))
+    else:
+        m = re.search(r"(\d+)$", title_key)
+        if m and (year_prefix + m.group(1)) in years:
+            return years[year_prefix + m.group(1)]
+    title_prefix = re.sub(r"\d+$", "", title_key)
+    ntitles = sum(1 for k in entity_extraction
+                  if isinstance(k, str) and title_prefix and re.fullmatch(re.escape(title_prefix) + r"\d*", k))
+    if len(years) == 1 and ntitles <= 1:
+        return next(iter(years.values()))
+    return None
+
+
 # --------------------------------------------------------------------------- index
 
 class TitleLexicon:
