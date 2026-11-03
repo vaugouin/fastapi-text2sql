@@ -56,7 +56,7 @@
     "search_list": [
       {
         "search_mode": "lexicon",
-        "enabled": false,
+        "enabled": true,
         "comment": "FASTAPI-TEXT2SQL-360 trial: in-memory title lexicon (title_lexicon.py) before ChromaDB, which stays as a logged fallback. Switch on by setting enabled to true (hot reload).",
         "strtablename": "T_WC_T2S_MOVIE",
         "strtableid": "ID_MOVIE",
@@ -71,7 +71,7 @@
       },
       {
         "search_mode": "lexicon",
-        "enabled": false,
+        "enabled": true,
         "comment": "FASTAPI-TEXT2SQL-360 second level, tried only when the title lexicon misses (as T_WC_T2S_PERSON_ALSO_KNOWN_AS after T_WC_T2S_PERSON): the title alias table built by tmdb-movie-preprocess process 52 (TMDB-MOVIE-PREPROCESS-069: Wikidata P1476, labels, aliases, minus the TMDb titles), resolved to the TMDb row.",
         "strtablename": "T_WC_T2S_MOVIE",
         "strtableid": "ID_MOVIE",
@@ -109,7 +109,7 @@
     "search_list": [
       {
         "search_mode": "lexicon",
-        "enabled": false,
+        "enabled": true,
         "comment": "FASTAPI-TEXT2SQL-360 trial: in-memory title lexicon (title_lexicon.py) before ChromaDB, which stays as a logged fallback. Switch on by setting enabled to true (hot reload).",
         "strtablename": "T_WC_T2S_SERIE",
         "strtableid": "ID_SERIE",
@@ -124,7 +124,7 @@
       },
       {
         "search_mode": "lexicon",
-        "enabled": false,
+        "enabled": true,
         "comment": "FASTAPI-TEXT2SQL-360 second level, tried only when the title lexicon misses (as T_WC_T2S_PERSON_ALSO_KNOWN_AS after T_WC_T2S_PERSON): the title alias table built by tmdb-movie-preprocess process 52 (TMDB-MOVIE-PREPROCESS-069: Wikidata P1476, labels, aliases, minus the TMDb titles), resolved to the TMDb row.",
         "strtablename": "T_WC_T2S_SERIE",
         "strtableid": "ID_SERIE",
