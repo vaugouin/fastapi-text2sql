@@ -43,7 +43,14 @@ POOL = [
     (76180, 2004, 5737, 4.0, "Empire of Dreams: The Story of the Star Wars Trilogy",
      "Star Wars : L'Empire des Rêves", "Empire of Dreams: The Story of the Star Wars Trilogy"),
     (1212809, 2008, 25, 0.1, "The Most Famous Man in the World!", "The Most Famous Man in the World!", "The Most Famous Man in the World!"),
+    (11, 1977, 1596297, 32.3, "Star Wars", "La Guerre des étoiles", "Star Wars"),
 ]
+
+# Wikidata labels and aliases (T_WC_WIKIDATA_MOVIE, linked by ID_WIKIDATA), second tier.
+WIKIDATA = {
+    11: ('{"en": "Star Wars: Episode IV – A New Hope", "fr": "La Guerre des étoiles"}',
+         '{"en": ["A New Hope", "Star Wars"], "fr": ["Un nouvel espoir"]}'),
+}
 
 # (mention, year, expected stage, expected first id or None, expected matched column or None)
 CASES = [
@@ -161,6 +168,52 @@ def test_entity(lex, verbose):
     return bad
 
 
+def test_aliases(verbose):
+    """alias_rows keeps only forms the TMDb tier lacks, in the column of their language; the
+    entity cascade tries the alias tier after a TMDb miss and substitutes the TMDb title."""
+    import entity
+    import json
+    with open(os.path.join(RACINE, "data", "entity_resolution.json"), encoding="utf-8") as fh:
+        cfg = json.load(fh)   # test_entity replaced the module copy with a lexicon-only cascade
+    movie = next(e for e in cfg if e["placeholder_prefix"] == "Movie_title")
+    lexs = [s for s in movie["search_list"] if s.get("search_mode") == "lexicon"]
+    tmdb_cfg = next(s for s in lexs if not s.get("lexicon_aliases"))
+    al_cfg = next(s for s in lexs if s.get("lexicon_aliases"))
+    raw = [r + WIKIDATA[r[0]] for r in POOL if r[0] in WIKIDATA]
+    forms = list(tl.alias_rows(raw, al_cfg))
+    expect = [(11, 1977, 1596297, 32.3, "Star Wars: Episode IV – A New Hope", "", ""),
+              (11, 1977, 1596297, 32.3, "A New Hope", "", ""),
+              (11, 1977, 1596297, 32.3, "", "Un nouvel espoir", "")]
+    bad = int(forms != expect)
+    if verbose or bad:
+        print(f"{'ok ' if not bad else 'BAD'} alias_rows: {forms}")
+    for c in (tmdb_cfg, al_cfg):
+        c["enabled"] = True
+    movie["search_list"] = [tmdb_cfg, al_cfg]
+    entity.ENTITY_RESOLUTION_CONFIG = cfg
+    entity.LEXICON_CONNECTION_FACTORY = None
+    tl._LEXICONS[tl.lexicon_key(tmdb_cfg)] = tl.TitleLexicon(POOL, COLS)
+    tl._LEXICONS[tl.lexicon_key(al_cfg)] = tl.TitleLexicon(forms, COLS)
+    sql = "SELECT * FROM T_WC_T2S_MOVIE WHERE MOVIE_TITLE = '{{Movie_title1}}'"
+    for mention, expect_value, expect_tier in [("A New Hope", "Star Wars", "T_WC_WIKIDATA_MOVIE"),
+                                               ("Un nouvel espoir", "La Guerre des étoiles", "T_WC_WIKIDATA_MOVIE"),
+                                               ("Star Wars", "Star Wars", "tmdb")]:
+        plan = entity.plan_entity_resolutions(connection=FakeConnection(),
+                                              entity_extraction={"Movie_title1": mention},
+                                              chromadb_collections_by_name={})
+        messages = []
+        out = entity.apply_entity_resolutions(plan=plan, sql_query=sql, justification="", answer="",
+                                              position_counter=0, text_message_cls=Msg, messages=messages)
+        text = str(out.get("sql_query"))
+        hit = [m for m in plan.get("match_scores") or [] if not m.get("rejected")]
+        ok = (f"'{expect_value}'" in text and bool(hit) and hit[-1].get("lexicon_tier") == expect_tier)
+        bad += not ok
+        if verbose or not ok:
+            print(f"{'ok ' if ok else 'BAD'} alias tier {mention!r}: {text[:200]} || "
+                  f"{[(m.get('lexicon_tier'), m.get('lexicon_stage')) for m in plan.get('match_scores') or []]}")
+    return bad
+
+
 YEAR_CASES = [
     # (extraction, title key, expected year): the template links a year to its title.
     ({"question": "Compare {{Movie_title1}} and {{Movie_title2}} ({{Release_year1}})",
@@ -195,7 +248,8 @@ def main():
     bad, lex = test_search(verbose)
     bad += test_years(verbose)
     bad += test_entity(lex, verbose)
-    total = len(CASES) + len(YEAR_CASES) + 3
+    bad += test_aliases(verbose)
+    total = len(CASES) + len(YEAR_CASES) + 3 + 4
     print(f"{total - bad}/{total} passed")
     return 1 if bad else 0
 

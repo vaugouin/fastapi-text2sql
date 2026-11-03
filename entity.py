@@ -1500,6 +1500,10 @@ def plan_entity_resolutions(
                             continue
                         _year_ctx = _extract_year_context(entity_extraction, placeholder)
                         _min = search_cfg.get("min_fuzz_ratio")
+                        # Second tier (Wikidata labels and aliases, read like
+                        # T_WC_T2S_PERSON_ALSO_KNOWN_AS after T_WC_T2S_PERSON): named in the logs.
+                        _tier = (search_cfg.get("lexicon_aliases") or {}).get("table")
+                        _tier_txt = f" via {_tier}" if _tier else ""
                         try:
                             lres = lex.search(raw_value, _year_ctx, float(_min) if _min is not None else 85.85)
                         except Exception as _exc:
@@ -1519,13 +1523,14 @@ def plan_entity_resolutions(
                             "fuzz_ratio": round(float(lres.get("score") or 0.0), 1),
                             "exact_match": lres.get("stage") == "exact",
                             "lexicon_stage": lres.get("stage"),
+                            "lexicon_tier": _tier or "tmdb",
                             "lexicon_candidates": lres.get("n_candidates", 0),
                             "year_context": _year_ctx,
                             "rejected": not _lm,
                             "min_fuzz_ratio": _min,
                         })
                         if not _lm:
-                            planned.note(f"Entity resolution: {placeholder} lexicon miss for '{raw_value}' in {search_cfg.get('strtablename')}; falling through to the next strategy")
+                            planned.note(f"Entity resolution: {placeholder} lexicon miss for '{raw_value}' in {search_cfg.get('strtablename')}{_tier_txt}; falling through to the next strategy")
                             _lexicon_missed = True
                             continue
                         _docid, _col = _lm[0][0], _lm[0][1]
@@ -1537,7 +1542,7 @@ def plan_entity_resolutions(
                             cfg=search_cfg,
                             docid=_docid,
                             doclang=_doclang,
-                            message=(f"Entity resolution: {{placeholder}} -> {{resolved}} (lexicon {lres.get('stage')}, "
+                            message=(f"Entity resolution: {{placeholder}} -> {{resolved}} (lexicon{_tier_txt} {lres.get('stage')}, "
                                      f"id={_docid}, column={_col}, year={_year_ctx or '-'}, "
                                      f"{lres.get('n_candidates', 0)} candidate(s){'; next: ' + _others if _others else ''})"),
                         ):
