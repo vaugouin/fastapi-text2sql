@@ -296,46 +296,29 @@ def lexicon_key(cfg: dict) -> tuple:
 
 
 def alias_rows(rows: Iterable[Sequence], cfg: dict):
-    """Second tier (like T_WC_T2S_PERSON_ALSO_KNOWN_AS for persons): turn rows
-    ``(id, year, votes, pop, title_0.., labels_json, aliases_json)`` into one row per Wikidata
-    label or alias, placed in the column of its language (en, fr, anything else -> '*').
-    A form that folds like one of the row's TMDb titles is dropped: the first tier already
-    holds it, and this tier only runs when the first one misses."""
-    import json
+    """Second level (like T_WC_T2S_PERSON_ALSO_KNOWN_AS after T_WC_T2S_PERSON): turn rows
+    ``(id, year, votes, pop, title_0.., alias_title, alias_lang)`` read from the title alias
+    table (TMDB-MOVIE-PREPROCESS-069, built from Wikidata P1476, labels and aliases) into one
+    row per alias, placed in the column of its language (en, fr, anything else -> '*').
+    The preprocess already drops the aliases equal to a TMDb title in the table collation; an
+    alias that still folds like one of the row's TMDb titles is dropped here too, since the
+    first level holds it and this one only runs when the first misses."""
     langs = cfg.get("languages") or {}
     cols = list(dict.fromkeys(c for c in langs.values() if c))
-    al = cfg.get("lexicon_aliases") or {}
-    label_langs = al.get("label_languages") or ["en", "fr", "mul"]
-    alias_langs = al.get("alias_languages") or ["en", "fr"]
     slot = {lang: cols.index(langs[lang]) for lang in langs if lang != "*" and langs[lang] in cols}
     star = cols.index(langs["*"]) if langs.get("*") in cols else 0
     n = len(cols)
     for r in rows:
         head, titles = tuple(r[:4]), r[4:4 + n]
-        seen = {fold(t) for t in titles if t}
-        def _load(raw):
-            if not raw:
-                return {}
-            try:
-                d = json.loads(raw)
-                return d if isinstance(d, dict) else {}
-            except ValueError:
-                return {}
-        labels, aliases = _load(r[4 + n]), _load(r[5 + n])
-        forms = [(lg, labels.get(lg)) for lg in label_langs]
-        for lg in alias_langs:
-            v = aliases.get(lg)
-            forms += [(lg, x) for x in (v if isinstance(v, list) else [v])]
-        for lg, form in forms:
-            if not isinstance(form, str):
-                continue
-            k = fold(form)
-            if not k or k in seen:
-                continue
-            seen.add(k)
-            out = [""] * n
-            out[slot.get(lg, star)] = form
-            yield head + tuple(out)
+        form, lang = r[4 + n], r[5 + n]
+        if not isinstance(form, str):
+            continue
+        k = fold(form)
+        if not k or any(fold(t) == k for t in titles if t):
+            continue
+        out = [""] * n
+        out[slot.get((lang or "").split("-")[0], star)] = form
+        yield head + tuple(out)
 
 
 def build_from_db(connection, cfg: dict) -> TitleLexicon:
@@ -346,10 +329,9 @@ def build_from_db(connection, cfg: dict) -> TitleLexicon:
                      f"COALESCE(m.`{popcol}`, 0)"] + [f"m.`{c}`" for c in cols])
     if altable:
         al = cfg["lexicon_aliases"]
-        join = al.get("join_column") or "ID_WIKIDATA"
-        sel += f", w.`{al.get('labels_column') or 'LABELS_JSON'}`, w.`{al.get('aliases_column') or 'ALIASES_JSON'}`"
-        sql = (f"SELECT {sel} FROM `{table}` m JOIN `{altable}` w ON w.`{join}` = m.`{join}` "
-               f"WHERE COALESCE(m.`DELETED`, 0) = 0")
+        sel += f", a.`{al.get('title_column') or 'TITLE'}`, a.`{al.get('language_column') or 'LANG_CODE'}`"
+        sql = (f"SELECT {sel} FROM `{altable}` a JOIN `{table}` m ON m.`{idcol}` = a.`{al.get('id_column') or idcol}` "
+               f"WHERE COALESCE(m.`DELETED`, 0) = 0 AND COALESCE(a.`DELETED`, 0) = 0")
     else:
         sql = f"SELECT {sel} FROM `{table}` m WHERE COALESCE(m.`DELETED`, 0) = 0"
     import pymysql.cursors  # local: the bench builds from a file and needs no driver

@@ -46,10 +46,11 @@ POOL = [
     (11, 1977, 1596297, 32.3, "Star Wars", "La Guerre des étoiles", "Star Wars"),
 ]
 
-# Wikidata labels and aliases (T_WC_WIKIDATA_MOVIE, linked by ID_WIKIDATA), second tier.
-WIKIDATA = {
-    11: ('{"en": "Star Wars: Episode IV – A New Hope", "fr": "La Guerre des étoiles"}',
-         '{"en": ["A New Hope", "Star Wars"], "fr": ["Un nouvel espoir"]}'),
+# Title alias table rows (T_WC_T2S_MOVIE_TITLE_ALIAS, TMDB-MOVIE-PREPROCESS-069): TITLE, LANG_CODE.
+# "Star Wars" equals a TMDb title (the preprocess drops it; alias_rows must too).
+ALIAS_TABLE = {
+    11: [("Star Wars: Episode IV – A New Hope", "en"), ("A New Hope", "en"), ("Star Wars", "en"),
+         ("Un nouvel espoir", "fr"), ("Shichinin no Star Wars", "ja-latn")],
 }
 
 # (mention, year, expected stage, expected first id or None, expected matched column or None)
@@ -169,8 +170,8 @@ def test_entity(lex, verbose):
 
 
 def test_aliases(verbose):
-    """alias_rows keeps only forms the TMDb tier lacks, in the column of their language; the
-    entity cascade tries the alias tier after a TMDb miss and substitutes the TMDb title."""
+    """alias_rows keeps only the aliases the title level lacks, in the column of their language;
+    the entity cascade tries the alias table after a title miss and substitutes the TMDb title."""
     import entity
     import json
     with open(os.path.join(RACINE, "data", "entity_resolution.json"), encoding="utf-8") as fh:
@@ -179,11 +180,12 @@ def test_aliases(verbose):
     lexs = [s for s in movie["search_list"] if s.get("search_mode") == "lexicon"]
     tmdb_cfg = next(s for s in lexs if not s.get("lexicon_aliases"))
     al_cfg = next(s for s in lexs if s.get("lexicon_aliases"))
-    raw = [r + WIKIDATA[r[0]] for r in POOL if r[0] in WIKIDATA]
+    raw = [r + a for r in POOL if r[0] in ALIAS_TABLE for a in ALIAS_TABLE[r[0]]]
     forms = list(tl.alias_rows(raw, al_cfg))
     expect = [(11, 1977, 1596297, 32.3, "Star Wars: Episode IV – A New Hope", "", ""),
               (11, 1977, 1596297, 32.3, "A New Hope", "", ""),
-              (11, 1977, 1596297, 32.3, "", "Un nouvel espoir", "")]
+              (11, 1977, 1596297, 32.3, "", "Un nouvel espoir", ""),
+              (11, 1977, 1596297, 32.3, "", "", "Shichinin no Star Wars")]
     bad = int(forms != expect)
     if verbose or bad:
         print(f"{'ok ' if not bad else 'BAD'} alias_rows: {forms}")
@@ -195,8 +197,8 @@ def test_aliases(verbose):
     tl._LEXICONS[tl.lexicon_key(tmdb_cfg)] = tl.TitleLexicon(POOL, COLS)
     tl._LEXICONS[tl.lexicon_key(al_cfg)] = tl.TitleLexicon(forms, COLS)
     sql = "SELECT * FROM T_WC_T2S_MOVIE WHERE MOVIE_TITLE = '{{Movie_title1}}'"
-    for mention, expect_value, expect_tier in [("A New Hope", "Star Wars", "T_WC_WIKIDATA_MOVIE"),
-                                               ("Un nouvel espoir", "La Guerre des étoiles", "T_WC_WIKIDATA_MOVIE"),
+    for mention, expect_value, expect_tier in [("A New Hope", "Star Wars", "T_WC_T2S_MOVIE_TITLE_ALIAS"),
+                                               ("Un nouvel espoir", "La Guerre des étoiles", "T_WC_T2S_MOVIE_TITLE_ALIAS"),
                                                ("Star Wars", "Star Wars", "tmdb")]:
         plan = entity.plan_entity_resolutions(connection=FakeConnection(),
                                               entity_extraction={"Movie_title1": mention},
