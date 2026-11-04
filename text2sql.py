@@ -322,6 +322,13 @@ OPENAI_FLEX_MAX_ATTEMPTS = max(1, int(os.getenv("OPENAI_FLEX_MAX_ATTEMPTS", "5")
 _FLEX_RETRY_WAITS_SECONDS = (5, 15, 30, 60)
 # OpenAI's Flex guide raises the client timeout to 15 minutes; the SDK default is 10.
 OPENAI_FLEX_TIMEOUT_SECONDS = float(os.getenv("OPENAI_FLEX_TIMEOUT_SECONDS", "900"))
+# Tasks that never ask for Flex, even on a Flex request (cache labels, comma-separated). Default
+# result_entity: a gpt-6-luna call of about 700 tokens, where Flex saves $0.00002 and, when
+# OpenAI lacks Flex capacity, costs up to four retries (5 + 15 + 30 + 60 s). Measured on the
+# 1.1.20 campaign of 2026-11-04: result_entity averaged 20.6 s on Flex against 1.4 s at the
+# standard tier on 1.1.19, and made the whole question three times slower.
+OPENAI_FLEX_EXCLUDED_TASKS = frozenset(
+    t.strip() for t in os.getenv("OPENAI_FLEX_EXCLUDED_TASKS", "result_entity").split(",") if t.strip())
 
 
 def set_flex_processing(enabled: bool) -> None:
@@ -360,8 +367,10 @@ def flex_processing_enabled() -> bool:
     return bool(_flex_processing.get())
 
 
-def _uses_openai_flex(model_norm: str) -> bool:
-    return flex_processing_enabled() and str(model_norm).strip().lower().startswith(_FLEX_MODEL_PREFIXES)
+def _uses_openai_flex(model_norm: str, cache_label: str = "") -> bool:
+    return (flex_processing_enabled()
+            and cache_label not in OPENAI_FLEX_EXCLUDED_TASKS
+            and str(model_norm).strip().lower().startswith(_FLEX_MODEL_PREFIXES))
 
 
 def _record_service_tier(label: str, model_norm: str, response, *, flex_retries: int = 0,
@@ -946,7 +955,7 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
         if _uses_openai_fast(model_norm, cache_label):
             response = _send({"service_tier": "fast"})
             _record_service_tier(cache_label, model_norm, response)
-        elif _uses_openai_flex(model_norm):
+        elif _uses_openai_flex(model_norm, cache_label):
             response = _openai_flex_call(_send, label=cache_label, model_norm=model_norm)
         else:
             response = _send({})
