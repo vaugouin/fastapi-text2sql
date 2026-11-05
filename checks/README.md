@@ -11,7 +11,7 @@ Run them from the repository root (`uv run checks/<script>.py`), so that `sys.pa
 - `bench-*`: off-production A/B benches of one LLM task or of the resolution thresholds. Their outputs go to `data/` (tracked) or `data/bench/` (local only, it carries the evaluation questions verbatim).
 - `eval-309.*`, `replay-rescue-309.py`: the stage evaluation of the typographic rescue (FASTAPI-TEXT2SQL-309), Docker only on the VPS.
 - `bench-jev*.{sh,py}` and `Dockerfile.jev`: the Jev answer-entity bench, in its own image.
-- `test-*`: offline regression tests (`test-vision-homonyms.py`, `test-entity-inference-boundary.py`, `test-title-lexicon.py`).
+- `test-*`: offline regression tests (`test-vision-homonyms.py`, `test-complex-identity.py`, `test-entity-inference-boundary.py`, `test-title-lexicon.py`).
 
 ## The main benches
 

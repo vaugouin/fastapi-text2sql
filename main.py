@@ -1034,8 +1034,12 @@ def _candidate_chrono_key(candidate):
     return (1, "")
 
 
-def compute_name_ambiguity(sql_query, result_entity, query_results):
+def compute_name_ambiguity(sql_query, result_entity, query_results, anchor_override=None):
     """Neutral name/title-ambiguity flag, or None. See _NAME_AMBIGUITY_ENTITIES.
+
+    ``anchor_override`` (FASTAPI-TEXT2SQL-355): the title the complex retry's identity check
+    already established the rows share. The SQL of that retry filters on a year as well, so it
+    is not a pure name equality, yet the rows ARE namesakes the check could not split.
 
     Call on page 1 only (the small same-name cluster fits one page). Returns
     ``{entity, anchor, count, candidates:[{id, display, discriminator}]}`` when the
@@ -1046,7 +1050,7 @@ def compute_name_ambiguity(sql_query, result_entity, query_results):
     spec = _NAME_AMBIGUITY_ENTITIES.get((result_entity or "").strip().lower())
     if not spec or not isinstance(query_results, list) or len(query_results) < 2:
         return None
-    anchor = _where_pure_name_equality_anchor(sql_query, spec["columns"])
+    anchor = anchor_override or _where_pure_name_equality_anchor(sql_query, spec["columns"])
     if anchor is None:
         return None
     candidates, seen_imdb = [], set()
@@ -1386,6 +1390,11 @@ def _fetch_vision_identity_candidates(connection, item_type, title, year):
     FASTAPI-TEXT2SQL-322: with no year (the vision model leaves it empty when the poster does not
     show one), every work with the title is a candidate, up to a wider cap.
 
+    FASTAPI-TEXT2SQL-355: the year matches within one either way, like the generated SQL, which
+    widens a title + year lookup to the year before and after (a festival premiere and the
+    release often straddle a new year: the complex model writes *Crash* 2004, TMDb dates it
+    2005). Shared by the vision pre-stage and the complex retry.
+
     Candidate dicts carry ``id``, ``id_imdb``, ``original_title``, ``original_language``,
     ``directors`` (creators for a series) and ``cast`` (billing order). Any failure returns
     ``[]``, which the caller treats as "nothing to decide": the check improves the answer, it
@@ -1396,7 +1405,7 @@ def _fetch_vision_identity_candidates(connection, item_type, title, year):
     if not src or not str(title or "").strip():
         return []
     title_filter = " OR ".join(f"{c} = %s" for c in src["titles"])
-    year_filter = f" AND {src['year']} = %s" if has_year else ""
+    year_filter = f" AND {src['year']} BETWEEN %s AND %s" if has_year else ""
     max_rows = _VISION_IDENTITY_MAX_CANDIDATES if has_year else _VISION_IDENTITY_MAX_CANDIDATES_NO_YEAR
     try:
         with connection.cursor() as cursor:
@@ -1404,7 +1413,7 @@ def _fetch_vision_identity_candidates(connection, item_type, title, year):
                 f"SELECT {src['id']} AS ID, ID_IMDB, ORIGINAL_TITLE, ORIGINAL_LANGUAGE "
                 f"FROM {src['table']} WHERE ({title_filter}){year_filter} "
                 f"ORDER BY {src['id']} LIMIT {max_rows}",
-                tuple([title] * len(src["titles"])) + ((int(year),) if has_year else ()),
+                tuple([title] * len(src["titles"])) + ((int(year) - 1, int(year) + 1) if has_year else ()),
             )
             rows = cursor.fetchall() or []
             if len(rows) < 2:
@@ -1436,6 +1445,102 @@ def _fetch_vision_identity_candidates(connection, item_type, title, year):
         if name not in cand[key]:
             cand[key].append(name)
     return [by_id[i] for i in ids]
+
+
+def _complex_identity_check(connection, target):
+    """FASTAPI-TEXT2SQL-355. Choose among the namesakes of the work a complex rewrite names.
+
+    ``target`` is ``text2sql.f_build_complex_identity_target``'s output, or None. Returns None
+    when there is nothing to decide (no target, one candidate or none), else the trace:
+    ``decision``, ``target``, ``candidates``, ``scores``, ``kept``, ``winner_id_imdb`` (only on
+    ``picked``) and ``message`` (for the response messages, popped by the caller). The same
+    pure decision as the vision path (``vision_identity.pick_vision_identity``), with no face:
+    the complex model knows the work, it sees nothing. Any failure returns None, the retry then
+    runs exactly as before.
+    """
+    if not isinstance(target, dict):
+        return None
+    try:
+        candidates = _fetch_vision_identity_candidates(
+            connection, target["type"], target["title"], target["year"])
+        if len(candidates) < 2:
+            return None
+        disc = vision_identity.discriminators_from_vision(
+            {"known_credits": target.get("known_credits")}, [])
+        decision = vision_identity.pick_vision_identity(candidates, disc)
+    except Exception as exc:
+        print(f"[complex-identity] check skipped: {exc}")
+        return None
+    trace = {
+        "decision": decision["decision"],
+        "target": {k: target.get(k) for k in ("type", "title", "year")},
+        "discriminators": disc,
+        "candidates": [{k: c[k] for k in ("id", "id_imdb", "original_title", "original_language")}
+                       for c in candidates],
+        "scores": {str(k): v for k, v in decision["scores"].items()},
+        "kept": decision["kept"],
+    }
+    label = f"{target['type']} '{target['title']}' ({target['year']} +/- 1)"
+    winner = None
+    if decision["decision"] == "picked":
+        winner = next(c for c in candidates if c["id"] == decision["kept"][0])
+    if winner and winner.get("id_imdb"):
+        trace["winner_id_imdb"] = winner["id_imdb"]
+        matches = ", ".join(decision["scores"][winner["id"]]["matches"])
+        trace["message"] = (
+            f"Complex retry identity check: {len(candidates)} rows share {label}; kept "
+            f"{winner['id_imdb']} on {matches}; the retry queries that IMDb id.")
+    else:
+        if winner:
+            # Picked, but no IMDb id to query by: the retry keeps the title, every namesake stays.
+            trace["decision"] = "picked_without_imdb"
+        trace["message"] = (
+            f"Complex retry identity check: {len(candidates)} rows share {label} and the known "
+            f"credits do not single one out ({trace['decision']}); all of them are returned, "
+            f"most voted first, and name_ambiguity asks which one is meant.")
+    return trace
+
+
+def _apply_complex_identity_outcome(response, trace, lngpage):
+    """FASTAPI-TEXT2SQL-355. Attach the trace; when no namesake won, order and flag them.
+
+    Undecided: the rows are ordered by IMDb votes, most first (the -268 lever, an order and not
+    a choice), and ``name_ambiguity`` is filled so the client asks which work is meant. The
+    generated SQL filters on the year too, so the pure-equality detection of -157 stays silent
+    on it; the identity check already established that these rows are namesakes.
+    """
+    try:
+        response.complex_identity_check = trace
+        if trace.get("winner_id_imdb") or lngpage != 1:
+            return
+        rows = list(getattr(response, "result", None) or [])
+        if len(rows) < 2:
+            return
+        def _votes(row):
+            data = row.get("data") if isinstance(row, dict) else None
+            try:
+                return -float((data or {}).get("IMDB_VOTES") or 0)
+            except (TypeError, ValueError):
+                return 0.0
+        rows.sort(key=_votes)
+        for index, row in enumerate(rows):
+            if isinstance(row, dict):
+                row["index"] = index
+        response.result = rows
+        if not response.name_ambiguity:
+            ambiguity = compute_name_ambiguity(
+                response.sql_query, trace["target"]["type"], rows,
+                anchor_override=trace["target"]["title"])
+            if ambiguity:
+                _conn = get_db_connection()
+                try:
+                    with _conn.cursor() as _cursor:
+                        hydrate_name_ambiguity_candidates(_cursor, ambiguity)
+                finally:
+                    _conn.close()
+                response.name_ambiguity = ambiguity
+    except Exception as exc:
+        print(f"[complex-identity] outcome not applied: {type(exc).__name__}: {exc}")
 
 
 # FASTAPI-TEXT2SQL-321. How many returned works feed the credits check: the first rows only,
@@ -2179,6 +2284,10 @@ class Text2SQLResponse(BaseModel):
     # application that proposes a title and one that shows how it read the image. None without
     # an image.
     vision_evidence: Optional[dict] = None
+    # FASTAPI-TEXT2SQL-355. The homonym check of the complex retry: the work the rewrite names,
+    # the candidates sharing its title and year (+/- 1), their scores against the credits the
+    # complex model knows, and the decision. None when the retry was not an identity lookup.
+    complex_identity_check: Optional[dict] = None
     # How far the accepted match actually sat from the sought value, per resolved entity
     # (FASTAPI-TEXT2SQL-206). The list is the calibration material; the two scalars below are
     # the weakest link of the request, which is precisely what a threshold would cut, and they
@@ -3260,7 +3369,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     # + messages show the direct lookup. Skipped on the complex-question retry
     # re-entry (its resolved question is never a bare id).
     _bare_id = _detect_bare_id(request.question) if request.question else None
-    if _bare_id is not None and not getattr(request, "complex_question_already_resolved", False):
+    # FASTAPI-TEXT2SQL-355: the one re-entry allowed through is the identity check's winner,
+    # whose IMDb id the retry put in the question itself (read in the base, never by a model).
+    _identity_winner = (request.complex_retry_seed or {}).get("identity_winner_imdb") if (
+        getattr(request, "complex_question_already_resolved", False)
+        and isinstance(request.complex_retry_seed, dict)) else None
+    if _bare_id is not None and (
+            not getattr(request, "complex_question_already_resolved", False)
+            or (_identity_winner and _bare_id[1] == _identity_winner)):
         _kind, _id_value = _bare_id
         _kind_label = {"imdb_title": "IMDb title", "imdb_person": "IMDb person", "wikidata": "Wikidata"}[_kind]
         input_text = request.question
@@ -4295,20 +4411,40 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 ))
                 position_counter += 1
 
+                # FASTAPI-TEXT2SQL-355. The rewrite names one work by title and year, and the
+                # base may hold several with that key (Taxi Driver 1976: Scorsese's and the
+                # Turkish Taksi Şoförü). The rewrite is left exactly as the model wrote it; the
+                # credits it knows for the work choose among the namesakes read in the base.
+                # A winner is queried by its IMDb id, read in the base; no winner, every
+                # namesake stays and the client is asked to choose.
+                dctcomplexidentity = _complex_identity_check(
+                    connection, retry_payload.get("identity_target"))
+                strretryquery = retry_question
+                dctretryseed = retry_payload.get("identity_seed")
+                if dctcomplexidentity:
+                    messages.append(TextMessage(position=position_counter,
+                                                text=dctcomplexidentity.pop("message")))
+                    position_counter += 1
+                    if dctcomplexidentity.get("winner_id_imdb"):
+                        strretryquery = dctcomplexidentity["winner_id_imdb"]
+                        dctretryseed = {"identity_winner_imdb": strretryquery}
+
                 try:
                     connection.close()
                 except Exception:
                     pass
 
                 retry_request = request.model_copy(deep=True)
-                retry_request.question = retry_question
+                retry_request.question = strretryquery
                 retry_request.question_hashed = None
                 retry_request.complex_question_already_resolved = True
                 # FASTAPI-TEXT2SQL-300: the resolver's type travels as data, not as the word
                 # "Serie" for the retry to re-interpret. None for a relation question.
-                retry_request.complex_retry_seed = retry_payload.get("identity_seed")
+                retry_request.complex_retry_seed = dctretryseed
 
                 retry_response = await search_text2sql(retry_request, api_key)
+                if dctcomplexidentity:
+                    _apply_complex_identity_outcome(retry_response, dctcomplexidentity, lngpage)
 
                 # FASTAPI-TEXT2SQL-241: the INNER response is what gets returned and logged for
                 # the original question, so the first-pass record has to be carried onto it.

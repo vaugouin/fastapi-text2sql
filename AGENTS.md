@@ -279,7 +279,7 @@ Pick verification by blast radius, and say exactly what was not run and why when
 - Python-only change: the narrowest relevant check, plus pyflakes.
 - Prompt, placeholder, resolver, cache or schema-facing change: representative `/search/text2sql` questions, with `store_to_cache=false` when inspecting behaviour.
 - Evaluation-sensitive change: a focused evaluator subset before a full run (`../text2sql-eval/README.md`).
-- Offline checks (no API, no database): `checks/verif-114.py` (vision path), `checks/test-vision-homonyms.py` (vision identity), `checks/verif-311.py` (answer-entity guard), `checks/verif-274.py` (reasoning families), `uv run --with "fastapi>=0.104.1" --with httpx checks/verif-308.py` then `verif-114.py` (serialization), `checks/test-wikipedia-md-mentions.py` (Wikipedia Markdown and mentions).
+- Offline checks (no API, no database): `checks/verif-114.py` (vision path), `checks/test-vision-homonyms.py` (vision identity), `checks/test-complex-identity.py` (homonym check of the complex retry, -355), `checks/verif-311.py` (answer-entity guard), `checks/verif-274.py` (reasoning families), `uv run --with "fastapi>=0.104.1" --with httpx checks/verif-308.py` then `verif-114.py` (serialization), `checks/test-wikipedia-md-mentions.py` (Wikipedia Markdown and mentions).
 - **Prefer the MCP tools over raw `curl` for entity-endpoint checks**, and propose them: the `get_*` tools on `https://www.vaugouin.com/mcp` return the endpoint JSON verbatim from the same deployed app, so one call validates both surfaces.
 
 ---

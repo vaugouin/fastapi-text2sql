@@ -1645,6 +1645,34 @@ def f_retry_question_drops_intent(
         return False
 
 
+# FASTAPI-TEXT2SQL-355. The two identity patterns of data/complex_question.md, as the stronger
+# model writes them: `Movie Taxi Driver (1976)`, `Serie The Diplomat (2023)`. Anything else
+# (a list, a relation, a person, a criterion) is not one work and gets no identity check.
+_COMPLEX_IDENTITY_PATTERN = re.compile(r"^(Movie|Serie)\s+(.+?)\s*\((\d{4})\)\s*$", re.IGNORECASE)
+
+
+def f_build_complex_identity_target(resolved, retry_question: str):
+    """The work a complex rewrite identifies, for the homonym check of the retry (-355).
+
+    Returns ``{"type": "movie"|"serie", "title", "year", "known_credits"}`` when the rewritten
+    question is ONE identity lookup and the model gave at least one credit, else None. The
+    rewrite itself is never changed: the credits travel beside it, and the retry uses them only
+    when several works share the title and the year (``vision_identity.pick_vision_identity``).
+    """
+    try:
+        match = _COMPLEX_IDENTITY_PATTERN.match(str(retry_question or "").strip())
+        if not match or not isinstance(resolved, dict):
+            return None
+        credits = _normalize_known_credits(resolved.get("known_credits"))
+        if not credits:
+            return None
+        return {"type": match.group(1).lower(), "title": match.group(2).strip(),
+                "year": match.group(3), "known_credits": credits}
+    except Exception:
+        # A target that cannot be built leaves the retry on today's path, never breaks it.
+        return None
+
+
 def f_resolve_complex_question_retry_payload(user_question: str, strcomplexquestionmodel: str = "default"):
     """Resolve a complex question and package the retry payload used by the API flow."""
     resolved_complex = f_resolve_complex_question(user_question, strcomplexquestionmodel)
@@ -1658,6 +1686,9 @@ def f_resolve_complex_question_retry_payload(user_question: str, strcomplexquest
         "retry_question": retry_question,
         # FASTAPI-TEXT2SQL-300: the type the resolver decided, as data, for an identity retry.
         "identity_seed": f_build_identity_retry_seed(resolved_complex, retry_question),
+        # FASTAPI-TEXT2SQL-355: the work an identity rewrite names, with the credits the model
+        # knows for it, so the retry can tell it apart from its namesakes. None otherwise.
+        "identity_target": f_build_complex_identity_target(resolved_complex, retry_question),
         "justification": reasoning_justification,
         "has_error": not (isinstance(resolved_complex, dict) and not resolved_complex.get("error")),
         # FASTAPI-TEXT2SQL-221. Distinct from has_error on purpose: this is not a failure,

@@ -85,6 +85,9 @@ _SCHEMAS = {
         "types": {
             "question": str, "justification": str, "answer": str,
             "error": str, "raw_content": str, "authoritative_empty": bool,
+            # FASTAPI-TEXT2SQL-355: `known_credits` is deliberately NOT typed here. It only
+            # helps choose among namesakes; a malformed block must cost that choice, never the
+            # whole rewrite. text2sql._normalize_known_credits cleans it defensively.
         },
     },
     # f_identify_from_image -> {"hints": {...}, "items": [...], "about_image", "image_answer",

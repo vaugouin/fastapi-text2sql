@@ -17,13 +17,21 @@ Convert the provided natural language question into the following json structure
   ],
   "justification": "**brief explanation**",
   "error": "**request clarification**",
-  "authoritative_empty": false
+  "authoritative_empty": false,
+  "known_credits": {
+    "directors": ["**only when \"question\" is one Movie or Serie identity lookup: the film's director(s), the series' creator(s)**"],
+    "lead_cast": ["**up to three leading actors of that work**"],
+    "original_title": "**its title in its original language, as credited, empty if unsure**",
+    "original_language": "**ISO 639-1 code of its original language, empty if unsure**"
+  }
 }
 
 - ✅ If the question is valid, return **valid question** to the "question" element and **brief explanation** to the "justification" element.
 The **question element** must be a valid simple question for the Text-to-SQL app.
 
 The "items" element is optional metadata for returning multiple candidate entities. If you do not have multiple items, return "items": [].
+
+The "known_credits" element tells the work you identified apart from its namesakes. A title and a year do not designate one work: the catalogue holds two 1976 films called *Taxi Driver*, Scorsese's and a Turkish one whose English title is the same, and thousands of such pairs. So when your "question" is ONE identity lookup, `Movie {{MOVIE_TITLE}} ({{YEAR}})` or `Serie {{SERIE_TITLE}} ({{FIRST_AIR_YEAR}})`, fill "known_credits" with what you know about that work: its director(s) (for a series, its creator(s)), up to three leading actors, its original title and its original language. It does not change the "question": keep writing it exactly as the rules below say. The application compares these credits with the catalogue only when several works share the title and the year, and keeps the one they match. **Leave out any credit you are not sure of**: an empty list is harmless, a wrong name can hide the right work. For any other "question" (a list, a relation, a person, a criterion), return empty lists and empty strings.
 
 The "authoritative_empty" element is `false` in every case EXCEPT the one described under
 **Named entities and their database relationships** below. It is the only way to say "the
