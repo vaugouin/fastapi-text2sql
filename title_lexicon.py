@@ -16,6 +16,9 @@ Search, in order, stopping at the first stage that finds something:
   fuzzy    RapidFuzz ``ratio`` over every distinct form, at the strategy's ``min_fuzz_ratio``; a
            form whose numbers differ from the mention's is refused ('24 heures pour tuer' is not
            '3 heures pour tuer').
+Year guard (FASTAPI-TEXT2SQL-363): at the prefix and fuzzy stages, a candidate whose year is known
+and more than one year off the extracted year is dropped; if none is left the search misses, so the
+cascade falls through ('La Guerre des momies' (1973) no longer lands on 'La Guerre des mamies').
 Ranking: a year within one of the extracted year first (TMDb dates Casablanca 1943), then exact
 before article-only, then IMDb votes, then popularity. Folding: case, accents, punctuation, ``&``,
 a few abbreviations (``dr`` -> ``doctor``) and spelled-out numbers below 100 in English and French
@@ -239,6 +242,7 @@ class TitleLexicon:
             ranked = self._rank(merged, year, set(exact))
             return self._result(out, "exact" if ranked[0][0] in exact else "article", 100.0, ranked, q)
 
+        rejected: list[tuple[str, int, int]] = []   # (stage, id, year) dropped by the year guard
         if len(qa.split()) >= 2 or len(qa) >= 6:
             pre: dict[int, int] = {}
             if qa != q:   # the mention carries its article: match it on the full forms
@@ -249,19 +253,61 @@ class TitleLexicon:
             else:
                 for j in self._art_range(qa + " ", qa + " ￿"):
                     self._add(pre, self._codes_of_key(self.art_ptr[j]))
+            pre = self._year_guard(pre, year, "prefix", rejected)
             if pre:
                 return self._result(out, "prefix", 100.0, self._rank(pre, year, set()), qa)
 
         hits = process.extract(q, self.keys, scorer=fuzz.ratio, limit=10, score_cutoff=min_ratio)
         qnum = _DIGITS.findall(q)
         hits = [h for h in hits if _DIGITS.findall(h[0]) == qnum]
+        if year:
+            # Year guard first, then the best score among what survives: a near-miss form of
+            # the wrong year must not hide a slightly lower one of the right year.
+            kept = []
+            for h in hits:
+                cand: dict[int, int] = {}
+                self._add(cand, self._codes_of_key(h[2]))
+                if self._year_guard(cand, year, "fuzzy", rejected):
+                    kept.append(h)
+            hits = kept
         if hits:
             best = hits[0][1]
             fz: dict[int, int] = {}
             for _, sc, ki in hits:
                 if sc >= best - 0.01:
                     self._add(fz, self._codes_of_key(ki))
+            fz = self._year_guard(fz, year, "fuzzy", None)
             return self._result(out, "fuzzy", float(best), self._rank(fz, year, set()), hits[0][0])
+        if rejected:
+            out["year_rejected"] = self._rejected_summary(rejected)
+        return out
+
+    def _year_guard(self, cands: dict[int, int], year: Optional[int], stage: str,
+                    rejected: Optional[list]) -> dict[int, int]:
+        """FASTAPI-TEXT2SQL-363: at the prefix and fuzzy stages the title itself is uncertain, so
+        an extracted year that disagrees by more than one year rules the candidate out. A
+        candidate with no year in the base stays; without an extracted year nothing changes."""
+        if not year:
+            return cands
+        kept = {}
+        for e, c in cands.items():
+            yr = self.years[e]
+            if yr and abs(yr - year) > 1:
+                if rejected is not None:
+                    rejected.append((stage, self.ids[e], yr))
+            else:
+                kept[e] = c
+        return kept
+
+    @staticmethod
+    def _rejected_summary(rejected: list) -> list:
+        seen, out = set(), []
+        for stage, i, yr in rejected:
+            if i not in seen:
+                seen.add(i)
+                out.append({"stage": stage, "id": i, "year": yr})
+            if len(out) == 5:
+                break
         return out
 
     def _result(self, out, stage, score, ranked, form):

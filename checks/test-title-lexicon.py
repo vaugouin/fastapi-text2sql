@@ -44,6 +44,10 @@ POOL = [
      "Star Wars : L'Empire des Rêves", "Empire of Dreams: The Story of the Star Wars Trilogy"),
     (1212809, 2008, 25, 0.1, "The Most Famous Man in the World!", "The Most Famous Man in the World!", "The Most Famous Man in the World!"),
     (11, 1977, 1596297, 32.3, "Star Wars", "La Guerre des étoiles", "Star Wars"),
+    # FASTAPI-TEXT2SQL-363, 2204 FR (doc/sql/check-363-year-guard-20261105.txt): the expected film has
+    # no French title, the fuzzy stage found a 1992 film one letter away.
+    (152750, 1992, 196, 0.5, "Battling for Baby", "La guerre des mamies", "Battling for Baby"),
+    (531097, 1974, 14, 0.1, "The War of the Mummies", "Der Krieg der Mumien", "Der Krieg der Mumien"),
 ]
 
 # Title alias table rows (T_WC_T2S_MOVIE_TITLE_ALIAS, TMDB-MOVIE-PREPROCESS-069): TITLE, LANG_CODE.
@@ -73,6 +77,12 @@ CASES = [
     ("the big lebovski", None, "miss", None, None),               # absent from this pool
     ("Escape from New Yrok", None, "miss", None, None),
     ("Jaws", None, "miss", None, None),                           # short word, no prefix
+    # Year guard (FASTAPI-TEXT2SQL-363): fuzzy and prefix hits more than one year off are dropped.
+    ("La Guerre des momies", 1973, "miss", None, None),           # 'mamies' is 1992: falls through
+    ("La Guerre des momies", None, "fuzzy", 152750, "MOVIE_TITLE_FR"),  # no year, no guard
+    ("the dark knigt", 2008, "fuzzy", 155, "MOVIE_TITLE"),        # misspelt, right year: kept
+    ("doctor strangelove", 1990, "miss", None, None),             # prefix 1964 and fuzzy 2020 dropped
+    ("Casablanca", 1990, "exact", 289, "MOVIE_TITLE"),            # exact stage: never guarded
 ]
 
 
@@ -88,6 +98,11 @@ def test_search(verbose):
         if verbose or not ok:
             print(f"{'ok ' if ok else 'BAD'} {mention!r} y={year}: {r['stage']} {got_id} {got_col}"
                   f" (expected {stage} {first} {col})")
+    r = lex.search("La Guerre des momies", 1973, 85.85)
+    ok = [x["id"] for x in r.get("year_rejected") or []][:1] == [152750]   # best fuzzy form first
+    bad += not ok
+    if verbose or not ok:
+        print(f"{'ok ' if ok else 'BAD'} year_rejected reported: {r.get('year_rejected')}")
     return bad, lex
 
 
@@ -251,7 +266,7 @@ def main():
     bad += test_years(verbose)
     bad += test_entity(lex, verbose)
     bad += test_aliases(verbose)
-    total = len(CASES) + len(YEAR_CASES) + 3 + 4
+    total = len(CASES) + 1 + len(YEAR_CASES) + 3 + 4
     print(f"{total - bad}/{total} passed")
     return 1 if bad else 0
 

@@ -1526,11 +1526,15 @@ def plan_entity_resolutions(
                             "lexicon_tier": _tier or "tmdb",
                             "lexicon_candidates": lres.get("n_candidates", 0),
                             "year_context": _year_ctx,
+                            "year_rejected": lres.get("year_rejected") or [],
                             "rejected": not _lm,
                             "min_fuzz_ratio": _min,
                         })
                         if not _lm:
-                            planned.note(f"Entity resolution: {placeholder} lexicon miss for '{raw_value}' in {search_cfg.get('strtablename')}{_tier_txt}; falling through to the next strategy")
+                            _yrej = lres.get("year_rejected") or []
+                            _yrej_txt = ("; " + ", ".join(f"{r['stage']} hit id={r['id']} (year {r['year']})" for r in _yrej)
+                                         + f" rejected: year {_year_ctx} extracted (FASTAPI-TEXT2SQL-363)") if _yrej else ""
+                            planned.note(f"Entity resolution: {placeholder} lexicon miss for '{raw_value}' in {search_cfg.get('strtablename')}{_tier_txt}{_yrej_txt}; falling through to the next strategy")
                             _lexicon_missed = True
                             continue
                         _docid, _col = _lm[0][0], _lm[0][1]

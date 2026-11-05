@@ -1,0 +1,10 @@
+-- check-363-year-guard.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-11-05 14:36:05 +0100
+--
++----------+---------------------------+---------------------------------------+--------------------------+--------------+-------------+------------+
+| ID_MOVIE | MOVIE_TITLE               | MOVIE_TITLE_FR                        | ORIGINAL_TITLE           | RELEASE_YEAR | DAT_RELEASE | IMDB_VOTES |
++----------+---------------------------+---------------------------------------+--------------------------+--------------+-------------+------------+
+|    62928 | The Mummies of Guanajuato | Santo contre les momies de Guanajuato | Las momias de Guanajuato |         1972 | 1972-02-03  |        377 |
+|   152750 | Battling for Baby         | La guerre des mamies                  | Battling for Baby        |         1992 | 1992-01-12  |        196 |
+|   531097 | The War of the Mummies    | Der Krieg der Mumien                  | Der Krieg der Mumien     |         1974 | 1974-03-04  |         14 |
++----------+---------------------------+---------------------------------------+--------------------------+--------------+-------------+------------+
