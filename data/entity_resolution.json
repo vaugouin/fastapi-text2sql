@@ -41,6 +41,7 @@
         },
         "score_metric": "token_subset",
         "max_extra_tokens": 1,
+        "exact_beats_earlier_fuzzy": true,
         "resolve_to_canonical": {
           "from_column": "ID_PERSON",
           "table": "T_WC_T2S_PERSON",

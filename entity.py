@@ -829,6 +829,56 @@ def _substitute_entity_row(placeholder: str, target_col: str, strfieldnamenew: s
     return _apply
 
 
+def _strategy_applies_to_language(search_cfg: dict, language_family) -> bool:
+    """Same language filter as the strategy loop of `resolve_entities`."""
+    if search_cfg.get("enabled") is False:
+        return False
+    only_in = search_cfg.get("apply_when_language_family_in")
+    if isinstance(only_in, list) and (language_family is None or language_family not in only_in):
+        return False
+    not_in = search_cfg.get("apply_when_language_family_not_in")
+    if isinstance(not_in, list) and language_family is not None and language_family in not_in:
+        return False
+    return True
+
+
+def _exact_match_in_later_strategy(cursor, searches: list, current_index: int, raw_value: str, language_family):
+    """FASTAPI-TEXT2SQL-365: the first later strategy that declares `exact_beats_earlier_fuzzy`
+    and holds `raw_value` exactly (its own exact-match channel, same normalization and same
+    popularity ordering as `search_first_match`). Returns (strategy, row) or (None, None).
+
+    Why. The strategies run in order and the first accepted match wins, so a FUZZY hit on the
+    main names (T_WC_T2S_PERSON, gate 84.5) ended the search before the alias table was read,
+    even when the alias table held the very form asked for: "Chu Kong" went to Chu Bong at 87.5
+    while "Chu Kong" is an alias of Paul Chu Kong; "Charles Chaplin" went to Charles Champlin.
+    """
+    q_norm = rapidfuzz_query.normalize_name(raw_value or "")
+    if not q_norm.strip():
+        # A value normalized to nothing would match the punctuation-only aliases ("...").
+        return None, None
+    for later_cfg in searches[current_index + 1:]:
+        if not isinstance(later_cfg, dict) or not later_cfg.get("exact_beats_earlier_fuzzy"):
+            continue
+        if (later_cfg.get("search_mode") or "").strip().lower() != "rapidfuzz":
+            continue
+        if not _strategy_applies_to_language(later_cfg, language_family):
+            continue
+        table = later_cfg.get("strtablename")
+        table_id = later_cfg.get("strtableid")
+        desc = later_cfg.get("default_field")
+        desc_norm = later_cfg.get("rapidfuzz_col_norm") or (f"{desc}_NORM" if desc else None)
+        popularity = later_cfg.get("rapidfuzz_col_popularity") or later_cfg.get("order_by") or "POPULARITY"
+        if not table or not table_id or not desc or not desc_norm:
+            continue
+        row = rapidfuzz_query.exact_match(
+            cursor, table, table_id, desc, desc_norm, popularity, q_norm,
+            popularity_join=later_cfg.get("popularity_join"),
+        )
+        if isinstance(row, dict):
+            return later_cfg, row
+    return None, None
+
+
 def _substitute_canonical(placeholder: str, target_col: str, canonical_value, justification_value: str):
     """Build the substitution for a RapidFuzz AKA match resolved to its canonical value."""
     canonical_value_sql = _sql_escape_literal(str(canonical_value))
@@ -1101,7 +1151,7 @@ def plan_entity_resolutions(
                     planned.note(f"Entity resolution: {placeholder} guessed language family = {language_family or 'unknown'}")
 
                 _lexicon_missed = False
-                for search_cfg in searches:
+                for _search_index, search_cfg in enumerate(searches):
                     # FASTAPI-TEXT2SQL-360: a strategy can ship switched off ("enabled": false)
                     # and be switched on by hot reload, without a restart.
                     if search_cfg.get("enabled") is False:
@@ -1421,6 +1471,75 @@ def plan_entity_resolutions(
                                 f"({(rapidfuzz_result or {}).get('reason')}); falling through to next strategy"
                             )
                             continue
+
+                        # FASTAPI-TEXT2SQL-365 (voie 1). The match accepted above may be fuzzy.
+                        # Before it ends the search, a later strategy that declares
+                        # `exact_beats_earlier_fuzzy` (the person alias table) is asked whether it
+                        # holds the value EXACTLY; if so, and if that row's person is at least as
+                        # popular as the fuzzy candidate, the exact alias wins. The popularity
+                        # guard is what keeps "john voigt" on Jon Voight, a typo, rather than on
+                        # Wolfgang Zilzer, an obscure actor once credited as "John Voigt".
+                        # Measured on the 2,131 executions of the 1.1.20 campaigns: 61 fuzzy
+                        # person hits, 4 with an exact alias of another person
+                        # (text2sql-eval/check-exact-alias-over-fuzzy-name-20261105.txt).
+                        _fuzzy_hit = (
+                            (rapidfuzz_result or {}).get("reason") != "exact"
+                            and _sought_norm != _matched_norm
+                            and _sought_key != _matched_key
+                        )
+                        if _fuzzy_hit:
+                            try:
+                                _exact_cfg, _exact_row = _exact_match_in_later_strategy(
+                                    cursor, searches, _search_index, raw_value, language_family
+                                )
+                            except Exception as _exc:
+                                planned.note(f"Entity resolution: {placeholder} exact probe of the later strategies raised {type(_exc).__name__}: {_exc}; the fuzzy match stands")
+                                _exact_cfg, _exact_row = None, None
+                            if _exact_cfg is not None:
+                                _exact_pop_col = _exact_cfg.get("rapidfuzz_col_popularity") or _exact_cfg.get("order_by") or "POPULARITY"
+                                try:
+                                    _exact_pop = float(_exact_row.get(_exact_pop_col) or 0)
+                                    _fuzzy_pop = float(best.get(strcolumnpopularity) or 0)
+                                except (TypeError, ValueError):
+                                    _exact_pop, _fuzzy_pop = 0.0, 0.0
+                                _exact_text = str(_exact_row.get(_exact_cfg.get("default_field")) or "")
+                                if _exact_pop >= _fuzzy_pop:
+                                    planned.note(
+                                        f"Entity resolution: {placeholder} -> fuzzy match '{_matched_text}' in {strtablename} "
+                                        f"(popularity {_fuzzy_pop:.1f}) yields to the exact form '{_exact_text}' in "
+                                        f"{_exact_cfg.get('strtablename')} (popularity {_exact_pop:.1f})"
+                                    )
+                                    if match_scores and match_scores[-1].get("search_mode") == "rapidfuzz":
+                                        match_scores[-1]["yielded_to_exact"] = _exact_cfg.get("strtablename")
+                                    match_scores.append({
+                                        "placeholder": placeholder,
+                                        "search_mode": "rapidfuzz",
+                                        "collection": _exact_cfg.get("collection"),
+                                        "table": _exact_cfg.get("strtablename"),
+                                        "sought": raw_value,
+                                        "candidate": _exact_text,
+                                        "distance": None,
+                                        "fuzz_ratio": 100.0,
+                                        "exact_match": True,
+                                        "exact_match_folded": True,
+                                        "exact_match_descriptors": True,
+                                        "rejected": False,
+                                        "auto": True,
+                                        "min_fuzz_ratio": _exact_cfg.get("min_fuzz_ratio"),
+                                        "score_metric": (_exact_cfg.get("score_metric") or rapidfuzz_query.DEFAULT_SCORE_METRIC),
+                                        "preempted_fuzzy": strtablename,
+                                    })
+                                    search_cfg = _exact_cfg
+                                    best = _exact_row
+                                    strtablename = _exact_cfg.get("strtablename")
+                                    strtableid = _exact_cfg.get("strtableid")
+                                    strcolumndesc = _exact_cfg.get("default_field")
+                                else:
+                                    planned.note(
+                                        f"Entity resolution: {placeholder} -> exact form '{_exact_text}' in "
+                                        f"{_exact_cfg.get('strtablename')} (popularity {_exact_pop:.1f}) is less popular "
+                                        f"than the fuzzy match '{_matched_text}' (popularity {_fuzzy_pop:.1f}); the fuzzy match stands"
+                                    )
 
                         docid = best.get(strtableid)
                         if docid is None:
