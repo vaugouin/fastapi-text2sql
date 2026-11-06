@@ -1624,7 +1624,7 @@ def plan_entity_resolutions(
                         _tier = (search_cfg.get("lexicon_aliases") or {}).get("table")
                         _tier_txt = f" via {_tier}" if _tier else ""
                         try:
-                            lres = lex.search(raw_value, _year_ctx, float(_min) if _min is not None else 85.85)
+                            lres = lex.lookup(raw_value, _year_ctx, float(_min) if _min is not None else 85.85)
                         except Exception as _exc:
                             planned.note(f"Entity resolution: {placeholder} lexicon search raised {type(_exc).__name__}: {_exc}; falling through")
                             _lexicon_missed = True

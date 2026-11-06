@@ -67,7 +67,8 @@ def thresholds():
         typ = e.get("placeholder_prefix")
         if typ in TYPES:
             ss = e.get("search_list") or []
-            out[typ] = min(s.get("min_fuzz_ratio", 85) for s in ss)
+            lx = [s for s in ss if s.get("search_mode") == "lexicon"]
+            out[typ] = (lx[0] if lx else ss[0]).get("min_fuzz_ratio", 85)   # the lexicon's own gate
             stop[typ] = sorted({tl.fold(w) for s in ss for w in (s.get("score_stopwords") or [])})
     return out, stop
 
@@ -183,20 +184,20 @@ def main() -> int:
     ap.add_argument("--pool", default=os.path.join(BENCH, "names.tsv"))
     ap.add_argument("--out", default=BENCH)
     ap.add_argument("--no-logs", action="store_true")
+    ap.add_argument("--ratio", type=float, default=None, help="fuzzy gate for companies (default: the config's)")
     args = ap.parse_args()
     t0 = time.time()
     ratio, stop = thresholds()
 
     lex, names, name_ids = {}, {}, {}
-    strip_of = {"Company_name": lambda f: strip_tail(f, COMPANY_TAIL),
-                "Collection_name": lambda f: strip_any(f, set(stop["Collection_name"]))}
     for typ, fam in TYPES.items():
         lex[(typ, "lex")] = tl.TitleLexicon(pool(args.pool, fam), ["NAME", "NAME_FR"])
         desc = set(COMPANY_TAIL) if fam == "c" else (set(stop[typ]) if fam == "k" else None)
         if desc:
-            mode = "tail" if fam == "c" else "any"
-            lex[(typ, "lexd")] = tl.TitleLexicon(pool(args.pool, fam, desc, mode),
-                                                 ["NAME", "NAME_FR", "NAME_STRIPPED", "NAME_FR_STRIPPED"])
+            # The production class with its descriptor handling (title_lexicon.TitleLexicon
+            # strip_words / lookup), so the bench measures the shipped algorithm.
+            lex[(typ, "lexd")] = tl.TitleLexicon(pool(args.pool, fam), ["NAME", "NAME_FR"],
+                                                 strip_words=desc, strip_mode="tail" if fam == "c" else "any")
         else:
             lex[(typ, "lexd")] = lex[(typ, "lex")]
         ni = collections.defaultdict(list)
@@ -212,21 +213,9 @@ def main() -> int:
               f" + {lex[(typ, 'lexd')].build_seconds}s")
 
     def look(typ, tag, sought):
-        q = sought
-        if tag == "lexd" and typ in strip_of:
-            # Same cut on the mention as on the pool, as the RapidFuzz strategy does with
-            # strip_franchise_stopwords: "collection James Bond" meets "James Bond Collection".
-            q = strip_of[typ](tl.fold(sought)) or sought
-        # One pool of full and stripped forms, ranked by credits: "paramount" is Paramount
-        # Pictures (2,896 credits), not Paramount+ (1), which a full-name-first tier would return.
-        res = lex[(typ, tag)].search(q, None, ratio[typ])
-        if tag == "lexd" and q != tl.fold(sought):
-            # The mention carried a descriptor: its full form, when stored, beats the stripped
-            # one ("Collection Batman" is "Batman Collection", not "Batman").
-            full = lex[(typ, tag)].search(sought, None, ratio[typ])
-            if full["stage"] in ("exact", "article"):
-                res = full
-        return res
+        if args.ratio and typ == "Company_name":
+            ratio[typ] = args.ratio
+        return lex[(typ, tag)].lookup(sought, None, ratio[typ])
 
     events = harvest(not args.no_logs)
     print(f"{len(events)} mention events ({sum(r['src'] == 'eval' for r in events)} from evaluation "

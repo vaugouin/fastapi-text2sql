@@ -147,8 +147,19 @@ class TitleLexicon:
     ``rows`` yields ``(id, year, votes, popularity, form_0, form_1, ...)``; ``form_i`` comes from
     ``columns[i]``, so a hit says which column matched (``column_of``)."""
 
-    def __init__(self, rows: Iterable[Sequence], columns: Sequence[str]):
+    def __init__(self, rows: Iterable[Sequence], columns: Sequence[str],
+                 strip_words: Optional[Iterable[str]] = None, strip_mode: str = "tail"):
         t0 = time.time()
+        # Descriptors (FASTAPI-TEXT2SQL-360, second wave): with ``strip_words``, every form is
+        # also indexed with them removed (``tail``: only at the end, as legal forms of companies;
+        # ``any``: anywhere, as franchise words of collections), under the same column name, and
+        # ``lookup`` strips the mention the same way.
+        self.strip_words = frozenset(fold(w) for w in (strip_words or ()) if fold(w))
+        self.strip_mode = strip_mode
+        if self.strip_words:
+            ncol0 = len(columns)
+            columns = list(columns) * 2
+            rows = (tuple(r) + tuple(self.strip(fold(f)) if f else "" for f in r[4:4 + ncol0]) for r in rows)
         self.columns = list(columns)
         ncol = len(self.columns)
         self.ids = array("q")
@@ -218,6 +229,33 @@ class TitleLexicon:
             e, c = divmod(code, 8)
             if e not in dst or c < dst[e]:
                 dst[e] = c
+
+    def strip(self, folded: str) -> str:
+        """The folded form without its descriptors, never down to nothing ("pictures" stays)."""
+        toks = folded.split()
+        if self.strip_mode == "any":
+            kept = [t for t in toks if t not in self.strip_words]
+            return " ".join(kept) if kept else folded
+        while len(toks) > 1 and toks[-1] in self.strip_words:
+            toks.pop()
+        return " ".join(toks)
+
+    def lookup(self, mention: str, year: Optional[int] = None, min_ratio: float = 85.85) -> dict:
+        """``search`` with the descriptors handled: the stripped mention is searched against full
+        and stripped forms together, ranked by votes (credits), so "paramount" is Paramount
+        Pictures (2,896 credits) and not Paramount+ (3). When the mention itself carried a
+        descriptor, its full form wins if stored ("Collection Batman" is "Batman Collection",
+        not "Batman"). Without ``strip_words`` this is ``search``."""
+        if not self.strip_words:
+            return self.search(mention, year, min_ratio)
+        q = fold(mention)
+        qs = self.strip(q)
+        res = self.search(qs or mention, year, min_ratio)
+        if qs != q:
+            full = self.search(mention, year, min_ratio)
+            if full["stage"] in ("exact", "article"):
+                return full
+        return res
 
     # -- search
     def search(self, mention: str, year: Optional[int] = None, min_ratio: float = 85.85) -> dict:
@@ -336,9 +374,11 @@ def lexicon_key(cfg: dict) -> tuple:
     langs = cfg.get("languages") or {}
     cols = tuple(dict.fromkeys(c for c in langs.values() if c))
     al = cfg.get("lexicon_aliases") or {}
+    votes = cfg.get("lexicon_votes_columns") or ([cfg["lexicon_votes_column"]] if cfg.get("lexicon_votes_column") else [])
+    pop = cfg["lexicon_popularity_column"] if "lexicon_popularity_column" in cfg else (cfg.get("order_by") or "POPULARITY")
     return (cfg.get("strtablename"), cfg.get("strtableid"), cols,
-            cfg.get("lexicon_year_column"), cfg.get("lexicon_votes_column"),
-            cfg.get("order_by") or "POPULARITY", al.get("table"))
+            cfg.get("lexicon_year_column"), tuple(votes), pop or None, al.get("table"),
+            tuple(cfg.get("lexicon_strip_words") or ()), cfg.get("lexicon_strip_mode") or "tail")
 
 
 def alias_rows(rows: Iterable[Sequence], cfg: dict):
@@ -368,11 +408,14 @@ def alias_rows(rows: Iterable[Sequence], cfg: dict):
 
 
 def build_from_db(connection, cfg: dict) -> TitleLexicon:
-    table, idcol, cols, yearcol, votescol, popcol, altable = lexicon_key(cfg)
+    table, idcol, cols, yearcol, votescols, popcol, altable, stripw, stripm = lexicon_key(cfg)
+    # Votes: one column (IMDB_VOTES for titles) or a sum (MOVIE_COUNT + SERIE_COUNT for
+    # companies: the credits). Popularity: absent from T_WC_T2S_NETWORK, hence optional.
+    votes = " + ".join(f"COALESCE(m.`{c}`, 0)" for c in votescols) or "0"
     sel = ", ".join([f"m.`{idcol}`",
                      f"m.`{yearcol}`" if yearcol else "NULL",
-                     f"COALESCE(m.`{votescol}`, 0)" if votescol else "0",
-                     f"COALESCE(m.`{popcol}`, 0)"] + [f"m.`{c}`" for c in cols])
+                     votes,
+                     f"COALESCE(m.`{popcol}`, 0)" if popcol else "0"] + [f"m.`{c}`" for c in cols])
     if altable:
         al = cfg["lexicon_aliases"]
         sel += f", a.`{al.get('title_column') or 'TITLE'}`, a.`{al.get('language_column') or 'LANG_CODE'}`"
@@ -384,7 +427,8 @@ def build_from_db(connection, cfg: dict) -> TitleLexicon:
     cur = connection.cursor(pymysql.cursors.SSCursor)
     try:
         cur.execute(sql)
-        lex = TitleLexicon(alias_rows(cur, cfg) if altable else cur, cols)
+        lex = TitleLexicon(alias_rows(cur, cfg) if altable else cur, cols,
+                           strip_words=stripw, strip_mode=stripm)
     finally:
         cur.close()
     return lex
