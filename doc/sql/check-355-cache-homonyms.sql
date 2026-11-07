@@ -41,20 +41,62 @@ FROM tmp_355_lookup
 GROUP BY API_VERSION, KIND, UI_LANGUAGE, IS_ANONYMIZED
 ORDER BY KIND, UI_LANGUAGE, IS_ANONYMIZED;
 
+-- The namesakes are counted per distinct (kind, title, year), one indexed equality per title
+-- column: a correlated OR over the three columns ran past the 600 s statement limit. A
+-- temporary table can be opened once per statement, hence one INSERT per column.
+DROP TEMPORARY TABLE IF EXISTS tmp_355_pairs;
+CREATE TEMPORARY TABLE tmp_355_pairs (
+  KIND varchar(5) NOT NULL,
+  TITLE varchar(250) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  YR int NOT NULL,
+  PRIMARY KEY (KIND, TITLE, YR));
+INSERT IGNORE INTO tmp_355_pairs
+SELECT KIND, LEFT(TITLE, 250), YR FROM tmp_355_lookup WHERE YR IS NOT NULL AND TITLE <> '';
+
+DROP TEMPORARY TABLE IF EXISTS tmp_355_ids;
+CREATE TEMPORARY TABLE tmp_355_ids (
+  KIND varchar(5) NOT NULL,
+  TITLE varchar(250) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  YR int NOT NULL,
+  ID int NOT NULL);
+INSERT INTO tmp_355_ids
+SELECT p.KIND, p.TITLE, p.YR, m.ID_MOVIE FROM tmp_355_pairs p
+JOIN T_WC_T2S_MOVIE m ON m.MOVIE_TITLE = p.TITLE
+WHERE p.KIND = 'movie' AND m.RELEASE_YEAR BETWEEN p.YR - 1 AND p.YR + 1;
+
+INSERT INTO tmp_355_ids
+SELECT p.KIND, p.TITLE, p.YR, m.ID_MOVIE FROM tmp_355_pairs p
+JOIN T_WC_T2S_MOVIE m ON m.MOVIE_TITLE_FR = p.TITLE
+WHERE p.KIND = 'movie' AND m.RELEASE_YEAR BETWEEN p.YR - 1 AND p.YR + 1;
+
+INSERT INTO tmp_355_ids
+SELECT p.KIND, p.TITLE, p.YR, m.ID_MOVIE FROM tmp_355_pairs p
+JOIN T_WC_T2S_MOVIE m ON m.ORIGINAL_TITLE = p.TITLE
+WHERE p.KIND = 'movie' AND m.RELEASE_YEAR BETWEEN p.YR - 1 AND p.YR + 1;
+
+INSERT INTO tmp_355_ids
+SELECT p.KIND, p.TITLE, p.YR, s.ID_SERIE FROM tmp_355_pairs p
+JOIN T_WC_T2S_SERIE s ON s.SERIE_TITLE = p.TITLE
+WHERE p.KIND = 'serie' AND s.FIRST_AIR_YEAR BETWEEN p.YR - 1 AND p.YR + 1;
+
+INSERT INTO tmp_355_ids
+SELECT p.KIND, p.TITLE, p.YR, s.ID_SERIE FROM tmp_355_pairs p
+JOIN T_WC_T2S_SERIE s ON s.SERIE_TITLE_FR = p.TITLE
+WHERE p.KIND = 'serie' AND s.FIRST_AIR_YEAR BETWEEN p.YR - 1 AND p.YR + 1;
+
+INSERT INTO tmp_355_ids
+SELECT p.KIND, p.TITLE, p.YR, s.ID_SERIE FROM tmp_355_pairs p
+JOIN T_WC_T2S_SERIE s ON s.ORIGINAL_TITLE = p.TITLE
+WHERE p.KIND = 'serie' AND s.FIRST_AIR_YEAR BETWEEN p.YR - 1 AND p.YR + 1;
+
 DROP TEMPORARY TABLE IF EXISTS tmp_355_stale;
 CREATE TEMPORARY TABLE tmp_355_stale AS
-SELECT l.*,
-       CASE WHEN l.KIND = 'movie' THEN
-         (SELECT COUNT(*) FROM T_WC_T2S_MOVIE m
-           WHERE (m.MOVIE_TITLE = l.TITLE OR m.MOVIE_TITLE_FR = l.TITLE OR m.ORIGINAL_TITLE = l.TITLE)
-             AND m.RELEASE_YEAR BETWEEN l.YR - 1 AND l.YR + 1)
-       ELSE
-         (SELECT COUNT(*) FROM T_WC_T2S_SERIE s
-           WHERE (s.SERIE_TITLE = l.TITLE OR s.SERIE_TITLE_FR = l.TITLE OR s.ORIGINAL_TITLE = l.TITLE)
-             AND s.FIRST_AIR_YEAR BETWEEN l.YR - 1 AND l.YR + 1)
-       END AS NAMESAKES,
+SELECT l.*, COALESCE(n.NAMESAKES, 0) AS NAMESAKES,
        (l.QUESTION REGEXP '^[[:space:]]*(Movie|Film|Serie|Série)[[:space:]].*[(][0-9]{4}[)][[:space:]]*$') AS IS_BARE_LOOKUP
-FROM tmp_355_lookup l;
+FROM tmp_355_lookup l
+LEFT JOIN (SELECT KIND, TITLE, YR, COUNT(DISTINCT ID) AS NAMESAKES
+             FROM tmp_355_ids GROUP BY KIND, TITLE, YR) n
+       ON n.KIND = l.KIND AND n.TITLE = LEFT(l.TITLE, 250) AND n.YR = l.YR;
 
 SELECT '2. Stale: a description cached with two namesakes or more (candidates for the purge)' AS SECTION;
 
