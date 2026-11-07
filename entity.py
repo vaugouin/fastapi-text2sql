@@ -1606,7 +1606,8 @@ def plan_entity_resolutions(
                         # FASTAPI-TEXT2SQL-360: in-memory index of every title form (EN, FR,
                         # original), exact / prefix / fuzzy, ranked year then votes. A miss, or a
                         # lexicon not built yet, falls through to the next strategy (ChromaDB
-                        # during the trial), and that fallback is logged.
+                        # for titles and collections), and that fallback is logged. Companies and
+                        # networks have no next strategy since 2026-11-07: a miss leaves them unresolved.
                         if LEXICON_CONNECTION_FACTORY is not None:
                             lex = title_lexicon.ensure(
                                 LEXICON_CONNECTION_FACTORY, search_cfg,

@@ -309,8 +309,10 @@ _collection_names = [
     # empty on every start.
     "movies",
     "series",
-    "companies",
-    "networks",
+    # "companies" and "networks" were dropped on 2026-11-07 (FASTAPI-TEXT2SQL-360, second wave):
+    # Company_name and Network_name resolve with the in-memory lexicon only (title_lexicon.py),
+    # and ChromaDB never won for either in the campaign of 2026-11-06. Same trap as "persons":
+    # listed here, get_or_create would recreate them empty after their deletion.
     "topics",
     # "locations" (keyed on the Wikidata QID) was dropped from this list in 1.1.19: the
     # locations read-model reads t2slocations, opened below. Leaving the name here would

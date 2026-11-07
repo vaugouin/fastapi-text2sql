@@ -136,8 +136,8 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
        - SQL substitution always uses the canonical value; justification is formatted as `<aka_name> (<canonical_name>)` only when the AKA differs from the canonical name.
      - **Movie titles** (`{{Movie_titleN}}`): embeddings on `movies` collection, language-routed columns (`en` → `MOVIE_TITLE`, `fr` → `MOVIE_TITLE_FR`, `*` → `ORIGINAL_TITLE`) on `T_WC_T2S_MOVIE`.
      - **TV series titles** (`{{Serie_titleN}}`): embeddings on `series` collection, same `en` / `fr` / `*` routing on `T_WC_T2S_SERIE`.
-     - **Company names** (`{{Company_nameN}}`): embeddings on `companies` collection, `T_WC_T2S_COMPANY.COMPANY_NAME`.
-     - **Network names** (`{{Network_nameN}}`): embeddings on `networks` collection, `T_WC_T2S_NETWORK.NETWORK_NAME`.
+     - **Company names** (`{{Company_nameN}}`): in-memory lexicon only ([title_lexicon.py](title_lexicon.py), FASTAPI-TEXT2SQL-360) on `T_WC_T2S_COMPANY.COMPANY_NAME`, ranked by credits, legal forms stripped at the end; the `companies` ChromaDB collection was retired on 2026-11-07.
+     - **Network names** (`{{Network_nameN}}`): in-memory lexicon only on `T_WC_T2S_NETWORK.NETWORK_NAME`, ranked by `SERIE_COUNT`; the `networks` ChromaDB collection was retired on 2026-11-07.
      - **Topic names** (`{{Topic_nameN}}`): embeddings on `topics` collection, `T_WC_T2S_TOPIC.TOPIC_NAME` / `TOPIC_NAME_FR`.
      - **List names** (`{{List_nameN}}`): embeddings on `lists` collection, `T_WC_T2S_LIST.LIST_NAME` / `LIST_NAME_FR`.
      - **Award names** (`{{Award_nameN}}`): embeddings on `awards` collection, `T_WC_T2S_AWARD.AWARD_NAME` / `AWARD_NAME_FR`.
@@ -1581,7 +1581,7 @@ fastapi-text2sql/
 ```
 
 **Key Architecture Components:**
-- **ChromaDB Integration**: Vector database for entity matching and similarity search with 15 entity collections (`persons`, `movies`, `series`, `companies`, `networks`, `topics`, `t2slocations`, `groups`, `characters`, `lists`, `collections`, `deaths`, `awards`, `nominations`, `movements`) plus a separate `anonymizedqueries` cache collection. `t2slocations` and `t2ssourceworks` are opened with `get_collection`, never `get_or_create_collection`: their HNSW configuration is fixed at creation by `embedding-update`, and whoever creates the collection first decides it for every reader. The separate `anonymizedqueries` cache collection is disabled by default (`USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE = False` in [main.py](main.py))
+- **ChromaDB Integration**: Vector database for entity matching and similarity search with 13 entity collections (`movies`, `series`, `topics`, `t2slocations`, `groups`, `characters`, `lists`, `collections`, `deaths`, `awards`, `nominations`, `movements`, `t2ssourceworks`) plus a separate `anonymizedqueries` cache collection. `t2slocations` and `t2ssourceworks` are opened with `get_collection`, never `get_or_create_collection`: their HNSW configuration is fixed at creation by `embedding-update`, and whoever creates the collection first decides it for every reader. The separate `anonymizedqueries` cache collection is disabled by default (`USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE = False` in [main.py](main.py))
 - **Multi-Level Caching**: SQL cache + embeddings cache for performance optimization with automatic cleanup
 - **Entity Extraction**: `entity.py` handles GPT-powered entity recognition and anonymization for supported entity types
 - **Fork-Join Scheduling**: entity resolution runs in a worker thread while the text-to-SQL call is in flight (`ENTITY_RESOLUTION_PARALLEL`), since it depends only on the extraction output. The result-entity classifier is forked at the same point, once the caches have missed and the question is not routed to the complex path, and joined before the answer-entity guard (`RESULT_ENTITY_PARALLEL`, FASTAPI-TEXT2SQL-286/-306), since it reads only the original question
@@ -1732,8 +1732,8 @@ The system intelligently extracts and replaces entities in natural language ques
 | `Person_name` | Actors, directors, writers, composers, crew | RapidFuzz (Latin → `T_WC_T2S_PERSON`; non-Latin → AKA table with canonical resolution) |
 | `Movie_title` | Movie titles (English/French/original) | Embeddings — `movies` collection |
 | `Serie_title` | TV series titles (English/French/original) | Embeddings — `series` collection |
-| `Company_name` | Production / distribution companies | Embeddings — `companies` collection |
-| `Network_name` | TV networks / streaming platforms | Embeddings — `networks` collection |
+| `Company_name` | Production / distribution companies | Lexicon (`title_lexicon.py`) on `T_WC_T2S_COMPANY` |
+| `Network_name` | TV networks / streaming platforms | Lexicon (`title_lexicon.py`) on `T_WC_T2S_NETWORK` |
 | `Topic_name` | Themes (never characters) | Embeddings — `topics` collection |
 | `List_name` | Curated rankings / canons / registries | Embeddings — `lists` collection |
 | `Award_name` | Named awards or recognitions | Embeddings — `awards` collection |

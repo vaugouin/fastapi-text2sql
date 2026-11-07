@@ -10,7 +10,8 @@ ranking by credits so an obscure exact homonym loses ("paramount" is Paramount P
 Paramount+), descriptors stripped on both sides ("collection James Bond" meets "James Bond
 Collection"), the full form winning when the mention carried a descriptor ("Collection Batman"),
 and the SQL that builds the lexicon from the three strategies of data/entity_resolution.json
-(credits as a sum, no POPULARITY column for networks). Ids and credits are those of the live
+(credits as a sum, no POPULARITY column for networks), and the retirement of the companies and
+networks ChromaDB collections (2026-11-07). Ids and credits are those of the live
 tables on 2026-11-05.
 """
 import json
@@ -129,6 +130,16 @@ for typ, want_votes, want_pop in (("Company_name", "COALESCE(m.`MOVIE_COUNT`, 0)
 # 5. Titles are untouched: no strip words, lookup is search.
 mv = next(s for s in CFG["Movie_title"] if s.get("search_mode") == "lexicon")
 check("movie lexicon declares no strip words", mv.get("lexicon_strip_words"), None)
+
+# 6. Companies and networks left ChromaDB on 2026-11-07: the lexicon is their only strategy, and
+#    main.py must not reopen the collections (get_or_create would recreate them empty).
+for typ in ("Company_name", "Network_name"):
+    check(f"{typ} has the lexicon as only strategy", [s.get("search_mode") for s in CFG[typ]], ["lexicon"])
+with open(os.path.join(RACINE, "main.py"), encoding="utf-8") as f:
+    _main = f.read()
+_names = _main[_main.index("_collection_names = ["):_main.index("]", _main.index("_collection_names = ["))]
+_listed = [ln.strip().strip('",') for ln in _names.splitlines() if ln.strip().startswith('"')]
+check("main.py no longer opens companies or networks", sorted({"companies", "networks"} & set(_listed)), [])
 
 print(f"\n{'OK' if not FAILED else f'{FAILED} FAILED'}")
 sys.exit(1 if FAILED else 0)

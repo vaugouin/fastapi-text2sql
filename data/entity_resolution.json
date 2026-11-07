@@ -163,7 +163,7 @@
       {
         "search_mode": "lexicon",
         "enabled": true,
-        "comment": "FASTAPI-TEXT2SQL-360 second wave: in-memory name lexicon (title_lexicon.py) before ChromaDB, which stays as a logged fallback. Ranked by credits (MOVIE_COUNT + SERIE_COUNT) then popularity; legal forms stripped at the end of names and mentions. Gate 85 measured by checks/bench-lexical-360-names.py (77.5 let 'Wikiflix' reach Kinflix).",
+        "comment": "FASTAPI-TEXT2SQL-360 second wave: in-memory name lexicon (title_lexicon.py), the only strategy since the ChromaDB collection 'companies' was retired on 2026-11-07 (it never won in the campaign of 2026-11-06). Ranked by credits (MOVIE_COUNT + SERIE_COUNT) then popularity; legal forms stripped at the end of names and mentions. Gate 85 measured by checks/bench-lexical-360-names.py (77.5 let 'Wikiflix' reach Kinflix).",
         "strtablename": "T_WC_T2S_COMPANY",
         "strtableid": "ID_COMPANY",
         "default_field": "COMPANY_NAME",
@@ -221,19 +221,6 @@
         "lexicon_strip_mode": "tail",
         "lexicon_refresh_hours": 24,
         "min_fuzz_ratio": 85
-      },
-      {
-        "search_mode": "embeddings",
-        "strtablename": "T_WC_T2S_COMPANY",
-        "strtableid": "ID_COMPANY",
-        "collection": "companies",
-        "default_field": "COMPANY_NAME",
-        "order_by": null,
-        "languages": {
-          "*": "COMPANY_NAME"
-        },
-        "min_fuzz_ratio": 77.5,
-        "rescue_normalizations": ["apostrophes", "accents", "dashes"]
       }
     ]
   },
@@ -243,7 +230,7 @@
       {
         "search_mode": "lexicon",
         "enabled": true,
-        "comment": "FASTAPI-TEXT2SQL-360 second wave: in-memory name lexicon before ChromaDB (logged fallback). Ranked by SERIE_COUNT: of the four networks named HBO, 49 (362 series) comes first. T_WC_T2S_NETWORK has no POPULARITY.",
+        "comment": "FASTAPI-TEXT2SQL-360 second wave: in-memory name lexicon, the only strategy since the ChromaDB collection 'networks' was retired on 2026-11-07 (never reached in the campaign of 2026-11-06). Ranked by SERIE_COUNT: of the four networks named HBO, 49 (362 series) comes first. T_WC_T2S_NETWORK has no POPULARITY.",
         "strtablename": "T_WC_T2S_NETWORK",
         "strtableid": "ID_NETWORK",
         "default_field": "NETWORK_NAME",
@@ -257,19 +244,6 @@
         "lexicon_popularity_column": null,
         "lexicon_refresh_hours": 24,
         "min_fuzz_ratio": 78.45
-      },
-      {
-        "search_mode": "embeddings",
-        "strtablename": "T_WC_T2S_NETWORK",
-        "strtableid": "ID_NETWORK",
-        "collection": "networks",
-        "default_field": "NETWORK_NAME",
-        "order_by": null,
-        "languages": {
-          "*": "NETWORK_NAME"
-        },
-        "min_fuzz_ratio": 78.45,
-        "rescue_normalizations": ["apostrophes", "accents", "dashes", "punctuation"]
       }
     ]
   },
