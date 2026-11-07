@@ -96,7 +96,8 @@ SELECT l.*, COALESCE(n.NAMESAKES, 0) AS NAMESAKES,
 FROM tmp_355_lookup l
 LEFT JOIN (SELECT KIND, TITLE, YR, COUNT(DISTINCT ID) AS NAMESAKES
              FROM tmp_355_ids GROUP BY KIND, TITLE, YR) n
-       ON n.KIND = l.KIND AND n.TITLE = LEFT(l.TITLE, 250) AND n.YR = l.YR;
+       ON n.KIND = l.KIND COLLATE utf8mb4_unicode_ci
+      AND n.TITLE = LEFT(l.TITLE, 250) COLLATE utf8mb4_unicode_ci AND n.YR = l.YR;
 
 SELECT '2. Stale: a description cached with two namesakes or more (candidates for the purge)' AS SECTION;
 
