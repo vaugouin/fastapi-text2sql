@@ -1488,6 +1488,8 @@ def _complex_identity_check(connection, target):
         winner = next(c for c in candidates if c["id"] == decision["kept"][0])
     if winner and winner.get("id_imdb"):
         trace["winner_id_imdb"] = winner["id_imdb"]
+        # FASTAPI-TEXT2SQL-368: the credit that told the winner apart, for the answer line.
+        trace["winner_credit"] = vision_identity.discriminator_phrase(winner, disc, target["type"])
         matches = ", ".join(decision["scores"][winner["id"]]["matches"])
         trace["message"] = (
             f"Complex retry identity check: {len(candidates)} rows share {label}; kept "
@@ -3433,6 +3435,22 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 # FASTAPI-TEXT2SQL-307: the id came from the image, not from the user, who
                 # never typed it and should read the work's name instead.
                 answer = strvisionidentityanswer
+            elif _identity_winner and _id_value == _identity_winner and fast_path_results:
+                # FASTAPI-TEXT2SQL-368: same on the complex retry. The id was read in the base by
+                # the -355 identity check; the user asked a riddle and reads the work's name,
+                # with its year from the row (not the model's) and the credit that decided.
+                _row = fast_path_results[0].get("data") or {}
+                _title = _row.get("MOVIE_TITLE") or _row.get("SERIE_TITLE") or ""
+                _year = str(_row.get("DAT_RELEASE") or _row.get("DAT_FIRST_AIR") or "")[:4]
+                if _title:
+                    _lang = "fr" if request.ui_language == "fr" else "en"
+                    _phrase = t2s.vision_entity_phrase(
+                        {"type": result_entity_fp, "value": _title, "year": _year}, _lang)
+                    _credits = (request.complex_retry_seed or {}).get("identity_credit") or {}
+                    _credit = _credits.get(_lang) if isinstance(_credits, dict) else ""
+                    _credit = f", {_credit}" if _credit else ""
+                    answer = (f"Voici {_phrase}{_credit}." if _lang == "fr"
+                              else f"Here is {_phrase}{_credit}.")
         else:
             messages.append(TextMessage(
                 position=position_counter,
@@ -4429,7 +4447,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     position_counter += 1
                     if dctcomplexidentity.get("winner_id_imdb"):
                         strretryquery = dctcomplexidentity["winner_id_imdb"]
-                        dctretryseed = {"identity_winner_imdb": strretryquery}
+                        dctretryseed = {"identity_winner_imdb": strretryquery,
+                                        "identity_credit": dctcomplexidentity.get("winner_credit")}
 
                 try:
                     connection.close()
