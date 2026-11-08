@@ -43,8 +43,23 @@ REPRESENTATIONS = (
     "number-card",   # one row, one metric or count, no entity
     "stat-strip",    # one row, 2 to 5 metrics, no entity
     "ranked-bars",   # N rows of a label (or entity) plus one ordered metric
+    "value-cards",   # N entity rows, each with the quantity the question asked (-354)
     "table",         # the honest fallback, never an empty card
 )
+
+# Intent tasks that ask for a quantity per item rather than an order (FASTAPI-TEXT2SQL-354):
+# "the Harry Potter films with their runtime" and "which is longer, Titanic or Avatar?".
+_VALUE_TASKS = ("value", "compare")
+# Views the question can name explicitly (result_intent.REQUESTED_VIEWS) and the representation
+# each one asks for; honoured only when that representation is a valid option for the shape.
+_REQUESTED_VIEW_REPRESENTATIONS = {
+    "table": ("table",),
+    "chart": ("ranked-bars",),
+    "cards": ("value-cards", "card-grid"),
+}
+# An ORDER BY on the collection's own order (the prompt sorts a collection on DISPLAY_ORDER,
+# which it does not project): summary_facts.order is then "collection".
+_COLLECTION_ORDER_RE = re.compile(r"DISPLAY_ORDER|COLLECTION_ORDER", re.IGNORECASE)
 
 # The entity id columns the pipeline can project, mirroring _RESULT_ENTITY_SOURCES in
 # main.py plus the movie+series UNION key. A caller passes its own authoritative set; this
@@ -247,8 +262,142 @@ def _is_entity_ranking(sql, order_col, columns, result_entity):
     return True
 
 
-def classify_result(sql_query, result_rows, result_entity="", id_columns=None):
-    """Classify a result into {result_kind, columns, representation}. Pure, no DB, no LLM.
+def _is_image_rows(columns, result_entity):
+    names = {c["name"].upper() for c in columns}
+    return str(result_entity or "").lower().endswith("_image") or {"ID_ROW", "TYPE_IMAGE"} <= names
+
+
+def _focus_names(intent, columns):
+    """The projected metric or date columns the intent's focus names, in projection order.
+
+    Uses `intent["focus_columns"]` when the caller already resolved them, else maps
+    `intent["focus"]` through result_intent.focus_columns (lazy import, so this module still
+    loads on its own, as the census loads it from a file path).
+    """
+    if not isinstance(intent, dict):
+        return []
+    names = intent.get("focus_columns")
+    if not isinstance(names, list):
+        try:
+            import result_intent
+            names = result_intent.focus_columns(intent.get("focus") or [], columns)
+        except ImportError:
+            names = []
+    by_name = {c["name"]: c for c in columns}
+    return [n for n in names if n in by_name and by_name[n]["role"] in ("metric", "date")]
+
+
+def _value_column(sql, columns, focus, order_col):
+    """The column that carries the quantity of each row, or None.
+
+    The intent's focus first; else the ordered metric when it is the measure the model chose
+    (not a default sort key, or computed); else a metric the model added to the standard
+    projection (a computed alias, or a metric outside the default sort keys and RUNTIME, which
+    every movie row carries).
+    """
+    if focus:
+        return focus[0]
+    by_name = {c["name"]: c for c in columns}
+    if order_col and by_name.get(order_col, {}).get("role") == "metric" and (
+            order_col.upper() not in _DEFAULT_ENTITY_METRICS or _is_computed_alias(sql, order_col)):
+        return order_col
+    for c in columns:
+        if c["role"] != "metric":
+            continue
+        name = c["name"].upper()
+        if _is_computed_alias(sql, c["name"]) or (name not in _DEFAULT_ENTITY_METRICS and name != "RUNTIME"):
+            return c["name"]
+    return None
+
+
+def _number(value):
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return int(f) if f.is_integer() else round(f, 4)
+
+
+def _summary_facts(sql, rows, result_rows, columns, value_col, order_col, order_dir):
+    """Language-neutral numbers about the result; each front writes the sentence.
+
+    count: the rows returned (one page; `total` stays None, decision of 2026-10-31: no second
+    count query, the fronts say "the first N"); unit and value_column: the quantity shown;
+    order: "collection", "date", a metric column name, or None; top: the row with the extreme
+    value (the minimum when the SQL sorts that column ascending, else the maximum), with its
+    label, entity id and row index.
+    """
+    by_name = {c["name"]: c for c in columns}
+    clauses = _ORDER_BY_CLAUSE_RE.findall(sql or "")
+    order = None
+    if clauses and _COLLECTION_ORDER_RE.search(clauses[-1]):
+        order = "collection"
+    elif order_col and by_name.get(order_col, {}).get("role") == "date":
+        order = "date"
+    elif order_col and by_name.get(order_col, {}).get("role") == "metric":
+        order = order_col
+    facts = {
+        "count": len(rows),
+        "total": None,
+        "value_column": value_col,
+        "unit": by_name[value_col]["unit"] if value_col in by_name else None,
+        "order": order,
+        "order_direction": order_dir if order else None,
+        "top": None,
+    }
+    if value_col not in by_name or by_name[value_col]["role"] != "metric" or len(rows) < 2:
+        return facts
+    label_col = next((c["name"] for c in columns if c["role"] == "label"), None)
+    id_col = next((c["name"] for c in columns if c["role"] == "entity_id"), None)
+    lowest = order_col == value_col and order_dir == "asc"
+    best = None
+    for i, row in enumerate(rows):
+        v = _number(row.get(value_col)) if _is_numeric(row.get(value_col)) else None
+        if v is None:
+            continue
+        if best is None or (v < best[1] if lowest else v > best[1]):
+            best = (i, v)
+    if best is not None:
+        i, v = best
+        raw = result_rows[i] if i < len(result_rows) and isinstance(result_rows[i], dict) else {}
+        facts["top"] = {
+            "label": rows[i].get(label_col) if label_col else None,
+            "id": rows[i].get(id_col) if id_col else None,
+            "index": raw.get("index", i) if "data" in raw else i,
+            "value": v,
+            "extreme": "min" if lowest else "max",
+        }
+    return facts
+
+
+def _options(representation, family, has_value_col, has_bar_col):
+    """The valid representations for the shape, default first (FASTAPI-TEXT2SQL-354)."""
+    if family == "entity_many":
+        candidates = ["card-grid"] + (["value-cards"] if has_value_col else []) + (
+            ["ranked-bars"] if has_bar_col else []) + ["table"]
+    elif family == "entity_images":
+        candidates = ["card-grid", "table"]
+    elif family == "entity_one":
+        candidates = ["entity-page", "table"]
+    else:
+        candidates = [representation, "table"]
+    out = [representation]
+    for c in candidates:
+        if c not in out:
+            out.append(c)
+    return out
+
+
+def classify_result(sql_query, result_rows, result_entity="", id_columns=None, intent=None):
+    """Classify a result into its rendering hint. Pure, no DB, no LLM.
+
+    The intent (FASTAPI-TEXT2SQL-353, -354) is a prior, never an order: it picks within the
+    representations the shape allows and never invents one the rows cannot carry. Without an
+    intent, `representation` is exactly what the shape rules of -349 to -351 give.
 
     Args:
         sql_query: The SQL actually executed (used only to break a shape tie).
@@ -257,6 +406,8 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None):
         result_entity: The answer entity the pipeline settled on ("" for an aggregate).
         id_columns: The authoritative set of entity id column names; defaults to the
             module's own copy of _RESULT_ENTITY_SOURCES.
+        intent: The core intent {task, focus, requested_view, source} of result_intent.py
+            (optionally with `focus_columns` already resolved), or None.
 
     Returns:
         A dict with:
@@ -264,13 +415,20 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None):
           - columns: list of {name, role, unit}, in projection order (empty with no rows);
             the one column the outer ORDER BY sorts on first, when it is projected, also
             carries `"ordered": "asc" | "desc"` (FASTAPI-TEXT2SQL-351), so a client draws
-            the ranked quantity and not the first metric it meets;
-          - representation: one of REPRESENTATIONS.
+            the ranked quantity and not the first metric it meets; the column(s) carrying the
+            quantity of each row carry `"focus": true` (-354: the intent's focus, else the
+            value column the shape rules found);
+          - representation: one of REPRESENTATIONS;
+          - representation_options: the valid representations for this shape, default first
+            (always contains `representation`); what the fronts offer as override chips;
+          - summary_facts: language-neutral numbers (count, total, value_column, unit, order,
+            order_direction, top), or None with no rows.
     """
     ids = frozenset(id_columns) if id_columns is not None else _DEFAULT_ID_COLUMNS
+    result_rows = list(result_rows or [])
     rows = [
         (r.get("data", r) if isinstance(r, dict) else {})
-        for r in (result_rows or [])
+        for r in result_rows
     ]
     columns = _columns_metadata(rows, ids)
     sql = sql_query or ""
@@ -278,6 +436,10 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None):
     for c in columns:
         if c["name"] == order_col:
             c["ordered"] = order_dir
+    task = str((intent or {}).get("task") or "") if isinstance(intent, dict) else ""
+    requested_view = str((intent or {}).get("requested_view") or "") if isinstance(intent, dict) else ""
+    focus = _focus_names(intent, columns)
+    by_name = {c["name"]: c for c in columns}
     # The result is entity rows only when it actually projects an entity id column. NOT when
     # result_entity is merely set: the answer-entity classifier returns "movie" even for
     # "how many movies are there", whose result is a one-row scalar count with no id column
@@ -288,6 +450,8 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None):
     has_entity = any(c["role"] == "entity_id" for c in columns)
     metric_cols = [c for c in columns if c["role"] == "metric"]
     label_cols = [c for c in columns if c["role"] == "label"]
+    value_col = None
+    family = "other"
 
     # Entity rows: one entity is a page, many are a grid, many ordered by a metric is a
     # ranking (the poster-versus-bar choice is the client's, VOICE-AGENT-244). A ranking is
@@ -295,46 +459,101 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None):
     # a metric that is not a default sort key, and no image rows (FASTAPI-TEXT2SQL-350); a
     # plain list ordered by POPULARITY or IMDB_RATING_WEIGHTED stays a grid, and so does a
     # sequence ordered by a date or a collection order.
+    # With an intent (-354): a value per item or a comparison with its quantity projected is
+    # `value-cards`, whatever the order; a ranking the question asks for is `ranked-bars` when
+    # the outer ORDER BY is on a metric the question names (the rating rankings 2573 and 2578,
+    # which the SQL alone cannot tell from the default sort), or on any metric when the
+    # question names none.
     if has_entity:
         if len(rows) <= 1:
-            return {"result_kind": "entity_rows", "columns": columns,
-                    "representation": "entity-page" if rows else "card-grid"}
-        if _is_entity_ranking(sql, order_col, columns, result_entity):
-            return {"result_kind": "entity_rows", "columns": columns,
-                    "representation": "ranked-bars"}
-        return {"result_kind": "entity_rows", "columns": columns,
-                "representation": "card-grid"}
-
+            kind, representation = "entity_rows", ("entity-page" if rows else "card-grid")
+            family = "entity_one" if rows else "empty"
+        elif _is_image_rows(columns, result_entity):
+            kind, representation, family = "entity_rows", "card-grid", "entity_images"
+        else:
+            kind, family = "entity_rows", "entity_many"
+            value_col = _value_column(sql, columns, focus, order_col)
+            order_is_metric = by_name.get(order_col, {}).get("role") == "metric"
+            ranking = _is_entity_ranking(sql, order_col, columns, result_entity)
+            if task == "compare" and value_col:
+                representation = "value-cards"
+            elif task == "value" and value_col and not ranking:
+                representation = "value-cards"
+            elif ranking:
+                representation = "ranked-bars"
+            elif task == "rank" and order_is_metric and order_col in focus:
+                # A default sort key (IMDB_RATING_WEIGHTED, POPULARITY) is a ranking only when
+                # the question names it: "the 12 highest-rated Studio Ghibli films" is bars,
+                # "the best romance movies" (no quantity named) stays a grid.
+                representation = "ranked-bars"
+            else:
+                representation = "card-grid"
     # No rows: nothing to inspect, so result_entity is the only signal left for what was
     # searched. An empty entity search degrades to an empty card grid; anything else to a
     # table. Never an empty "Result" card. (A count never reaches here: it has one row.)
-    if not rows:
+    elif not rows:
+        family = "empty"
         if str(result_entity or "").strip():
-            return {"result_kind": "entity_rows", "columns": columns, "representation": "card-grid"}
-        return {"result_kind": "unknown", "columns": columns, "representation": "table"}
-
+            kind, representation = "entity_rows", "card-grid"
+        else:
+            kind, representation = "unknown", "table"
     # One row, no entity: the scalar family. A COUNT is a count, otherwise a scalar; one
     # metric is a number card, two to five a stat strip.
-    if len(rows) == 1:
+    elif len(rows) == 1:
         is_count = _COUNT_RE.search(sql) and len(metric_cols) == 1
         kind = "count" if is_count else "scalar"
         if 1 <= len(metric_cols) <= 5 and not _GROUP_BY_RE.search(sql):
             representation = "number-card" if len(metric_cols) == 1 else "stat-strip"
-            return {"result_kind": kind, "columns": columns, "representation": representation}
-        # A single text fact, or a shape with no metric: fall back to a table.
-        return {"result_kind": kind if metric_cols else "unknown",
-                "columns": columns, "representation": "table"}
-
+            value_col = metric_cols[0]["name"] if len(metric_cols) == 1 else None
+        else:
+            # A single text fact, or a shape with no metric: fall back to a table.
+            kind = kind if metric_cols else "unknown"
+            representation = "table"
     # Many rows, no entity: a grouped aggregate. A label plus exactly one metric, ordered,
     # is a ranking; anything wider is a table. No clean result_kind in the vocabulary, so
     # `unknown` with a usable representation.
     # With no *_NAME column, a code or text column names the group (COUNTRY_CODE for "the ten
     # countries that produced the most movies"); without it the ranking fell to a table.
-    if not label_cols:
-        label_cols = [c for c in columns if c["role"] == "other" and (
-            _CODE_RE.search(c["name"]) or isinstance(_first_non_null(rows, c["name"]), str))][:1]
-        for c in label_cols:
-            c["role"] = "label"  # so a client labels the bars without guessing
-    if label_cols and len(metric_cols) == 1 and _ORDER_BY_RE.search(sql):
-        return {"result_kind": "unknown", "columns": columns, "representation": "ranked-bars"}
-    return {"result_kind": "unknown", "columns": columns, "representation": "table"}
+    else:
+        kind = "unknown"
+        if not label_cols:
+            label_cols = [c for c in columns if c["role"] == "other" and (
+                _CODE_RE.search(c["name"]) or isinstance(_first_non_null(rows, c["name"]), str))][:1]
+            for c in label_cols:
+                c["role"] = "label"  # so a client labels the bars without guessing
+        if label_cols and len(metric_cols) == 1 and _ORDER_BY_RE.search(sql):
+            representation = "ranked-bars"
+            value_col = order_col if by_name.get(order_col, {}).get("role") == "metric" else metric_cols[0]["name"]
+        elif task == "rank" and label_cols and by_name.get(order_col, {}).get("role") == "metric":
+            # -354: "which directors made the most films" grouped with two metrics, ordered on
+            # one: the question asks for the order, the ordered metric is the bar.
+            representation = "ranked-bars"
+            value_col = order_col
+        else:
+            representation = "table"
+            value_col = focus[0] if focus else None
+
+    # The columns that carry the quantity: the intent's focus, else the value column found.
+    for name in (focus or ([value_col] if value_col else [])):
+        if name in by_name:
+            by_name[name]["focus"] = True
+
+    # Bars need a metric worth drawing: the value column, else an ordered metric that is not a
+    # default sort key ("the Godfather trilogy in order" offers no bars of IMDB_RATING_WEIGHTED).
+    if by_name.get(value_col, {}).get("role") == "metric":
+        bar_col = value_col
+    elif by_name.get(order_col, {}).get("role") == "metric" and (
+            order_col.upper() not in _DEFAULT_ENTITY_METRICS or _is_computed_alias(sql, order_col)):
+        bar_col = order_col
+    else:
+        bar_col = None
+    options = _options(representation, family, value_col is not None, bar_col is not None)
+    # An explicit "as a table" / "as a chart" / "as cards" wins when the shape allows it.
+    for wanted in _REQUESTED_VIEW_REPRESENTATIONS.get(requested_view, ()):
+        if wanted in options:
+            representation = wanted
+            options = [wanted] + [o for o in options if o != wanted]
+            break
+    summary = _summary_facts(sql, rows, result_rows, columns, value_col, order_col, order_dir) if rows else None
+    return {"result_kind": kind, "columns": columns, "representation": representation,
+            "representation_options": options, "summary_facts": summary}

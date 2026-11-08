@@ -29,6 +29,8 @@ from collections import Counter, defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+sys.path.insert(0, ROOT)
+import result_intent  # noqa: E402  (FASTAPI-TEXT2SQL-354: the intent the new module reads)
 
 
 def _load(name, path):
@@ -46,6 +48,9 @@ def _head_module():
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(src)
     return _load("result_shape_head", path)
+
+
+INTENT_MODE = "rules"
 
 
 def _api_output(d):
@@ -100,19 +105,26 @@ def census(exec_dir, old, new, assertions, rsa):
         eid, lang = d.get("evaluation_id"), d.get("language") or "?"
         sql, ent = api.get("sql_query") or "", api.get("result_entity") or ""
         o = old.classify_result(sql, rows, ent)
-        c = new.classify_result(sql, rows, ent)
+        q = _question(d, api)
+        # The intent the export carries (1.2.0 on), else the keyword rules on the question:
+        # the exports of 1.1.20 and before have none (TEXT2SQL-EVAL-004 makes this the census).
+        stored = api.get("intent") if isinstance(api.get("intent"), dict) else None
+        core = result_intent.core_intent(q, stored, None) if INTENT_MODE != "off" else None
+        c = new.classify_result(sql, rows, ent, intent=core) if core else new.classify_result(sql, rows, ent)
         counts_old[o["representation"]] += 1
         counts_new[c["representation"]] += 1
         ordered = [(x["name"], x.get("ordered")) for x in c["columns"] if x.get("ordered")]
-        q = _question(d, api)
+        if c.get("representation_options") is not None and c["representation"] not in c["representation_options"]:
+            print(f"  OPTIONS MISS {eid} {lang}: {c['representation']} not in {c['representation_options']}")
         if o["representation"] != c["representation"]:
-            flips.append((eid, lang, o["representation"], c["representation"], ordered, q[:90], len(rows)))
+            flips.append((eid, lang, o["representation"], c["representation"], (core or {}).get("task"), ordered, q[:90], len(rows)))
         if c["representation"] == "ranked-bars":
             ranked[ordered[0][0] if ordered else "(no ordered column)"].append((eid, q[:70]))
         spec = assertions.get(eid)
         if spec and rsa is not None:
             resp = {"result_kind": c["result_kind"], "result_columns": c["columns"],
-                    "representation": c["representation"]}
+                    "representation": c["representation"],
+                    "intent": result_intent.response_intent(core, c["columns"]) if core else None}
             passed, details = rsa.check_response(spec, resp)
             if passed:
                 n_pass += 1
@@ -146,7 +158,11 @@ def main():
     ap.add_argument("exec_dirs", nargs="+")
     ap.add_argument("--old", default="", help="result_shape.py to compare against (default: HEAD)")
     ap.add_argument("--eval-dir", default=os.path.join(os.path.dirname(ROOT), "text2sql-eval"))
+    ap.add_argument("--intent", choices=("rules", "off"), default="rules",
+                    help="rules: the stored intent, else the keyword rules on the question (default); off: no intent")
     args = ap.parse_args()
+    global INTENT_MODE
+    INTENT_MODE = args.intent
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:

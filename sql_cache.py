@@ -10,6 +10,36 @@ from typing import Any, Optional
 # breaks cache reads/writes — it just doesn't persist result_entity until the column exists.
 _RESULT_ENTITY_COLUMN_AVAILABLE = True
 
+# RESULT_INTENT (FASTAPI-TEXT2SQL-353): the question's intent read when the SQL was written,
+# compact JSON {task, focus, requested_view, source} (result_intent.dumps_for_cache), so a
+# cache hit, which skips the classifier, returns the stored intent rather than the keyword
+# rules. Same graceful degradation as RESULT_ENTITY, with its own flag: it is the newer
+# column (doc/sql/alter-cache-result-intent.sql), so on an "Unknown column" error it is
+# dropped first, and RESULT_ENTITY only if the error persists without it.
+_RESULT_INTENT_COLUMN_AVAILABLE = True
+
+
+def _optional_columns() -> list[str]:
+    """The optional columns the database is believed to have, in INSERT order."""
+    columns = []
+    if _RESULT_ENTITY_COLUMN_AVAILABLE:
+        columns.append("RESULT_ENTITY")
+    if _RESULT_INTENT_COLUMN_AVAILABLE:
+        columns.append("RESULT_INTENT")
+    return columns
+
+
+def _drop_newest_optional_column() -> bool:
+    """Forget the newest optional column after an "Unknown column" error; False when none is left."""
+    global _RESULT_ENTITY_COLUMN_AVAILABLE, _RESULT_INTENT_COLUMN_AVAILABLE
+    if _RESULT_INTENT_COLUMN_AVAILABLE:
+        _RESULT_INTENT_COLUMN_AVAILABLE = False
+        return True
+    if _RESULT_ENTITY_COLUMN_AVAILABLE:
+        _RESULT_ENTITY_COLUMN_AVAILABLE = False
+        return True
+    return False
+
 _SELECT_CACHE_COLUMNS = """QUESTION, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, ANSWER,
        ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME,
        TOTAL_PROCESSING_TIME, QUESTION_HASHED, IS_ANONYMIZED"""
@@ -28,8 +58,8 @@ INSERT_CACHE_QUERY = """
 INSERT INTO T_WC_T2S_CACHE
 (QUESTION, QUESTION_HASHED, SQL_QUERY, SQL_PROCESSED, JUSTIFICATION, ANSWER, API_VERSION,
 ENTITY_EXTRACTION_PROCESSING_TIME, TEXT2SQL_PROCESSING_TIME, EMBEDDINGS_TIME, QUERY_TIME, TOTAL_PROCESSING_TIME,
-DELETED, DAT_CREAT, TIM_UPDATED, IS_ANONYMIZED, UI_LANGUAGE{result_entity_col})
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), %s, %s{result_entity_val})
+DELETED, DAT_CREAT, TIM_UPDATED, IS_ANONYMIZED, UI_LANGUAGE{optional_cols})
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURDATE(), NOW(), %s, %s{optional_vals})
 """
 
 
@@ -58,6 +88,7 @@ def _normalize_cache_row(row: Optional[dict[str, Any]]) -> dict[str, Any]:
             "total_processing_time": 0.0,
             "is_anonymized": False,
             "result_entity": "",
+            "result_intent": "",
             "used_raw_query_to_preserve_limit": False,
             "row": None,
         }
@@ -93,6 +124,7 @@ def _normalize_cache_row(row: Optional[dict[str, Any]]) -> dict[str, Any]:
         "total_processing_time": row.get("TOTAL_PROCESSING_TIME") or 0.0,
         "is_anonymized": bool(row.get("IS_ANONYMIZED") or 0),
         "result_entity": row.get("RESULT_ENTITY") or "",
+        "result_intent": row.get("RESULT_INTENT") or "",
         "used_raw_query_to_preserve_limit": used_raw_query_to_preserve_limit,
         "row": row,
     }
@@ -101,13 +133,13 @@ def _normalize_cache_row(row: Optional[dict[str, Any]]) -> dict[str, Any]:
 def _fetch_latest_cache_entry(connection, *, where_clause: str, where_params: tuple[Any, ...], api_version: str) -> dict[str, Any]:
     """Fetch the most recent non-deleted cache entry matching the supplied condition.
 
-    Includes RESULT_ENTITY when the column is available, falling back transparently to the
-    legacy column set when it is not (see ``_RESULT_ENTITY_COLUMN_AVAILABLE``).
+    Includes RESULT_ENTITY and RESULT_INTENT when the columns are available, falling back
+    transparently to the legacy column set when they are not (see ``_optional_columns``).
     """
-    global _RESULT_ENTITY_COLUMN_AVAILABLE
     params = (*where_params, api_version)
-    if _RESULT_ENTITY_COLUMN_AVAILABLE:
-        columns = _SELECT_CACHE_COLUMNS + ", RESULT_ENTITY"
+    while True:
+        optional = _optional_columns()
+        columns = _SELECT_CACHE_COLUMNS + "".join(f", {c}" for c in optional)
         query = SELECT_CACHE_QUERY.format(columns=columns, where_clause=where_clause)
         try:
             with connection.cursor() as cursor:
@@ -115,15 +147,9 @@ def _fetch_latest_cache_entry(connection, *, where_clause: str, where_params: tu
                 row = cursor.fetchone()
             return _normalize_cache_row(row)
         except Exception as exc:
-            if not _is_unknown_column_error(exc):
+            # A column not migrated yet: forget it once and retry without it.
+            if not optional or not _is_unknown_column_error(exc) or not _drop_newest_optional_column():
                 raise
-            _RESULT_ENTITY_COLUMN_AVAILABLE = False  # column not migrated yet; degrade once
-
-    query = SELECT_CACHE_QUERY.format(columns=_SELECT_CACHE_COLUMNS, where_clause=where_clause)
-    with connection.cursor() as cursor:
-        cursor.execute(query, params)
-        row = cursor.fetchone()
-    return _normalize_cache_row(row)
 
 
 # A lookup must target one side of the cache and only that side. Without this clause, a raw
@@ -195,13 +221,13 @@ def write_sql_cache_entry(
     deleted: int = 0,
     ui_language: str = "en",
     result_entity: str = "",
+    result_intent_json: str = "",
 ) -> dict[str, Any]:
     """Insert a cache entry into ``T_WC_T2S_CACHE`` and return a summary payload.
 
-    Persists RESULT_ENTITY when the column is available, falling back transparently to the
-    legacy column set when it is not (see ``_RESULT_ENTITY_COLUMN_AVAILABLE``).
+    Persists RESULT_ENTITY and RESULT_INTENT when the columns are available, falling back
+    transparently to the legacy column set when they are not (see ``_optional_columns``).
     """
-    global _RESULT_ENTITY_COLUMN_AVAILABLE
     base_values = (
         question,
         question_hashed,
@@ -220,27 +246,25 @@ def write_sql_cache_entry(
         ui_language,
     )
 
-    if _RESULT_ENTITY_COLUMN_AVAILABLE:
-        query = INSERT_CACHE_QUERY.format(result_entity_col=", RESULT_ENTITY", result_entity_val=", %s")
+    optional_values = {"RESULT_ENTITY": result_entity or "", "RESULT_INTENT": result_intent_json or None}
+    while True:
+        optional = _optional_columns()
+        query = INSERT_CACHE_QUERY.format(
+            optional_cols="".join(f", {c}" for c in optional),
+            optional_vals=", %s" * len(optional),
+        )
         try:
             with connection.cursor() as cursor:
-                cursor.execute(query, (*base_values, result_entity or ""))
+                cursor.execute(query, (*base_values, *(optional_values[c] for c in optional)))
             connection.commit()
             return _write_summary(question, question_hashed, is_anonymized, sql_query, sql_processed, justification, answer, result_entity)
         except Exception as exc:
-            if not _is_unknown_column_error(exc):
+            if not optional or not _is_unknown_column_error(exc) or not _drop_newest_optional_column():
                 raise
-            _RESULT_ENTITY_COLUMN_AVAILABLE = False  # column not migrated yet; degrade once
             try:
                 connection.rollback()
             except Exception:
                 pass
-
-    query = INSERT_CACHE_QUERY.format(result_entity_col="", result_entity_val="")
-    with connection.cursor() as cursor:
-        cursor.execute(query, base_values)
-    connection.commit()
-    return _write_summary(question, question_hashed, is_anonymized, sql_query, sql_processed, justification, answer, result_entity)
 
 
 def _write_summary(question, question_hashed, is_anonymized, sql_query, sql_processed, justification, answer, result_entity):

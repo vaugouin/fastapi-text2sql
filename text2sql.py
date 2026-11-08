@@ -1223,35 +1223,9 @@ def _classify_result_entity_by_decisions(user_question: str, allowed, instructio
     return choice
 
 
-def f_classify_result_entity(user_question: str, allowed_entities, strmodel: str = "default") -> str:
-    """Classify which entity type the user wants *listed*, from the ORIGINAL question.
-
-    ``result_entity`` is normally decided by the text-to-SQL LLM on the ANONYMIZED
-    question. Anonymization can flip the apparent answer type when the head noun is
-    itself an entity word: e.g. "Which movie directors died in 2025?" anonymizes to
-    "Which movie {{Department_name1}} died in {{Death_year1}}?", in which the leftover
-    "movie" reads as the head, so the model returns movies instead of the directors.
-    Re-deriving the expected answer type from the original question (which still says
-    "directors") gives the answer-entity guard a trustworthy expectation to enforce.
-    Extends the answer-entity guard (FASTAPI-TEXT2SQL-117/-136).
-
-    Args:
-        user_question: The original, de-anonymized user question.
-        allowed_entities: Iterable of valid lowercase result-entity strings
-            (passed in by the caller — the single source of truth is
-            ``main._RESULT_ENTITY_SOURCES`` — so this never drifts).
-        strmodel: Optional model override; "default" -> ``strresultentitymodeldefault``.
-
-    Returns:
-        A lowercase entity string contained in ``allowed_entities``, or "" when the
-        model is uncertain or the answer is multi-entity / unmapped. On "" the caller
-        falls back to the LLM's own ``result_entity`` (legacy behavior).
-    """
-    allowed = [str(e).strip().lower() for e in allowed_entities if str(e).strip()]
-    if not user_question or not user_question.strip() or not allowed:
-        return ""
-    model_to_use = _normalize_llm_model(strmodel, strresultentitymodeldefault)
-    system_prompt = (
+def _result_entity_rules(allowed) -> str:
+    """The answer-entity instructions shared by the one-word and the intent classifiers."""
+    return (
         "You classify what kind of thing a user wants LISTED in the results of a "
         "movie / TV database query. Reply with EXACTLY ONE lowercase word from this set:\n"
         + ", ".join(allowed) + "\n"
@@ -1288,6 +1262,38 @@ def f_classify_result_entity(user_question: str, allowed_entities, strmodel: str
         "- 'Who are the members of the Beatles?' -> person.  'Which bands was Paul McCartney in?' -> group.\n"
         "If the answer mixes movies and series, or you are genuinely unsure, reply exactly: "
         "unknown (the caller then trusts the SQL-generation step instead).\n"
+    )
+
+
+def f_classify_result_entity(user_question: str, allowed_entities, strmodel: str = "default") -> str:
+    """Classify which entity type the user wants *listed*, from the ORIGINAL question.
+
+    ``result_entity`` is normally decided by the text-to-SQL LLM on the ANONYMIZED
+    question. Anonymization can flip the apparent answer type when the head noun is
+    itself an entity word: e.g. "Which movie directors died in 2025?" anonymizes to
+    "Which movie {{Department_name1}} died in {{Death_year1}}?", in which the leftover
+    "movie" reads as the head, so the model returns movies instead of the directors.
+    Re-deriving the expected answer type from the original question (which still says
+    "directors") gives the answer-entity guard a trustworthy expectation to enforce.
+    Extends the answer-entity guard (FASTAPI-TEXT2SQL-117/-136).
+
+    Args:
+        user_question: The original, de-anonymized user question.
+        allowed_entities: Iterable of valid lowercase result-entity strings
+            (passed in by the caller; the single source of truth is
+            ``main._RESULT_ENTITY_SOURCES``, so this never drifts).
+        strmodel: Optional model override; "default" -> ``strresultentitymodeldefault``.
+
+    Returns:
+        A lowercase entity string contained in ``allowed_entities``, or "" when the
+        model is uncertain or the answer is multi-entity / unmapped. On "" the caller
+        falls back to the LLM's own ``result_entity`` (legacy behavior).
+    """
+    allowed = [str(e).strip().lower() for e in allowed_entities if str(e).strip()]
+    if not user_question or not user_question.strip() or not allowed:
+        return ""
+    model_to_use = _normalize_llm_model(strmodel, strresultentitymodeldefault)
+    system_prompt = _result_entity_rules(allowed) + (
         "Reply with only the single word: no punctuation, no quotes, no explanation."
     )
     if model_to_use == DECISIONS_RESULT_ENTITY_MODEL:
@@ -1307,6 +1313,86 @@ def f_classify_result_entity(user_question: str, allowed_entities, strmodel: str
     # Defend against stray punctuation / extra words: keep the first [a-z_] token only.
     token = re.split(r"[^a-z_]+", raw, maxsplit=1)[0] if raw else ""
     return token if token in allowed else ""
+
+
+# FASTAPI-TEXT2SQL-353. The same call also reads the question's intent: what the user wants to
+# know about the rows (the task), which quantities (the focus) and an explicit view. One call,
+# the same slot in parallel with SQL generation, so no added latency at the median; the reply
+# grows from one word to a short JSON object. RESULT_INTENT=0 restores the one-word call, and
+# the intent then comes from the keyword rules of result_intent.py. The examples below are
+# deliberately NOT questions of the evaluation bank, whose labels judge this prompt.
+RESULT_INTENT = os.getenv("RESULT_INTENT", "1").strip().lower() in {"1", "true", "yes", "on"}
+
+_RESULT_INTENT_INSTRUCTIONS = (
+    "Second, read what the user wants to KNOW about those rows, the task, exactly one of:\n"
+    "- list: the rows themselves, no quantity asked ('movies with Brad Pitt', 'movie with IMDb id "
+    "tt0110912', 'tell me about Inception', 'Sci-Fi series on HBO').\n"
+    "- value: a quantity of one item, of each listed item, or a total or an average over a set "
+    "('how long is Dune?', 'the Mission: Impossible films with the runtime of each', 'average budget "
+    "of Ridley Scott films', 'total box office of the Shrek films', 'how many seasons does The Office "
+    "have?').\n"
+    "- rank: rows ordered by a measure, a superlative or a top N, even when the measure of each row "
+    "is also asked ('the ten longest Spielberg films', 'which directors made the most westerns?', "
+    "'how many films per country, from most to least?').\n"
+    "- count: how many rows match ('how many films did Spike Lee direct?', 'how many series are "
+    "there?').\n"
+    "- compare: two or more NAMED items set against each other ('which is longer, Heat or "
+    "Casino?', 'compare the budgets of Jaws and Alien').\n"
+    "- sequence: the rows in their natural or chronological order, no measure asked ('the Bourne "
+    "films in release order', 'the Mad Max films from the first to the latest').\n"
+    "- trend: a measure over time, per year or per decade ('how many westerns were released per "
+    "decade?', 'average runtime of comedies per year').\n"
+    "- relate: how named items are connected ('what do Scorsese and De Niro have in common?').\n"
+    "- verdict: a yes/no question ('did Kubrick direct Spartacus?').\n"
+    "A question asking for a value of each item 'in release order' is value, not sequence.\n"
+    "focus: the quantities the question asks about, as canonical names from: runtime, budget, "
+    "revenue, profit, seasons, episodes, rating, votes, popularity, count, birth, death, age, "
+    "release_date. [] when it asks for none.\n"
+    "requested_view: 'table', 'chart' or 'cards' only when the user explicitly asks for that form "
+    "('as a table'), else ''.\n"
+    "Reply with ONLY one JSON object, no prose, no code fence:\n"
+    '{"entity": "<one word of the set above, or unknown>", "task": "<task>", "focus": [], '
+    '"requested_view": ""}'
+)
+
+
+def f_classify_result_intent(user_question: str, allowed_entities, strmodel: str = "default"):
+    """The answer entity AND the intent of the ORIGINAL question, in one call.
+
+    Returns ``(entity, intent)``: ``entity`` keeps the contract of ``f_classify_result_entity``
+    (a value of ``allowed_entities`` or "" to abstain), ``intent`` is the core intent of
+    ``result_intent.parse_classifier_reply`` (``{task, focus, requested_view, source: "llm"}``)
+    or None when the call failed, the reply carried no usable task, the Decisions arm is
+    selected (one choice per call, entity only) or RESULT_INTENT is off. On None the caller
+    reads the intent from the keyword rules.
+    """
+    import result_intent
+
+    allowed = [str(e).strip().lower() for e in allowed_entities if str(e).strip()]
+    if not user_question or not user_question.strip() or not allowed:
+        return "", None
+    model_to_use = _normalize_llm_model(strmodel, strresultentitymodeldefault)
+    if not RESULT_INTENT or model_to_use == DECISIONS_RESULT_ENTITY_MODEL:
+        return f_classify_result_entity(user_question, allowed, strmodel), None
+    system_prompt = (
+        _result_entity_rules(allowed).replace(
+            "Reply with EXACTLY ONE lowercase word from this set:",
+            "First, the entity: EXACTLY ONE lowercase word from this set:", 1)
+        + _RESULT_INTENT_INSTRUCTIONS
+    )
+    try:
+        raw = _call_chat_llm(
+            model=model_to_use,
+            system_prompt=system_prompt,
+            user_prompt=user_question,
+            temperature=0,
+            cache_label="result_entity",
+        )
+    except Exception as e:
+        # Same message as the one-word classifier: the benches turn it back into an error.
+        print(f"Error in result_entity classification: {str(e)}")
+        return "", None
+    return result_intent.parse_classifier_reply(raw, allowed)
 
 
 def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str = "default"):

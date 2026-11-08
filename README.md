@@ -279,6 +279,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    BKTREE_ENABLED=1               # BK-tree index for RapidFuzz matching
    ENTITY_RESOLUTION_PARALLEL=1   # 1: resolve entities while the SQL is being generated
    RESULT_ENTITY_PARALLEL=1       # 1: classify the answer type in parallel with SQL generation, joined before the guard
+   RESULT_INTENT=1                # 1: the same call also reads the question's intent (FASTAPI-TEXT2SQL-353); 0: one-word call, intent from keyword rules
    CACHE_EMPTY_RESULTS=0          # 0: never cache a query that returned 0 rows
    ```
 
@@ -1340,18 +1341,18 @@ Practical notes:
 
 This section is the **single source of truth** for the two clients that draw a `/search/text2sql` answer, voice-agent (`app/static/app.js`) and tmdb-front (`lib/t2s-representation.inc.php`, `lib/text2sql-search.inc.php`). Rule set by Philippe on 2026-10-31 (TMDB-FRONT-112): every representation ships on both fronts in the same batch, and **adding a representation means adding its table here first** (FASTAPI-TEXT2SQL-352). The `AGENTS.md` of both fronts point here; nothing below is duplicated elsewhere.
 
-**Decision order, stated once.** The shape rules of `result_shape.py` define the valid set of representations for a result and pick the default (`representation`); the intent of the question, once the API emits it (1.2.0, FASTAPI-TEXT2SQL-353 and -354), picks within that set, never outside it; the user's override, when a front offers one, wins and is remembered for the conversation. Shape decides, intent disambiguates, the user has the last word.
+**Decision order, stated once.** The shape rules of `result_shape.py` define the valid set of representations for a result and pick the default (`representation`); the intent of the question, emitted since FASTAPI-TEXT2SQL-353 and -354 (coded 2026-11-08, shipped on 1.1.20 by Philippe's decision, no 1.2.0), picks within that set, never outside it; the user's override, when a front offers one, wins and is remembered for the conversation. Shape decides, intent disambiguates, the user has the last word.
 
 **The fields** (every live result, `null` on a path that returns before rows exist):
 
 | field | since | content |
 |---|---|---|
-| `representation` | 1.1.19 | the value a client switches on, one of the seven below (`value-cards` from 1.2.0) |
+| `representation` | 1.1.19 | the value a client switches on, one of the seven below (`value-cards` since FASTAPI-TEXT2SQL-354) |
 | `result_kind` | 1.1.19 | `entity_rows`, `scalar`, `count`, `bound` or `unknown`: the `/samples` vocabulary, kept for the evaluations |
-| `result_columns` | 1.1.19 | one `{name, role, unit}` per projected column, in projection order. `role`: `entity_id`, `label`, `metric`, `date`, `other`. `unit`: `minutes`, `usd`, `count`, `ratio`, `years` or `null`, set from the column name on the API side. Since 1.1.20 the column the outer `ORDER BY` sorts on first carries `"ordered": "asc"` or `"desc"` (FASTAPI-TEXT2SQL-351); in 1.2.0 the column the question names carries `"focus": true` |
-| `representation_options` | 1.2.0 (planned) | the valid set for this shape, default first: what a front shows as override chips (VOICE-AGENT-247, TMDB-FRONT-114) |
-| `intent` | 1.2.0 (planned) | `{task, focus_columns, requested_view, source}` from the parallel result-entity classifier, `source` in `llm`, `rules`, `none` |
-| `summary_facts` | 1.2.0 (planned) | numbers only, language neutral: `count`, `total` (`null` when unknown), `unit`, `order` (`collection`, `date`, a metric name or `null`), `top` (label and value of the extremum). Each front builds its spoken line or caption from it (VOICE-AGENT-248, TMDB-FRONT-115) |
+| `result_columns` | 1.1.19 | one `{name, role, unit}` per projected column, in projection order. `role`: `entity_id`, `label`, `metric`, `date`, `other`. `unit`: `minutes`, `usd`, `count`, `ratio`, `years` or `null`, set from the column name on the API side. Since 1.1.20 the column the outer `ORDER BY` sorts on first carries `"ordered": "asc"` or `"desc"` (FASTAPI-TEXT2SQL-351); since -354 the column(s) carrying the quantity of each row carry `"focus": true`: the projected `metric` or `date` columns the intent's focus names, else the value column the shape rules found (the ordered metric when it is not a default sort key, else a metric the model added to the standard projection). A value card shows the first `focus` column; bars draw the `ordered` metric, else the `focus` one |
+| `representation_options` | FASTAPI-TEXT2SQL-354 | the valid set for this shape, default first, always containing `representation`: what a front shows as override chips and re-renders locally (VOICE-AGENT-247, TMDB-FRONT-114). Entity rows, two or more: `card-grid`, plus `value-cards` when a value column exists, plus `ranked-bars` when that column (or an ordered metric that is not a default sort key) is a metric, plus `table`; image rows `card-grid`, `table`; one entity `entity-page`, `table`; otherwise the representation and `table`. An explicit `requested_view` (`table` to `table`, `chart` to `ranked-bars`, `cards` to `value-cards` or `card-grid`) becomes the default when it is in the set |
+| `intent` | FASTAPI-TEXT2SQL-353 (coded 2026-11-08) | `{task, focus, focus_columns, requested_view, source}`, read from the user's question, never from the SQL (`result_intent.py`). `task`: `list` (the rows themselves, an identifier lookup included), `value` (a quantity of one item, of each item, or a total or average), `rank` (ordered by a measure, a superlative, a top N), `count`, `compare` (named items against each other), `sequence` (natural or chronological order, no measure), `trend` (a measure per year or decade), `relate`, `verdict` (yes/no). `focus`: canonical quantities (`runtime`, `budget`, `revenue`, `profit`, `seasons`, `episodes`, `rating`, `votes`, `popularity`, `count`, `birth`, `death`, `age`, `release_date`); `focus_columns`: the projected `metric` or `date` columns that carry them. `requested_view`: `table`, `chart`, `cards` or `""`, only when the question asks for that form. `source`: `llm` (the parallel answer-entity call, which returns `{entity, task, focus, requested_view}` since -353), `rules` (EN/FR keywords: the call failed, was skipped on the fast path or the identity re-entry, or `RESULT_INTENT=0`). Stored with the SQL in `T_WC_T2S_CACHE.RESULT_INTENT`, so a cache hit returns the reading of the first answer. A prior for -354's rules, never an order. `null` where no rows exist |
+| `summary_facts` | FASTAPI-TEXT2SQL-354 | numbers only, language neutral, `null` with no rows: `count` (the rows returned, one page), `total` (always `null` in phase 1: the fronts say "the first N", no second count query, decision of 2026-10-31), `value_column` and its `unit`, `order` (`collection` when the SQL sorts on `DISPLAY_ORDER`, `date` when on a date column, else the ordered metric's name, or `null`) and `order_direction`, `top` (`{label, id, index, value, extreme}`: the row with the extreme `value_column` value, the minimum when the SQL sorts that column ascending, else the maximum; `null` when the value column is not a metric or with one row). Each front builds its spoken line or caption from it (VOICE-AGENT-248, TMDB-FRONT-115) |
 
 **The representations.** "When" is the rule as `result_shape.py` applies it; "spoken" is the sentence each front builds from `summary_facts` once 1.2.0 ships (until then voice-agent speaks the API's `answer`). Renderers: voice-agent functions live in `app/static/app.js`, tmdb-front functions in `lib/t2s-representation.inc.php` unless stated.
 
@@ -1375,15 +1376,15 @@ This section is the **single source of truth** for the two clients that draw a `
 | voice-agent | the poster grid of `renderText2SqlResult()` (`search-poster-card-grid`) |
 | tmdb-front | the card renderer of `lib/text2sql-search.inc.php`, infinite scroll |
 
-| `value-cards` (1.2.0, planned) | |
+| `value-cards` (FASTAPI-TEXT2SQL-354) | |
 |---|---|
 | Meaning | the card grid with the quantity the question asked for under each card, order kept |
-| When | entity rows, `intent.task == value`, a `focus` column projected and the order not on it ("Harry Potter films with their duration") |
+| When | entity rows, two or more, not images, and a value column (the `focus` one, see `result_columns`): `intent.task == compare` whatever the order ("Which is longer, Titanic or Avatar?", a ranking of two until -354), or `intent.task == value` when the rows are not a ranking under (a) of `ranked-bars` ("Harry Potter films with their duration"; "the Toy Story films with the budget of each" ordered by `BUDGET DESC` stays bars) |
 | Columns used | as `card-grid` plus the `focus` metric, formatted by its unit; a row with no value shows nothing, never "0" |
 | Limits | as `card-grid` |
 | Spoken | count, order, one extremum ("Eight films in collection order; the longest is Order of the Phoenix, 2 h 18") |
-| voice-agent | VOICE-AGENT-246 |
-| tmdb-front | TMDB-FRONT-113 |
+| voice-agent | VOICE-AGENT-246 (items 2 to 4) |
+| tmdb-front | TMDB-FRONT-113 (points 2 to 4) |
 
 | `number-card` | |
 |---|---|
@@ -1408,7 +1409,7 @@ This section is the **single source of truth** for the two clients that draw a `
 | `ranked-bars` | |
 |---|---|
 | Meaning | N rows ordered by one quantity, the quantity drawn |
-| When | (a) entity rows, two or more, whose outer `ORDER BY` sorts first on a projected `metric` column that is not a default sort key (`POPULARITY`, `VOTE_AVERAGE`, `VOTE_COUNT`, `IMDB_VOTES`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, a stored `MOVIE_COUNT` or `SERIE_COUNT`) unless the model computed it (`COUNT(...) AS MOVIE_COUNT`), and the rows are not images; whatever else is projected (FASTAPI-TEXT2SQL-350, -351); (b) a grouped aggregate with no entity: a `label` (or code, or text) column plus exactly one `metric`, with an `ORDER BY`. A ranking by rating stays `card-grid` until the intent tells it from the default sort |
+| When | (a) entity rows, two or more, whose outer `ORDER BY` sorts first on a projected `metric` column that is not a default sort key (`POPULARITY`, `VOTE_AVERAGE`, `VOTE_COUNT`, `IMDB_VOTES`, `IMDB_RATING`, `IMDB_RATING_WEIGHTED`, a stored `MOVIE_COUNT` or `SERIE_COUNT`) unless the model computed it (`COUNT(...) AS MOVIE_COUNT`), and the rows are not images; whatever else is projected (FASTAPI-TEXT2SQL-350, -351); (b) a grouped aggregate with no entity: a `label` (or code, or text) column plus exactly one `metric`, with an `ORDER BY`. (c) since -354, entity rows whose `intent.task == rank` and whose outer `ORDER BY` is on a metric the question names, a default sort key included ("the 12 highest-rated Studio Ghibli films" on `IMDB_RATING_WEIGHTED`); a "best X" with no quantity named stays `card-grid`; (d) a grouped aggregate with `intent.task == rank`, a label and an ordered metric, whatever the other metrics |
 | Columns used | the metric marked `ordered` (else the first `metric`), its `unit`; the `label` column or the entity title for the label; the entity image when every row has one |
 | Limits | 12 rows or fewer with a poster on every row: the poster ranking (rank, poster, title, value); otherwise horizontal bars with text labels. A paged ranking without `LIMIT` is captioned "the first N by <metric>" from 1.2.0 (no total query, decision of 2026-10-31) |
 | Spoken | "the first N by <metric>; <top label>, <top value>" |
@@ -1840,6 +1841,7 @@ Bumping `strapiversion` moves the deployment to the other colour (even patch →
 | **Claude, via MCP** | `https://www.vaugouin.com/mcp`, routed by **NGINX** | the `reverseproxy` repo, repoint the upstream port |
 | **tmdb-front** (PHP) | `$strtext2sqlapicolor`, **hard-coded** in `lib/global-light.inc.php` (~line 144); both URLs already sit in its `.env` as `TEXT2SQL_API_BLUE_URL` / `TEXT2SQL_API_GREEN_URL` | swap the two commented lines, then deploy the front |
 | **voice-agent** | `TEXT2SQL_BASE_URL` in its `.env`, port written in full | edit the port, restart the service |
+| **agent-runner** (Discord bot on the Hostinger server, tool `movie_db`, since 2026-11-08) | `T2S_BASE_URL` in `/etc/agent-runner/env` on Hostinger, port written in full, reached over Tailscale (`http://100.113.161.122:8186`) | `ssh hostinger`, edit the port, `sudo systemctl restart agent-discord-bot`; the VPS firewall already admits Hostinger on 8186 and 8187 (ufw rule 5e) |
 
 Two things worth knowing.
 
@@ -1857,7 +1859,7 @@ FASTAPI-TEXT2SQL-231/-232/-233, which stay on `1.1.18` on Blue.
 
 **What it buys.** Nothing to repoint. The evaluator derives its port from `--api-version`
 parity, tmdb-front keeps `$strtext2sqlapicolor` and `$strtext2sqlapiblueversion` as they are,
-NGINX keeps its upstream, voice-agent keeps its `.env`. The entire four-client table above
+NGINX keeps its upstream, voice-agent keeps its `.env`, agent-runner keeps `T2S_BASE_URL`. The entire client table above
 becomes a no-op, which is the whole point.
 
 **What it costs, and it is not small: `api_version` stops discriminating.** `GET /` answers

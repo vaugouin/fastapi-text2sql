@@ -32,6 +32,7 @@ rendraient cette verification impossible a lancer sur un poste sans la pile comp
 autres modules touches (json_guardrails, vision_cache, uploads) n'ont pas ce probleme et sont
 importes normalement.
 """
+from types import SimpleNamespace
 import hashlib
 import io
 import json
@@ -128,7 +129,7 @@ def charge_modeles_pydantic():
     ChromaDB et la base des son import. Seul le bloc des modeles est execute.
     """
     try:
-        from pydantic import BaseModel, field_serializer, field_validator, model_validator
+        from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
         from response_rounding import round_tree  # FASTAPI-TEXT2SQL-308, serialiseur du modele
     except Exception:
         return None
@@ -142,10 +143,14 @@ def charge_modeles_pydantic():
         code = str(v or "en").strip().lower().split("-")[0]
         return code if code in ("en", "fr") else "en"
 
-    espace_modeles = {"BaseModel": BaseModel, "field_validator": field_validator,
+    espace_modeles = {"BaseModel": BaseModel, "Field": Field, "field_validator": field_validator,
                       "field_serializer": field_serializer, "round_tree": round_tree,
                       "model_validator": model_validator, "Optional": Optional,
-                      "List": List, "normalize_ui_language": normalise_langue}
+                      "List": List, "normalize_ui_language": normalise_langue,
+                      # Text2SQLRequest's default factories (TEXT2SQL-EVAL-002 flex_processing,
+                      # fast_tasks) read text2sql.py, which this check does not import.
+                      "t2s": SimpleNamespace(flex_processing_enabled=lambda: False,
+                                             fast_tasks_enabled=lambda: [])}
     exec(compile(texte[debut:fin], source, "exec"), espace_modeles)
     return espace_modeles["Text2SQLRequest"], espace_modeles["Text2SQLResponse"]
 

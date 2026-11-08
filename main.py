@@ -34,6 +34,7 @@ import vision_cache
 import vision_identity
 import sql_shapes
 import result_shape
+import result_intent
 import closed_vocab
 import samples_assertions as sa
 
@@ -892,14 +893,16 @@ RESULT_ENTITY_PARALLEL = os.getenv("RESULT_ENTITY_PARALLEL", "1").strip().lower(
 
 
 def _timed_classify_result_entity(question: str, model: str):
-    """Run the classifier in a worker thread and return (label, seconds spent in the call).
+    """Run the classifier in a worker thread and return (label, seconds spent in the call, intent).
 
     The duration is measured inside the thread so `result_entity_processing_time` keeps
-    meaning the cost of the call, not the time the join happened to wait for it.
+    meaning the cost of the call, not the time the join happened to wait for it. Since
+    FASTAPI-TEXT2SQL-353 the same call reads the question's intent; `intent` is None when it
+    could not (the keyword rules of result_intent.py then answer).
     """
     started = time.time()
-    label = t2s.f_classify_result_entity(question, list(_RESULT_ENTITY_SOURCES.keys()), model)
-    return label, time.time() - started
+    label, intent = t2s.f_classify_result_intent(question, list(_RESULT_ENTITY_SOURCES.keys()), model)
+    return label, time.time() - started, intent
 
 # --- Name/title ambiguity detection (FASTAPI-TEXT2SQL-157) --------------------
 # When the generated SQL is *nothing but* an exact-equality match on an entity's
@@ -2183,12 +2186,33 @@ class Text2SQLResponse(BaseModel):
     # column is known so a runtime never reaches a client as dollars, plus
     # "ordered": "asc" | "desc" on the one column the outer ORDER BY sorts on first
     # (FASTAPI-TEXT2SQL-351, the ranked quantity a client draws); representation is one
-    # of entity-page | card-grid | number-card | stat-strip | ranked-bars | table. See
+    # of entity-page | card-grid | number-card | stat-strip | ranked-bars | value-cards |
+    # table (value-cards: N entity rows each shown with the quantity asked, -354). See
     # result_shape.py, README "Result representations: the contract" and the design note
     # voice-agent-243-result-representations.md.
     result_kind: Optional[str] = None
     result_columns: Optional[list] = None
     representation: Optional[str] = None
+    # FASTAPI-TEXT2SQL-354. representation_options: the representations the shape allows,
+    # default first, always containing representation; the fronts offer them as override
+    # chips and re-render locally. summary_facts: language-neutral numbers for the caption
+    # and the spoken line, {count, total, value_column, unit, order, order_direction, top};
+    # count is the rows returned (total stays null in phase 1: "the first N"), order is
+    # collection | date | a metric column name | null, top {label, id, index, value, extreme}
+    # the row with the extreme value of value_column. Columns carrying the quantity of each
+    # row have "focus": true in result_columns. None with no rows.
+    representation_options: Optional[list] = None
+    summary_facts: Optional[dict] = None
+    # FASTAPI-TEXT2SQL-353. What the question asks to know about the rows, which the SQL
+    # cannot say ("Harry Potter films with their duration" and "Harry Potter films" can
+    # project the same columns): {task, focus, focus_columns, requested_view, source}. task is
+    # one of list | value | rank | count | compare | sequence | trend | relate | verdict;
+    # focus the canonical quantities asked (runtime, budget, revenue, ...); focus_columns the
+    # projected columns that carry them; requested_view an explicit "as a table" (table |
+    # chart | cards | ""); source llm (the parallel answer-entity classifier) | rules (EN/FR
+    # keywords, when the call failed or was skipped). A prior for the shape rules, never an
+    # order. None on a path that returns before any rows exist. See result_intent.py.
+    intent: Optional[dict] = None
     # Neutral same-name-cluster flag (FASTAPI-TEXT2SQL-157); None unless the SQL is a
     # pure name/title equality on one literal returning >=2 distinct rows. Clients
     # decide what to do with it (voice-agent disambiguates; tmdb-front ignores it).
@@ -2844,6 +2868,11 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     entity_resolution_plan = None
     entity_resolution_planning_time = 0.0
     result_entity_task = None  # FASTAPI-TEXT2SQL-286
+    # FASTAPI-TEXT2SQL-353: the intent read by the classifier on this request, and the one
+    # stored with a cached SQL. Both None until set; result_intent.core_intent falls back to
+    # the keyword rules, so every answer that has rows carries an intent.
+    llm_intent = None
+    cached_intent = None
     # FASTAPI-TEXT2SQL-156, the two signals the no-results retry needs beyond
     # ambiguous_question_for_text2sql. Default 0 / False so a path that never resolves
     # anything (cache hit) cannot accidentally look like a resolution failure.
@@ -3489,8 +3518,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         _apply_vision_credits_check(vision_evidence, fast_path_results)  # -321
         # FASTAPI-TEXT2SQL-349: the bare-identifier fast path always returns entity rows,
         # so the hint resolves to entity-page or card-grid; emit it like any other path.
+        _fp_intent_core = result_intent.rules_intent(request.question or input_text or "")
         _fp_result_shape = result_shape.classify_result(
-            sql_query, fast_path_results, result_entity_fp, _RESULT_ENTITY_ID_COLUMNS
+            sql_query, fast_path_results, result_entity_fp, _RESULT_ENTITY_ID_COLUMNS,
+            intent=_fp_intent_core,
         )
         fast_path_response = Text2SQLResponse(
             question=input_text,
@@ -3541,6 +3572,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             result_kind=_fp_result_shape["result_kind"],
             result_columns=_fp_result_shape["columns"],
             representation=_fp_result_shape["representation"],
+            representation_options=_fp_result_shape["representation_options"],
+            summary_facts=_fp_result_shape["summary_facts"],
+            # FASTAPI-TEXT2SQL-353: no classifier on the bare-identifier path, the rules read it.
+            intent=result_intent.response_intent(_fp_intent_core, _fp_result_shape["columns"]),
             messages=messages,
         )
         logs.log_usage(
@@ -3626,6 +3661,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             justification = cache_result_exact.get("justification", "")
             answer = cache_result_exact.get("answer", "")
             result_entity = cache_result_exact.get("result_entity", "")
+            cached_intent = result_intent.loads_from_cache(cache_result_exact.get("result_intent"))  # -353
     else:
         messages.append(TextMessage(
             position=position_counter, 
@@ -3814,6 +3850,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 justification = cache_result_anonymized.get("justification", "")
                 answer = cache_result_anonymized.get("answer", "")
                 result_entity = cache_result_anonymized.get("result_entity", "")
+                cached_intent = result_intent.loads_from_cache(cache_result_anonymized.get("result_intent"))  # -353
                 sql_query_anonymized = sql_query
                 justification_anonymized = justification
                 answer_anonymized = answer
@@ -4211,9 +4248,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     # own error path: the guard then falls back to the LLM's result_entity.
                     _join_start_time = time.time()
                     try:
-                        expected_result_entity, result_entity_processing_time = await result_entity_task
+                        expected_result_entity, result_entity_processing_time, llm_intent = await result_entity_task
                     except Exception as e:
-                        expected_result_entity, result_entity_processing_time = "", 0.0
+                        expected_result_entity, result_entity_processing_time, llm_intent = "", 0.0, None
                         messages.append(TextMessage(
                             position=position_counter,
                             text=f"Result-entity classification failed in parallel ({e}); falling back to the LLM's result_entity."
@@ -4227,8 +4264,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     position_counter += 1
                 else:
                     _result_entity_start_time = time.time()
-                    expected_result_entity = await asyncio.to_thread(
-                        t2s.f_classify_result_entity,
+                    expected_result_entity, llm_intent = await asyncio.to_thread(
+                        t2s.f_classify_result_intent,
                         input_text, list(_RESULT_ENTITY_SOURCES.keys()),
                         strresultentitymodel,
                     )
@@ -4681,6 +4718,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             is_anonymized=False,
                             ui_language=request.ui_language,
                             result_entity=getattr(retry_response, "result_entity", "") or "",
+                            result_intent_json=result_intent.dumps_for_cache(getattr(retry_response, "intent", None)),
                         )
                         messages.append(TextMessage(
                             position=position_counter,
@@ -5865,6 +5903,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 is_anonymized=False,
                 ui_language=request.ui_language,
                 result_entity=result_entity or "",
+                result_intent_json=result_intent.dumps_for_cache(
+                    result_intent.core_intent(request.question or input_text, llm_intent, cached_intent)),
             )
 
         # Store to SQL cache if requested and not already stored as exact question or anonymized question.
@@ -5905,6 +5945,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 is_anonymized=True,
                 ui_language=request.ui_language,
                 result_entity=result_entity or "",
+                result_intent_json=result_intent.dumps_for_cache(
+                    result_intent.core_intent(request.question or input_text, llm_intent, cached_intent)),
             )
         elif (
             store_to_cache_allowed
@@ -6081,9 +6123,22 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     # FASTAPI-TEXT2SQL-349: the rendering hint, from the result shape and the SQL. Pure and
     # cheap, so it runs on every answer, cache hit included (query_results is filled there
     # too), and never on a path that returned earlier with no rows.
+    # FASTAPI-TEXT2SQL-353: the question's intent. The classifier's reading of this request,
+    # else the one cached with the SQL, else the keyword rules; None only with no question.
+    # Read from request.question, the user's words, never the anonymized or rewritten form.
+    # FASTAPI-TEXT2SQL-354: the shape rules take it as a prior (value-cards, rankings the
+    # question asks for, representation_options, summary_facts), never as an order.
+    _intent_core = result_intent.core_intent(request.question or input_text, llm_intent, cached_intent)
     _result_shape = result_shape.classify_result(
-        sql_query, query_results, result_entity, _RESULT_ENTITY_ID_COLUMNS
+        sql_query, query_results, result_entity, _RESULT_ENTITY_ID_COLUMNS, intent=_intent_core
     )
+    _intent = result_intent.response_intent(_intent_core, _result_shape["columns"])
+    if _intent:
+        messages.append(TextMessage(
+            position=position_counter,
+            text=f"Intent: task '{_intent['task']}', focus {_intent['focus']}, focus columns {_intent['focus_columns']}, source '{_intent['source']}'."
+        ))
+        position_counter += 1
     response = Text2SQLResponse(
         question=input_text,
         question_hashed=response_question_hash,
@@ -6150,6 +6205,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         result_kind=_result_shape["result_kind"],
         result_columns=_result_shape["columns"],
         representation=_result_shape["representation"],
+        representation_options=_result_shape["representation_options"],
+        summary_facts=_result_shape["summary_facts"],
+        intent=_intent,
         messages=messages,
         **t2s.snapshot_usage_fields(),
     )
