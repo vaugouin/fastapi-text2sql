@@ -2510,3 +2510,193 @@ def plan_co_constrained_title_rescue(*, connection, entity_extraction, plan) -> 
                    f"{', '.join(person_names)}: "
                    + ", ".join(f"{w[3]} ({w[4] or '?'}, id={w[2]}, score {w[0]:.0f})" for w in winners)),
     }
+
+
+
+# ---- Co-constrained person rescue (FASTAPI-TEXT2SQL-371) ---------------------------------
+#
+# The reverse of -369. "Movie Gladiator with Phoenix": the title resolves exact (98), the bare
+# surname does not pass the person gate (Phoenix Ly 82 < 84.5), and the alias table then hands
+# it to an unrelated person (Christian Mazzalai, alias "Phoenix"). Every placeholder counts as
+# resolved, the conjunction is empty, and the gate takes the empty as the answer. Measured on
+# 2026-11-08 (evaluations 2674 to 2678): Grant, Phoenix and Jackson fail that way in both
+# languages; Foster and Clavier fall to raw fallback and only pass through the stronger model,
+# which drops the person from the question. The rescue reads the cast and crew of the work(s)
+# the title resolved to (tens to a few hundred names) and completes the name the user gave
+# within them. Zero LLM call.
+
+_CO_PERSON_FROM = {
+    "T_WC_T2S_MOVIE": ("T_WC_T2S_PERSON_MOVIE", "ID_MOVIE"),
+    "T_WC_T2S_SERIE": ("T_WC_T2S_PERSON_SERIE", "ID_SERIE"),
+}
+_CO_PERSON_CFG = {"strtableid": "ID_PERSON", "default_field": "PERSON_NAME", "languages": {}}
+
+
+def score_partial_person(sought, name) -> float:
+    """Score how well a (possibly partial) person name fits a full name.
+
+    A single word equal to the last word of the name (a surname) scores 100, equal to another
+    word of it (a first name) 90; otherwise ``token_set_ratio`` on folded forms, which gives
+    100 when every word given is a word of the name.
+    """
+    a = fold_title_for_co_constraint(sought)
+    b = fold_title_for_co_constraint(name)
+    if not a or not b:
+        return 0.0
+    sought_words, name_words = a.split(), b.split()
+    if len(sought_words) == 1:
+        if sought_words[0] == name_words[-1]:
+            return 100.0
+        if sought_words[0] in name_words:
+            return 90.0
+    return float(fuzz.token_set_ratio(a, b))
+
+
+def plan_co_constrained_person_rescue(*, connection, entity_extraction, plan) -> dict[str, Any]:
+    """Complete a partial person name within the cast and crew of the work(s) the question names.
+
+    Applies when exactly one person placeholder is in the question and at least one movie or
+    series title placeholder resolved to a title (not a raw fallback). The person may have
+    resolved to anyone, or not at all: the rescue only runs on an empty first page, where the
+    resolved person is by construction not credited on the work.
+
+    Returns the same shape as :func:`plan_co_constrained_title_rescue`, with ``kind`` set to
+    ``person``, ``raw_name`` the name the user gave, ``works`` the work titles and
+    ``winners`` as ``(id_person, name, popularity, score)``.
+    """
+    items = extracted_entity_items(entity_extraction)
+    values = dict(items)
+    person_keys = [k for k, _v in items if k.startswith("Person_name")]
+    work_keys, work_cfgs = [], {}
+    for key, _value in items:
+        if key.startswith("Person_name"):
+            continue
+        cfg = _find_entity_config(key)
+        candidates = [s for s in _iter_entity_searches(cfg or {})
+                      if s.get("strtablename") in _CO_PERSON_FROM and s.get("strtableid")]
+        if candidates:
+            work_keys.append(key)
+            work_cfgs[key] = max(candidates, key=lambda s: len(set((s.get("languages") or {}).values())))
+    if len(person_keys) != 1 or not work_keys:
+        return {"outcome": "not_applicable", "kind": "person",
+                "detail": f"{len(person_keys)} person placeholder(s) and {len(work_keys)} movie/series title placeholder(s); the person rescue needs exactly one person and at least one title"}
+    person_key = person_keys[0]
+    raw_name = str(values.get(person_key) or "").strip()
+    if len(fold_title_for_co_constraint(raw_name).replace(" ", "")) < 3:
+        return {"outcome": "not_applicable", "kind": "person", "detail": f"name '{raw_name}' too short to complete"}
+
+    planned_by_key = {p.key: p for p in (plan or {}).get("entities", []) or []}
+    with connection.cursor() as cursor:
+        # The works each title placeholder stands for: every row whose title forms hold the
+        # resolved title, the set the first-pass OR predicate reaches (homonyms included; the
+        # title predicate stays in the SQL, so only the person is pinned here).
+        work_sets, work_labels = [], []
+        for key in work_keys:
+            cfg = work_cfgs[key]
+            cols = []
+            for col in [cfg.get("default_field")] + list((cfg.get("languages") or {}).values()):
+                if col and col not in cols:
+                    cols.append(col)
+            title = _co_constraint_literal(planned_by_key.get(key), cfg.get("default_field"))
+            if title is None:
+                return {"outcome": "no_work", "kind": "person", "detail": f"{key} did not resolve to a title (unresolved or raw fallback)"}
+            cursor.execute(
+                f"SELECT `{cfg['strtableid']}` AS _ID FROM `{cfg['strtablename']}` WHERE "
+                + " OR ".join(f"`{c}` = %s" for c in cols),
+                tuple([title] * len(cols)),
+            )
+            ids = sorted({int(r["_ID"]) for r in cursor.fetchall() or []})
+            if not ids:
+                return {"outcome": "no_work", "kind": "person", "detail": f"no {cfg['strtablename']} row titled '{title}'"}
+            work_sets.append((cfg["strtablename"], ids))
+            work_labels.append(title)
+        # A person counts when credited on (one homonym of) EVERY named work.
+        selects = []
+        for k, (table, ids) in enumerate(work_sets):
+            link, link_id = _CO_PERSON_FROM[table]
+            selects.append(
+                f"SELECT c.ID_PERSON, {k} AS _W, MAX(c.CREDIT_TYPE = 'cast') AS _CAST FROM `{link}` c "
+                f"WHERE c.`{link_id}` IN ({', '.join(str(i) for i in ids)}) GROUP BY c.ID_PERSON"
+            )
+        cursor.execute(
+            "SELECT p.ID_PERSON AS _ID, p.PERSON_NAME, p.POPULARITY AS _POP, MAX(x._CAST) AS _CAST "
+            f"FROM ({' UNION ALL '.join(selects)}) x JOIN T_WC_T2S_PERSON p ON p.ID_PERSON = x.ID_PERSON "
+            f"GROUP BY p.ID_PERSON, p.PERSON_NAME, p.POPULARITY HAVING COUNT(DISTINCT x._W) = {len(work_sets)}"
+        )
+        pool = cursor.fetchall() or []
+    if not pool:
+        return {"outcome": "no_match", "kind": "person", "detail": f"no person credited on {', '.join(work_labels)}"}
+
+    scored = []
+    for row in pool:
+        scored.append((score_partial_person(raw_name, row.get("PERSON_NAME")), int(row.get("_CAST") or 0),
+                       float(row.get("_POP") or 0.0), int(row["_ID"]), str(row.get("PERSON_NAME") or "")))
+    scored.sort(key=lambda r: (-r[0], -r[1], -r[2]))
+    top = scored[0][0]
+    if top < CO_CONSTRAINT_MIN_SCORE:
+        near = ", ".join(f"{r[4]} ({r[0]:.0f})" for r in scored[:3])
+        return {"outcome": "no_match", "kind": "person",
+                "detail": f"best of {len(pool)} person(s) credited on {', '.join(work_labels)} scores {top:.0f} < {CO_CONSTRAINT_MIN_SCORE:.0f} for '{raw_name}' (closest: {near})"}
+    winners = [r for r in scored if r[0] >= top - CO_CONSTRAINT_TIE_MARGIN]
+    # A cast credit beats a crew credit at the same score ("Foster" on Taxi Driver is Jodie
+    # Foster, cast, not Connie Foster, crew).
+    winners = ([r for r in winners if r[1]] or winners)[:CO_CONSTRAINT_MAX_WINNERS]
+    label = winners[0][4]
+    placeholder = "{{" + person_key + "}}"
+    new_person = _PlannedEntity(person_key, placeholder)
+    new_person.resolve_with(_substitute_title_by_ids(placeholder, _CO_PERSON_CFG, [w[3] for w in winners], label))
+    new_entities = []
+    for p in (plan or {}).get("entities", []) or []:
+        if p.key == person_key:
+            new_entities.append(new_person)
+            continue
+        q = _PlannedEntity(p.key, p.placeholder)
+        q.substitution = p.substitution
+        q.require_present = p.require_present
+        q.is_raw_fallback = p.is_raw_fallback
+        q.is_unmatchable_raw_fallback = p.is_unmatchable_raw_fallback
+        new_entities.append(q)
+    if person_key not in planned_by_key:
+        new_entities.append(new_person)
+    names = ", ".join(w[4] for w in winners[:3]) + (", ..." if len(winners) > 3 else "")
+    return {
+        "outcome": "planned",
+        "kind": "person",
+        "placeholder": placeholder,
+        "raw_name": raw_name,
+        "works": work_labels,
+        "pool_size": len(pool),
+        "winners": [(w[3], w[4], w[2], w[0]) for w in winners],
+        "plan": {"entities": new_entities, "match_scores": []},
+        "justification_note": f"Name '{raw_name}' completed from the credits of {', '.join(work_labels)}: {names}.",
+        "detail": (f"'{raw_name}' completed within the {len(pool)} person(s) credited on {', '.join(work_labels)}: "
+                   + ", ".join(f"{w[4]} (id={w[3]}, {'cast' if w[1] else 'crew'}, score {w[0]:.0f})" for w in winners)),
+    }
+
+
+def plan_co_constrained_rescue(*, connection, entity_extraction, plan) -> dict[str, Any]:
+    """Try the title rescue (-369), then the person rescue (-371) when the title one cannot help.
+
+    Returns the planned result of whichever applies, with ``kind``, ``label`` (for messages)
+    and ``justification_note``; when neither plans, the more informative result with both
+    details.
+    """
+    title = plan_co_constrained_title_rescue(connection=connection, entity_extraction=entity_extraction, plan=plan)
+    title.setdefault("kind", "title")
+    title["label"] = "Co-constrained title rescue (FASTAPI-TEXT2SQL-369)"
+    if title.get("outcome") == "planned":
+        titles = ", ".join(w[1] for w in title["winners"][:3]) + (", ..." if len(title["winners"]) > 3 else "")
+        title["justification_note"] = f"Title '{title['raw_title']}' completed from the credits of {', '.join(title['persons'])}: {titles}."
+        return title
+    person = plan_co_constrained_person_rescue(connection=connection, entity_extraction=entity_extraction, plan=plan)
+    person["label"] = "Co-constrained person rescue (FASTAPI-TEXT2SQL-371)"
+    if person.get("outcome") == "planned":
+        return person
+    # The title rescue never reached a pool (no title, or no resolved person): the person
+    # rescue's outcome is the informative one.
+    if title.get("outcome") in ("not_applicable", "no_person") and person.get("outcome") != "not_applicable":
+        person["detail"] = f"{person.get('detail', '')} (title rescue: {title.get('detail', '')})"
+        return person
+    if person.get("outcome") != "not_applicable":
+        title["detail"] = f"{title.get('detail', '')}; person rescue (FASTAPI-TEXT2SQL-371): {person.get('outcome')}, {person.get('detail', '')}"
+    return title

@@ -5379,8 +5379,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # pin the title predicate to the winners' ids and re-execute. Adopted only when rows come
         # back; otherwise the first pass stands and the usual gate and retry rules apply. A title
         # on raw fallback qualifies (the retry would otherwise spend a stronger-model call to
-        # do the same completion: "Ch'tis" with Dany Boon, 16 s on 1.1.20); a person on raw
-        # fallback does not, there is then no filmography to read.
+        # do the same completion: "Ch'tis" with Dany Boon, 16 s on 1.1.20). When the title
+        # rescue cannot help (the person on raw fallback, or resolved to someone credited on
+        # none of the matching works), FASTAPI-TEXT2SQL-371 completes the person instead, within
+        # the cast and crew of the resolved work ("Gladiator with Phoenix").
         if (
             not sql_execution_failed
             and lngpage == 1
@@ -5403,8 +5405,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         entity_extraction=entity_extraction,
                         chromadb_collections_by_name=CHROMADB_COLLECTIONS_BY_NAME,
                     )
+                # FASTAPI-TEXT2SQL-371: the title rescue first, then the reverse (a bare surname
+                # completed within the cast of the resolved work) when the title one cannot help.
                 _co = await asyncio.to_thread(
-                    entity.plan_co_constrained_title_rescue,
+                    entity.plan_co_constrained_rescue,
                     connection=connection,
                     entity_extraction=entity_extraction,
                     plan=_co_plan_src,
@@ -5414,7 +5418,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     if co_constraint_rescue_outcome != "not_applicable":
                         messages.append(TextMessage(
                             position=position_counter,
-                            text=f"Co-constrained title rescue (FASTAPI-TEXT2SQL-369): {co_constraint_rescue_outcome}, {_co.get('detail', '')}; the first-pass result stands."
+                            text=f"{_co.get('label', 'Co-constrained rescue')}: {co_constraint_rescue_outcome}, {_co.get('detail', '')}; the first-pass result stands."
                         ))
                         position_counter += 1
                 else:
@@ -5432,7 +5436,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         co_constraint_rescue_outcome = "error"
                         messages.append(TextMessage(
                             position=position_counter,
-                            text=f"Co-constrained title rescue: placeholders survived the rewrite ({_co_base}); the first-pass result stands."
+                            text=f"Co-constrained rescue: placeholders survived the rewrite ({_co_base}); the first-pass result stands."
                         ))
                         position_counter += 1
                     else:
@@ -5445,7 +5449,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         _co_exec = re.sub(r"\blimit\b\s+\d+", "", _co_exec, flags=re.IGNORECASE).strip() + _co_suffix
                         messages.append(TextMessage(
                             position=position_counter,
-                            text=f"Co-constrained title rescue (FASTAPI-TEXT2SQL-369): 0 rows with every placeholder resolved; {_co['detail']}. Re-executing: {_co_exec}"
+                            text=f"{_co['label']}: 0 rows on the first pass; {_co['detail']}. Re-executing: {_co_exec}"
                         ))
                         position_counter += 1
                         _co_start_time = time.time()
@@ -5461,10 +5465,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             # template keeps its title equality, which is right for every other
                             # title and is rescued again at run time when it comes back empty.
                             co_constraint_rescue_outcome = "rescued"
-                            _co_titles = ", ".join(w[1] for w in _co["winners"][:3]) + (", ..." if len(_co["winners"]) > 3 else "")
-                            justification = (justification or "").rstrip() + (
-                                f" Title '{_co['raw_title']}' completed from the credits of {', '.join(_co['persons'])}: {_co_titles}."
-                            )
+                            justification = (justification or "").rstrip() + " " + _co["justification_note"]
                             sql_query = _co_exec
                             sql_query_processed_base = _co_base
                             query_results = _co_rows
@@ -5472,16 +5473,16 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             co_constraint_rescue_outcome = "still_empty"
                         messages.append(TextMessage(
                             position=position_counter,
-                            text=f"Co-constrained title rescue: {len(_co_rows)} row(s); " + (
+                            text=f"Co-constrained rescue: {len(_co_rows)} row(s); " + (
                                 "adopted." if _co_rows else "the first-pass result stands.")
                         ))
                         position_counter += 1
             except Exception as _co_exc:
                 co_constraint_rescue_outcome = "error"
-                print(f"Co-constrained title rescue failed: {_co_exc}")
+                print(f"Co-constrained rescue failed: {_co_exc}")
                 messages.append(TextMessage(
                     position=position_counter,
-                    text=f"Co-constrained title rescue failed ({type(_co_exc).__name__}: {_co_exc}); the first-pass result stands and the usual retry rules apply."
+                    text=f"Co-constrained rescue failed ({type(_co_exc).__name__}: {_co_exc}); the first-pass result stands and the usual retry rules apply."
                 ))
                 position_counter += 1
 

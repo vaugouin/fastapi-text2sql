@@ -1,0 +1,23 @@
+-- check-371-person-pool.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-11-08 18:10:44 +0100
+--
++---------+
+| _ID     |
++---------+
+|      98 |
+|   16219 |
+|  604158 |
+| 1215231 |
++---------+
++-------+-----------------+--------+-------+
+| _ID   | PERSON_NAME     | _POP   | _CAST |
++-------+-----------------+--------+-------+
+| 73421 | Joaquin Phoenix | 3.4162 |     1 |
+|   935 | Connie Nielsen  | 7.6851 |     1 |
+|   934 | Russell Crowe   | 7.2621 |     1 |
+|   194 | Richard Harris  | 5.3067 |     1 |
+|   578 | Ridley Scott    | 4.1347 |     0 |
+|   938 | Djimon Hounsou  | 3.7099 |     1 |
+| 58787 | Giannina Facio  | 3.6525 |     1 |
+|  2478 | Tommy Flanagan  |  3.122 |     1 |
++-------+-----------------+--------+-------+
