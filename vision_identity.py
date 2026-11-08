@@ -220,6 +220,132 @@ def discriminator_phrase(candidate, disc, item_type: str = "movie") -> dict:
     return {"en": "", "fr": ""}
 
 
+# FASTAPI-TEXT2SQL-372. The same decision for a PERSON the complex model rewrote as
+# `Person <name> born in <year>`. Name plus birth year is not a key either (93 groups of living
+# persons share both: Michael Jackson 1958 is the singer and a British television executive),
+# and the model's birth year can be one or two off the base (Chris Williams 1968 for 1967, Bob
+# Nelson 1956 for 1958), so the candidates are read on the name with a year window and the
+# model's knowledge of the person decides:
+#
+# - ``known_for``: titles the person is known for, matched against the titles of the works the
+#   candidate is credited on (cast or crew). Specific to one person: it weighs 2 per title.
+# - ``department``: TMDb's ``KNOWN_FOR_DEPARTMENT`` (Acting, Directing, Writing...), 1.
+# - ``country_of_birth``: ISO 3166-1 alpha-2, 1.
+#
+# Popularity never decides: on three evaluations (Alan Parker, Michael Gordon, David Grossman)
+# the namesake is MORE popular than the person described.
+WEIGHT_KNOWN_FOR = 2
+WEIGHT_DEPARTMENT = 1
+WEIGHT_COUNTRY = 1
+# A title shorter than this, folded, only matches a credit exactly ("Up", "Her", "It").
+_KNOWN_FOR_CONTAINMENT_MIN = 6
+_TRAILING_YEAR = re.compile(r"\s*\(\s*\d{4}\s*\)\s*$")
+
+
+def _fold_title(value) -> str:
+    return normalize_person_name(_TRAILING_YEAR.sub("", str(value or "")))
+
+
+def _title_matches(known: str, held: str) -> bool:
+    """``known`` and ``held`` are folded titles. Equal, or one holds the other as whole words
+    when the shorter is long enough to be specific ("thriller" in "michael jackson s thriller")."""
+    if not known or not held:
+        return False
+    if known == held:
+        return True
+    short, long_ = (known, held) if len(known) <= len(held) else (held, known)
+    if len(short) < _KNOWN_FOR_CONTAINMENT_MIN:
+        return False
+    return f" {short} " in f" {long_} "
+
+
+def person_discriminators(known_credits) -> dict:
+    """The person discriminators of a ``known_credits`` block (``{}`` when there are none)."""
+    credits = known_credits if isinstance(known_credits, dict) else {}
+    known_for = [str(t or "").strip() for t in (credits.get("known_for") or [])
+                 if str(t or "").strip()] if isinstance(credits.get("known_for"), list) else []
+    return {
+        "known_for": known_for,
+        "department": str(credits.get("department") or "").strip(),
+        "country_of_birth": str(credits.get("country_of_birth") or "").strip().upper()[:2],
+    }
+
+
+def has_person_discriminator(disc) -> bool:
+    disc = disc if isinstance(disc, dict) else {}
+    return bool(disc.get("known_for") or disc.get("department") or disc.get("country_of_birth"))
+
+
+def score_person_candidate(candidate, disc) -> dict:
+    """Score one person row against the person discriminators.
+
+    ``candidate`` keys: ``id``, ``department``, ``country``, ``titles`` (every title of every
+    work the person is credited on, any language). Returns ``{"score", "matches"}``; the
+    ``known_for`` matches keep the title as the model wrote it, for the answer line.
+    """
+    candidate = candidate if isinstance(candidate, dict) else {}
+    held = [_fold_title(t) for t in (candidate.get("titles") or [])]
+    held = [t for t in held if t]
+    score = 0
+    matches = []
+    for title in disc.get("known_for") or []:
+        folded = _fold_title(title)
+        if folded and any(_title_matches(folded, h) for h in held):
+            score += WEIGHT_KNOWN_FOR
+            matches.append(f"known_for {_TRAILING_YEAR.sub('', str(title)).strip()}")
+    dept = normalize_person_name(disc.get("department"))
+    if dept and dept == normalize_person_name(candidate.get("department")):
+        score += WEIGHT_DEPARTMENT
+        matches.append(f"department {disc.get('department')}")
+    country = str(disc.get("country_of_birth") or "").strip().upper()
+    if country and country == str(candidate.get("country") or "").strip().upper():
+        score += WEIGHT_COUNTRY
+        matches.append(f"country {country}")
+    return {"score": score, "matches": matches}
+
+
+def pick_person_identity(candidates, disc) -> dict:
+    """Decide which of the persons sharing the name (and, roughly, the birth year) is meant.
+
+    Same contract as ``pick_vision_identity``: ``single``, ``no_discriminator``, ``picked`` or
+    ``undecided``, ``kept`` never empty when candidates exist. One more rule: a lone candidate
+    that matches something is ``picked`` rather than ``single``, because the retry's SQL filters
+    on the model's exact birth year and returns nobody when that year is off; the lone candidate
+    was read with a year window, and its id is what the retry must query.
+    """
+    rows = [c for c in (candidates or []) if isinstance(c, dict)]
+    ids = [c.get("id") for c in rows]
+    disc = disc if isinstance(disc, dict) else {}
+    if not rows:
+        return {"decision": "single", "kept": [], "scores": {}}
+    if not has_person_discriminator(disc):
+        return {"decision": "single" if len(rows) == 1 else "no_discriminator",
+                "kept": ids, "scores": {}}
+    scores = {c.get("id"): score_person_candidate(c, disc) for c in rows}
+    if len(rows) == 1:
+        decision = "picked" if scores[ids[0]]["score"] > 0 else "single"
+        return {"decision": decision, "kept": ids, "scores": scores}
+    ranked = sorted(scores.values(), key=lambda s: -s["score"])
+    best = ranked[0]["score"]
+    if best <= 0 or ranked[1]["score"] == best:
+        return {"decision": "undecided", "kept": ids, "scores": scores}
+    winner = next(cid for cid in ids if scores[cid]["score"] == best)
+    return {"decision": "picked", "kept": [winner], "scores": scores}
+
+
+def person_discriminator_phrase(candidate, scores_entry) -> dict:
+    """``{"en": "known for Midnight Express and Evita", "fr": "connu pour ..."}`` from the
+    ``known_for`` titles that matched; empty strings when the win came from the department or
+    the country alone. French agrees with TMDb's gender (1 = female)."""
+    titles = [m.split(" ", 1)[1] for m in (scores_entry or {}).get("matches", [])
+              if m.startswith("known_for ")][:2]
+    if not titles:
+        return {"en": "", "fr": ""}
+    female = str((candidate or {}).get("gender") or "") == "1"
+    return {"en": f"known for {_join(titles, 'and')}",
+            "fr": f"{'connue' if female else 'connu'} pour {_join(titles, 'et')}"}
+
+
 # FASTAPI-TEXT2SQL-321. The vision model puts names on faces, and a name it guesses can be wrong
 # while the work it identifies is right. Measured on 2026-10-09: the Paris metro poster of *Les
 # Misérables* (2026) came back as the right film, with "Grégory Gadebois, central figure in a long

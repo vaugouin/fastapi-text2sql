@@ -93,10 +93,89 @@ CASES = [
 ]
 
 
-def identity_pattern():
+# FASTAPI-TEXT2SQL-372. Persons: the rewrite `Person <name> born in <year>`, the namesakes read on
+# the name within a birth-year window, and what the complex model knows of the person
+# (``known_for``, ``department``, ``country_of_birth``). The rows are the real collisions of
+# ``text2sql-eval/check-355-homonyms-series-persons-20261108.txt`` (ids, departments, countries,
+# popularity), the same persons the evaluations 2692 to 2704 assert on; the titles are a sample of
+# their credits.
+def prow(i, imdb, dept, country, titles, gender=2, popularity=0.0):
+    return {"id": i, "id_imdb": imdb, "department": dept, "country": country,
+            "titles": titles, "gender": gender, "popularity": popularity}
+
+
+def pdisc(known_for=(), department="", country_of_birth=""):
+    return vi.person_discriminators({"known_for": list(known_for), "department": department,
+                                     "country_of_birth": country_of_birth})
+
+
+MJ = [prow(82702, "nm0001391", "Acting", "US",
+           ["Moonwalker", "Michael Jackson's Thriller", "This Is It", "The Wiz"], popularity=4.40),
+      prow(1997098, "nm1577843", "Production", "GB", [], popularity=0.12)]
+PARKER = [prow(1714546, "nm0662029", "Sound", "", ["Skyfall", "Spectre"], popularity=2.05),
+          prow(9168, "nm0000570", "Directing", "GB",
+               ["Midnight Express", "Mississippi Burning", "Evita", "The Commitments"], popularity=1.41)]
+GORDON = [prow(1196027, "nm0330458", "Editing", "GB", ["The Winslow Boy"], popularity=1.54),
+          prow(123401, "nm0330456", "Directing", "US", ["Pillow Talk", "Cyrano de Bergerac"],
+               popularity=0.61)]
+GROSSMAN = [prow(43954, "nm0343622", "Directing", "US", ["Desperate Housewives", "Buffy the Vampire Slayer"],
+                 popularity=0.78),
+            prow(2107858, "nm0343624", "Writing", "IL", ["See Under: Love"], popularity=0.24)]
+CHRIS = [prow(70238, "nm0930261", "Directing", "US", ["Bolt", "Big Hero 6", "Moana", "The Sea Beast"]),
+         prow(1214427, "nm0930282", "Acting", "US", ["Dodgeball: A True Underdog Story"])]
+NELSON = [prow(1538366, "nm1504572", "Writing", "US", ["Nebraska", "The Confessions of Max Tivoli"])]
+HUGHES = [prow(11505, "nm0000455", "Directing", "US",
+               ["The Breakfast Club", "Ferris Bueller's Day Off", "Sixteen Candles"]),
+          prow(1599220, "nm0400696", "Acting", "", ["Some Short Film"])]
+
+PERSON_CASES = [
+    ("Michael Jackson, the singer, on his films", MJ,
+     pdisc(["Thriller", "Moonwalker"], "Acting", "US"), "picked", [82702]),
+    ("Michael Jackson, the television executive: department and country, no credit", MJ,
+     pdisc([], "Production", "GB"), "picked", [1997098]),
+    ("Alan Parker: the namesake is more popular, the films decide", PARKER,
+     pdisc(["Midnight Express (1978)", "Evita"], "Directing", "GB"), "picked", [9168]),
+    ("Michael Gordon: the more popular editor loses to Pillow Talk", GORDON,
+     pdisc(["Pillow Talk"], "Directing", "US"), "picked", [123401]),
+    ("David Grossman: the novelist, on department and country", GROSSMAN,
+     pdisc(["To the End of the Land"], "Writing", "IL"), "picked", [2107858]),
+    ("Chris Williams: two namesakes, Bolt and Moana decide", CHRIS,
+     pdisc(["Bolt", "Moana"], "Directing", "US"), "picked", [70238]),
+    ("Bob Nelson: one candidate inside the year window, matched, picked (birth year two off)",
+     NELSON, pdisc(["Nebraska"], "Writing", "US"), "picked", [1538366]),
+    ("One candidate and nothing matches: nothing to decide", NELSON,
+     pdisc(["Another Film"], "Acting", "FR"), "single", [1538366]),
+    ("John Hughes: The Breakfast Club", HUGHES,
+     pdisc(["The Breakfast Club"], "Directing", "US"), "picked", [11505]),
+    ("Same department and country on both sides, no title: undecided", GORDON[:1] + [
+        prow(5, "nm5", "Editing", "GB", [])], pdisc([], "Editing", "GB"), "undecided", [1196027, 5]),
+    ("No knowledge at all: every namesake kept", MJ, pdisc(), "no_discriminator", [82702, 1997098]),
+    ("A short title matches exactly only: 'Up' does not match 'Upside Down'",
+     [prow(1, "nm1", "Acting", "US", ["Upside Down"]), prow(2, "nm2", "Acting", "US", ["Up"])],
+     pdisc(["Up"]), "picked", [2]),
+]
+
+PHRASE_CASES = [
+    ((PARKER[1], {"matches": ["known_for Midnight Express", "known_for Evita", "department Directing"]}),
+     {"en": "known for Midnight Express and Evita", "fr": "connu pour Midnight Express et Evita"}),
+    (({"gender": 1}, {"matches": ["known_for Arrival"]}),
+     {"en": "known for Arrival", "fr": "connue pour Arrival"}),
+    ((MJ[1], {"matches": ["department Production", "country GB"]}), {"en": "", "fr": ""}),
+]
+
+PERSON_PATTERN_CASES = [
+    ("Person Michael Jackson born in 1958", ("Michael Jackson", "1958")),
+    ("Person Alan Parker", ("Alan Parker", None)),
+    ("person John Hughes born in 1950", ("John Hughes", "1950")),
+    ("Persons born in France", None),
+    ("Movie Taxi Driver (1976)", None),
+]
+
+
+def identity_pattern(name="_COMPLEX_IDENTITY_PATTERN"):
     src = open(os.path.join(RACINE, "text2sql.py"), encoding="utf-8").read()
-    m = re.search(r'^_COMPLEX_IDENTITY_PATTERN = re\.compile\(r"(.+?)", re\.IGNORECASE\)$', src, re.M)
-    assert m, "_COMPLEX_IDENTITY_PATTERN not found in text2sql.py"
+    m = re.search(r'^' + name + r' = re\.compile\(\s*r"(.+?)", re\.IGNORECASE\)$', src, re.M)
+    assert m, f"{name} not found in text2sql.py"
     return re.compile(m.group(1), re.IGNORECASE)
 
 
@@ -130,7 +209,29 @@ def main() -> int:
         ok = got == want
         failures += 0 if ok else 1
         print(f"{'PASS' if ok else 'FAIL'}  pattern {text!r} -> {got}")
-    total = len(CASES) + len(PATTERN_CASES)
+    for name, candidates, disc, want_decision, want_kept in PERSON_CASES:
+        got = vi.pick_person_identity(candidates, disc)
+        ok = got["decision"] == want_decision and got["kept"] == want_kept
+        failures += 0 if ok else 1
+        print(f"{'PASS' if ok else 'FAIL'}  person: {name}")
+        if verbose or not ok:
+            print(f"      decision {got['decision']} kept {got['kept']} (want {want_decision} {want_kept})")
+            for cid, sc in got["scores"].items():
+                print(f"      {cid}: {sc['score']} {sc['matches']}")
+    for (cand, entry), want in PHRASE_CASES:
+        got = vi.person_discriminator_phrase(cand, entry)
+        ok = got == want
+        failures += 0 if ok else 1
+        print(f"{'PASS' if ok else 'FAIL'}  phrase {got}")
+    person_pattern = identity_pattern("_COMPLEX_PERSON_IDENTITY_PATTERN")
+    for text, want in PERSON_PATTERN_CASES:
+        m = person_pattern.match(text.strip())
+        got = m.groups() if m else None
+        ok = got == want
+        failures += 0 if ok else 1
+        print(f"{'PASS' if ok else 'FAIL'}  person pattern {text!r} -> {got}")
+    total = (len(CASES) + len(PATTERN_CASES) + len(PERSON_CASES) + len(PHRASE_CASES)
+             + len(PERSON_PATTERN_CASES))
     print(f"{total - failures}/{total} passed")
     return 1 if failures else 0
 

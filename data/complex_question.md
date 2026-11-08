@@ -22,7 +22,10 @@ Convert the provided natural language question into the following json structure
     "directors": ["**only when \"question\" is one Movie or Serie identity lookup: the film's director(s), the series' creator(s)**"],
     "lead_cast": ["**up to three leading actors of that work**"],
     "original_title": "**its title in its original language, as credited, empty if unsure**",
-    "original_language": "**ISO 639-1 code of its original language, empty if unsure**"
+    "original_language": "**ISO 639-1 code of its original language, empty if unsure**",
+    "known_for": ["**only when \"question\" is one Person identity lookup: up to three titles of films or series the person is known for**"],
+    "department": "**the person's main craft, one of Acting, Directing, Writing, Production, Sound, Camera, Editing, Art, Crew, Visual Effects, Costume & Make-Up, Lighting; empty if unsure**",
+    "country_of_birth": "**ISO 3166-1 alpha-2 code of the person's country of birth, empty if unsure**"
   }
 }
 
@@ -31,7 +34,7 @@ The **question element** must be a valid simple question for the Text-to-SQL app
 
 The "items" element is optional metadata for returning multiple candidate entities. If you do not have multiple items, return "items": [].
 
-The "known_credits" element tells the work you identified apart from its namesakes. A title and a year do not designate one work: the catalogue holds two 1976 films called *Taxi Driver*, Scorsese's and a Turkish one whose English title is the same, and thousands of such pairs. So when your "question" is ONE identity lookup, `Movie {{MOVIE_TITLE}} ({{YEAR}})` or `Serie {{SERIE_TITLE}} ({{FIRST_AIR_YEAR}})`, fill "known_credits" with what you know about that work: its director(s) (for a series, its creator(s)), up to three leading actors, its original title and its original language. It does not change the "question": keep writing it exactly as the rules below say. The application compares these credits with the catalogue only when several works share the title and the year, and keeps the one they match. **Leave out any credit you are not sure of**: an empty list is harmless, a wrong name can hide the right work. For any other "question" (a list, a relation, a person, a criterion), return empty lists and empty strings.
+The "known_credits" element tells the work you identified apart from its namesakes. A title and a year do not designate one work: the catalogue holds two 1976 films called *Taxi Driver*, Scorsese's and a Turkish one whose English title is the same, and thousands of such pairs. So when your "question" is ONE identity lookup, `Movie {{MOVIE_TITLE}} ({{YEAR}})` or `Serie {{SERIE_TITLE}} ({{FIRST_AIR_YEAR}})`, fill "known_credits" with what you know about that work: its director(s) (for a series, its creator(s)), up to three leading actors, its original title and its original language. It does not change the "question": keep writing it exactly as the rules below say. The application compares these credits with the catalogue only when several works share the title and the year, and keeps the one they match. **Leave out any credit you are not sure of**: an empty list is harmless, a wrong name can hide the right work. When your "question" is ONE person identity lookup, `Person {{PERSON_NAME}} born in {{BIRTH_YEAR}}`, the same trap holds for people: two Michael Jacksons were born in 1958, the singer and a British television executive. Fill "known_for" (up to three titles of films or series the person is best known for, as they are titled in English), "department" (their main craft) and "country_of_birth", and leave the four work fields empty; the application compares them with the catalogue when several persons share the name and, roughly, the birth year. Same rule: **leave out what you are not sure of**. For any other "question" (a list, a relation, a criterion), return empty lists and empty strings.
 
 The "authoritative_empty" element is `false` in every case EXCEPT the one described under
 **Named entities and their database relationships** below. It is the only way to say "the

@@ -1452,6 +1452,127 @@ def _fetch_vision_identity_candidates(connection, item_type, title, year):
     return [by_id[i] for i in ids]
 
 
+# FASTAPI-TEXT2SQL-372. A person's birth year as the complex model writes it can be two off the
+# base (Bob Nelson 1956 for 1958), so the namesakes are read within this many years either way.
+# Persons with no birth year in the base are candidates too: the scoring decides, not the year.
+_PERSON_IDENTITY_YEAR_WINDOW = 2
+_PERSON_IDENTITY_MAX_CANDIDATES = 20
+# Titles read per candidate for the known_for match, most voted first: a prolific namesake
+# (hundreds of credits) cannot crowd the query, and known works are the voted ones.
+_PERSON_IDENTITY_MAX_TITLES = 400
+
+
+def _person_name_norm(value):
+    """Python twin of the generated ``PERSON_NAME_NORM`` column (lower, punctuation to spaces)."""
+    text = re.sub(r"[^\w ]", " ", str(value or "").lower())
+    return re.sub(r" +", " ", text.replace("_", " ")).strip()
+
+
+def _fetch_person_identity_candidates(connection, name, year):
+    """FASTAPI-TEXT2SQL-372. The living persons named ``name``, born within the window of
+    ``year`` (or with no birth year), each with the titles of the works they are credited on.
+
+    Candidate dicts carry ``id``, ``id_imdb``, ``name``, ``birth_year``, ``department``,
+    ``country``, ``gender``, ``popularity`` and ``titles``. Any failure returns ``[]``: the check
+    improves the answer, it is never a reason to fail it.
+    """
+    name = str(name or "").strip()
+    if not name:
+        return []
+    has_year = bool(re.fullmatch(r"\d{4}", str(year or "")))
+    year_filter = " AND (BIRTH_YEAR BETWEEN %s AND %s OR BIRTH_YEAR IS NULL)" if has_year else ""
+    params = (name, _person_name_norm(name)) + (
+        (int(year) - _PERSON_IDENTITY_YEAR_WINDOW, int(year) + _PERSON_IDENTITY_YEAR_WINDOW)
+        if has_year else ())
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT ID_PERSON AS ID, ID_IMDB, PERSON_NAME, BIRTH_YEAR, KNOWN_FOR_DEPARTMENT, "
+                "COUNTRY_OF_BIRTH, GENDER, POPULARITY FROM T_WC_T2S_PERSON "
+                "WHERE (PERSON_NAME = %s OR PERSON_NAME_NORM = %s) "
+                f"AND (DELETED IS NULL OR DELETED = 0){year_filter} "
+                f"ORDER BY ID_PERSON LIMIT {_PERSON_IDENTITY_MAX_CANDIDATES}",
+                params,
+            )
+            rows = cursor.fetchall() or []
+            candidates = [{
+                "id": r["ID"], "id_imdb": r.get("ID_IMDB") or "", "name": r.get("PERSON_NAME") or "",
+                "birth_year": r.get("BIRTH_YEAR"), "department": r.get("KNOWN_FOR_DEPARTMENT") or "",
+                "country": r.get("COUNTRY_OF_BIRTH") or "", "gender": r.get("GENDER"),
+                "popularity": r.get("POPULARITY"), "titles": []} for r in rows]
+            for cand in candidates:
+                for table, link, key, cols in (
+                        ("T_WC_T2S_MOVIE", "T_WC_T2S_PERSON_MOVIE", "ID_MOVIE",
+                         ("MOVIE_TITLE", "ORIGINAL_TITLE", "MOVIE_TITLE_FR")),
+                        ("T_WC_T2S_SERIE", "T_WC_T2S_PERSON_SERIE", "ID_SERIE",
+                         ("SERIE_TITLE", "ORIGINAL_TITLE", "SERIE_TITLE_FR"))):
+                    cursor.execute(
+                        f"SELECT w.{cols[0]} AS T1, w.{cols[1]} AS T2, w.{cols[2]} AS T3, "
+                        f"MAX(COALESCE(w.IMDB_VOTES, 0)) AS V FROM {link} pc "
+                        f"JOIN {table} w ON w.{key} = pc.{key} "
+                        f"WHERE pc.ID_PERSON = %s AND (pc.DELETED IS NULL OR pc.DELETED = 0) "
+                        f"GROUP BY w.{key}, w.{cols[0]}, w.{cols[1]}, w.{cols[2]} "
+                        f"ORDER BY V DESC LIMIT {_PERSON_IDENTITY_MAX_TITLES}",
+                        (cand["id"],),
+                    )
+                    for t in cursor.fetchall() or []:
+                        for k in ("T1", "T2", "T3"):
+                            title = str(t.get(k) or "").strip()
+                            if title and title not in cand["titles"]:
+                                cand["titles"].append(title)
+            return candidates
+    except Exception as exc:
+        print(f"[complex-identity] person candidate lookup failed, check skipped: {exc}")
+        return []
+
+
+def _complex_person_identity_check(connection, target):
+    """FASTAPI-TEXT2SQL-372. ``_complex_identity_check`` for a person target: the namesakes
+    within the year window, scored on what the model knows of the person
+    (``vision_identity.pick_person_identity``). Same trace contract."""
+    candidates = _fetch_person_identity_candidates(connection, target["title"], target["year"])
+    if not candidates:
+        return None
+    disc = vision_identity.person_discriminators(target.get("known_credits"))
+    decision = vision_identity.pick_person_identity(candidates, disc)
+    if decision["decision"] == "single":
+        # One namesake and nothing matched: the retry runs as before.
+        return None
+    trace = {
+        "decision": decision["decision"],
+        "target": {k: target.get(k) for k in ("type", "title", "year")},
+        "discriminators": disc,
+        "candidates": [{k: c[k] for k in ("id", "id_imdb", "name", "birth_year", "department", "country")}
+                       for c in candidates],
+        "scores": {str(k): v for k, v in decision["scores"].items()},
+        "kept": decision["kept"],
+    }
+    if target.get("year"):
+        year_label = f"born {target['year']} +/- {_PERSON_IDENTITY_YEAR_WINDOW} or unknown"
+    else:
+        year_label = "any birth year"
+    label = f"person '{target['title']}' ({year_label})"
+    winner = None
+    if decision["decision"] == "picked":
+        winner = next(c for c in candidates if c["id"] == decision["kept"][0])
+    if winner and winner.get("id_imdb"):
+        trace["winner_id_imdb"] = winner["id_imdb"]
+        trace["winner_credit"] = vision_identity.person_discriminator_phrase(
+            winner, decision["scores"].get(winner["id"]))
+        matches = ", ".join(decision["scores"][winner["id"]]["matches"])
+        trace["message"] = (
+            f"Complex retry identity check: {len(candidates)} row(s) match {label}; kept "
+            f"{winner['id_imdb']} on {matches}; the retry queries that IMDb id.")
+    else:
+        if winner:
+            trace["decision"] = "picked_without_imdb"
+        trace["message"] = (
+            f"Complex retry identity check: {len(candidates)} rows match {label} and what the "
+            f"model knows does not single one out ({trace['decision']}); the retry runs as "
+            f"written, most popular first, and name_ambiguity asks which one is meant.")
+    return trace
+
+
 def _complex_identity_check(connection, target):
     """FASTAPI-TEXT2SQL-355. Choose among the namesakes of the work a complex rewrite names.
 
@@ -1465,6 +1586,12 @@ def _complex_identity_check(connection, target):
     """
     if not isinstance(target, dict):
         return None
+    if target.get("type") == "person":
+        try:
+            return _complex_person_identity_check(connection, target)
+        except Exception as exc:
+            print(f"[complex-identity] person check skipped: {exc}")
+            return None
     try:
         candidates = _fetch_vision_identity_candidates(
             connection, target["type"], target["title"], target["year"])
@@ -1523,10 +1650,12 @@ def _apply_complex_identity_outcome(response, trace, lngpage):
         rows = list(getattr(response, "result", None) or [])
         if len(rows) < 2:
             return
+        # FASTAPI-TEXT2SQL-372: persons have no votes; their namesakes are ordered by popularity.
+        _order_key = "POPULARITY" if trace["target"]["type"] == "person" else "IMDB_VOTES"
         def _votes(row):
             data = row.get("data") if isinstance(row, dict) else None
             try:
-                return -float((data or {}).get("IMDB_VOTES") or 0)
+                return -float((data or {}).get(_order_key) or 0)
             except (TypeError, ValueError):
                 return 0.0
         rows.sort(key=_votes)
@@ -3478,8 +3607,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 # the -355 identity check; the user asked a riddle and reads the work's name,
                 # with its year from the row (not the model's) and the credit that decided.
                 _row = fast_path_results[0].get("data") or {}
-                _title = _row.get("MOVIE_TITLE") or _row.get("SERIE_TITLE") or ""
-                _year = str(_row.get("DAT_RELEASE") or _row.get("DAT_FIRST_AIR") or "")[:4]
+                _title = _row.get("MOVIE_TITLE") or _row.get("SERIE_TITLE") or _row.get("PERSON_NAME") or ""
+                # FASTAPI-TEXT2SQL-372: a person reads with no year ("the person Alan Parker").
+                _year = "" if result_entity_fp == "person" else str(
+                    _row.get("DAT_RELEASE") or _row.get("DAT_FIRST_AIR") or "")[:4]
                 if _title:
                     _lang = "fr" if request.ui_language == "fr" else "en"
                     _phrase = t2s.vision_entity_phrase(
