@@ -1,0 +1,19 @@
+-- FASTAPI-TEXT2SQL-369, collection branch: "Film Astérix avec Dany Boon" is read as a collection.
+-- Read-only (voie 1). 1. The Astérix collections and their films. 2. The collections holding a
+-- film that credits each test person (the pool the rescue scores the name against).
+
+SELECT c.ID_T2S_COLLECTION, c.COLLECTION_NAME, c.COLLECTION_NAME_FR, mc.ID_MOVIE, m.MOVIE_TITLE, m.RELEASE_YEAR
+FROM T_WC_T2S_COLLECTION c
+JOIN T_WC_T2S_MOVIE_COLLECTION mc ON mc.ID_T2S_COLLECTION = c.ID_T2S_COLLECTION
+JOIN T_WC_T2S_MOVIE m ON m.ID_MOVIE = mc.ID_MOVIE
+WHERE c.COLLECTION_NAME LIKE 'Aste%' OR c.COLLECTION_NAME_FR LIKE 'Asté%'
+ORDER BY c.ID_T2S_COLLECTION, m.RELEASE_YEAR;
+
+SELECT p.PERSON_NAME, c.ID_T2S_COLLECTION, c.COLLECTION_NAME, c.COLLECTION_NAME_FR, COUNT(DISTINCT pm.ID_MOVIE) AS FILMS
+FROM T_WC_T2S_PERSON p
+JOIN T_WC_T2S_PERSON_MOVIE pm ON pm.ID_PERSON = p.ID_PERSON
+JOIN T_WC_T2S_MOVIE_COLLECTION mc ON mc.ID_MOVIE = pm.ID_MOVIE
+JOIN T_WC_T2S_COLLECTION c ON c.ID_T2S_COLLECTION = mc.ID_T2S_COLLECTION
+WHERE p.PERSON_NAME IN ('Dany Boon', 'Gérard Depardieu', 'Christian Clavier', 'Jean Reno', 'Keanu Reeves', 'Viggo Mortensen', 'Samy Naceri', 'Al Pacino')
+GROUP BY p.PERSON_NAME, c.ID_T2S_COLLECTION
+ORDER BY p.PERSON_NAME, c.COLLECTION_NAME;
