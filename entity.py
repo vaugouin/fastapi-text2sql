@@ -2252,3 +2252,252 @@ def resolve_entities(
         text_message_cls=text_message_cls,
         messages=messages,
     )
+
+
+# ---- Co-constrained title rescue (FASTAPI-TEXT2SQL-369) ----------------------------------
+#
+# "Film Raid avec Dany Boon": every placeholder resolves, each one ALONE. "Raid" lands on the
+# exact homonym 503838 (17 exact or near candidates), Dany Boon on his person row, and the
+# conjunction is empty because the film meant is "RAID Dingue" (382597), a title the user only
+# gave in part. The 0-rows gate then read "every placeholder resolved" as "the empty result is
+# true". The rescue below runs on that empty page 1, before the gate: it takes the persons the
+# question names, reads the works they are ALL credited on (tens to a few hundred titles, not
+# the whole catalogue), and scores the title the user gave against every title form of those
+# works. On a pool that small a partial title is enough, which is why the bar here is lower
+# than the 85.85 / 87.85 gates of the global lexicon: the person already did most of the
+# disambiguation. Measured pools (doc/sql/check-369-partial-title-person-20261108.txt): 41
+# credits for Samy Naceri, 88 for Dany Boon, 275 for Gerard Depardieu. Zero LLM call.
+
+_CO_CONSTRAINT_CREDIT_TABLES = {
+    "T_WC_T2S_MOVIE": "T_WC_T2S_PERSON_MOVIE",
+    "T_WC_T2S_SERIE": "T_WC_T2S_PERSON_SERIE",
+}
+# token_set_ratio on folded forms: a title whose words are all in the work's title scores 100.
+CO_CONSTRAINT_MIN_SCORE = 80.0
+# Works within this many points of the best score are kept together (a saga: "Rings" with
+# Viggo Mortensen is the three Lord of the Rings films, all at 100).
+CO_CONSTRAINT_TIE_MARGIN = 0.5
+CO_CONSTRAINT_MAX_WINNERS = 12
+_CO_TOKEN_RE = re.compile(r"[^0-9a-z]+")
+
+
+def fold_title_for_co_constraint(value) -> str:
+    """Lowercase, strip accents, turn every non-alphanumeric run into one space."""
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch)).lower()
+    return _CO_TOKEN_RE.sub(" ", text).strip()
+
+
+def score_partial_title(sought, form) -> float:
+    """Score how well a (possibly partial) title the user gave fits one title form of a work.
+
+    ``token_set_ratio`` gives 100 when every word of ``sought`` is a word of ``form`` ("raid" in
+    "raid dingue", "ch tis" in "bienvenue chez les ch tis"). A word given as the start of a
+    longer word ("intouch" for "intouchables", at least four letters) counts as that word.
+    """
+    a = fold_title_for_co_constraint(sought)
+    b = fold_title_for_co_constraint(form)
+    if not a or not b:
+        return 0.0
+    score = float(fuzz.token_set_ratio(a, b))
+    if score < 100.0:
+        form_words = b.split()
+        sought_words = a.split()
+        if sought_words and all(
+            any(fw == sw or (len(sw) >= 4 and fw.startswith(sw)) for fw in form_words)
+            for sw in sought_words
+        ):
+            score = max(score, 95.0)
+    return score
+
+
+def _co_constraint_literal(planned, column: str):
+    """Return the SQL value a resolved placeholder substitutes for ``column``, or None."""
+    if planned is None or planned.substitution is None or planned.is_raw_fallback:
+        return None
+    probe = f"{column} = '{planned.placeholder}'"
+    try:
+        sql_text, _j, _a = planned.substitution(probe, "", "")
+    except Exception:
+        return None
+    m = re.search(r"=\s*'((?:[^']|'')*)'", sql_text or "")
+    if not m:
+        return None
+    value = m.group(1).replace("''", "'")
+    return value if value and "{{" not in value else None
+
+
+def _substitute_title_by_ids(placeholder: str, cfg: dict, ids: list, label: str):
+    """Build the substitution that pins a title placeholder to the works chosen by id.
+
+    Every equality of a title column (default and per-language) on the placeholder becomes
+    ``<qual>ID IN (...)``; any other use of the placeholder (a LIKE, a CONCAT) gets the first
+    winner's title as a literal, so nothing is left unresolved.
+    """
+    strtableid = cfg.get("strtableid")
+    cols = []
+    for col in [cfg.get("default_field")] + list((cfg.get("languages") or {}).values()):
+        if col and col not in cols:
+            cols.append(col)
+    id_list = ", ".join(str(int(i)) for i in ids)
+    label_sql = _sql_escape_literal(label)
+
+    def _apply(sql_query: str, justification: str, answer: str):
+        """Apply the id pin to the SQL and the completed title to the prose."""
+        for col in cols:
+            sql_query = re.sub(
+                rf"(?P<qual>(?:\w+\s*\.\s*)?)\b{re.escape(col)}\b\s*=\s*'?{re.escape(placeholder)}'?",
+                lambda m: f"{m.group('qual')}{strtableid} IN ({id_list})",
+                sql_query,
+                flags=re.IGNORECASE,
+            )
+        sql_query = re.sub(rf"'{re.escape(placeholder)}'", lambda _m: f"'{label_sql}'", sql_query, flags=re.IGNORECASE)
+        sql_query = sql_query.replace(placeholder, f"'{label_sql}'")
+        return sql_query, justification.replace(placeholder, label), answer.replace(placeholder, label)
+
+    return _apply
+
+
+def plan_co_constrained_title_rescue(*, connection, entity_extraction, plan) -> dict[str, Any]:
+    """Complete a partial title within the credits of the persons the question names.
+
+    Args:
+        connection: Open MariaDB connection (dict cursor).
+        entity_extraction: The extraction dict of the current pass.
+        plan: The resolution plan already applied to this pass (its persons are reused).
+
+    Returns:
+        ``{"outcome": <code>, "detail": <text>}`` where ``outcome`` is ``not_applicable``,
+        ``no_person``, ``no_match`` or ``planned``. When planned, ``plan`` is a new plan to
+        apply to the anonymized SQL, ``placeholder`` the title placeholder and ``winners`` the
+        chosen works as ``(id, title, year, score)``.
+    """
+    items = extracted_entity_items(entity_extraction)
+    title_keys, person_keys = [], []
+    title_cfgs = {}
+    for key, _value in items:
+        if key.startswith("Person_name"):
+            person_keys.append(key)
+            continue
+        cfg = _find_entity_config(key)
+        for search in _iter_entity_searches(cfg or {}):
+            if search.get("strtablename") in _CO_CONSTRAINT_CREDIT_TABLES and search.get("strtableid"):
+                title_keys.append(key)
+                title_cfgs[key] = search
+                break
+    if len(title_keys) != 1 or not person_keys:
+        return {"outcome": "not_applicable",
+                "detail": f"{len(title_keys)} movie/series title placeholder(s) and {len(person_keys)} person placeholder(s); the rescue needs exactly one title and at least one person"}
+    title_key = title_keys[0]
+    cfg = title_cfgs[title_key]
+    raw_title = str(dict(items).get(title_key) or "").strip()
+    if len(fold_title_for_co_constraint(raw_title).replace(" ", "")) < 2:
+        return {"outcome": "not_applicable", "detail": f"title '{raw_title}' too short to complete"}
+
+    planned_by_key = {p.key: p for p in (plan or {}).get("entities", []) or []}
+    person_names = []
+    for key in person_keys:
+        name = _co_constraint_literal(planned_by_key.get(key), "PERSON_NAME")
+        if name is None:
+            return {"outcome": "no_person", "detail": f"{key} did not resolve to a person row (unresolved or raw fallback)"}
+        person_names.append(name)
+
+    title_table = cfg["strtablename"]
+    title_id = cfg["strtableid"]
+    credit_table = _CO_CONSTRAINT_CREDIT_TABLES[title_table]
+    form_cols = []
+    for col in [cfg.get("default_field")] + list((cfg.get("languages") or {}).values()):
+        if col and col not in form_cols:
+            form_cols.append(col)
+    year_col = cfg.get("lexicon_year_column")
+    votes_col = cfg.get("lexicon_votes_column")
+    select_cols = ", ".join(f"t.`{c}`" for c in form_cols)
+    extra = (f", t.`{year_col}` AS _YEAR" if year_col else ", NULL AS _YEAR") + (
+        f", t.`{votes_col}` AS _VOTES" if votes_col else ", NULL AS _VOTES")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT ID_PERSON, PERSON_NAME FROM T_WC_T2S_PERSON WHERE PERSON_NAME IN ("
+            + ", ".join(["%s"] * len(person_names)) + ")",
+            tuple(person_names),
+        )
+        ids_by_name = {}
+        for row in cursor.fetchall() or []:
+            ids_by_name.setdefault(row["PERSON_NAME"], []).append(int(row["ID_PERSON"]))
+        # The collation folds case and accents, so match the returned names the same way.
+        folded = {fold_title_for_co_constraint(k): v for k, v in ids_by_name.items()}
+        person_ids = []
+        for name in person_names:
+            ids = ids_by_name.get(name) or folded.get(fold_title_for_co_constraint(name))
+            if not ids:
+                return {"outcome": "no_person", "detail": f"no T_WC_T2S_PERSON row for {name}"}
+            person_ids.append(ids)
+        # A work counts when EVERY named person is credited on it (any of the homonymous
+        # person rows of each name).
+        all_ids = sorted({i for ids in person_ids for i in ids})
+        name_case = "CASE " + " ".join(
+            f"WHEN c.ID_PERSON IN ({', '.join(str(i) for i in ids)}) THEN {k}"
+            for k, ids in enumerate(person_ids)
+        ) + " END"
+        cursor.execute(
+            f"SELECT t.`{title_id}` AS _ID, {select_cols}{extra} FROM `{credit_table}` c "
+            f"JOIN `{title_table}` t ON t.`{title_id}` = c.`{title_id}` "
+            f"WHERE c.ID_PERSON IN ({', '.join(str(i) for i in all_ids)}) "
+            f"GROUP BY t.`{title_id}` HAVING COUNT(DISTINCT {name_case}) = {len(person_ids)}"
+        )
+        pool = cursor.fetchall() or []
+    if not pool:
+        return {"outcome": "no_match", "detail": f"no {title_table} row credits {', '.join(person_names)} together"}
+
+    scored = []
+    for row in pool:
+        best_form, best_score = "", 0.0
+        for col in form_cols:
+            form = row.get(col)
+            if not form:
+                continue
+            s = score_partial_title(raw_title, form)
+            if s > best_score:
+                best_form, best_score = str(form), s
+        scored.append((best_score, int(row.get("_VOTES") or 0), int(row["_ID"]), best_form, row.get("_YEAR")))
+    scored.sort(key=lambda r: (-r[0], -r[1]))
+    top = scored[0][0]
+    if top < CO_CONSTRAINT_MIN_SCORE:
+        near = ", ".join(f"{r[3]} ({r[0]:.0f})" for r in scored[:3])
+        return {"outcome": "no_match",
+                "detail": f"best of {len(pool)} credited work(s) scores {top:.0f} < {CO_CONSTRAINT_MIN_SCORE:.0f} for '{raw_title}' (closest: {near})"}
+    winners = [r for r in scored if r[0] >= top - CO_CONSTRAINT_TIE_MARGIN]
+    # Inside the top tier, a work whose title IS the sought title beats the works that merely
+    # contain it ("Taxi" with Samy Naceri is Taxi, not Taxi 2 to 4).
+    _sought = fold_title_for_co_constraint(raw_title)
+    _exact = [r for r in winners if fold_title_for_co_constraint(r[3]) == _sought]
+    winners = (_exact or winners)[:CO_CONSTRAINT_MAX_WINNERS]
+    label = winners[0][3]
+    placeholder = "{{" + title_key + "}}"
+    new_title = _PlannedEntity(title_key, placeholder)
+    new_title.resolve_with(_substitute_title_by_ids(placeholder, cfg, [w[2] for w in winners], label))
+    new_entities = []
+    for p in (plan or {}).get("entities", []) or []:
+        if p.key == title_key:
+            new_entities.append(new_title)
+            continue
+        # Same substitution, without the diagnostics already replayed on the first pass.
+        q = _PlannedEntity(p.key, p.placeholder)
+        q.substitution = p.substitution
+        q.require_present = p.require_present
+        q.is_raw_fallback = p.is_raw_fallback
+        q.is_unmatchable_raw_fallback = p.is_unmatchable_raw_fallback
+        new_entities.append(q)
+    if title_key not in planned_by_key:
+        new_entities.append(new_title)
+    return {
+        "outcome": "planned",
+        "placeholder": placeholder,
+        "raw_title": raw_title,
+        "persons": person_names,
+        "pool_size": len(pool),
+        "winners": [(w[2], w[3], w[4], w[0]) for w in winners],
+        "plan": {"entities": new_entities, "match_scores": []},
+        "detail": (f"'{raw_title}' completed within the {len(pool)} {title_table} row(s) crediting "
+                   f"{', '.join(person_names)}: "
+                   + ", ".join(f"{w[3]} ({w[4] or '?'}, id={w[2]}, score {w[0]:.0f})" for w in winners)),
+    }

@@ -2344,6 +2344,13 @@ class Text2SQLResponse(BaseModel):
     # "rescued" (re-executed with the resolved value and rows came back), "still_empty"
     # (re-executed, still 0 rows, stronger model next) or "error".
     no_entity_rescue_outcome: str = ""
+    # FASTAPI-TEXT2SQL-369. Outcome of the co-constrained title rescue that runs when a pass
+    # with every placeholder resolved returns 0 rows on page 1 and the question names a title
+    # and a person: "" (not attempted), "not_applicable" (not one title plus persons),
+    # "no_person" (a person did not resolve to a row), "no_match" (no credited work fits the
+    # title), "rescued" (re-executed on the completed title, rows adopted), "still_empty" or
+    # "error".
+    co_constraint_rescue_outcome: str = ""
     # FASTAPI-TEXT2SQL-262. Outcome of the targeted SQL regeneration that runs when the query
     # was refused by the engine or by the guard, BEFORE any question rewrite: "" (not
     # attempted), "no_sql" / "unchanged" (the model gave nothing usable), "guard_rejected"
@@ -2858,6 +2865,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     sql_execution_failure_reason = ""
     # FASTAPI-TEXT2SQL-244: outcome of the no-entity rescue, "" until it is attempted.
     no_entity_rescue_outcome = ""
+    # FASTAPI-TEXT2SQL-369: outcome of the co-constrained title rescue, "" until it is attempted.
+    co_constraint_rescue_outcome = ""
     sql_regeneration_outcome = ""
     best_effort_filter_outcome = ""
     complex_question_processing_time = 0.0
@@ -5323,6 +5332,121 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         ))
                         position_counter += 1
 
+        # FASTAPI-TEXT2SQL-369: complete a partial title within the credits of the person the
+        # question names, BEFORE the 0-rows gate. "Film Raid avec Dany Boon" resolved "Raid" alone
+        # to an exact homonym Dany Boon is not credited on, every placeholder counted as
+        # resolved, and the gate took the empty result as the answer. The film is "RAID Dingue".
+        # Deterministic, no LLM call: read the works the named person(s) are credited on, score
+        # the title the user gave against their title forms (entity.plan_co_constrained_title_rescue),
+        # pin the title predicate to the winners' ids and re-execute. Adopted only when rows come
+        # back; otherwise the first pass stands and the usual gate and retry rules apply. A title
+        # on raw fallback qualifies (the retry would otherwise spend a stronger-model call to
+        # do the same completion: "Ch'tis" with Dany Boon, 16 s on 1.1.20); a person on raw
+        # fallback does not, there is then no filmography to read.
+        if (
+            not sql_execution_failed
+            and lngpage == 1
+            and isinstance(query_results, list)
+            and len(query_results) == 0
+            and not no_entity_extracted
+            and not cached_exact_question
+            and not ambiguous_question_for_text2sql
+            and no_entity_rescue_outcome == ""
+            and isinstance(entity_extraction, dict)
+            and isinstance(sql_query_anonymized_base, str)
+            and "{{" in sql_query_anonymized_base
+        ):
+            try:
+                _co_plan_src = entity_resolution_plan
+                if _co_plan_src is None:
+                    _co_plan_src = await asyncio.to_thread(
+                        entity.plan_entity_resolutions,
+                        connection=connection,
+                        entity_extraction=entity_extraction,
+                        chromadb_collections_by_name=CHROMADB_COLLECTIONS_BY_NAME,
+                    )
+                _co = await asyncio.to_thread(
+                    entity.plan_co_constrained_title_rescue,
+                    connection=connection,
+                    entity_extraction=entity_extraction,
+                    plan=_co_plan_src,
+                )
+                co_constraint_rescue_outcome = _co.get("outcome") or "error"
+                if co_constraint_rescue_outcome != "planned":
+                    if co_constraint_rescue_outcome != "not_applicable":
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"Co-constrained title rescue (FASTAPI-TEXT2SQL-369): {co_constraint_rescue_outcome}, {_co.get('detail', '')}; the first-pass result stands."
+                        ))
+                        position_counter += 1
+                else:
+                    _co_applied = entity.apply_entity_resolutions(
+                        plan=_co["plan"],
+                        sql_query=sql_query_anonymized_base,
+                        justification="",
+                        answer="",
+                        position_counter=0,
+                        text_message_cls=TextMessage,
+                        messages=[],
+                    )
+                    _co_base = _co_applied["sql_query"]
+                    if _co_applied.get("ambiguous_question_for_text2sql") or "{{" in _co_base:
+                        co_constraint_rescue_outcome = "error"
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"Co-constrained title rescue: placeholders survived the rewrite ({_co_base}); the first-pass result stands."
+                        ))
+                        position_counter += 1
+                    else:
+                        # Same pagination as the first pass: strip the LLM's LIMIT as the
+                        # execution block does, then re-append the suffix it computed.
+                        _co_suffix_match = re.search(r"\s+LIMIT\s+\d+(?:\s+OFFSET\s+\d+)?\s*$", sql_query or "", re.IGNORECASE)
+                        _co_suffix = _co_suffix_match.group(0) if _co_suffix_match else f" LIMIT {lngrowsperpage}"
+                        _co_exec = re.sub(r"\blimit\b\s+\d+\s+\boffset\b\s+\d+", "", _co_base, flags=re.IGNORECASE)
+                        _co_exec = re.sub(r"\blimit\b\s+\d+\s*,\s*\d+", "", _co_exec, flags=re.IGNORECASE)
+                        _co_exec = re.sub(r"\blimit\b\s+\d+", "", _co_exec, flags=re.IGNORECASE).strip() + _co_suffix
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"Co-constrained title rescue (FASTAPI-TEXT2SQL-369): 0 rows with every placeholder resolved; {_co['detail']}. Re-executing: {_co_exec}"
+                        ))
+                        position_counter += 1
+                        _co_start_time = time.time()
+                        # FASTAPI-TEXT2SQL-302: off the event loop, capped in time.
+                        _co_raw = await asyncio.to_thread(_run_generated_sql, connection, _co_exec)
+                        query_execution_time += time.time() - _co_start_time
+                        _co_rows = [
+                            {"index": _index, "data": {k: html.unescape(v) if isinstance(v, str) else v for k, v in _record.items()}}
+                            for _index, _record in enumerate(_co_raw)
+                        ]
+                        if _co_rows:
+                            # The resolved base feeds the exact-question cache; the anonymized
+                            # template keeps its title equality, which is right for every other
+                            # title and is rescued again at run time when it comes back empty.
+                            co_constraint_rescue_outcome = "rescued"
+                            _co_titles = ", ".join(w[1] for w in _co["winners"][:3]) + (", ..." if len(_co["winners"]) > 3 else "")
+                            justification = (justification or "").rstrip() + (
+                                f" Title '{_co['raw_title']}' completed from the credits of {', '.join(_co['persons'])}: {_co_titles}."
+                            )
+                            sql_query = _co_exec
+                            sql_query_processed_base = _co_base
+                            query_results = _co_rows
+                        else:
+                            co_constraint_rescue_outcome = "still_empty"
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text=f"Co-constrained title rescue: {len(_co_rows)} row(s); " + (
+                                "adopted." if _co_rows else "the first-pass result stands.")
+                        ))
+                        position_counter += 1
+            except Exception as _co_exc:
+                co_constraint_rescue_outcome = "error"
+                print(f"Co-constrained title rescue failed: {_co_exc}")
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text=f"Co-constrained title rescue failed ({type(_co_exc).__name__}: {_co_exc}); the first-pass result stands and the usual retry rules apply."
+                ))
+                position_counter += 1
+
         # FASTAPI-TEXT2SQL-262: repair the SQL, not the question. A `sql_execution_error` or a
         # `sql_guard_rejected` says the GENERATOR was wrong (a column that does not exist, a
         # LIKE the guard refuses); it says nothing about the question, which may be perfectly
@@ -5989,6 +6113,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         entity_raw_fallback_count=entity_raw_fallback_count,
         no_entity_extracted=no_entity_extracted,
         no_entity_rescue_outcome=no_entity_rescue_outcome,
+        co_constraint_rescue_outcome=co_constraint_rescue_outcome,
         sql_regeneration_outcome=sql_regeneration_outcome,
         best_effort_filter_outcome=best_effort_filter_outcome,
         complex_question_processing_time=complex_question_processing_time,
