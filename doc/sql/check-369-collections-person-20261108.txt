@@ -1,0 +1,88 @@
+-- check-369-collections-person.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-11-08 15:32:56 +0100
+--
++-------------------+-------------------------------------------+----------------------------------------+----------+-----------------------------------------+--------------+
+| ID_T2S_COLLECTION | COLLECTION_NAME                           | COLLECTION_NAME_FR                     | ID_MOVIE | MOVIE_TITLE                             | RELEASE_YEAR |
++-------------------+-------------------------------------------+----------------------------------------+----------+-----------------------------------------+--------------+
+|               109 | Asterix & Obelix (Live Action) Collection | Astérix & Obélix - Saga                |  1282171 | Astérix et les Douze Travaux            |         NULL |
+|               109 | Asterix & Obelix (Live Action) Collection | Astérix & Obélix - Saga                |     9564 | Asterix and Obelix Take On Caesar       |         1999 |
+|               109 | Asterix & Obelix (Live Action) Collection | Astérix & Obélix - Saga                |     2899 | Asterix & Obelix: Mission Cleopatra     |         2002 |
+|               109 | Asterix & Obelix (Live Action) Collection | Astérix & Obélix - Saga                |     2395 | Asterix at the Olympic Games            |         2008 |
+|               109 | Asterix & Obelix (Live Action) Collection | Astérix & Obélix - Saga                |    99770 | Asterix & Obelix: God Save Britannia    |         2012 |
+|               109 | Asterix & Obelix (Live Action) Collection | Astérix & Obélix - Saga                |   643215 | Asterix & Obelix: The Middle Kingdom    |         2023 |
+|               456 | Asterix and Obelix (Animation) Collection | Astérix et Obélix (animation) - Saga   |    11047 | Asterix the Gaul                        |         1967 |
+|               456 | Asterix and Obelix (Animation) Collection | Astérix et Obélix (animation) - Saga   |     9929 | Asterix and Cleopatra                   |         1968 |
+|               456 | Asterix and Obelix (Animation) Collection | Astérix et Obélix (animation) - Saga   |     9385 | The Twelve Tasks of Asterix             |         1976 |
+|               456 | Asterix and Obelix (Animation) Collection | Astérix et Obélix (animation) - Saga   |     8868 | Asterix vs. Caesar                      |         1985 |
+|               456 | Asterix and Obelix (Animation) Collection | Astérix et Obélix (animation) - Saga   |     9318 | Asterix in Britain                      |         1986 |
+|               456 | Asterix and Obelix (Animation) Collection | Astérix et Obélix (animation) - Saga   |    11625 | Asterix and the Big Fight               |         1989 |
+|               456 | Asterix and Obelix (Animation) Collection | Astérix et Obélix (animation) - Saga   |     9369 | Asterix Conquers America                |         1994 |
+|               456 | Asterix and Obelix (Animation) Collection | Astérix et Obélix (animation) - Saga   |     9642 | Asterix and the Vikings                 |         2006 |
+|               456 | Asterix and Obelix (Animation) Collection | Astérix et Obélix (animation) - Saga   |   170522 | Asterix: The Mansions of the Gods       |         2014 |
+|               456 | Asterix and Obelix (Animation) Collection | Astérix et Obélix (animation) - Saga   |   527729 | Asterix: The Secret of the Magic Potion |         2018 |
+|               456 | Asterix and Obelix (Animation) Collection | Astérix et Obélix (animation) - Saga   |  1084728 | Asterix: The Kingdom of Nubia           |         2026 |
++-------------------+-------------------------------------------+----------------------------------------+----------+-----------------------------------------+--------------+
++-------------------+-------------------+---------------------------------------------+---------------------------------------------+-------+
+| PERSON_NAME       | ID_T2S_COLLECTION | COLLECTION_NAME                             | COLLECTION_NAME_FR                          | FILMS |
++-------------------+-------------------+---------------------------------------------+---------------------------------------------+-------+
+| Al Pacino         |              2523 | Carlito's Way Collection                    | L'Impasse - Saga                            |     1 |
+| Al Pacino         |              5141 | Heat Collection                             | Heat - Saga                                 |     1 |
+| Al Pacino         |                74 | Ocean's Collection                          | Ocean's - Saga                              |     1 |
+| Al Pacino         |              4770 | Once Upon a Time... in Hollywood Collection | Once Upon a Time... in Hollywood - Saga     |     1 |
+| Al Pacino         |              5035 | The Criterion Collection                    | Collection Criterion                        |     1 |
+| Al Pacino         |                70 | The Godfather Collection                    | Le Parrain - Saga                           |     3 |
+| Christian Clavier |               109 | Asterix & Obelix (Live Action) Collection   | Astérix & Obélix - Saga                     |     2 |
+| Christian Clavier |               456 | Asterix and Obelix (Animation) Collection   | Astérix et Obélix (animation) - Saga        |     2 |
+| Christian Clavier |              1439 | Babysitting Collection                      | Babysitting - Saga                          |     1 |
+| Christian Clavier |              5014 | Cocorico Collection                         | Cocorico - Saga                             |     2 |
+| Christian Clavier |               303 | French Fried Vacation                       | Les Bronzés - Saga                          |     3 |
+| Christian Clavier |              3819 | Kaamelott Collection                        | Kaamelott - Saga                            |     2 |
+| Christian Clavier |              2393 | Serial (Bad) Weddings Collection            | Qu'est-ce qu'on a fait au Bon Dieu ? - Saga |     3 |
+| Christian Clavier |              1587 | Serial Teachers Collection                  | Les Profs - Saga                            |     2 |
+| Christian Clavier |              1648 | The Tuche Family Collection                 | Les Tuche - Saga                            |     1 |
+| Christian Clavier |               304 | The Visitors Collection                     | Les Visiteurs - Saga                        |     3 |
+| Dany Boon         |               109 | Asterix & Obelix (Live Action) Collection   | Astérix & Obélix - Saga                     |     1 |
+| Dany Boon         |              1633 | Frozen Collection                           | La Reine des neiges - Saga                  |     3 |
+| Dany Boon         |               953 | Grown Ups Collection                        | Copains pour toujours - Saga                |     1 |
+| Dany Boon         |              3401 | Murder Mystery Collection                   | Murder Mystery - Saga                       |     2 |
+| Dany Boon         |              5035 | The Criterion Collection                    | Collection Criterion                        |     1 |
+| Dany Boon         |              4794 | The Sticks Collection                       | Les Ch'tits - Saga                          |     2 |
+| Dany Boon         |               832 | Welcome to the... Collection                | Bienvenue dans le ... - Saga                |     2 |
+| Gérard Depardieu  |               695 | 101 Dalmatians (Live-Action) Collection     | Les 101 Dalmatiens - Saga                   |     1 |
+| Gérard Depardieu  |               109 | Asterix & Obelix (Live Action) Collection   | Astérix & Obélix - Saga                     |     4 |
+| Gérard Depardieu  |              3838 | L'Enlèvement de Michel Houellebecq          | L'Enlèvement de Michel Houellebecq          |     1 |
+| Gérard Depardieu  |              4830 | Maigret Collection                          |                                             |     1 |
+| Gérard Depardieu  |              3837 | Maison de Retraite - Saga                   | Maison de Retraite - Saga                   |     1 |
+| Gérard Depardieu  |              5035 | The Criterion Collection                    | Collection Criterion                        |     9 |
+| Gérard Depardieu  |               357 | The Mesrine Collection                      | Mesrine - Saga                              |     1 |
+| Gérard Depardieu  |              2390 | The New Adventures of Aladin Collection     | Les Nouvelles Aventures d'Aladin - Saga     |     1 |
+| Gérard Depardieu  |               252 | The Water of the Hills Collection           | L'Eau des Collines - Saga                   |     1 |
+| Jean Reno         |              3834 | Antigang - Saga                             | Antigang - Saga                             |     2 |
+| Jean Reno         |              3837 | Maison de Retraite - Saga                   | Maison de Retraite - Saga                   |     1 |
+| Jean Reno         |               412 | Mission: Impossible Collection              | Mission : Impossible - Saga                 |     1 |
+| Jean Reno         |               611 | Robert Langdon Collection                   | Robert Langdon - Saga                       |     1 |
+| Jean Reno         |               123 | The Crimson Rivers Collection               | Les Rivières pourpres - Saga                |     2 |
+| Jean Reno         |               715 | The Pink Panther (Steve Martin) Collection  | La Panthère rose - Saga                     |     2 |
+| Jean Reno         |               304 | The Visitors Collection                     | Les Visiteurs - Saga                        |     3 |
+| Jean Reno         |              3839 | Zootopia Collection                         | Zootopie - Saga                             |     1 |
+| Keanu Reeves      |              2911 | 47 Ronin Collection                         | 47 Ronin - Saga                             |     1 |
+| Keanu Reeves      |               437 | Bill & Ted Collection                       | Bill et Ted - Saga                          |     3 |
+| Keanu Reeves      |              1713 | John Wick Collection                        | John Wick - Saga                            |     4 |
+| Keanu Reeves      |              2845 | Sonic the Hedgehog Collection               | Sonic - Saga                                |     2 |
+| Keanu Reeves      |               262 | Speed Collection                            | Speed - Saga                                |     1 |
+| Keanu Reeves      |              1263 | SpongeBob Collection                        | Bob l'éponge - Saga                         |     1 |
+| Keanu Reeves      |               692 | Street Kings Collection                     | Au bout de la nuit - Saga                   |     1 |
+| Keanu Reeves      |              4240 | The Animatrix                               | The Animatrix                               |     1 |
+| Keanu Reeves      |              5035 | The Criterion Collection                    | Collection Criterion                        |     2 |
+| Keanu Reeves      |               107 | The Matrix Collection                       | Matrix - Saga                               |     4 |
+| Keanu Reeves      |               170 | Toy Story Collection                        | Toy Story - Saga                            |     2 |
+| Samy Naceri       |              1064 | Taxi Collection                             | Taxi - Saga                                 |     4 |
+| Viggo Mortensen   |              2531 | American Yakuza Collection                  | American Yakuza - Saga                      |     1 |
+| Viggo Mortensen   |              2523 | Carlito's Way Collection                    | L'Impasse - Saga                            |     1 |
+| Viggo Mortensen   |              4805 | Middle-Earth: Movies, TV Shows              |                                             |     3 |
+| Viggo Mortensen   |               588 | Texas Chainsaw Massacre Collection          | Massacre à la Tronçonneuse - Saga           |     1 |
+| Viggo Mortensen   |              5035 | The Criterion Collection                    | Collection Criterion                        |     1 |
+| Viggo Mortensen   |                67 | The Lord of the Rings Collection            | Le Seigneur des anneaux - Saga              |     3 |
+| Viggo Mortensen   |               149 | The Prophecy Collection                     | The Prophecy - Saga                         |     1 |
+| Viggo Mortensen   |               153 | Young Guns Collection                       | Young Guns - Saga                           |     1 |
++-------------------+-------------------+---------------------------------------------+---------------------------------------------+-------+

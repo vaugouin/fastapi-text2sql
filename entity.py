@@ -2268,9 +2268,17 @@ def resolve_entities(
 # disambiguation. Measured pools (doc/sql/check-369-partial-title-person-20261108.txt): 41
 # credits for Samy Naceri, 88 for Dany Boon, 275 for Gerard Depardieu. Zero LLM call.
 
-_CO_CONSTRAINT_CREDIT_TABLES = {
-    "T_WC_T2S_MOVIE": "T_WC_T2S_PERSON_MOVIE",
-    "T_WC_T2S_SERIE": "T_WC_T2S_PERSON_SERIE",
+# Target table of the placeholder -> FROM clause reaching it from a person credit row `c`,
+# with the target aliased `t`. Collections are reached through the films they hold: "Film
+# Astérix avec Dany Boon" is read as Collection_name1 = "Astérix" (FR on every call, EN on one
+# call in three, 2026-11-08 logs), the collection lexicon then picks the Animation collection
+# by prefix out of two, and only the Live Action one holds a Dany Boon film.
+_CO_CONSTRAINT_FROM = {
+    "T_WC_T2S_MOVIE": "`T_WC_T2S_PERSON_MOVIE` c JOIN `T_WC_T2S_MOVIE` t ON t.`ID_MOVIE` = c.`ID_MOVIE`",
+    "T_WC_T2S_SERIE": "`T_WC_T2S_PERSON_SERIE` c JOIN `T_WC_T2S_SERIE` t ON t.`ID_SERIE` = c.`ID_SERIE`",
+    "T_WC_T2S_COLLECTION": ("`T_WC_T2S_PERSON_MOVIE` c "
+                            "JOIN `T_WC_T2S_MOVIE_COLLECTION` mc ON mc.`ID_MOVIE` = c.`ID_MOVIE` "
+                            "JOIN `T_WC_T2S_COLLECTION` t ON t.`ID_T2S_COLLECTION` = mc.`ID_T2S_COLLECTION`"),
 }
 # token_set_ratio on folded forms: a title whose words are all in the work's title scores 100.
 CO_CONSTRAINT_MIN_SCORE = 80.0
@@ -2380,14 +2388,15 @@ def plan_co_constrained_title_rescue(*, connection, entity_extraction, plan) -> 
             person_keys.append(key)
             continue
         cfg = _find_entity_config(key)
-        for search in _iter_entity_searches(cfg or {}):
-            if search.get("strtablename") in _CO_CONSTRAINT_CREDIT_TABLES and search.get("strtableid"):
-                title_keys.append(key)
-                title_cfgs[key] = search
-                break
+        # The strategy that knows the most title columns (EN, FR, original) gives the forms.
+        candidates = [s for s in _iter_entity_searches(cfg or {})
+                      if s.get("strtablename") in _CO_CONSTRAINT_FROM and s.get("strtableid")]
+        if candidates:
+            title_keys.append(key)
+            title_cfgs[key] = max(candidates, key=lambda s: len(set((s.get("languages") or {}).values())))
     if len(title_keys) != 1 or not person_keys:
         return {"outcome": "not_applicable",
-                "detail": f"{len(title_keys)} movie/series title placeholder(s) and {len(person_keys)} person placeholder(s); the rescue needs exactly one title and at least one person"}
+                "detail": f"{len(title_keys)} movie/series title or collection placeholder(s) and {len(person_keys)} person placeholder(s); the rescue needs exactly one title and at least one person"}
     title_key = title_keys[0]
     cfg = title_cfgs[title_key]
     raw_title = str(dict(items).get(title_key) or "").strip()
@@ -2404,7 +2413,6 @@ def plan_co_constrained_title_rescue(*, connection, entity_extraction, plan) -> 
 
     title_table = cfg["strtablename"]
     title_id = cfg["strtableid"]
-    credit_table = _CO_CONSTRAINT_CREDIT_TABLES[title_table]
     form_cols = []
     for col in [cfg.get("default_field")] + list((cfg.get("languages") or {}).values()):
         if col and col not in form_cols:
@@ -2412,8 +2420,10 @@ def plan_co_constrained_title_rescue(*, connection, entity_extraction, plan) -> 
     year_col = cfg.get("lexicon_year_column")
     votes_col = cfg.get("lexicon_votes_column")
     select_cols = ", ".join(f"t.`{c}`" for c in form_cols)
+    # Collections: no votes column, so rank by how many of the person's films they hold.
     extra = (f", t.`{year_col}` AS _YEAR" if year_col else ", NULL AS _YEAR") + (
-        f", t.`{votes_col}` AS _VOTES" if votes_col else ", NULL AS _VOTES")
+        f", t.`{votes_col}` AS _VOTES" if votes_col else ", COUNT(DISTINCT c.`ID_MOVIE`) AS _VOTES"
+        if title_table == "T_WC_T2S_COLLECTION" else ", NULL AS _VOTES")
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT ID_PERSON, PERSON_NAME FROM T_WC_T2S_PERSON WHERE PERSON_NAME IN ("
@@ -2439,8 +2449,7 @@ def plan_co_constrained_title_rescue(*, connection, entity_extraction, plan) -> 
             for k, ids in enumerate(person_ids)
         ) + " END"
         cursor.execute(
-            f"SELECT t.`{title_id}` AS _ID, {select_cols}{extra} FROM `{credit_table}` c "
-            f"JOIN `{title_table}` t ON t.`{title_id}` = c.`{title_id}` "
+            f"SELECT t.`{title_id}` AS _ID, {select_cols}{extra} FROM {_CO_CONSTRAINT_FROM[title_table]} "
             f"WHERE c.ID_PERSON IN ({', '.join(str(i) for i in all_ids)}) "
             f"GROUP BY t.`{title_id}` HAVING COUNT(DISTINCT {name_case}) = {len(person_ids)}"
         )

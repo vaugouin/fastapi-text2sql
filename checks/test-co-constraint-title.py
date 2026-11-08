@@ -21,6 +21,7 @@ os.chdir(ROOT)
 import entity  # noqa: E402
 
 FIXTURE = os.path.join(ROOT, "doc", "sql", "check-369-partial-title-person-20261108.txt")
+COLL_FIXTURE = os.path.join(ROOT, "doc", "sql", "check-369-collections-person-20261108.txt")
 
 
 def load_fixture():
@@ -54,6 +55,22 @@ def load_fixture():
 PERSONS, CREDITS = load_fixture()
 
 
+def load_collections():
+    """Person id -> {collection id: row}, from the second block of the collection check."""
+    out = {}
+    for line in open(COLL_FIXTURE, encoding="utf-8"):
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) != 5 or cells[0] in ("PERSON_NAME",) or cells[0] not in PERSONS:
+            continue
+        name, idc, en, fr, films = cells
+        out.setdefault(PERSONS[name], {})[int(idc)] = {
+            "_ID": int(idc), "COLLECTION_NAME": en, "COLLECTION_NAME_FR": fr, "_YEAR": None, "_VOTES": int(films)}
+    return out
+
+
+COLLECTIONS = load_collections()
+
+
 class FakeCursor:
     def __init__(self):
         self.rows = []
@@ -71,8 +88,9 @@ class FakeCursor:
         ids = [int(x) for x in re.search(r"ID_PERSON IN \(([^)]*)\)", sql).group(1).split(",")]
         need = int(re.search(r"= (\d+)$", sql).group(1))
         seen = {}
+        source = COLLECTIONS if "T_WC_T2S_MOVIE_COLLECTION" in sql else CREDITS
         for pid in ids:
-            for mid, row in CREDITS.get(pid, {}).items():
+            for mid, row in source.get(pid, {}).items():
                 seen.setdefault(mid, (row, set()))[1].add(pid)
         self.rows = [row for row, who in seen.values() if len(who) >= need]
 
@@ -117,7 +135,42 @@ def person_plan(name):
     return {"entities": [t, p], "match_scores": []}
 
 
+COLL_SQL = ("SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_MOVIE_COLLECTION ON "
+            "T_WC_T2S_MOVIE_COLLECTION.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE JOIN T_WC_T2S_COLLECTION ON "
+            "T_WC_T2S_COLLECTION.ID_T2S_COLLECTION = T_WC_T2S_MOVIE_COLLECTION.ID_T2S_COLLECTION "
+            "JOIN T_WC_T2S_PERSON_MOVIE ON T_WC_T2S_PERSON_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE "
+            "JOIN T_WC_T2S_PERSON ON T_WC_T2S_PERSON.ID_PERSON = T_WC_T2S_PERSON_MOVIE.ID_PERSON "
+            "WHERE T_WC_T2S_COLLECTION.COLLECTION_NAME = '{{Collection_name1}}' AND T_WC_T2S_PERSON.PERSON_NAME = '{{Person_name1}}'")
+
+COLL_CASES = [
+    # Eval 2666 read as a collection (FR always, EN one call in three on 2026-11-08).
+    ("Astérix", "Dany Boon", {109}, {456}),
+    ("Asterix", "Dany Boon", {109}, {456}),
+    # Clavier is in both Astérix collections: both kept, the query then filters on him.
+    ("Astérix", "Christian Clavier", {109, 456}, set()),
+]
+
 failures = 0
+for name, person, must, must_not in COLL_CASES:
+    p = entity._PlannedEntity("Person_name1", "{{Person_name1}}")
+    p.resolve_with(entity._substitute_plain("{{Person_name1}}", entity._sql_escape_literal(person), person))
+    c = entity._PlannedEntity("Collection_name1", "{{Collection_name1}}")
+    c.resolve_with(entity._substitute_plain("{{Collection_name1}}", "Asterix and Obelix (Animation) Collection", "x"))
+    extraction = {"question": "Film {{Collection_name1}} avec {{Person_name1}}", "Collection_name1": name, "Person_name1": person}
+    res = entity.plan_co_constrained_title_rescue(connection=FakeConnection(), entity_extraction=extraction, plan={"entities": [c, p]})
+    if res["outcome"] != "planned":
+        print(f"FAIL collection {name!r} + {person}: {res['outcome']} ({res['detail']})")
+        failures += 1
+        continue
+    ids = {w[0] for w in res["winners"]}
+    sql = entity.apply_entity_resolutions(plan=res["plan"], sql_query=COLL_SQL, justification="", answer="",
+                                          position_counter=0, text_message_cls=Msg, messages=[])["sql_query"]
+    ok = must <= ids and not (must_not & ids) and "T_WC_T2S_COLLECTION.ID_T2S_COLLECTION IN (" in sql and "{{" not in sql
+    failures += 0 if ok else 1
+    print(f"{'PASS' if ok else 'FAIL'} collection {name!r} + {person}: pool {res['pool_size']}, {res['detail'].split(': ', 1)[1][:160]}")
+    if not ok:
+        print("     ", sql)
+
 for title, person, must, must_not in CASES:
     extraction = {"question": "Film {{Movie_title1}} avec {{Person_name1}}", "Movie_title1": title, "Person_name1": person}
     res = entity.plan_co_constrained_title_rescue(connection=FakeConnection(), entity_extraction=extraction, plan=person_plan(person))
