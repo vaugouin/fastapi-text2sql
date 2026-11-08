@@ -190,7 +190,7 @@ def _columns_metadata(rows, id_columns):
     for name in rows[0].keys():
         sample = _first_non_null(rows, name)
         role = _column_role(name, sample, id_columns)
-        unit = _unit_for(name) if role in ("metric", "date") else None
+        unit = _unit_for(name) if role == "metric" else None  # a date (BIRTH_YEAR) is a point in time, never "years" (2026-11-08)
         columns.append({"name": name, "role": role, "unit": unit})
     return columns
 

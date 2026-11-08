@@ -1,0 +1,14 @@
+-- alter-cache-result-intent.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-11-08 15:39:53 +0100
+--
++---------------+--------------+-------------+
+| COLUMN_NAME   | COLUMN_TYPE  | IS_NULLABLE |
++---------------+--------------+-------------+
+| RESULT_ENTITY | varchar(50)  | YES         |
+| RESULT_INTENT | varchar(500) | YES         |
++---------------+--------------+-------------+
++------------------+
+| rows_with_intent |
++------------------+
+|                0 |
++------------------+
