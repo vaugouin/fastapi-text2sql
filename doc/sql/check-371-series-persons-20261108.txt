@@ -1,0 +1,53 @@
+-- check-371-series-persons.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-11-08 17:20:00 +0100
+--
++----------------------+-----------+----------+----------------+------------+----------------------------------+----------------------------------+----------------------------------+
+| PERSON_NAME          | ID_PERSON | ID_SERIE | FIRST_AIR_YEAR | IMDB_VOTES | SERIE_TITLE                      | SERIE_TITLE_FR                   | ORIGINAL_TITLE                   |
++----------------------+-----------+----------+----------------+------------+----------------------------------+----------------------------------+----------------------------------+
+| Benedict Cumberbatch |     71580 |    19885 |           2010 |    1104929 | Sherlock                         | Sherlock                         | Sherlock                         |
+| Bryan Cranston       |     17419 |     1396 |           2008 |    2702145 | Breaking Bad                     | Breaking Bad                     | Breaking Bad                     |
+| Bryan Cranston       |     17419 |   337563 |           2009 |       2008 | Breaking Bad: Original Minisodes | Breaking Bad: Original Minisodes | Breaking Bad: Original Minisodes |
+| Dominic West         |     17287 |     1438 |           2002 |     443787 | The Wire                         | Sur écoute                       | The Wire                         |
+| Emilia Clarke        |   1223786 |     1399 |           2011 |    2682077 | Game of Thrones                  | Game of Thrones                  | Game of Thrones                  |
+| Mathieu Kassovitz    |      2406 |    62476 |           2015 |      20226 | The Bureau                       | Le Bureau des légendes           | Le Bureau des légendes           |
+| Omar Sy              |     78423 |    96677 |           2021 |     165227 | Lupin                            | Lupin                            | Lupin                            |
++----------------------+-----------+----------+----------------+------------+----------------------------------+----------------------------------+----------------------------------+
++----------+----------------+------------+------------+-------------+-----------------+----------------+
+| ID_SERIE | FIRST_AIR_YEAR | IMDB_VOTES | POPULARITY | SERIE_TITLE | SERIE_TITLE_FR  | ORIGINAL_TITLE |
++----------+----------------+------------+------------+-------------+-----------------+----------------+
+|     4215 |           2006 |        153 |     0.9294 | Le Bureau   | Le Bureau       | Le Bureau      |
+|   224763 |           2007 |         56 |     2.2705 | Lupin       | Lupin           | Lupin          |
+|    96677 |           2021 |     165227 |   114.4148 | Lupin       | Lupin           | Lupin          |
+|    54179 |           2025 |        283 |       2.81 | Office      | Office          | Office         |
+|    19885 |           2010 |    1104929 |  1804.8325 | Sherlock    | Sherlock        | Sherlock       |
+|    65494 |           2016 |     286379 |   3093.737 | The Crown   | The Crown       | The Crown      |
+|    24876 |           1995 |         62 |     4.1242 | The Office  | The Office      | The Office     |
+|     2996 |           2001 |     134532 |    32.0349 | The Office  | The Office (UK) | The Office     |
+|     2316 |           2005 |     858426 |  1721.9015 | The Office  | The Office      | The Office     |
+|    37054 |           2010 |         88 |     2.7581 | The Office  | המשרד           | המשרד          |
+|    70633 |           2017 |        248 |     2.1665 | The Office  | The Office (FI) | Konttori       |
+|    90762 |           2019 |       4193 |     4.9527 | The Office  | The Office (IN) | The Office     |
+|   256480 |           2024 |       5295 |     7.5232 | The Office  | The Office (AU) | The Office     |
+|     1438 |           2002 |     443787 |    62.7162 | The Wire    | Sur écoute      | The Wire       |
++----------+----------------+------------+------------+-------------+-----------------+----------------+
++---------+---------+------------+-----------------------------------------------------------------------------------------------------+
+| SURNAME | PERSONS | EXACT_BARE | MOST_POPULAR                                                                                        |
++---------+---------+------------+-----------------------------------------------------------------------------------------------------+
+| Clavier |       5 |          0 | Christian Clavier, Stéphane Clavier, François Clavier, Natalia Clavier, Alain Clavier               |
+| Foster  |     108 |          0 | Jodie Foster, Mark Foster, Meg Foster, Michael Wayne Foster, Ben Foster, Sutton Foster              |
+| Grant   |     129 |          0 | Hugh Grant, Lee Grant, Richard E. Grant, Cary Grant, Carlacia Grant, Joe Grant                      |
+| Jackson |     243 |          0 | Samuel L. Jackson, Michael Jackson, Dominique Jackson, Inigo Jackson, Peter Jackson, Jaafar Jackson |
+| Phoenix |      17 |          0 | Joaquin Phoenix, River Phoenix, Summer Phoenix, Tanit Phoenix, Philypa Phoenix, Nosheen Phoenix     |
+| Reno    |      11 |          1 | Jean Reno, Dick La Reno, Paul Reno, Kelly Reno, Janet Reno, James Reno                              |
++---------+---------+------------+-----------------------------------------------------------------------------------------------------+
++----------+--------------+--------------+--------------------------------+-----------+-------------------+-------------+
+| ID_MOVIE | RELEASE_YEAR | MOVIE_TITLE  | MOVIE_TITLE_FR                 | ID_PERSON | PERSON_NAME       | CREDIT_TYPE |
++----------+--------------+--------------+--------------------------------+-----------+-------------------+-------------+
+|       98 |         2000 | Gladiator    | Gladiator                      |     73421 | Joaquin Phoenix   | cast        |
+|      509 |         1999 | Notting Hill | Coup de foudre à Notting Hill  |      3291 | Hugh Grant        | cast        |
+|      680 |         1994 | Pulp Fiction | Pulp Fiction                   |      2231 | Samuel L. Jackson | cast        |
+|      103 |         1976 | Taxi Driver  | Taxi Driver                    |      1038 | Jodie Foster      | cast        |
+|      103 |         1976 | Taxi Driver  | Taxi Driver                    |   2068773 | Connie Foster     | crew        |
+|    11687 |         1993 | The Visitors | Les Visiteurs                  |     28781 | Christian Clavier | crew        |
+|    11687 |         1993 | The Visitors | Les Visiteurs                  |     28781 | Christian Clavier | cast        |
++----------+--------------+--------------+--------------------------------+-----------+-------------------+-------------+
