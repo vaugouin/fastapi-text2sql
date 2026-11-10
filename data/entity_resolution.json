@@ -324,8 +324,8 @@
     "search_list": [
       {
         "search_mode": "lexicon",
-        "enabled": false,
-        "comment": "FASTAPI-TEXT2SQL-374: exact names first. An award name written as it stands in AWARD_NAME or AWARD_NAME_FR (case, accents and a leading article apart) resolves to that award before ChromaDB, which could leave the right document out of its top 10 ('Oscar de la meilleure actrice' became 'Ophir de la meilleure actrice'). Exact stage only (lexicon_stages): the prefix stage sends 'Academy Award' to 'Academy Award for Best Sound' and no fuzzy gate was measured (checks/bench-lexical-374-awards.py, 2026-11-10); everything else falls through to the embeddings strategy below. Among awards sharing a name, the one with the most winners comes first. Ships switched off: title_lexicon.py before -374 ignores lexicon_stages and would run prefix and fuzzy; set enabled to true (hot reload) once the API has restarted on the -374 code.",
+        "enabled": true,
+        "comment": "FASTAPI-TEXT2SQL-374: exact names first. An award name written as it stands in AWARD_NAME or AWARD_NAME_FR (case, accents and a leading article apart) resolves to that award before ChromaDB, which could leave the right document out of its top 10 ('Oscar de la meilleure actrice' became 'Ophir de la meilleure actrice'). Exact stage only (lexicon_stages): the prefix stage sends 'Academy Award' to 'Academy Award for Best Sound' and no fuzzy gate was measured (checks/bench-lexical-374-awards.py, 2026-11-10); everything else falls through to the embeddings strategy below. Among awards sharing a name, the one with the most winners comes first. Switched on 2026-11-10, after the restart of the API on the -374 code: title_lexicon.py before -374 ignores lexicon_stages and would run prefix and fuzzy, so never enable it on older code.",
         "strtablename": "T_WC_T2S_AWARD",
         "strtableid": "ID_AWARD",
         "default_field": "AWARD_NAME",
