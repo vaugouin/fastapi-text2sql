@@ -1350,7 +1350,7 @@ This section is the **single source of truth** for the two clients that draw a `
 | `representation` | 1.1.19 | the value a client switches on, one of the ten below (`value-cards` since FASTAPI-TEXT2SQL-354; `timeline`, `sequence-strip`, `trend-columns` since phase 2 lot A, coded 2026-11-10 on 1.1.20) |
 | `result_kind` | 1.1.19 | `entity_rows`, `scalar`, `count`, `bound` or `unknown`: the `/samples` vocabulary, kept for the evaluations |
 | `result_columns` | 1.1.19 | one `{name, role, unit}` per projected column, in projection order. `role`: `entity_id`, `label`, `metric`, `date`, `other`. `unit`: `minutes`, `usd`, `count`, `ratio`, `years` or `null`, set from the column name on the API side. Since 1.1.20 the column the outer `ORDER BY` sorts on first carries `"ordered": "asc"` or `"desc"` (FASTAPI-TEXT2SQL-351); since -354 the column(s) carrying the quantity of each row carry `"focus": true`: the projected `metric` or `date` columns the intent's focus names, else the value column the shape rules found (the ordered metric when it is not a default sort key, else a metric the model added to the standard projection). A value card shows the first `focus` column; bars draw the `ordered` metric, else the `focus` one |
-| `representation_options` | FASTAPI-TEXT2SQL-354 | the valid set for this shape, default first, always containing `representation`: what a front shows as override chips and re-renders locally (VOICE-AGENT-247, TMDB-FRONT-114). Entity rows, two or more: `card-grid`, plus `timeline` when the value column is a `date`, plus `sequence-strip` when `intent.task == sequence` and the rows come in date or collection order, plus `value-cards` when a value column exists, plus `ranked-bars` when that column (or an ordered metric that is not a default sort key) is a metric, plus `table`; image rows `card-grid`, `table`; one entity `entity-page`, `table`; otherwise the representation and `table` (`trend-columns`, `table`). An explicit `requested_view` (`table` to `table`, `chart` to `ranked-bars`, `trend-columns` or `timeline`, `cards` to `value-cards` or `card-grid`) becomes the default when it is in the set |
+| `representation_options` | FASTAPI-TEXT2SQL-354 | the valid set for this shape, default first, always containing `representation`: what a front shows as override chips and re-renders locally (VOICE-AGENT-247, TMDB-FRONT-114). Entity rows, two or more: `card-grid`, plus `timeline` when the value column is a `date`, plus `sequence-strip` when `intent.task == sequence` and the rows come in date or collection order, plus `value-cards` when a value column exists, plus `ranked-bars` when that column (or an ordered metric that is not a default sort key) is a metric, plus `table`; image rows `card-grid`, `table`; one entity `entity-page`, `table`; otherwise the representation and `table` (`trend-columns`, `table`). The same views can be asked for after the answer: voice-agent re-renders the current result through the `show_results_as` tool (voice) or a typed "as a table" / "en tableau" (VOICE-AGENT-250), with no new search. An explicit `requested_view` (`table` to `table`, `chart` to `ranked-bars`, `trend-columns` or `timeline`, `cards` to `value-cards` or `card-grid`) becomes the default when it is in the set |
 | `intent` | FASTAPI-TEXT2SQL-353 (coded 2026-11-08) | `{task, focus, focus_columns, requested_view, source}`, read from the user's question, never from the SQL (`result_intent.py`). `task`: `list` (the rows themselves, an identifier lookup included), `value` (a quantity of one item, of each item, or a total or average), `rank` (ordered by a measure, a superlative, a top N), `count`, `compare` (named items against each other), `sequence` (natural or chronological order, no measure), `trend` (a measure per year or decade), `relate`, `verdict` (yes/no). `focus`: canonical quantities (`runtime`, `budget`, `revenue`, `profit`, `seasons`, `episodes`, `rating`, `votes`, `popularity`, `count`, `birth`, `death`, `age`, `release_date`); `focus_columns`: the projected `metric` or `date` columns that carry them. `requested_view`: `table`, `chart`, `cards` or `""`, only when the question asks for that form. `source`: `llm` (the parallel answer-entity call, which returns `{entity, task, focus, requested_view}` since -353), `rules` (EN/FR keywords: the call failed, was skipped on the fast path or the identity re-entry, or `RESULT_INTENT=0`). Stored with the SQL in `T_WC_T2S_CACHE.RESULT_INTENT`, so a cache hit returns the reading of the first answer. A prior for -354's rules, never an order. `null` where no rows exist |
 | `summary_facts` | FASTAPI-TEXT2SQL-354 | numbers only, language neutral, `null` with no rows: `count` (the rows returned, one page), `total` (always `null` in phase 1: the fronts say "the first N", no second count query, decision of 2026-10-31), `value_column` and its `unit`, `order` (`collection` when the SQL sorts on `DISPLAY_ORDER`, `date` when on a date column, else the ordered metric's name, or `null`) and `order_direction`, `top` (`{label, id, index, value, extreme}`: the row with the extreme `value_column` value, the minimum when the SQL sorts that column ascending, else the maximum; `null` when the value column is not a metric or with one row). Each front builds its spoken line or caption from it (VOICE-AGENT-248, TMDB-FRONT-115) |
 
@@ -1393,8 +1393,8 @@ This section is the **single source of truth** for the two clients that draw a `
 | Columns used | the first `focus` date column for the position; `entity_id`, `label` and the image path for each mark; a row with no date stays off the axis, listed apart |
 | Limits | rows sharing a year stack on the axis; paged as `card-grid` |
 | Spoken | count and span ("six films, from 1979 to 2017") |
-| voice-agent | to come (phase 2 lot A) |
-| tmdb-front | to come (phase 2 lot A) |
+| voice-agent | `renderTimeline()` (VOICE-AGENT-249) |
+| tmdb-front | `f_t2srep_render_timeline()`, caption `f_t2srep_caption_timeline()` (TMDB-FRONT-117) |
 
 | `sequence-strip` (phase 2 lot A) | |
 |---|---|
@@ -1403,8 +1403,8 @@ This section is the **single source of truth** for the two clients that draw a `
 | Columns used | `entity_id`, `label`, the image path, the first `date` column for the year |
 | Limits | paged as `card-grid`; the numbering continues across pages |
 | Spoken | count and order ("three films in release order, from 1972 to 1990") |
-| voice-agent | to come (phase 2 lot A) |
-| tmdb-front | to come (phase 2 lot A) |
+| voice-agent | `renderSequenceStrip()`, the numbered poster row of the rankings with the year (VOICE-AGENT-249) |
+| tmdb-front | the card renderer of `lib/text2sql-search.inc.php` with the rank badge, caption `f_t2srep_caption_sequence()` (TMDB-FRONT-117) |
 
 | `trend-columns` (phase 2 lot A) | |
 |---|---|
@@ -1413,8 +1413,8 @@ This section is the **single source of truth** for the two clients that draw a `
 | Columns used | the `date` column for the axis, in row order; the `focus` metric (`summary_facts.value_column`) and its `unit` |
 | Limits | one column per row; a missing period is not filled in (the SQL returns only the periods that have rows) |
 | Spoken | the span and the extremum ("from 1960 to 2020; the peak is the 1980s, 12 films") |
-| voice-agent | to come (phase 2 lot A) |
-| tmdb-front | to come (phase 2 lot A) |
+| voice-agent | `renderTrendColumns()` (VOICE-AGENT-249) |
+| tmdb-front | `f_t2srep_render_trend_columns()`, caption `f_t2srep_caption_trend()` (TMDB-FRONT-117) |
 
 | `number-card` | |
 |---|---|
@@ -1453,6 +1453,7 @@ This section is the **single source of truth** for the two clients that draw a `
 | Columns used | all, in projection order |
 | Limits | none; a header row plus the rows |
 | Spoken | the row count and the column names |
+| Links | the label of each row opens its entity (the `label` column, else the first `*_TITLE` or `*_NAME`), and every other `X_TITLE` / `X_NAME` opens its own `ID_X` (`CONTENT_TITLE` with `ID_CONTENT` and `CONTENT_TYPE`), for the entity types the front can open (VOICE-AGENT-251, TMDB-FRONT-118) |
 | voice-agent | `renderRawTable()` |
 | tmdb-front | `f_t2srep_render_table()` |
 
