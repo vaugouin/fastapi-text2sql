@@ -1625,7 +1625,10 @@ def plan_entity_resolutions(
                         _tier = (search_cfg.get("lexicon_aliases") or {}).get("table")
                         _tier_txt = f" via {_tier}" if _tier else ""
                         try:
-                            lres = lex.lookup(raw_value, _year_ctx, float(_min) if _min is not None else 85.85)
+                            # FASTAPI-TEXT2SQL-374: "lexicon_stages" (["exact"] for awards)
+                            # restricts the search to the listed stages; absent, all of them run.
+                            lres = lex.lookup(raw_value, _year_ctx, float(_min) if _min is not None else 85.85,
+                                              search_cfg.get("lexicon_stages"))
                         except Exception as _exc:
                             planned.note(f"Entity resolution: {placeholder} lexicon search raised {type(_exc).__name__}: {_exc}; falling through")
                             _lexicon_missed = True

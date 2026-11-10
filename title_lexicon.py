@@ -240,26 +240,34 @@ class TitleLexicon:
             toks.pop()
         return " ".join(toks)
 
-    def lookup(self, mention: str, year: Optional[int] = None, min_ratio: float = 85.85) -> dict:
+    def lookup(self, mention: str, year: Optional[int] = None, min_ratio: float = 85.85,
+               stages: Optional[Iterable[str]] = None) -> dict:
         """``search`` with the descriptors handled: the stripped mention is searched against full
         and stripped forms together, ranked by votes (credits), so "paramount" is Paramount
         Pictures (2,896 credits) and not Paramount+ (3). When the mention itself carried a
         descriptor, its full form wins if stored ("Collection Batman" is "Batman Collection",
         not "Batman"). Without ``strip_words`` this is ``search``."""
         if not self.strip_words:
-            return self.search(mention, year, min_ratio)
+            return self.search(mention, year, min_ratio, stages)
         q = fold(mention)
         qs = self.strip(q)
-        res = self.search(qs or mention, year, min_ratio)
+        res = self.search(qs or mention, year, min_ratio, stages)
         if qs != q:
-            full = self.search(mention, year, min_ratio)
+            full = self.search(mention, year, min_ratio, stages)
             if full["stage"] in ("exact", "article"):
                 return full
         return res
 
     # -- search
-    def search(self, mention: str, year: Optional[int] = None, min_ratio: float = 85.85) -> dict:
-        """Return {stage, score, matches: [(id, column, year, votes)], form}; stage 'miss' if none."""
+    def search(self, mention: str, year: Optional[int] = None, min_ratio: float = 85.85,
+               stages: Optional[Iterable[str]] = None) -> dict:
+        """Return {stage, score, matches: [(id, column, year, votes)], form}; stage 'miss' if none.
+
+        ``stages`` (FASTAPI-TEXT2SQL-374) restricts the search: the exact stage (with its
+        article-stripped twin) always runs, "prefix" and "fuzzy" only when listed. None runs
+        them all. An award strategy lists ["exact"]: "Academy Award" must not complete into the
+        most rewarded "Academy Award for ..." category, and no fuzzy gate was measured there."""
+        allowed = None if stages is None else {str(s).strip().lower() for s in stages}
         q = fold(mention)
         out = {"stage": "miss", "score": 0.0, "matches": [], "form": "", "query": q}
         if not q:
@@ -281,7 +289,7 @@ class TitleLexicon:
             return self._result(out, "exact" if ranked[0][0] in exact else "article", 100.0, ranked, q)
 
         rejected: list[tuple[str, int, int]] = []   # (stage, id, year) dropped by the year guard
-        if len(qa.split()) >= 2 or len(qa) >= 6:
+        if (allowed is None or "prefix" in allowed) and (len(qa.split()) >= 2 or len(qa) >= 6):
             pre: dict[int, int] = {}
             if qa != q:   # the mention carries its article: match it on the full forms
                 lo = bisect.bisect_left(self.keys, q + " ")
@@ -295,6 +303,10 @@ class TitleLexicon:
             if pre:
                 return self._result(out, "prefix", 100.0, self._rank(pre, year, set()), qa)
 
+        if allowed is not None and "fuzzy" not in allowed:
+            if rejected:
+                out["year_rejected"] = self._rejected_summary(rejected)
+            return out
         hits = process.extract(q, self.keys, scorer=fuzz.ratio, limit=10, score_cutoff=min_ratio)
         qnum = _DIGITS.findall(q)
         hits = [h for h in hits if _DIGITS.findall(h[0]) == qnum]

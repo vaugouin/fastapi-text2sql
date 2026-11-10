@@ -323,6 +323,30 @@
     "placeholder_prefix": "Award_name",
     "search_list": [
       {
+        "search_mode": "lexicon",
+        "enabled": false,
+        "comment": "FASTAPI-TEXT2SQL-374: exact names first. An award name written as it stands in AWARD_NAME or AWARD_NAME_FR (case, accents and a leading article apart) resolves to that award before ChromaDB, which could leave the right document out of its top 10 ('Oscar de la meilleure actrice' became 'Ophir de la meilleure actrice'). Exact stage only (lexicon_stages): the prefix stage sends 'Academy Award' to 'Academy Award for Best Sound' and no fuzzy gate was measured (checks/bench-lexical-374-awards.py, 2026-11-10); everything else falls through to the embeddings strategy below. Among awards sharing a name, the one with the most winners comes first. Ships switched off: title_lexicon.py before -374 ignores lexicon_stages and would run prefix and fuzzy; set enabled to true (hot reload) once the API has restarted on the -374 code.",
+        "strtablename": "T_WC_T2S_AWARD",
+        "strtableid": "ID_AWARD",
+        "default_field": "AWARD_NAME",
+        "order_by": null,
+        "languages": {
+          "en": "AWARD_NAME",
+          "fr": "AWARD_NAME_FR",
+          "*": "AWARD_NAME"
+        },
+        "lexicon_votes_columns": [
+          "PERSON_COUNT",
+          "MOVIE_COUNT",
+          "SERIE_COUNT"
+        ],
+        "lexicon_popularity_column": "POPULARITY",
+        "lexicon_stages": [
+          "exact"
+        ],
+        "lexicon_refresh_hours": 24
+      },
+      {
         "search_mode": "embeddings",
         "strtablename": "T_WC_T2S_AWARD",
         "strtableid": "ID_AWARD",

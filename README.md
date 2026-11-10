@@ -140,7 +140,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
      - **Network names** (`{{Network_nameN}}`): in-memory lexicon only on `T_WC_T2S_NETWORK.NETWORK_NAME`, ranked by `SERIE_COUNT`; the `networks` ChromaDB collection was retired on 2026-11-07.
      - **Topic names** (`{{Topic_nameN}}`): embeddings on `topics` collection, `T_WC_T2S_TOPIC.TOPIC_NAME` / `TOPIC_NAME_FR`.
      - **List names** (`{{List_nameN}}`): embeddings on `lists` collection, `T_WC_T2S_LIST.LIST_NAME` / `LIST_NAME_FR`.
-     - **Award names** (`{{Award_nameN}}`): embeddings on `awards` collection, `T_WC_T2S_AWARD.AWARD_NAME` / `AWARD_NAME_FR`.
+     - **Award names** (`{{Award_nameN}}`): an exact name first (in-memory lexicon on `T_WC_T2S_AWARD.AWARD_NAME` / `AWARD_NAME_FR`, exact stage only, case, accents and a leading article apart, FASTAPI-TEXT2SQL-374), then embeddings on `awards` collection for everything else.
      - **Nomination names** (`{{Nomination_nameN}}`): embeddings on `nominations` collection, `T_WC_T2S_NOMINATION.NOMINATION_NAME` / `NOMINATION_NAME_FR`.
      - **Collection names** (`{{Collection_nameN}}`): embeddings on `collections` collection, `T_WC_T2S_COLLECTION.COLLECTION_NAME` / `COLLECTION_NAME_FR`.
      - **Movement names** (`{{Movement_nameN}}`): embeddings on `movements` collection, `T_WC_T2S_MOVEMENT.MOVEMENT_NAME` / `MOVEMENT_NAME_FR`.
@@ -1737,7 +1737,7 @@ The system intelligently extracts and replaces entities in natural language ques
 | `Network_name` | TV networks / streaming platforms | Lexicon (`title_lexicon.py`) on `T_WC_T2S_NETWORK` |
 | `Topic_name` | Themes (never characters) | Embeddings — `topics` collection |
 | `List_name` | Curated rankings / canons / registries | Embeddings — `lists` collection |
-| `Award_name` | Named awards or recognitions | Embeddings — `awards` collection |
+| `Award_name` | Named awards or recognitions | Exact-name lexicon, then embeddings on the `awards` collection |
 | `Nomination_name` | Named award nominations | Embeddings — `nominations` collection |
 | `Collection_name` | Trilogies / named series of works / universes / franchises | Embeddings — `collections` collection |
 | `Movement_name` | Film movements / stylistic schools | Embeddings — `movements` collection |
