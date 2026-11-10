@@ -44,6 +44,9 @@ REPRESENTATIONS = (
     "stat-strip",    # one row, 2 to 5 metrics, no entity
     "ranked-bars",   # N rows of a label (or entity) plus one ordered metric
     "value-cards",   # N entity rows, each with the quantity the question asked (-354)
+    "timeline",      # N entity rows placed on a time axis by the date the question asked (phase 2 lot A)
+    "sequence-strip",  # N entity rows in their order (by date or collection order), numbered (phase 2 lot A)
+    "trend-columns",   # N rows of a year or decade plus one metric, one column per period (phase 2 lot A)
     "table",         # the honest fallback, never an empty card
 )
 
@@ -54,7 +57,7 @@ _VALUE_TASKS = ("value", "compare")
 # each one asks for; honoured only when that representation is a valid option for the shape.
 _REQUESTED_VIEW_REPRESENTATIONS = {
     "table": ("table",),
-    "chart": ("ranked-bars",),
+    "chart": ("ranked-bars", "trend-columns", "timeline"),
     "cards": ("value-cards", "card-grid"),
 }
 # An ORDER BY on the collection's own order (the prompt sorts a collection on DISPLAY_ORDER,
@@ -374,10 +377,15 @@ def _summary_facts(sql, rows, result_rows, columns, value_col, order_col, order_
     return facts
 
 
-def _options(representation, family, has_value_col, has_bar_col):
-    """The valid representations for the shape, default first (FASTAPI-TEXT2SQL-354)."""
+def _options(representation, family, has_value_col, has_bar_col, has_time_axis=False, has_sequence=False):
+    """The valid representations for the shape, default first (FASTAPI-TEXT2SQL-354).
+
+    Phase 2 lot A: a timeline when the value column is a date, a sequence strip when the rows
+    come in date or collection order; the other forms of the shape stay offered beside them.
+    """
     if family == "entity_many":
-        candidates = ["card-grid"] + (["value-cards"] if has_value_col else []) + (
+        candidates = ["card-grid"] + (["timeline"] if has_time_axis else []) + (
+            ["sequence-strip"] if has_sequence else []) + (["value-cards"] if has_value_col else []) + (
             ["ranked-bars"] if has_bar_col else []) + ["table"]
     elif family == "entity_images":
         candidates = ["card-grid", "table"]
@@ -448,6 +456,9 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
     # carries its ID_ column. result_entity is kept in the signature for callers and future
     # use, but does not decide the shape.
     has_entity = any(c["role"] == "entity_id" for c in columns)
+    order_clauses = _ORDER_BY_CLAUSE_RE.findall(sql)
+    in_sequence = bool(order_clauses and _COLLECTION_ORDER_RE.search(order_clauses[-1])) or (
+        by_name.get(order_col, {}).get("role") == "date")
     metric_cols = [c for c in columns if c["role"] == "metric"]
     label_cols = [c for c in columns if c["role"] == "label"]
     value_col = None
@@ -477,8 +488,17 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
             ranking = _is_entity_ranking(sql, order_col, columns, result_entity)
             if task == "compare" and value_col:
                 representation = "value-cards"
+            elif task == "value" and value_col and not ranking and by_name.get(value_col, {}).get("role") == "date":
+                # Phase 2 lot A: "when were the Alien films released?" asks for a date per
+                # item, which a time axis shows better than a date under each poster.
+                representation = "timeline"
             elif task == "value" and value_col and not ranking:
                 representation = "value-cards"
+            elif task == "sequence" and in_sequence:
+                # Phase 2 lot A: "the Godfather trilogy in order", rows already in date or
+                # collection order. A sequence the SQL ordered otherwise (by rating) stays a
+                # grid: a numbered strip would state a wrong order.
+                representation = "sequence-strip"
             elif ranking:
                 representation = "ranked-bars"
             elif task == "rank" and order_is_metric and order_col in focus:
@@ -516,12 +536,21 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
     # countries that produced the most movies"); without it the ranking fell to a table.
     else:
         kind = "unknown"
+        date_cols = [c for c in columns if c["role"] == "date"]
+        trend_metric = (focus[0] if focus and by_name[focus[0]]["role"] == "metric"
+                        else metric_cols[0]["name"] if len(metric_cols) == 1 else None)
         if not label_cols:
             label_cols = [c for c in columns if c["role"] == "other" and (
                 _CODE_RE.search(c["name"]) or isinstance(_first_non_null(rows, c["name"]), str))][:1]
             for c in label_cols:
                 c["role"] = "label"  # so a client labels the bars without guessing
-        if label_cols and len(metric_cols) == 1 and _ORDER_BY_RE.search(sql):
+        if task == "trend" and len(date_cols) == 1 and trend_metric and not label_cols:
+            # Phase 2 lot A: "how many films were released per decade", one period column
+            # (year or decade) plus the metric, drawn as one column per period.
+            representation = "trend-columns"
+            value_col = trend_metric
+            family = "trend"
+        elif label_cols and len(metric_cols) == 1 and _ORDER_BY_RE.search(sql):
             representation = "ranked-bars"
             value_col = order_col if by_name.get(order_col, {}).get("role") == "metric" else metric_cols[0]["name"]
         elif task == "rank" and label_cols and by_name.get(order_col, {}).get("role") == "metric":
@@ -547,7 +576,12 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
         bar_col = order_col
     else:
         bar_col = None
-    options = _options(representation, family, value_col is not None, bar_col is not None)
+    has_time_axis = family == "entity_many" and by_name.get(value_col, {}).get("role") == "date"
+    # Offered only when the question asks for an order: every list the prompt sorts by date
+    # would otherwise grow a strip chip it never asked for.
+    has_sequence = family == "entity_many" and in_sequence and task == "sequence"
+    options = _options(representation, family, value_col is not None, bar_col is not None,
+                       has_time_axis, has_sequence)
     # An explicit "as a table" / "as a chart" / "as cards" wins when the shape allows it.
     for wanted in _REQUESTED_VIEW_REPRESENTATIONS.get(requested_view, ()):
         if wanted in options:

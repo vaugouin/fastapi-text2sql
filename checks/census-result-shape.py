@@ -21,8 +21,11 @@ model's, from the 2026-11-08 campaign on), else the keyword rules of result_inte
 question; never a model call. The report adds the served representation against the
 recomputed one (the module in service must reproduce it), the intent sources, and the
 representations emitted on questions with no result-shape assertion.
-    --strict: exit 1 when a question with a result-shape assertion changes representation
-              between the old and the new module (other flips are listed, not blocking).
+    --strict: exit 1 on a regression, a result-shape assertion that passes under the old
+              module and fails under the new (2026-11-10, phase 2 lot A: once the bank has
+              moved, a flip toward the asserted form is the intended change and no longer
+              blocks). Without the bank's checker, any flip of an asserted question blocks.
+              Every flip is still listed.
 Acceptance: on the 1.1.20 exports of 2026-11-08 the module in service reproduces the served
 representation on the 82 labelled questions of each language, with no flip.
 
@@ -119,7 +122,7 @@ def _assertions(eval_dir):
 
 
 def census(exec_dir, old, new, assertions, rsa):
-    flips, fails, served_miss = [], [], []
+    flips, fails, served_miss, regressions = [], [], [], []
     sources, unasserted = Counter(), Counter()
     asserted_flips = 0
     old_intent = _takes_intent(old)
@@ -168,6 +171,12 @@ def census(exec_dir, old, new, assertions, rsa):
                     "representation": c["representation"],
                     "intent": result_intent.response_intent(core, c["columns"]) if core else None}
             passed, details = rsa.check_response(spec, resp)
+            if o["representation"] != c["representation"]:
+                old_resp = {"result_kind": o["result_kind"], "result_columns": o["columns"],
+                            "representation": o["representation"],
+                            "intent": result_intent.response_intent(core, o["columns"]) if core else None}
+                if rsa.check_response(spec, old_resp)[0] and not passed:
+                    regressions.append((eid, lang, o["representation"], c["representation"]))
             if passed:
                 n_pass += 1
             else:
@@ -185,6 +194,10 @@ def census(exec_dir, old, new, assertions, rsa):
     print(f"\nFLIPS ({len(flips)}, {asserted_flips} on asserted questions):")
     for f in flips:
         print("  ", f)
+    if rsa is not None:
+        print(f"\nREGRESSIONS, asserted shape passing under the old module and failing under the new ({len(regressions)}):")
+        for r in regressions:
+            print("  ", r)
     print("\nranked-bars under the new module, by ordered column:")
     for k, v in sorted(ranked.items(), key=lambda kv: -len(kv[1])):
         print(f"  {k} ({len(v)}):")
@@ -198,7 +211,7 @@ def census(exec_dir, old, new, assertions, rsa):
             print(f"  {eid} [{lang}]")
             for m in msgs:
                 print(f"     {m}")
-    return asserted_flips
+    return regressions if rsa is not None else asserted_flips
 
 
 def main():
@@ -209,7 +222,8 @@ def main():
     ap.add_argument("--intent", choices=("rules", "off"), default="rules",
                     help="rules: the stored intent, else the keyword rules on the question (default); off: no intent")
     ap.add_argument("--strict", action="store_true",
-                    help="exit 1 when an asserted question changes representation between the two modules")
+                    help="exit 1 when a result-shape assertion that passed under the old module fails under the new "
+                         "(without the bank's checker: when an asserted question changes representation)")
     args = ap.parse_args()
     global INTENT_MODE
     INTENT_MODE = args.intent
@@ -224,14 +238,16 @@ def main():
     if os.path.isfile(os.path.join(args.eval_dir, "result_shape_assertions.py")):
         sys.path.insert(0, args.eval_dir)
         import result_shape_assertions as rsa  # noqa: E402
-    asserted_flips = 0
+    blocking = 0
     for exec_dir in args.exec_dirs:
         if not os.path.isdir(exec_dir):
             print(f"not a directory: {exec_dir}", file=sys.stderr)
             continue
-        asserted_flips += census(exec_dir, old, new, assertions, rsa)
-    if args.strict and asserted_flips:
-        print(f"\nSTRICT: {asserted_flips} asserted question(s) changed representation", file=sys.stderr)
+        out = census(exec_dir, old, new, assertions, rsa)
+        blocking += len(out) if isinstance(out, list) else out
+    if args.strict and blocking:
+        what = "regressed on their result-shape assertion" if rsa is not None else "changed representation"
+        print(f"\nSTRICT: {blocking} asserted question(s) {what}", file=sys.stderr)
         return 1
     return 0
 

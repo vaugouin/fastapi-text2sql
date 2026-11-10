@@ -161,6 +161,13 @@ _VALUE_RE = re.compile(
     r"|\bcombien (?:de saisons|d'episodes) compte\b|\bwith (?:their|its|the) (?:\w+ )?(?:runtime|duration|budget|revenue|box office|rating|imdb rating|seasons|episodes)\b"
     r"|\b(?:runtime|duration|budget|revenue|rating) of each\b|\bavec (?:la|le|les|leur|leurs) (?:\w+ )?(?:duree|budget|recette|recettes|note|notes|saisons|episodes)\b"
     r"|\bde chacun(?:e)?\b|\bpour chaque\b|\bof each\b|\bfor each\b|\bhow much\b|\bcombien a coute\b|\bwhat is the (?:runtime|budget|revenue|rating)\b")
+# A question asking when (phase 2 lot A, the timeline): a date per item, so a value task whose
+# focus is the release date. "when"/"quand" only at the start, so "films released when X was
+# alive" is not one.
+_WHEN_RE = re.compile(
+    r"^(?:when|quand)\b|\bin (?:which|what) years?\b|\bwhat year\b|\ben quelles? annees?\b")
+# "long metrage" is a format, not a length: "les longs metrages de Miyazaki" named the runtime.
+_NOT_FOCUS_RE = re.compile(r"\blongs?[ -]metrages?\b")
 _COUNT_RE = re.compile(r"\bhow many\b|\bnumber of\b|\bcount\b|\bcombien\b|\bnombre de\b")
 _VERDICT_RE = re.compile(r"^(?:did|does|do|is|was|were|are|has|have|had|can)\s|^(?:est-ce qu|est-ce que)\b")
 _RELATE_RE = re.compile(r"\bconnected\b|\brelationship between\b|\bin common\b|\bboth\b.*\band\b|\bpoint commun\b|\ben commun\b|\blien entre\b")
@@ -189,7 +196,7 @@ def rules_task(question):
         return "trend"
     if _RANK_RE.search(_NOT_RANK_RE.sub(" ", q)):
         return "rank"
-    if _VALUE_RE.search(q):
+    if _VALUE_RE.search(q) or _WHEN_RE.search(q):
         return "value"
     if _SEQUENCE_RE.search(q):
         return "sequence"
@@ -204,12 +211,15 @@ def rules_task(question):
 
 def rules_focus(question):
     """Canonical focus names the question's words name, in the order they appear."""
-    q = _fold(question)
+    q = _NOT_FOCUS_RE.sub(" ", _fold(question).strip())
     hits = []
     for name, rx in _FOCUS_SYNONYM_RES.items():
         m = rx.search(q)
         if m:
             hits.append((m.start(), name))
+    m = _WHEN_RE.search(q)
+    if m and all(name != "release_date" for _, name in hits):
+        hits.append((m.start(), "release_date"))
     return [name for _, name in sorted(hits)]
 
 

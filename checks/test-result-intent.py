@@ -147,6 +147,29 @@ one = rs.classify_result("SELECT SUM(RUNTIME) AS TOTAL_RUNTIME FROM T", [{"index
 check("scalar: number card, options", (one["representation"], one["representation_options"], one["summary_facts"]["unit"]), ("number-card", ["number-card", "table"], "minutes"))
 check("empty: no facts", rs.classify_result("SELECT 1", [], "movie", intent=ri.core_intent("x films"))["summary_facts"], None)
 
+# Phase 2 lot A (2026-11-10): timeline, sequence-strip, trend-columns, and the "when" rule.
+check("rules when", (ri.rules_task("When were the Alien films released?"), ri.rules_focus("When were the Alien films released?")), ("value", ["release_date"]))
+check("rules quand, long metrage is no runtime", ri.rules_intent("Quand sont sortis les longs métrages réalisés par Hayao Miyazaki ?")["focus"], ["release_date"])
+check("rules en quelles annees", ri.rules_task("En quelles années les films Jurassic Park sont-ils sortis ?"), "value")
+check("rules when not at the start", ri.rules_task("films released when Kubrick was alive"), "list")
+DATE_SQL = "SELECT ... FROM T_WC_T2S_MOVIE ... ORDER BY T_WC_T2S_MOVIE.DAT_RELEASE ASC"
+tl = rs.classify_result(DATE_SQL, HP, "movie", intent=ri.core_intent("When were the Harry Potter films released?"))
+check("when: timeline, date focused", (tl["representation"], [c["name"] for c in tl["columns"] if c.get("focus")]), ("timeline", ["DAT_RELEASE"]))
+check("when: options", tl["representation_options"], ["timeline", "card-grid", "value-cards", "table"])
+seq = rs.classify_result(DATE_SQL, HP, "movie", intent=ri.core_intent("The Harry Potter films in release order"))
+check("sequence by date: strip", seq["representation"], "sequence-strip")
+check("sequence by collection order: strip", rs.classify_result(HP_SQL, HP, "movie", intent=ri.core_intent("The Harry Potter films in order"))["representation"], "sequence-strip")
+check("sequence ordered by rating stays a grid", rs.classify_result("SELECT ... ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC", HP, "movie",
+      intent=ri.core_intent("The Harry Potter films in order"))["representation"], "card-grid")
+check("list by date offers no strip", rs.classify_result(DATE_SQL, HP, "movie", intent=ri.core_intent("Movies with Brad Pitt"))["representation_options"], ["card-grid", "table"])
+DECADES = [{"index": i, "data": {"DECADE": 1970 + 10 * i, "FILM_COUNT": n}} for i, n in enumerate([3, 9, 12, 8])]
+DEC_SQL = "SELECT FLOOR(YEAR(DAT_RELEASE)/10)*10 AS DECADE, COUNT(*) AS FILM_COUNT FROM T GROUP BY DECADE ORDER BY DECADE ASC"
+tr = rs.classify_result(DEC_SQL, DECADES, "", intent=ri.core_intent("How many films did Woody Allen direct per decade?"))
+check("trend: columns, value, options", (tr["representation"], tr["summary_facts"]["value_column"], tr["representation_options"]),
+      ("trend-columns", "FILM_COUNT", ["trend-columns", "table"]))
+check("trend asked as a table", rs.classify_result(DEC_SQL, DECADES, "", intent=ri.core_intent("How many films did Woody Allen direct per decade, as a table?"))["representation"], "table")
+check("grouped by decade without a trend intent stays a table", rs.classify_result(DEC_SQL, DECADES, "")["representation"], "table")
+
 
 # 6. sql_cache degrades column by column, newest first.
 class FakeCursor:

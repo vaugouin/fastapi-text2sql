@@ -2316,7 +2316,8 @@ class Text2SQLResponse(BaseModel):
     # "ordered": "asc" | "desc" on the one column the outer ORDER BY sorts on first
     # (FASTAPI-TEXT2SQL-351, the ranked quantity a client draws); representation is one
     # of entity-page | card-grid | number-card | stat-strip | ranked-bars | value-cards |
-    # table (value-cards: N entity rows each shown with the quantity asked, -354). See
+    # timeline | sequence-strip | trend-columns | table (value-cards: N entity rows each
+    # shown with the quantity asked, -354; the next three: phase 2 lot A, 2026-11-10). See
     # result_shape.py, README "Result representations: the contract" and the design note
     # voice-agent-243-result-representations.md.
     result_kind: Optional[str] = None
