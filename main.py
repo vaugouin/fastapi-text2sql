@@ -3042,6 +3042,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     total_processing_time = 0.0
     sql_execution_failed = False
     entity_unmatchable_raw_fallback_count = 0
+    # FASTAPI-TEXT2SQL-371 step 4: entities with no resolver at all, substituted raw.
+    entity_generic_count = 0
     ambiguous_question_for_text2sql = 0
     complex_model_used = False
     strentityextractionmodel = entity.strentityextractionmodeldefault
@@ -5130,6 +5132,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             entity_resolution_result.get("ambiguous_question_for_text2sql", 0),
         )
         entity_raw_fallback_count = entity_resolution_result.get("raw_fallback_count", 0)
+        entity_generic_count = entity_resolution_result.get("generic_count", 0)
         entity_unmatchable_raw_fallback_count = entity_resolution_result.get(
             "raw_fallback_unmatchable_count", 0
         )
@@ -5913,6 +5916,15 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 # 2 of the 6 empties currently classified AUTHORITATIVE. Rerun the count on
                 # the VPS corpus with analyze-complex-retry-logs.py before widening it.
                 or person_role_collapse
+                # (e) an entity with no resolver at all (today only Character_name) was
+                # substituted raw (FASTAPI-TEXT2SQL-371 step 4). Nothing checked the value
+                # against the base, so an empty result says the words are not literal, not
+                # that the data has no answer: "the Six Million Dollar Man" is a nickname, the
+                # credit reads "Steve Austin". On the 7,136 logs of 1.1.20, 82 carry such a
+                # substitution: 77 return rows on the first pass (untouched, this signal only
+                # reads empties) and the 5 others were authoritative empties, all wrong
+                # (evaluations 2220 and 2666).
+                or entity_generic_count > 0
             )
         )
     except Exception as _guard_exc:
@@ -5946,6 +5958,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         if person_role_collapse:
             _no_results_codes.append("person_role_collapse")
             _no_results_reasons.append("the SQL pins the person listed to the person named, a shape that can only return that one person")
+        if entity_generic_count > 0:
+            _no_results_codes.append("generic_substitution")
+            _no_results_reasons.append(f"{entity_generic_count} entity value(s) with no resolver (e.g. a character name) were substituted verbatim and never checked against the base")
         retry_response = await _retry_with_resolved_complex_question(
             start_message=f"SQL query returned 0 rows; attempting to simplify the original question using the stronger model '{strcomplexquestionmodel}' (one-time retry).",
             success_message=f"No-results detected; attempting one-time retry with simplified question from stronger model '{strcomplexquestionmodel}'.",
@@ -5965,6 +5980,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         and len(query_results) == 0
         and not ambiguous_question_for_text2sql
         and entity_raw_fallback_count == 0
+        and entity_generic_count == 0
         and not no_entity_extracted
         and not getattr(request, "complex_question_already_resolved", False)
     ):

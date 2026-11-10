@@ -606,7 +606,7 @@ class _PlannedEntity:
             apply if the placeholder actually occurs in one of the three texts.
     """
 
-    __slots__ = ("key", "placeholder", "messages", "substitution", "final_message", "require_present", "is_raw_fallback", "is_unmatchable_raw_fallback")
+    __slots__ = ("key", "placeholder", "messages", "substitution", "final_message", "require_present", "is_raw_fallback", "is_unmatchable_raw_fallback", "is_generic")
 
     def __init__(self, key: str, placeholder: str):
         self.key = key
@@ -623,18 +623,23 @@ class _PlannedEntity:
         # True when that raw fallback carries no Latin letter, so the equality it produces
         # against a canonical name column cannot match anything (FASTAPI-TEXT2SQL-226).
         self.is_unmatchable_raw_fallback = False
+        # True when the entity type has no resolver at all (no entry in entity_resolution.json,
+        # today only Character_name) and its raw value was substituted. Unlike a raw fallback,
+        # nothing was even tried, so an empty result proves nothing (FASTAPI-TEXT2SQL-371 step 4).
+        self.is_generic = False
 
     def note(self, text: str) -> None:
         """Record a diagnostic to be replayed when the plan is applied."""
         self.messages.append(text)
 
-    def resolve_with(self, substitution, final_message=None, require_present: bool = False, is_raw_fallback: bool = False, is_unmatchable_raw_fallback: bool = False) -> None:
+    def resolve_with(self, substitution, final_message=None, require_present: bool = False, is_raw_fallback: bool = False, is_unmatchable_raw_fallback: bool = False, is_generic: bool = False) -> None:
         """Attach the substitution that resolves this placeholder."""
         self.substitution = substitution
         self.final_message = final_message
         self.require_present = require_present
         self.is_raw_fallback = is_raw_fallback
         self.is_unmatchable_raw_fallback = is_unmatchable_raw_fallback
+        self.is_generic = is_generic
 
 
 # FASTAPI-TEXT2SQL-225 / -226: a Latin letter anywhere means the value can plausibly match a
@@ -1139,6 +1144,7 @@ def plan_entity_resolutions(
                         _substitute_plain(placeholder, raw_value_sql, raw_value),
                         final_message=f"Entity resolution: {placeholder} -> {raw_value} (generic)",
                         require_present=True,
+                        is_generic=True,
                     )
                     continue
 
@@ -2187,6 +2193,7 @@ def apply_entity_resolutions(
     ambiguous_question_for_text2sql = 0
     raw_fallback_count = 0
     raw_fallback_unmatchable_count = 0
+    generic_count = 0
 
     for planned in (plan or {}).get("entities", []) or []:
         for text in planned.messages:
@@ -2205,6 +2212,8 @@ def apply_entity_resolutions(
             raw_fallback_count += 1
             if planned.is_unmatchable_raw_fallback:
                 raw_fallback_unmatchable_count += 1
+        if planned.is_generic:
+            generic_count += 1
         if planned.final_message:
             add_message(planned.final_message)
 
@@ -2234,6 +2243,11 @@ def apply_entity_resolutions(
         # against a canonical name column is a guaranteed empty round trip
         # (FASTAPI-TEXT2SQL-226).
         "raw_fallback_unmatchable_count": raw_fallback_unmatchable_count,
+        # How many entities had no resolver at all and were substituted raw ("generic", today
+        # only Character_name). Their value was never checked against the base, so an empty
+        # result may mean the value was not literal, not that the data has no answer
+        # (FASTAPI-TEXT2SQL-371 step 4).
+        "generic_count": generic_count,
     }
 
 
@@ -2511,6 +2525,7 @@ def plan_co_constrained_title_rescue(*, connection, entity_extraction, plan) -> 
         q.require_present = p.require_present
         q.is_raw_fallback = p.is_raw_fallback
         q.is_unmatchable_raw_fallback = p.is_unmatchable_raw_fallback
+        q.is_generic = p.is_generic
         new_entities.append(q)
     if title_key not in planned_by_key:
         new_entities.append(new_title)
@@ -2671,6 +2686,7 @@ def plan_co_constrained_person_rescue(*, connection, entity_extraction, plan) ->
         q.require_present = p.require_present
         q.is_raw_fallback = p.is_raw_fallback
         q.is_unmatchable_raw_fallback = p.is_unmatchable_raw_fallback
+        q.is_generic = p.is_generic
         new_entities.append(q)
     if person_key not in planned_by_key:
         new_entities.append(new_person)
