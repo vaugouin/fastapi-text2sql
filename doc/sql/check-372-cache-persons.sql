@@ -8,7 +8,7 @@
 -- the question and the API version, and the version did not move, so a description answered
 -- before the restart keeps its old SQL, `PERSON_NAME = ... AND BIRTH_YEAR = ...`, which returns
 -- both namesakes (or nobody). The evaluator reads with retrieve_from_cache=false; the voice app
--- does not.
+-- does not. Names are read from SQL_PROCESSED: SQL_QUERY keeps the person placeholders.
 --
 -- A stale row is: current version, living, a person name + birth year lookup in its SQL, no
 -- IMDb id filter, and either two persons or more with that name and year, or none at that year
@@ -22,15 +22,15 @@ CREATE TEMPORARY TABLE tmp_372_lookup AS
 SELECT c.ID_ROW, c.API_VERSION, c.UI_LANGUAGE, c.IS_ANONYMIZED, c.TIM_UPDATED, c.QUESTION,
        REPLACE(SUBSTRING(t.T, LOCATE('''', t.T) + 1, CHAR_LENGTH(t.T) - LOCATE('''', t.T) - 1),
                '''''', '''') AS PNAME,
-       CAST(NULLIF(REGEXP_SUBSTR(REGEXP_SUBSTR(c.SQL_QUERY,
+       CAST(NULLIF(REGEXP_SUBSTR(REGEXP_SUBSTR(c.SQL_PROCESSED,
                'BIRTH_YEAR (=|BETWEEN) [( ]*[0-9]{4}'), '[0-9]{4}$'), '') AS UNSIGNED) AS YR
 FROM T_WC_T2S_CACHE c
-JOIN (SELECT ID_ROW, REGEXP_SUBSTR(SQL_QUERY, 'PERSON_NAME = ''([^'']|'''')*''') AS T
+JOIN (SELECT ID_ROW, REGEXP_SUBSTR(SQL_PROCESSED, 'PERSON_NAME = ''([^'']|'''')*''') AS T
         FROM T_WC_T2S_CACHE) t ON t.ID_ROW = c.ID_ROW
 WHERE COALESCE(c.DELETED, 0) = 0
   AND c.API_VERSION = (SELECT MAX(API_VERSION) FROM T_WC_T2S_CACHE)
-  AND c.SQL_QUERY LIKE '%PERSON_NAME = %BIRTH_YEAR%'
-  AND c.SQL_QUERY NOT LIKE '%ID_IMDB = %';
+  AND c.SQL_PROCESSED LIKE '%PERSON_NAME = %BIRTH_YEAR%'
+  AND c.SQL_PROCESSED NOT LIKE '%ID_IMDB = %';
 
 SELECT '1. Person name + birth year lookups cached in the current version' AS SECTION;
 
@@ -66,6 +66,11 @@ SELECT l.*, COALESCE(n.N_EXACT, 0) AS N_EXACT, COALESCE(n.N_WINDOW, 0) AS N_WIND
 FROM tmp_372_lookup l
 LEFT JOIN tmp_372_counts n
        ON n.PNAME = LEFT(l.PNAME, 250) COLLATE utf8mb4_unicode_ci AND n.YR = l.YR;
+
+SELECT '1b. Diagnostic: what the extraction reads (sample)' AS SECTION;
+
+SELECT ID_ROW, IS_ANONYMIZED, LEFT(PNAME, 30) AS PNAME, YR, LEFT(QUESTION, 60) AS QUESTION
+FROM tmp_372_lookup ORDER BY TIM_UPDATED DESC LIMIT 8;
 
 SELECT '2. Stale: a description cached with two namesakes, or none at a year that is off (candidates for the purge)' AS SECTION;
 
