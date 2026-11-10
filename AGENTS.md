@@ -78,6 +78,8 @@ The variables are in `README.md`, *Set up environment variables*. What it does n
 
 `t2slocations` is opened with **`get_collection`, never `get_or_create_collection`** (FASTAPI-TEXT2SQL-247): its HNSW configuration is fixed at creation by process 216 of `embedding-update`, and a `get_or_create` would silently recreate it with server defaults the day it is missing (no error, only worse ranking). The same reasoning dropped the old `locations` collection. If schema, entity IDs, document IDs or language-routed fields change, assume the collection needs rebuilding: stale embeddings resolve to IDs that no longer exist.
 
+`movies` and `series` are on trial before deletion (FASTAPI-TEXT2SQL-360 step 3, since 2026-11-10): the ChromaDB fallback after a lexicon miss on a title is **off by default** (`TITLE_EMBEDDINGS_FALLBACK` in `entity.py`; `on` in the colour's `.env` brings it back, restart needed). The trace says `skipped the ChromaDB fallback on 'movies'`, and the title goes to the raw fallback, then the stronger model. The collections stay open and `embedding-update` keeps them fresh until the decision, due around 2026-12-01: then drop them from `_collection_names` here and from `embedding-update.py`, and delete them, in that order.
+
 ---
 
 ## Hot-reloaded vs restart-required

@@ -163,6 +163,15 @@ def _estimate_table_rows(cursor, strtablename: str) -> int:
 # startup; while None (offline checks), a lexicon strategy only uses a lexicon already built.
 LEXICON_CONNECTION_FACTORY = None
 
+# FASTAPI-TEXT2SQL-360 step 3, trial before deletion (2026-11-10). After a lexicon miss on a movie
+# or series title, the ChromaDB fallback found no right title the lexicon had missed in the
+# replay of 2026-11-10 and accepted a wrong one ("The Visitors" for "The Visitors 2"). It is
+# OFF by default: the title falls to the raw words, 0 rows, and the stronger model retries.
+# TITLE_EMBEDDINGS_FALLBACK=on in the colour's .env brings it back without a code change.
+# The collections stay in ChromaDB, and embedding-update keeps them fresh, until the decision.
+TITLE_EMBEDDINGS_FALLBACK = os.getenv("TITLE_EMBEDDINGS_FALLBACK", "off").strip().lower() in ("1", "on", "true", "yes")
+_TITLE_FALLBACK_COLLECTIONS = frozenset({"movies", "series"})
+
 
 def prebuild_bktrees(connection) -> None:
     """Eagerly build a BK-tree for every RapidFuzz table in ENTITY_RESOLUTION_CONFIG.
@@ -1683,6 +1692,10 @@ def plan_entity_resolutions(
                         continue
 
                     collection_name = search_cfg.get("collection")
+                    if collection_name in _TITLE_FALLBACK_COLLECTIONS and not TITLE_EMBEDDINGS_FALLBACK:
+                        planned.note(f"Entity resolution: {placeholder} skipped the ChromaDB fallback on '{collection_name}' "
+                                     f"(TITLE_EMBEDDINGS_FALLBACK off, FASTAPI-TEXT2SQL-360 step 3)")
+                        continue
                     current_collection = chromadb_collections_by_name.get(collection_name)
                     if current_collection is None:
                         planned.note(f"Entity resolution: {placeholder} skipped the embeddings strategy: ChromaDB collection '{collection_name}' is not loaded")
