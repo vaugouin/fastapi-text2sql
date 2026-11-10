@@ -490,7 +490,7 @@ The response from `POST /search/text2sql` contains the full pipeline trace along
   "cached_anonymized_question_embedding": false,
   "ambiguous_question_for_text2sql": false,
   "llm_model_entity_extraction": "gpt-6-sol",
-  "llm_model_text2sql": "gpt-6.1-terra",
+  "llm_model_text2sql": "gpt-6-sol",
   "llm_model_complex": "gpt-6.1-sol",
   "llm_model_result_entity": "gpt-6-luna",
   "llm_model_answer_single_value": "",

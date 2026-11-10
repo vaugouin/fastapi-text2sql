@@ -389,7 +389,7 @@ Content-Type: application/json
   - Uses the module default for the corresponding stage
   - Current defaults:
     - `llm_model_entity_extraction` → `gpt-6-sol` (since 2026-10-03, LLM-TASKS-010)
-    - `llm_model_text2sql` → `gpt-6.1-terra` (since 2026-11-10, GPT-6-008; `gpt-6-sol` from 2026-10-03, LLM-TASKS-010)
+    - `llm_model_text2sql` → `gpt-6-sol` (since 2026-10-03, LLM-TASKS-010; `gpt-6.1-terra` tried on 2026-11-10 and reverted for latency, GPT-6-008)
     - `llm_model_complex` → `gpt-6.1-sol` (since 2026-10-17, GPT-6-007)
     - `llm_model_result_entity` → `gpt-6-luna` (since 2026-09-29, GPT-6-003)
     - `llm_model_vision` → `gpt-6-astra`

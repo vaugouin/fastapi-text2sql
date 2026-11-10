@@ -51,7 +51,10 @@ strtext2sqlprompttemplate = "text_to_sql.md"
 # 1,069 common questions: 937 against 927 EN, 926 against 919 FR, about even once the flips
 # caused by data drift are set aside; $1.59 per 1,000 text2sql calls against about $5. Served at
 # the standard tier: production requests never ask for Flex, and on Flex Terra's p90 tripled.
-strtext2sqlmodeldefault = "gpt-6.1-terra"
+# Reverted the same day (Philippe): at the standard tier Terra wrote SQL slower than Sol, 4.14 s
+# against 2.88 s median on 20 interleaved bank questions (62 against 87 output tokens/s), too much
+# for the voice path. Retest with text2sql-eval/latency-text2sql-models.py before switching again.
+strtext2sqlmodeldefault = "gpt-6-sol"
 
 # Complex question feature (stronger model)
 strcomplexquestionprompttemplate = "complex_question.md"
