@@ -7222,9 +7222,10 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
             "awards": ("""
                 SELECT a.ID_AWARD, a.AWARD_NAME, a.AWARD_NAME_FR, a.POSTER_PATH, a.WIKIPEDIA_IMAGE_PATH,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_T2S_MOVIE_AWARD ma
+                FROM (SELECT ID_AWARD, MIN(DISPLAY_ORDER) AS DISPLAY_ORDER
+                      FROM T_WC_T2S_MOVIE_AWARD WHERE ID_MOVIE = %s GROUP BY ID_AWARD) ma
                 JOIN T_WC_T2S_AWARD a ON ma.ID_AWARD = a.ID_AWARD
-                WHERE ma.ID_MOVIE = %s ORDER BY ma.DISPLAY_ORDER ASC, a.ID_AWARD ASC
+                ORDER BY ma.DISPLAY_ORDER ASC, a.ID_AWARD ASC
             """, (id,), None),
             "nominations": ("""
                 SELECT n.ID_NOMINATION, n.NOMINATION_NAME, n.NOMINATION_NAME_FR, n.POSTER_PATH, n.WIKIPEDIA_IMAGE_PATH,
@@ -7597,9 +7598,10 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
             "awards": ("""
                 SELECT a.ID_AWARD, a.AWARD_NAME, a.AWARD_NAME_FR, a.POSTER_PATH, a.WIKIPEDIA_IMAGE_PATH,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_T2S_SERIE_AWARD sa
+                FROM (SELECT ID_AWARD, MIN(DISPLAY_ORDER) AS DISPLAY_ORDER
+                      FROM T_WC_T2S_SERIE_AWARD WHERE ID_SERIE = %s GROUP BY ID_AWARD) sa
                 JOIN T_WC_T2S_AWARD a ON sa.ID_AWARD = a.ID_AWARD
-                WHERE sa.ID_SERIE = %s ORDER BY sa.DISPLAY_ORDER ASC, a.ID_AWARD ASC
+                ORDER BY sa.DISPLAY_ORDER ASC, a.ID_AWARD ASC
             """, (id,), None),
             "nominations": ("""
                 SELECT n.ID_NOMINATION, n.NOMINATION_NAME, n.NOMINATION_NAME_FR, n.POSTER_PATH, n.WIKIPEDIA_IMAGE_PATH,
@@ -8487,9 +8489,10 @@ async def get_person(id: int, ui_language: Optional[str] = "en", collection: Opt
             "awards": ("""
                 SELECT a.ID_AWARD, a.AWARD_NAME, a.AWARD_NAME_FR, a.POSTER_PATH, a.WIKIPEDIA_IMAGE_PATH,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_T2S_PERSON_AWARD pa
+                FROM (SELECT ID_AWARD, MIN(DISPLAY_ORDER) AS DISPLAY_ORDER
+                      FROM T_WC_T2S_PERSON_AWARD WHERE ID_PERSON = %s GROUP BY ID_AWARD) pa
                 JOIN T_WC_T2S_AWARD a ON pa.ID_AWARD = a.ID_AWARD
-                WHERE pa.ID_PERSON = %s ORDER BY pa.DISPLAY_ORDER ASC, a.ID_AWARD ASC
+                ORDER BY pa.DISPLAY_ORDER ASC, a.ID_AWARD ASC
             """, (id,), None),
             "nominations": ("""
                 SELECT n.ID_NOMINATION, n.NOMINATION_NAME, n.NOMINATION_NAME_FR, n.POSTER_PATH, n.WIKIPEDIA_IMAGE_PATH,
@@ -9482,7 +9485,8 @@ async def get_death(id: int, ui_language: Optional[str] = "en", collection: Opti
 @app.get("/awards/{id}", summary="Award full detail", response_class=RoundedJSONResponse)
 async def get_award(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for an award plus associated movies, TV series, and persons,
-    all ordered by DISPLAY_ORDER. The id is ID_AWARD.
+    all ordered by DISPLAY_ORDER. The id is ID_AWARD. A movie, a series or a person that won
+    the award several times is listed once.
 
     The award itself includes POSTER_PATH and WIKIPEDIA_IMAGE_PATH. Each nested list
     element carries the canonical image path of its related entity: POSTER_PATH for
@@ -9536,27 +9540,35 @@ async def get_award(id: int, ui_language: Optional[str] = "en", collection: Opti
             award = cursor.fetchone()
         if not award:
             raise HTTPException(status_code=404, detail=f"Award {id} not found")
+        # TMDB-MOVIE-PREPROCESS-071: a row of the three award link tables is one win, so the same
+        # (entity, award) pair can sit on several rows. Every award list of the entity endpoints
+        # (here and the `awards` list of /movies, /series, /persons) reads the link table through
+        # a subquery grouped on the other side of the pair: a winner is listed once, and
+        # _TOTAL_COUNT counts winners, not wins. DISPLAY_ORDER is the same on every row of a pair.
         pcollections = {
             "movies": ("""
                 SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, ma.DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_T2S_MOVIE_AWARD ma
+                FROM (SELECT ID_MOVIE, MIN(DISPLAY_ORDER) AS DISPLAY_ORDER
+                      FROM T_WC_T2S_MOVIE_AWARD WHERE ID_AWARD = %s GROUP BY ID_MOVIE) ma
                 JOIN T_WC_T2S_MOVIE m ON ma.ID_MOVIE = m.ID_MOVIE
-                WHERE ma.ID_AWARD = %s ORDER BY ma.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
+                ORDER BY ma.DISPLAY_ORDER ASC, m.ID_MOVIE ASC
             """, (id,), "movie"),
             "series": ("""
                 SELECT s.ID_SERIE, s.SERIE_TITLE, s.SERIE_TITLE_FR, s.DAT_FIRST_AIR, s.DAT_LAST_AIR, s.IMDB_RATING_WEIGHTED, s.POSTER_PATH, sa.DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_T2S_SERIE_AWARD sa
+                FROM (SELECT ID_SERIE, MIN(DISPLAY_ORDER) AS DISPLAY_ORDER
+                      FROM T_WC_T2S_SERIE_AWARD WHERE ID_AWARD = %s GROUP BY ID_SERIE) sa
                 JOIN T_WC_T2S_SERIE s ON sa.ID_SERIE = s.ID_SERIE
-                WHERE sa.ID_AWARD = %s ORDER BY sa.DISPLAY_ORDER ASC, s.ID_SERIE ASC
+                ORDER BY sa.DISPLAY_ORDER ASC, s.ID_SERIE ASC
             """, (id,), "serie"),
             "persons": ("""
                 SELECT p.ID_PERSON, p.PERSON_NAME, p.POPULARITY, p.PROFILE_PATH, pa.DISPLAY_ORDER,
                        COUNT(*) OVER() AS _TOTAL_COUNT
-                FROM T_WC_T2S_PERSON_AWARD pa
+                FROM (SELECT ID_PERSON, MIN(DISPLAY_ORDER) AS DISPLAY_ORDER
+                      FROM T_WC_T2S_PERSON_AWARD WHERE ID_AWARD = %s GROUP BY ID_PERSON) pa
                 JOIN T_WC_T2S_PERSON p ON pa.ID_PERSON = p.ID_PERSON
-                WHERE pa.ID_AWARD = %s ORDER BY pa.DISPLAY_ORDER ASC, p.ID_PERSON ASC
+                ORDER BY pa.DISPLAY_ORDER ASC, p.ID_PERSON ASC
             """, (id,), "person"),
         }
         with conn.cursor() as cursor:

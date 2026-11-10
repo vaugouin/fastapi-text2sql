@@ -185,6 +185,7 @@ Contracts that break silently when editing an endpoint (details: `doc/pipeline-i
 - A new related list goes in the endpoint's `pcollections` registry (with `COUNT(*) OVER() AS _TOTAL_COUNT`, a deterministic `ORDER BY` with unique tiebreaker, no `LIMIT`, no semicolon), never a one-off `cursor.execute`.
 - A new collection is listed twice in its MCP tool docstring (relations and valid `collection` values), or MCP clients never see it.
 - A new entity endpoint declares `response_class=RoundedJSONResponse` (`checks/verif-308.py` counts them).
+- The award link tables (`T_WC_T2S_MOVIE_AWARD`, `_SERIE_AWARD`, `_PERSON_AWARD`) hold one row per win since TMDB-MOVIE-PREPROCESS-071, so an (entity, award) pair can sit on several rows: an award list reads the link table through a subquery grouped on the other side of the pair (`SELECT ID_AWARD, MIN(DISPLAY_ORDER) ... GROUP BY ID_AWARD`), never by a plain join, or a winner is listed once per win and `_TOTAL_COUNT` counts wins. Check: `doc/sql/check-071-award-readers.sql`.
 
 ## Numbers are rounded on the way out, and only there (FASTAPI-TEXT2SQL-308)
 
