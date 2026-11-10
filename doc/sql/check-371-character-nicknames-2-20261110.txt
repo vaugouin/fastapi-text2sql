@@ -1,0 +1,88 @@
+-- check-371-character-nicknames-2.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-11-10 17:26:55 +0100
+--
++-----------------------+---------------+---------------+
+| NICK                  | movie_credits | serie_credits |
++-----------------------+---------------+---------------+
+| Merc with a Mouth     |             0 |             0 |
+| The Merc with a Mouth |             0 |             0 |
+| Web-Slinger           |             0 |             0 |
+| The Web-Slinger       |             0 |             0 |
+| Hannibal the Cannibal |             0 |             0 |
+| Boy Wonder            |             1 |             0 |
+| The Boy Wonder        |             0 |             0 |
+| The Gipper            |             1 |             0 |
+| Gipper                |             0 |             0 |
+| Bionic Man            |             0 |             0 |
+| The Bionic Man        |             0 |             0 |
+| Little Tramp          |             0 |             0 |
+| The Little Tramp      |             0 |             0 |
+| Petit Vagabond        |             0 |             0 |
+| Femme bionique        |             0 |             0 |
+| Homme de fer          |             0 |             0 |
+| Homme d'acier         |             0 |             0 |
+| Chevalier noir        |             0 |             0 |
++-----------------------+---------------+---------------+
++-----------------------+-----------+-----------------+------+----------+--------------------------------------------------------------+----------------------------------------------------------+
+| NICK                  | ID_PERSON | PERSON_NAME     | pop  | ID_MOVIE | MOVIE_TITLE                                                  | cast_character                                           |
++-----------------------+-----------+-----------------+------+----------+--------------------------------------------------------------+----------------------------------------------------------+
+| Boy Wonder            |     35192 | Burt Ward       |  1.0 |     2661 | Batman                                                       | Robin (Dick Grayson)                                     |
+| Boy Wonder            |     35192 | Burt Ward       |  1.0 |    65585 | Batgirl                                                      | Robin / Dick Grayson                                     |
+| Boy Wonder            |     35192 | Burt Ward       |  1.0 |   138776 | Legends of the Super Heroes                                  | Robin                                                    |
+| Boy Wonder            |     35192 | Burt Ward       |  1.0 |   157757 | Batmania: From Comics to Screen                              | Self / Robin / Dick Grayson (archive footage)            |
+| Boy Wonder            |     35192 | Burt Ward       |  1.0 |   228088 | Once Upon a Time: The Super Heroes                           | Robin (archive footage)                                  |
+| Boy Wonder            |     35192 | Burt Ward       |  1.0 |   320061 | Batkid Begins                                                | Self - Robin                                             |
+| Boy Wonder            |     35192 | Burt Ward       |  1.0 |   411736 | Batman: Return of the Caped Crusaders                        | Dick Grayson / Robin (voice)                             |
+| Boy Wonder            |     35192 | Burt Ward       |  1.0 |   464882 | Batman vs. Two-Face                                          | Dick Grayson / Robin (voice)                             |
+| Boy Wonder            |     35192 | Burt Ward       |  1.0 |  1676251 | Batgirl Teaches Batman a Lesson About Equal Pay              | Robin                                                    |
+| Boy Wonder            |      5577 | Chris O'Donnell |  3.8 |      414 | Batman Forever                                               | Robin / Dick Grayson                                     |
+| Boy Wonder            |      5577 | Chris O'Donnell |  3.8 |      415 | Batman & Robin                                               | Robin / Dick Grayson                                     |
+| Boy Wonder            |      5577 | Chris O'Donnell |  3.8 |   228088 | Once Upon a Time: The Super Heroes                           | Robin (archive footage)                                  |
+| Boy Wonder            |      5577 | Chris O'Donnell |  3.8 |   294656 | Riddle Me This: Why Is Batman Forever?                       | Self - Host / Robin                                      |
+| Hannibal the Cannibal |      4173 | Anthony Hopkins |  5.1 |      274 | The Silence of the Lambs                                     | Dr. Hannibal Lecter                                      |
+| Hannibal the Cannibal |      4173 | Anthony Hopkins |  5.1 |     9533 | Red Dragon                                                   | Hannibal Lecter                                          |
+| Hannibal the Cannibal |      4173 | Anthony Hopkins |  5.1 |     9740 | Hannibal                                                     | Dr. Hannibal Lecter                                      |
+| Hannibal the Cannibal |      1019 | Mads Mikkelsen  |  6.0 |  1820014 | Hannibal                                                     | Hannibal Lecter                                          |
+| Merc with a Mouth     |     10859 | Ryan Reynolds   |  6.8 |   293660 | Deadpool                                                     | Wade / Deadpool                                          |
+| Merc with a Mouth     |     10859 | Ryan Reynolds   |  6.8 |   383498 | Deadpool 2                                                   | Wade Wilson / Deadpool / Juggernaut (voice)              |
+| Merc with a Mouth     |     10859 | Ryan Reynolds   |  6.8 |   533535 | Deadpool & Wolverine                                         | Wade Wilson / Deadpool / Nicepool                        |
+| Merc with a Mouth     |     10859 | Ryan Reynolds   |  6.8 |   558144 | Deadpool: No Good Deed                                       | Wade Wilson / Deadpool                                   |
+| Merc with a Mouth     |     10859 | Ryan Reynolds   |  6.8 |   567604 | Once Upon a Deadpool                                         | Wade Wilson / Deadpool / Juggernaut (voice)              |
+| Merc with a Mouth     |     10859 | Ryan Reynolds   |  6.8 |  1386628 | Marvel Studios Assembled: The Making of Deadpool & Wolverine | Self - Wade Wilson / Deadpool                            |
+| The Gipper            |     18802 | Ronald Reagan   |  1.5 |    43812 | Knute Rockne All American                                    | George Gipp                                              |
+| Web-Slinger           |     37625 | Andrew Garfield |  6.1 |     1930 | The Amazing Spider-Man                                       | Spider-Man / Peter Parker                                |
+| Web-Slinger           |     37625 | Andrew Garfield |  6.1 |   102382 | The Amazing Spider-Man 2                                     | Spider-Man / Peter Parker                                |
+| Web-Slinger           |     37625 | Andrew Garfield |  6.1 |   569094 | Spider-Man: Across the Spider-Verse                          | Peter Parker / Spider-Man (archive footage) (uncredited) |
+| Web-Slinger           |     37625 | Andrew Garfield |  6.1 |   634649 | Spider-Man: No Way Home                                      | Peter Parker / Spider-Man                                |
+| Web-Slinger           |     37625 | Andrew Garfield |  6.1 |  1732051 | Generations: The Evolution of Spider-Man                     | Self - Spider-Man/Peter Parker (archive footage)         |
+| Web-Slinger           |      2219 | Tobey Maguire   |  5.1 |      557 | Spider-Man                                                   | Spider-Man / Peter Parker                                |
+| Web-Slinger           |      2219 | Tobey Maguire   |  5.1 |      558 | Spider-Man 2                                                 | Spider-Man / Peter Parker                                |
+| Web-Slinger           |      2219 | Tobey Maguire   |  5.1 |      559 | Spider-Man 3                                                 | Spider-Man / Peter Parker                                |
+| Web-Slinger           |      2219 | Tobey Maguire   |  5.1 |   569094 | Spider-Man: Across the Spider-Verse                          | Peter Parker / Spider-Man (archive footage) (uncredited) |
+| Web-Slinger           |      2219 | Tobey Maguire   |  5.1 |   634649 | Spider-Man: No Way Home                                      | Peter Parker / Spider-Man                                |
+| Web-Slinger           |      2219 | Tobey Maguire   |  5.1 |   805957 | Behind the Ultimate Spin: The Making of Spider-Man           | Self - Spider-Man / Peter Parker                         |
+| Web-Slinger           |      2219 | Tobey Maguire   |  5.1 |  1732051 | Generations: The Evolution of Spider-Man                     | Self - Spider-Man/Peter Parker (archive footage)         |
+| Web-Slinger           |   1136406 | Tom Holland     | 14.6 |   271110 | Captain America: Civil War                                   | Peter Parker / Spider-Man                                |
+| Web-Slinger           |   1136406 | Tom Holland     | 14.6 |   299534 | Avengers: Endgame                                            | Peter Parker / Spider-Man                                |
+| Web-Slinger           |   1136406 | Tom Holland     | 14.6 |   299536 | Avengers: Infinity War                                       | Peter Parker / Spider-Man                                |
+| Web-Slinger           |   1136406 | Tom Holland     | 14.6 |   315635 | Spider-Man: Homecoming                                       | Peter Parker / Spider-Man                                |
+| Web-Slinger           |   1136406 | Tom Holland     | 14.6 |   429617 | Spider-Man: Far From Home                                    | Peter Parker / Spider-Man                                |
+| Web-Slinger           |   1136406 | Tom Holland     | 14.6 |   580489 | Venom: Let There Be Carnage                                  | Peter Parker / Spider-Man (uncredited)                   |
+| Web-Slinger           |   1136406 | Tom Holland     | 14.6 |   634649 | Spider-Man: No Way Home                                      | Peter Parker / Spider-Man                                |
+| Web-Slinger           |   1136406 | Tom Holland     | 14.6 |   758025 | Peter's To-Do List                                           | Peter Parker / Spider-Man                                |
+| Web-Slinger           |   1136406 | Tom Holland     | 14.6 |   969681 | Spider-Man: Brand New Day                                    | Peter Parker / Spider-Man                                |
+| Web-Slinger           |   1136406 | Tom Holland     | 14.6 |  1732051 | Generations: The Evolution of Spider-Man                     | Self - "Spider-Man/Peter Parker"                         |
++-----------------------+-----------+-----------------+------+----------+--------------------------------------------------------------+----------------------------------------------------------+
++-----------------+---+-----------------------+
+| PERSON_NAME     | n | ids                   |
++-----------------+---+-----------------------+
+| Andrew Garfield | 1 | 37625                 |
+| Anthony Hopkins | 1 | 4173                  |
+| Burt Ward       | 1 | 35192                 |
+| Chris O'Donnell | 1 | 5577                  |
+| Mads Mikkelsen  | 1 | 1019                  |
+| Ronald Reagan   | 1 | 18802                 |
+| Ryan Reynolds   | 1 | 10859                 |
+| Tobey Maguire   | 1 | 2219                  |
+| Tom Holland     | 3 | 1136406,64796,1145610 |
++-----------------+---+-----------------------+
