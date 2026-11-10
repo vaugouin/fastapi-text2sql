@@ -1,0 +1,51 @@
+-- check-371-aka-bare-word.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-11-10 16:43:54 +0100
+--
++------------------+-----------------+-----------------+------------------------+-----------------------------------+
+| one_word_aliases | films_10k_votes | credits_on_them | alias_holders_credited | film_word_pairs_with_alias_holder |
++------------------+-----------------+-----------------+------------------------+-----------------------------------+
+|            40467 |           13170 |          509707 |                  35516 |                             35188 |
++------------------+-----------------+-----------------+------------------------+-----------------------------------+
++----------------+-----------------+------------------------+-------------------------+---------------------+----------------------------+
+| collision_rows | film_word_pairs | rows_x_surname_differs | pairs_x_surname_differs | rows_differs_y_cast | rows_differs_y_cast_x_crew |
++----------------+-----------------+------------------------+-------------------------+---------------------+----------------------------+
+|            150 |             123 |                     28 |                      28 |                  12 |                          4 |
++----------------+-----------------+------------------------+-------------------------+---------------------+----------------------------+
++----------------------+------------+-----------+-----------------------+----------+-------+--------------------+----------+-------+
+| MOVIE_TITLE          | IMDB_VOTES | W         | alias_holder_x        | x_credit | x_pop | surname_y          | y_credit | y_pop |
++----------------------+------------+-----------+-----------------------+----------+-------+--------------------+----------+-------+
+| Wall Street          |     176712 | tom       | Newton Thomas Sigel   | crew     |   0.5 | Lauren Tom         | cast     |   1.5 |
+| KPop Demon Hunters   |     145801 | chae      | CHAEYOUNG             | cast     |   0.6 | Esther K. Chae     | cast     |   0.6 |
+| La Vie en Rose       |      94872 | jafar     | Jan Filipenský        | cast     |   0.4 | Kamil Jafar        | crew     |   0.2 |
+| A Dog's Purpose      |      88574 | kirby     | Kirby Howell-Baptiste | cast     |   1.6 | Luke Kirby         | cast     |   2.0 |
+| Halloween II         |      65602 | sylvia    | Sylvia Jefferies      | cast     |   1.1 | Tim Sylvia         | crew     |   0.3 |
+| Big Fat Liar         |      43449 | rooney    | Ned Brower            | cast     |   0.4 | Ted Rooney         | cast     |   0.9 |
+| Nowhere Boy          |      41293 | goldfrapp | Will Gregory          | crew     |   0.0 | Alison Goldfrapp   | crew     |   0.9 |
+| Martin               |      36718 | arjun     | Arjun Sarja           | crew     |   1.5 | A. P. Arjun        | crew     |   2.0 |
+| Rangasthalam         |      31828 | sekhar    | V J Shekar            | crew     |   0.5 | Chatrapathi Sekhar | cast     |   0.3 |
+| Ae Dil Hai Mushkil   |      29657 | badshah   | Shah Rukh Khan        | cast     |   4.7 | Badshah            | crew     |  10.9 |
+| Game Changer         |      29282 | sudarshan | Nellore Sudharshan    | cast     |   0.3 | Gundu Sudarshan    | cast     |   0.6 |
+| Rowdy Rathore        |      27492 | kumar     | Kumar Sanu            | crew     |   0.4 | Akshay Kumar       | cast     |   2.8 |
+| Coolie               |      25409 | maran     | Lollu Sabha Maaran    | cast     |   0.8 | Kalanithi Maran    | crew     |   5.4 |
+| Ernest & Celestine   |      24828 | vincent   | Vincent Patar         | crew     |   0.1 | Gabrielle Vincent  | crew     |   0.0 |
+| Simmba               |      24113 | kumar     | Kumar Sanu            | crew     |   0.4 | Akshay Kumar       | cast     |   2.8 |
+| My Summer of Love    |      23305 | goldfrapp | Will Gregory          | crew     |   0.0 | Alison Goldfrapp   | crew     |   0.9 |
+| The Cotton Club      |      21465 | stone     | Mario Van Peebles     | cast     |   1.6 | Michael Stone      | crew     |   0.2 |
+| Made                 |      20643 | love      | Sean Combs            | cast     |   1.9 | Faizon Love        | cast     |   1.2 |
+| Kabhi Haan Kabhi Naa |      20578 | kumar     | Kumar Sanu            | crew     |   0.4 | Amit Kumar         | crew     |   0.2 |
+| Mahaan               |      19862 | narayanan | Aadukalam Naren       | cast     |   0.1 | Santhosh Narayanan | crew     |   0.3 |
+| Woodstock            |      19707 | santana   | Michael Shrieve       | cast     |   0.1 | Carlos Santana     | cast     |   0.9 |
+| Jigarthanda          |      15086 | narayanan | Aadukalam Naren       | cast     |   0.1 | Santhosh Narayanan | crew     |   0.3 |
+| Manichitrathazhu     |      14794 | lal       | Mohanlal              | cast     |   3.7 | Lal                | crew     |   9.1 |
+| Bairavaa             |      14068 | narayanan | Aadukalam Naren       | cast     |   0.1 | Santhosh Narayanan | crew     |   0.3 |
+| Businessman          |      12740 | puri      | Puri Jagannadh        | cast     |   1.4 | Akash Puri         | cast     |   0.1 |
+| La Bola Negra        |      12119 | pedro     | Pedro Almodóvar       | crew     |   1.5 | Laura Pedro        | crew     |   0.1 |
+| Pulimurugan          |      10533 | lal       | Mohanlal              | cast     |   3.7 | Lal                | cast     |   9.1 |
+| Pizza                |      10001 | narayanan | Aadukalam Naren       | cast     |   0.1 | Santhosh Narayanan | crew     |   0.3 |
++----------------------+------------+-----------+-----------------------+----------+-------+--------------------+----------+-------+
++---------+---------------+--------------------------------------------------------------------------------------+
+| W       | alias_holders | holders                                                                              |
++---------+---------------+--------------------------------------------------------------------------------------+
+| jackson |             1 | Jackson Wang                                                                         |
+| phoenix |             5 | Christian Mazzalai, Laurent Brancowitz, Thomas Mars, Elizabeth Copeland, Deck d'Arcy |
++---------+---------------+--------------------------------------------------------------------------------------+
