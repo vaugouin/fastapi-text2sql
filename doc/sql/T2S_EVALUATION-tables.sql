@@ -21,7 +21,7 @@ CREATE TABLE `T_WC_T2S_EVALUATION` (
   `ASSERTIONS_QUERY_RESULT` mediumtext DEFAULT NULL,
   `ASSERTIONS_ENTITY_EXTRACTION` mediumtext DEFAULT NULL,
   `ASSERTIONS_SQL_QUERY` mediumtext DEFAULT NULL,
-  `ASSERTIONS_RESULT_SHAPE` mediumtext DEFAULT NULL COMMENT 'FASTAPI-TEXT2SQL-349 : assertion sur l indice de rendu (result_kind / representation / unit de colonne), verifiee hors score par text2sql-eval/check-result-shape.py ; n entre jamais dans le score de campagne',
+  `ASSERTIONS_RESULT_SHAPE` mediumtext DEFAULT NULL COMMENT 'FASTAPI-TEXT2SQL-349 : assertion sur l indice de rendu (result_kind / representation / unit), hors score, lue par check-result-shape.py',
   `ASSERTION_REFRESH_SQL` mediumtext DEFAULT NULL COMMENT 'SQL canonique (SELECT une colonne ID ... ORDER BY ... LIMIT N) rejoue chaque jour pour reconstruire ASSERTIONS_QUERY_RESULT ; NULL = eval statique',
   `ASSERTION_REFRESH_LAST` datetime DEFAULT NULL COMMENT 'Date du dernier passage du job de refresh (fraicheur de l assertion)',
   `RESOLUTION_MODE` varchar(10) DEFAULT NULL COMMENT 'Mode qui doit resoudre la question : standard (sans escalade), complex (escalade indispensable), any (aucune attente). NULL = any.',
@@ -170,10 +170,10 @@ CREATE TABLE `T_WC_T2S_EVALUATION_EXECUTION` (
   KEY `QUERY_MODE` (`QUERY_MODE`),
   KEY `RESULT_ENTITY_MODEL` (`RESULT_ENTITY_MODEL`),
   KEY `ANSWER_SINGLE_VALUE_MODEL` (`ANSWER_SINGLE_VALUE_MODEL`),
-  KEY `FLEX_PROCESSING` (`FLEX_PROCESSING`),
   KEY `LLM_PROMPT_TOKENS` (`LLM_PROMPT_TOKENS`),
   KEY `LLM_CACHED_TOKENS` (`LLM_CACHED_TOKENS`),
   KEY `LLM_COMPLETION_TOKENS` (`LLM_COMPLETION_TOKENS`),
-  KEY `LLM_REASONING_TOKENS` (`LLM_REASONING_TOKENS`)
+  KEY `LLM_REASONING_TOKENS` (`LLM_REASONING_TOKENS`),
+  KEY `FLEX_PROCESSING` (`FLEX_PROCESSING`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
