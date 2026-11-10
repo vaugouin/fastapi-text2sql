@@ -1,0 +1,117 @@
+-- check-071-award-readers.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-11-10 09:47:10 +0100
+--
++-----------------------------------+
+| SECTION                           |
++-----------------------------------+
+| 1. entities and awards under test |
++-----------------------------------+
++----------+----------+-----------+------------------+-----------------+-----------------+
+| ID_MOVIE | ID_SERIE | ID_PERSON | ID_AWARD_PERSONS | ID_AWARD_MOVIES | ID_AWARD_SERIES |
++----------+----------+-----------+------------------+-----------------+-----------------+
+|      153 |      688 |   1248913 |              269 |           10830 |            5573 |
++----------+----------+-----------+------------------+-----------------+-----------------+
++-----------------------------------------------------------------------+
+| SECTION                                                               |
++-----------------------------------------------------------------------+
+| 2. rows of each new list against the distinct pairs of the link table |
++-----------------------------------------------------------------------+
++--------------------------+----------+----------------+-----------+
+| LIST                     | NEW_ROWS | DISTINCT_PAIRS | LINK_ROWS |
++--------------------------+----------+----------------+-----------+
+| api movie awards         |       44 |             44 |        44 |
+| api series awards        |       22 |             22 |        22 |
+| api person awards        |      111 |            111 |       111 |
+| api award movies         |      894 |            894 |       894 |
+| api award series         |       61 |             61 |        61 |
+| api award persons        |       82 |             82 |        82 |
+| front movie awards       |       44 |             44 |        44 |
+| front award movies count |      894 |            894 |       894 |
++--------------------------+----------+----------------+-----------+
++---------------------------------------------------------------------------------------------------+
+| SECTION                                                                                           |
++---------------------------------------------------------------------------------------------------+
+| 3. api, awards of the movie, the series and the person (first rows, as the endpoint returns them) |
++---------------------------------------------------------------------------------------------------+
++----------+-------------------------------------------------------+-----------------------------------------------------------+--------------+
+| ID_AWARD | AWARD_NAME                                            | AWARD_NAME_FR                                             | _TOTAL_COUNT |
++----------+-------------------------------------------------------+-----------------------------------------------------------+--------------+
+|     1050 | Chlotrudis Award for Best Director                    | Chlotrudis Award du meilleur réalisateur                  |           44 |
+|     1069 | Toronto Film Critics Association Award for Best Actor | Toronto Film Critics Association Award du meilleur acteur |           44 |
+|     2933 | Satellite Award for Best Actor in a Musical or Comedy | Satellite Award for Best Actor in a Musical or Comedy     |           44 |
+|     4555 | International Cinephile Society Award for Best Actor  | International Cinephile Society Award for Best Actor      |           44 |
+|    10851 | National Society of Film Critics Award for Best Actor | National Society of Film Critics Award du meilleur acteur |           44 |
++----------+-------------------------------------------------------+-----------------------------------------------------------+--------------+
++----------+-------------------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------+--------------+
+| ID_AWARD | AWARD_NAME                                                                                | AWARD_NAME_FR                                                                             | _TOTAL_COUNT |
++----------+-------------------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------+--------------+
+|    27175 | Primetime Emmy Award for Outstanding Cinematography for a Single-Camera Series            | Primetime Emmy Award for Outstanding Cinematography for a Single-Camera Series            |           22 |
+|    13302 | Satellite Award for Best Actress – Television Series Drama                                | Satellite Award de la meilleure actrice dans une série télévisée dramatique               |           22 |
+|    13674 | Screen Actors Guild Award for Outstanding Performance by a Female Actor in a Drama Series | Screen Actors Guild Award de la meilleure actrice dans une série télévisée dramatique     |           22 |
+|    18168 | Satellite Award for Best Actor – Television Series Drama                                  | Satellite Award du meilleur acteur dans une série télévisée dramatique                    |           22 |
+|    24235 | Primetime Emmy Award for Outstanding Directing for a Drama Series                         | Primetime Emmy Award de la meilleure réalisation pour une série télévisée dramatique      |           22 |
++----------+-------------------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------+--------------+
++----------+--------------------------------------------------+--------------------------------------------------+--------------+
+| ID_AWARD | AWARD_NAME                                       | AWARD_NAME_FR                                    | _TOTAL_COUNT |
++----------+--------------------------------------------------+--------------------------------------------------+--------------+
+|     2124 | Czechoslovak Medal of Merit 1st Class            | Czechoslovak Medal of Merit 1st Class            |          111 |
+|     4376 | Order of the People's Hero                       | ordre du Héros national                          |          111 |
+|     4893 | Order of People's Freedom, 1st class             | Order of People's Freedom, 1st class             |          111 |
+|     4894 | Order of 9 September 1944 with Swords, 1st class | Order of 9 September 1944 with Swords, 1st class |          111 |
+|     5044 | Order of the Slovak National Uprising 1st Class  | Order of the Slovak National Uprising 1st Class  |          111 |
++----------+--------------------------------------------------+--------------------------------------------------+--------------+
++-------------------------------------------------------------------+
+| SECTION                                                           |
++-------------------------------------------------------------------+
+| 4. api, winners of an award: movies, series, persons (first rows) |
++-------------------------------------------------------------------+
++----------+--------------------------+-------------+---------------+--------------+
+| ID_MOVIE | MOVIE_TITLE              | DAT_RELEASE | DISPLAY_ORDER | _TOTAL_COUNT |
++----------+--------------------------+-------------+---------------+--------------+
+|      278 | The Shawshank Redemption | 1994-09-23  |             1 |          894 |
+|      238 | The Godfather            | 1972-03-14  |             2 |          894 |
+|      155 | The Dark Knight          | 2008-07-16  |             3 |          894 |
+|      424 | Schindler's List         | 1993-12-15  |             4 |          894 |
+|      389 | 12 Angry Men             | 1957-04-10  |             5 |          894 |
++----------+--------------------------+-------------+---------------+--------------+
++----------+----------------------------+---------------+---------------+--------------+
+| ID_SERIE | SERIE_TITLE                | DAT_FIRST_AIR | DISPLAY_ORDER | _TOTAL_COUNT |
++----------+----------------------------+---------------+---------------+--------------+
+|      246 | Avatar: The Last Airbender | 2005-02-21    |             1 |           61 |
+|      456 | The Simpsons               | 1989-12-17    |             2 |           61 |
+|     1434 | Family Guy                 | 1999-01-31    |             3 |           61 |
+|     4385 | The Colbert Report         | 2005-10-17    |             4 |           61 |
+|    10545 | True Blood                 | 2008-09-07    |             5 |           61 |
++----------+----------------------------+---------------+---------------+--------------+
++-----------+-----------------+---------------+--------------+
+| ID_PERSON | PERSON_NAME     | DISPLAY_ORDER | _TOTAL_COUNT |
++-----------+-----------------+---------------+--------------+
+|     18277 | Sandra Bullock  |             1 |           82 |
+|     54693 | Emma Stone      |             2 |           82 |
+|      2227 | Nicole Kidman   |             3 |           82 |
+|      6885 | Charlize Theron |             4 |           82 |
+|   1498158 | Jessie Buckley  |             5 |           82 |
++-----------+-----------------+---------------+--------------+
++--------------------------------------------------------------------------+
+| SECTION                                                                  |
++--------------------------------------------------------------------------+
+| 5. tmdb-front, awards of the person and movies of the award (first rows) |
++--------------------------------------------------------------------------+
++----------+--------------------------------------------------+------------------------------------------------------+-------------------+
+| ID_AWARD | AWARD_NAME                                       | AWARD_NAME_FR                                        | MIN_DISPLAY_ORDER |
++----------+--------------------------------------------------+------------------------------------------------------+-------------------+
+|    55643 | Bintang Sakti                                    | Bintang Sakti                                        |                 1 |
+|     2124 | Czechoslovak Medal of Merit 1st Class            | Czechoslovak Medal of Merit 1st Class                |                 1 |
+|    18201 | Military Order of the White Lion                 | Ordre militaire du Lion blanc « Pour la victoire »   |                 1 |
+|    55133 | Order "For Merit to the People" with golden star | Order "For Merit to the People" with golden star     |                 1 |
+|     4894 | Order of 9 September 1944 with Swords, 1st class | Order of 9 September 1944 with Swords, 1st class     |                 1 |
++----------+--------------------------------------------------+------------------------------------------------------+-------------------+
++----------+--------------------------+---------------+
+| ID_MOVIE | MOVIE_TITLE              | DISPLAY_ORDER |
++----------+--------------------------+---------------+
+|      278 | The Shawshank Redemption |             1 |
+|      238 | The Godfather            |             2 |
+|      155 | The Dark Knight          |             3 |
+|      424 | Schindler's List         |             4 |
+|      389 | 12 Angry Men             |             5 |
++----------+--------------------------+---------------+
