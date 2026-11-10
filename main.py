@@ -11266,6 +11266,7 @@ async def _mcp_database_scope() -> str:
     - Movements: T_WC_T2S_MOVIE_MOVEMENT \u2192 T_WC_T2S_MOVEMENT (DISPLAY_ORDER)
     - Lists: T_WC_T2S_MOVIE_LIST \u2192 T_WC_T2S_LIST (DISPLAY_ORDER)
     - Awards: T_WC_T2S_MOVIE_AWARD \u2192 T_WC_T2S_AWARD (DISPLAY_ORDER)
+        one row per win, AWARD_YEAR = year of the win (ceremony year for Oscars and Césars, NULL if unknown)
     - Nominations: T_WC_T2S_MOVIE_NOMINATION \u2192 T_WC_T2S_NOMINATION (DISPLAY_ORDER)
     - Locations: T_WC_T2S_MOVIE_LOCATION \u2192 T_WC_T2S_LOCATION
         LOCATION_ROLE = 'narrative' (the story happens there) or 'filming' (shot there)
@@ -11288,6 +11289,7 @@ async def _mcp_database_scope() -> str:
     - Groups: T_WC_T2S_PERSON_GROUP \u2192 T_WC_T2S_GROUP
     - Causes of death: T_WC_T2S_PERSON_DEATH \u2192 T_WC_T2S_DEATH
     - Awards: T_WC_T2S_PERSON_AWARD \u2192 T_WC_T2S_AWARD
+        one row per win: AWARD_YEAR, ID_MOVIE_FOR / ID_SERIE_FOR = the work the person won it for
     - Nominations: T_WC_T2S_PERSON_NOMINATION \u2192 T_WC_T2S_NOMINATION
 
     ## Other Entities

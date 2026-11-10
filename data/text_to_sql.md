@@ -577,6 +577,7 @@ CREATE TABLE T_WC_T2S_MOVIE_AWARD (
   ID_ROW INT NOT NULL,
   ID_MOVIE INT NOT NULL,
   ID_AWARD INT NOT NULL,
+  AWARD_YEAR INT,
   DISPLAY_ORDER INT
 );
 
@@ -584,6 +585,7 @@ CREATE TABLE T_WC_T2S_SERIE_AWARD (
   ID_ROW INT NOT NULL,
   ID_SERIE INT NOT NULL,
   ID_AWARD INT NOT NULL,
+  AWARD_YEAR INT,
   DISPLAY_ORDER INT
 );
 
@@ -591,8 +593,22 @@ CREATE TABLE T_WC_T2S_PERSON_AWARD (
   ID_ROW INT NOT NULL,
   ID_PERSON INT NOT NULL,
   ID_AWARD INT NOT NULL,
+  AWARD_YEAR INT,
+  ID_MOVIE_FOR INT,
+  ID_SERIE_FOR INT,
   DISPLAY_ORDER INT
 );
+
+A row of `T_WC_T2S_MOVIE_AWARD`, `T_WC_T2S_SERIE_AWARD` or `T_WC_T2S_PERSON_AWARD` is **one win**, not one (winner, award) pair: a person who won the same award four times has four rows, one per year.
+- `AWARD_YEAR` is the year of the win, NULL when it is not known. For the Academy Awards and the César Awards it is the year of the **ceremony**, usually the year after the film's release (the Oscar for a 1981 film has `AWARD_YEAR = 1982`). "Who won `<award>` in 1982", "the 2010 winner of `<award>`", "qui a remporté `<award>` en 1982" → filter `AWARD_YEAR = 1982` on the award link table. Never use the film's `RELEASE_YEAR` for the year of an award.
+- `T_WC_T2S_PERSON_AWARD.ID_MOVIE_FOR` is the film the person won that award **for**, `ID_SERIE_FOR` the series; both NULL when not known. "For which film(s) did `<person>` win `<award>`", "which film earned `<person>` the `<award>`", "pour quel(s) film(s) `<person>` a-t-il remporté `<award>`" → `result_entity = movie`: join `T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_PERSON_AWARD.ID_MOVIE_FOR`, filter the person and the award. Never answer it with the person's filmography.
+- Lists stay deduplicated by `SELECT DISTINCT`: "which awards did `<person>` win" returns each award once and "who won `<award>`" each winner once, because `AWARD_YEAR` is not projected. Project `AWARD_YEAR` of the link table, after the contract columns, only when the question asks for the year(s) of the wins ("in which years did `<person>` win `<award>`", "when did `<movie>` win `<award>`"); the result is then one row per win, `ORDER BY AWARD_YEAR ASC`.
+- Counting: "how many times did `<person>` win `<award>`", "how many `<award>` did `<person>` win" count **wins**, `COUNT(DISTINCT T_WC_T2S_PERSON_AWARD.ID_ROW)`. "How many films have won `<award>`", "how many people have won `<award>`" count **winners**, `COUNT(DISTINCT T_WC_T2S_MOVIE_AWARD.ID_MOVIE)` or `COUNT(DISTINCT T_WC_T2S_PERSON_AWARD.ID_PERSON)`. `MOVIE_COUNT`, `SERIE_COUNT` and `PERSON_COUNT` of `T_WC_T2S_AWARD` are numbers of distinct winners.
+
+Examples, the shapes to follow:
+`SELECT DISTINCT T_WC_T2S_PERSON.ID_PERSON, ... FROM T_WC_T2S_PERSON JOIN T_WC_T2S_PERSON_AWARD ON T_WC_T2S_PERSON.ID_PERSON = T_WC_T2S_PERSON_AWARD.ID_PERSON JOIN T_WC_T2S_AWARD ON T_WC_T2S_AWARD.ID_AWARD = T_WC_T2S_PERSON_AWARD.ID_AWARD WHERE T_WC_T2S_AWARD.AWARD_NAME = '{{Award_name1}}' AND T_WC_T2S_PERSON_AWARD.AWARD_YEAR = 1982 ORDER BY T_WC_T2S_PERSON_AWARD.DISPLAY_ORDER ASC`
+`SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE, ... FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_PERSON_AWARD ON T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_PERSON_AWARD.ID_MOVIE_FOR JOIN T_WC_T2S_PERSON ON T_WC_T2S_PERSON.ID_PERSON = T_WC_T2S_PERSON_AWARD.ID_PERSON JOIN T_WC_T2S_AWARD ON T_WC_T2S_AWARD.ID_AWARD = T_WC_T2S_PERSON_AWARD.ID_AWARD WHERE T_WC_T2S_PERSON.PERSON_NAME = '{{Person_name1}}' AND T_WC_T2S_AWARD.AWARD_NAME = '{{Award_name1}}' ORDER BY T_WC_T2S_MOVIE.DAT_RELEASE ASC`
+`SELECT COUNT(DISTINCT T_WC_T2S_PERSON_AWARD.ID_ROW) AS AWARD_WIN_COUNT FROM T_WC_T2S_PERSON_AWARD JOIN T_WC_T2S_PERSON ON T_WC_T2S_PERSON.ID_PERSON = T_WC_T2S_PERSON_AWARD.ID_PERSON JOIN T_WC_T2S_AWARD ON T_WC_T2S_AWARD.ID_AWARD = T_WC_T2S_PERSON_AWARD.ID_AWARD WHERE T_WC_T2S_PERSON.PERSON_NAME = '{{Person_name1}}' AND T_WC_T2S_AWARD.AWARD_NAME = '{{Award_name1}}'`
 
 ### Nominations
 Named award nominations are stored in `T_WC_T2S_NOMINATION`.
@@ -1154,6 +1170,7 @@ A question that asks **how many** entities exist, overall or under a filter, wan
 The same holds for a question that asks for **one sum or one average over a set of works**: "How long would it take to watch all the Harry Potter movies back to back?", "What is the total revenue of all Harry Potter movies?", "What is the combined runtime of all Christopher Nolan movies?", "Combien de temps faudrait-il pour regarder tous les films Harry Potter à la suite ?", "Quelles sont les recettes totales de tous les films Harry Potter ?" want **one number**: `SELECT SUM(T_WC_T2S_MOVIE.RUNTIME) AS TOTAL_RUNTIME FROM T_WC_T2S_MOVIE [JOIN ...] WHERE ...`, one row, one column. Not the films with the total beside each of them (`SUM(...) OVER ()`), not the collection row with the total in a correlated subquery: the user asked for the figure, not for the list it is computed from.
 
 - Answer with **exactly one row and one column**: `SELECT COUNT(DISTINCT <table>.<id column>) AS <THING>_COUNT FROM <table> [JOIN ...] [WHERE ...]`, or `SELECT SUM(<column>) AS TOTAL_<COLUMN>` / `SELECT AVG(<column>) AS AVERAGE_<COLUMN>` for a total or an average. **No** entity columns, **no** `GROUP BY`, **no** `ORDER BY`, **no** `LIMIT`.
+- **Awards won are counted in wins, not in awards**: a row of an award link table is one win, so "how many `<award>` did `<person>` win" and "how many times did `<person>` win `<award>`" are `COUNT(DISTINCT T_WC_T2S_PERSON_AWARD.ID_ROW)`, while "how many films have won `<award>`" stays `COUNT(DISTINCT T_WC_T2S_MOVIE_AWARD.ID_MOVIE)` (see "Awards").
 - Count what the question names, in **its own table**: movie videos in `T_WC_T2S_MOVIE_VIDEO`, series images in `T_WC_T2S_SERIE_IMAGE`, person images in `T_WC_T2S_PERSON_IMAGE`. "How many movie videos are there?" is **one** total over the video table, not a count per movie.
 - **Never** `COUNT(*) OVER ()` or `SUM(...) OVER ()`, and never a total repeated on every entity row or carried by a correlated subquery on an entity row. A window count computes over every row of the table before any `LIMIT`: on `T_WC_T2S_MOVIE` it runs past the 60-second limit and the question gets no answer at all.
 - `result_entity` stays the entity counted or summed (`movie`, `serie`, `person`, `movie_image`, `movie_video`, ...).
@@ -1490,6 +1507,7 @@ Example, the shape to follow for a comparison (a year named with a title narrows
 - When display movies for a given award, ORDER BY T_WC_T2S_MOVIE_AWARD.DISPLAY_ORDER ASC
 - When display series for a given award, ORDER BY T_WC_T2S_SERIE_AWARD.DISPLAY_ORDER ASC
 - When display persons for a given award, ORDER BY T_WC_T2S_PERSON_AWARD.DISPLAY_ORDER ASC
+- When the wins themselves are listed (AWARD_YEAR is projected), ORDER BY AWARD_YEAR ASC of the award link table
 - Nominations for a movie or serie → IMDB_RATING_WEIGHTED DESC
 - Nominations for a person → POPULARITY DESC
 - When display movies for a given nomination, ORDER BY T_WC_T2S_MOVIE_NOMINATION.DISPLAY_ORDER ASC
@@ -1584,6 +1602,8 @@ MariaDB sorts `NULL` **first** in an ascending order. A nullable date or year co
 - T_WC_T2S_AWARD.ID_AWARD = T_WC_T2S_SERIE_AWARD.ID_AWARD
 - T_WC_T2S_PERSON.ID_PERSON = T_WC_T2S_PERSON_AWARD.ID_PERSON
 - T_WC_T2S_AWARD.ID_AWARD = T_WC_T2S_PERSON_AWARD.ID_AWARD
+- T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_PERSON_AWARD.ID_MOVIE_FOR (the film a person won the award for)
+- T_WC_T2S_SERIE.ID_SERIE = T_WC_T2S_PERSON_AWARD.ID_SERIE_FOR (the series a person won the award for)
 - T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_NOMINATION.ID_MOVIE
 - T_WC_T2S_NOMINATION.ID_NOMINATION = T_WC_T2S_MOVIE_NOMINATION.ID_NOMINATION
 - T_WC_T2S_SERIE.ID_SERIE = T_WC_T2S_SERIE_NOMINATION.ID_SERIE
