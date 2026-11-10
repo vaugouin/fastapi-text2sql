@@ -1,0 +1,96 @@
+-- check-372-cache-persons.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-11-10 07:09:51 +0100
+--
++-------------------------------------------------------------------+
+| SECTION                                                           |
++-------------------------------------------------------------------+
+| 1. Person name + birth year lookups cached in the current version |
++-------------------------------------------------------------------+
++-------------+-------------+---------------+----+---------------------+---------------------+
+| API_VERSION | UI_LANGUAGE | IS_ANONYMIZED | N  | OLDEST              | NEWEST              |
++-------------+-------------+---------------+----+---------------------+---------------------+
+| 001.001.020 | en          |             0 | 37 | 2026-11-03 19:02:33 | 2026-11-08 21:04:41 |
+| 001.001.020 | en          |             1 | 34 | 2026-11-03 19:02:33 | 2026-11-08 21:04:41 |
+| 001.001.020 | fr          |             0 | 32 | 2026-11-05 00:07:11 | 2026-11-08 21:04:45 |
+| 001.001.020 | fr          |             1 | 32 | 2026-11-05 00:07:11 | 2026-11-08 21:04:45 |
++-------------+-------------+---------------+----+---------------------+---------------------+
++----------------------------------------------------+
+| SECTION                                            |
++----------------------------------------------------+
+| 1b. Diagnostic: what the extraction reads (sample) |
++----------------------------------------------------+
++--------+---------------+------------------+------+---------------------------------------------------+
+| ID_ROW | IS_ANONYMIZED | PNAME            | YR   | QUESTION                                          |
++--------+---------------+------------------+------+---------------------------------------------------+
+|  28672 |             0 | John Hughes      | 1950 | Personne John Hughes née en 1950                  |
+|  28673 |             1 | {{Person_name1}} | NULL | Personne {{Person_name1}} née en {{Birth_year1}}  |
+|  28670 |             0 | John Hughes      | 1950 | Person John Hughes born in 1950                   |
+|  28671 |             1 | {{Person_name1}} | NULL | Person {{Person_name1}} born in {{Birth_year1}}   |
+|  28600 |             0 | John Hughes      | 1950 | Personne John Hughes née en 1950                  |
+|  28601 |             1 | {{Person_name1}} | NULL | Personne {{Person_name1}} née en {{Birth_year1}}  |
+|  28598 |             0 | John Hughes      | 1950 | Person John Hughes born in 1950                   |
+|  28599 |             1 | {{Person_name1}} | NULL | Person {{Person_name1}} born in {{Birth_year1}}   |
++--------+---------------+------------------+------+---------------------------------------------------+
++-------------------------------------------------------------------------------------------------------------+
+| SECTION                                                                                                     |
++-------------------------------------------------------------------------------------------------------------+
+| 2. Stale: a description cached with two namesakes, or none at a year that is off (candidates for the purge) |
++-------------------------------------------------------------------------------------------------------------+
++------------------------------------------------------------+
+| SECTION                                                    |
++------------------------------------------------------------+
+| 3. Bare lookups with namesakes (correct as they are, kept) |
++------------------------------------------------------------+
++--------+-------------+-----------------+------+---------+-------------------------------------+
+| ID_ROW | UI_LANGUAGE | PNAME           | YR   | N_EXACT | QUESTION                            |
++--------+-------------+-----------------+------+---------+-------------------------------------+
+|  28672 | fr          | John Hughes     | 1950 |       2 | Personne John Hughes née en 1950    |
+|  28670 | en          | John Hughes     | 1950 |       2 | Person John Hughes born in 1950     |
+|  28600 | fr          | John Hughes     | 1950 |       2 | Personne John Hughes née en 1950    |
+|  28598 | en          | John Hughes     | 1950 |       2 | Person John Hughes born in 1950     |
+|  28596 | fr          | John Hughes     | 1950 |       2 | Person John Hughes born in 1950     |
+|  28594 | en          | John Hughes     | 1950 |       2 | Person John Hughes born in 1950     |
+|  28592 | fr          | Matt Johnson    | 1985 |       2 | Person Matt Johnson born in 1985    |
+|  28590 | en          | Matt Johnson    | 1985 |       2 | Person Matt Johnson born in 1985    |
+|  28588 | fr          | David Grossman  | 1954 |       2 | Person David Grossman born in 1954  |
+|  28586 | en          | David Grossman  | 1954 |       2 | Person David Grossman born in 1954  |
+|  28584 | fr          | Sanjay Gupta    | 1969 |       2 | Person Sanjay Gupta born in 1969    |
+|  28580 | en          | Sanjay Gupta    | 1969 |       2 | Person Sanjay Gupta born in 1969    |
+|  28578 | fr          | Michael Gordon  | 1909 |       2 | Person Michael Gordon born in 1909  |
+|  28576 | en          | Michael Gordon  | 1909 |       2 | Person Michael Gordon born in 1909  |
+|  28574 | fr          | Stuart Wilson   | 1946 |       2 | Person Stuart Wilson born in 1946   |
+|  28572 | en          | Stuart Wilson   | 1946 |       2 | Person Stuart Wilson born in 1946   |
+|  28570 | fr          | Mark Williams   | 1959 |       2 | Person Mark Williams born in 1959   |
+|  28568 | en          | Mark Williams   | 1959 |       2 | Person Mark Williams born in 1959   |
+|  28566 | fr          | Alan Parker     | 1944 |       2 | Person Alan Parker born in 1944     |
+|  28564 | en          | Alan Parker     | 1944 |       2 | Person Alan Parker born in 1944     |
+|  28562 | fr          | Michael Jackson | 1958 |       2 | Person Michael Jackson born in 1958 |
+|  28560 | en          | Michael Jackson | 1958 |       2 | Person Michael Jackson born in 1958 |
+|  28558 | fr          | Michael Jackson | 1958 |       2 | Person Michael Jackson born in 1958 |
+|  28556 | en          | Michael Jackson | 1958 |       2 | Person Michael Jackson born in 1958 |
++--------+-------------+-----------------+------+---------+-------------------------------------+
++---------------------------------------------------------------------------------+
+| SECTION                                                                         |
++---------------------------------------------------------------------------------+
+| 4. Every living cache row of the evaluation questions 2692 to 2704, any version |
++---------------------------------------------------------------------------------+
++--------+-------------------+-------------+-------------+---------------+---------------------+------------+-----------------------------------+
+| ID_ROW | ID_T2S_EVALUATION | API_VERSION | UI_LANGUAGE | IS_ANONYMIZED | TIM_UPDATED         | BY_IMDB_ID | QUESTION                          |
++--------+-------------------+-------------+-------------+---------------+---------------------+------------+-----------------------------------+
+|  28598 |              2704 | 001.001.020 | en          |             0 | 2026-11-08 17:55:13 |          0 | Person John Hughes born in 1950   |
+|  28594 |              2704 | 001.001.020 | en          |             0 | 2026-11-08 17:55:00 |          0 | Person John Hughes born in 1950   |
+|  28670 |              2704 | 001.001.020 | en          |             0 | 2026-11-08 21:04:41 |          0 | Person John Hughes born in 1950   |
+|  28596 |              2704 | 001.001.020 | fr          |             0 | 2026-11-08 17:55:09 |          0 | Person John Hughes born in 1950   |
+|  28672 |              2704 | 001.001.020 | fr          |             0 | 2026-11-08 21:04:45 |          0 | Personne John Hughes née en 1950  |
+|  28600 |              2704 | 001.001.020 | fr          |             0 | 2026-11-08 17:55:17 |          0 | Personne John Hughes née en 1950  |
++--------+-------------------+-------------+-------------+---------------+---------------------+------------+-----------------------------------+
++-----------+
+| SECTION   |
++-----------+
+| 5. Counts |
++-----------+
++-----------------+----------------+---------------------+----------------+------------+
+| STALE_NAMESAKES | STALE_YEAR_OFF | BARE_WITH_NAMESAKES | UNIQUE_LOOKUPS | MAX_ID_ROW |
++-----------------+----------------+---------------------+----------------+------------+
+|               0 |              0 |                  24 |             38 |      28673 |
++-----------------+----------------+---------------------+----------------+------------+
