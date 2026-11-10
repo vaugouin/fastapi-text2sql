@@ -9,7 +9,7 @@ already seen, and how ambiguous are the names themselves?
 
 Inputs
 ------
-- The award pool exported by ``doc/sql/check-374-export-award-pool.sql`` (voie 1), raw gate output
+- The award pool exported by ``doc/sql/archive/check-374-export-award-pool.sql`` (voie 1), raw gate output
   in ``../shared_data/fastapi-text2sql/bench-374/raw-awards.txt`` (not versioned), parsed here to
   ``awards.tsv`` (ID, POP, PERSONS, MOVIES, SERIES, TYPE, PARENT, WIKIDATA, NAME, NAME_FR).
 - Mentions: the evaluation execution exports of every version and the API logs, as in
