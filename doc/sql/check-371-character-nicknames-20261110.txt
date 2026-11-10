@@ -1,0 +1,144 @@
+-- check-371-character-nicknames.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-11-10 17:23:37 +0100
+--
++----------------------------+---------------+---------------+
+| NICK                       | movie_credits | serie_credits |
++----------------------------+---------------+---------------+
+| Six Million Dollar Man     |             0 |             0 |
+| The Six Million Dollar Man |             0 |             0 |
+| Bionic Woman               |             0 |             0 |
+| The Bionic Woman           |             0 |             0 |
+| The Dude                   |            15 |             0 |
+| Dude                       |            35 |             1 |
+| Dirty Harry                |             2 |             0 |
+| Inspecteur Harry           |             0 |             0 |
+| The Fonz                   |             0 |             0 |
+| Fonz                       |             1 |             0 |
+| Man with No Name           |             2 |             0 |
+| The Man with No Name       |             2 |             0 |
+| Homme sans nom             |             0 |             0 |
+| Little Tramp               |             0 |             0 |
+| The Tramp                  |            32 |             0 |
+| Tramp                      |           135 |             5 |
+| Charlot                    |            19 |             4 |
+| Caped Crusader             |             0 |             0 |
+| The Caped Crusader         |             0 |             0 |
+| Man of Steel               |             0 |             0 |
+| Fresh Prince               |             2 |             0 |
+| The Fresh Prince           |             0 |             0 |
+| Prince de Bel-Air          |             0 |             0 |
+| Mad Max                    |             3 |             0 |
+| Indy                       |             8 |             3 |
+| Dark Knight                |             1 |             0 |
+| The Dark Knight            |             0 |             0 |
+| The Bride                  |            59 |             0 |
+| Bionic Man                 |             0 |             0 |
+| Steve Austin               |            12 |             1 |
++----------------------------+---------------+---------------+
++------------------------+-----------+-------------------+------+-------+---------+------------------------------------------------------------------+---------------------------------------------------------+
+| NICK                   | ID_PERSON | PERSON_NAME       | pop  | kind  | ID_WORK | title                                                            | cast_character                                          |
++------------------------+-----------+-------------------+------+-------+---------+------------------------------------------------------------------+---------------------------------------------------------+
+| Bionic Woman           |     57905 | Lindsay Wagner    |  1.9 | serie |    1663 | The Six Million Dollar Man                                       | Jaime Sommers                                           |
+| Bionic Woman           |     57905 | Lindsay Wagner    |  1.9 | serie |    2275 | The Bionic Woman                                                 | Jaime Sommers                                           |
+| Bionic Woman           |     57905 | Lindsay Wagner    |  1.9 | movie |   69206 | Bionic Ever After?                                               | Jaime Sommers                                           |
+| Bionic Woman           |     57905 | Lindsay Wagner    |  1.9 | movie |   82085 | The Return of the Six-Million-Dollar Man and the Bionic Woman    | Jaime Sommers                                           |
+| Bionic Woman           |     57905 | Lindsay Wagner    |  1.9 | movie |   97262 | Bionic Showdown: The Six Million Dollar Man and the Bionic Woman | Jaime Sommers                                           |
+| Caped Crusader         |     26847 | Adam West         |  1.9 | serie |     936 | Super Friends                                                    | Batman (voice)                                          |
+| Caped Crusader         |     26847 | Adam West         |  1.9 | serie |    2287 | Batman                                                           | Batman                                                  |
+| Caped Crusader         |     26847 | Adam West         |  1.9 | movie |    2661 | Batman                                                           | Batman (Bruce Wayne)                                    |
+| Caped Crusader         |     26847 | Adam West         |  1.9 | serie |   10502 | The New Adventures of Batman                                     | Batman (voice)                                          |
+| Caped Crusader         |     26847 | Adam West         |  1.9 | serie |   13848 | Legends of the Superheroes                                       | Batman                                                  |
+| Caped Crusader         |     26847 | Adam West         |  1.9 | movie |   65585 | Batgirl                                                          | Batman / Bruce Wayne                                    |
+| Caped Crusader         |     26847 | Adam West         |  1.9 | movie |   70027 | The Wrecking Crew                                                | Batman (archive footage) (uncredited)                   |
+| Caped Crusader         |     26847 | Adam West         |  1.9 | movie |  138776 | Legends of the Super Heroes                                      | Batman                                                  |
+| Caped Crusader         |     26847 | Adam West         |  1.9 | movie |  157757 | Batmania: From Comics to Screen                                  | Self / Bruce Wayne / Batman (archive footage)           |
+| Caped Crusader         |     26847 | Adam West         |  1.9 | movie |  228088 | Once Upon a Time: The Super Heroes                               | Batman (archive footage)                                |
+| Caped Crusader         |     26847 | Adam West         |  1.9 | movie |  363863 | The Robot Chicken DC Comics Special III: Magical Friendship      | 60's Batman / Bank Robber (voice)                       |
+| Caped Crusader         |     26847 | Adam West         |  1.9 | movie |  411736 | Batman: Return of the Caped Crusaders                            | Bruce Wayne / Batman (voice)                            |
+| Caped Crusader         |     26847 | Adam West         |  1.9 | movie |  464882 | Batman vs. Two-Face                                              | Bruce Wayne / Batman (voice)                            |
+| Caped Crusader         |     26847 | Adam West         |  1.9 | movie | 1337071 | Batman '66 Meets the Green Hornet                                | Batman                                                  |
+| Caped Crusader         |      3894 | Christian Bale    |  5.7 | movie |     272 | Batman Begins                                                    | Bruce Wayne / Batman                                    |
+| Caped Crusader         |      3894 | Christian Bale    |  5.7 | movie |  165730 | Tankman Begins                                                   | Batman (archive footage)                                |
+| Caped Crusader         |      2232 | Michael Keaton    |  4.5 | movie |     268 | Batman                                                           | Batman / Bruce Wayne                                    |
+| Caped Crusader         |      2232 | Michael Keaton    |  4.5 | movie |     364 | Batman Returns                                                   | Batman / Bruce Wayne                                    |
+| Caped Crusader         |      2232 | Michael Keaton    |  4.5 | movie |  228088 | Once Upon a Time: The Super Heroes                               | Batman (archive footage)                                |
+| Caped Crusader         |      2232 | Michael Keaton    |  4.5 | movie |  298618 | The Flash                                                        | Bruce Wayne / Batman                                    |
+| Dirty Harry            |       190 | Clint Eastwood    |  7.7 | movie |   10648 | Magnum Force                                                     | Insp. Harry Callahan                                    |
+| Dirty Harry            |       190 | Clint Eastwood    |  7.7 | movie |   10649 | The Enforcer                                                     | Insp. Harry Callahan                                    |
+| Dirty Harry            |       190 | Clint Eastwood    |  7.7 | movie |   10650 | Sudden Impact                                                    | Insp. Harry Callahan                                    |
+| Dirty Harry            |       190 | Clint Eastwood    |  7.7 | movie |   10651 | The Dead Pool                                                    | Insp. Harry Callahan                                    |
+| Fresh Prince           |      2888 | Will Smith        |  7.4 | serie |    1892 | The Fresh Prince of Bel-Air                                      | Will Smith                                              |
+| Fresh Prince           |      2888 | Will Smith        |  7.4 | serie |  107365 | Bel-Air                                                          | Will Smith                                              |
+| Indy                   |         3 | Harrison Ford     |  5.8 | movie |      85 | Raiders of the Lost Ark                                          | Indiana Jones                                           |
+| Indy                   |         3 | Harrison Ford     |  5.8 | movie |      87 | Indiana Jones and the Temple of Doom                             | Indiana Jones                                           |
+| Indy                   |         3 | Harrison Ford     |  5.8 | movie |      89 | Indiana Jones and the Last Crusade                               | Indiana Jones                                           |
+| Indy                   |         3 | Harrison Ford     |  5.8 | movie |     217 | Indiana Jones and the Kingdom of the Crystal Skull               | Indiana Jones                                           |
+| Indy                   |         3 | Harrison Ford     |  5.8 | movie |  222064 | The Adventures of Young Indiana Jones: Mystery of the Blues      | Indiana Jones - age 50                                  |
+| Indy                   |         3 | Harrison Ford     |  5.8 | movie |  335977 | Indiana Jones and the Dial of Destiny                            | Indiana Jones                                           |
+| Indy                   |         3 | Harrison Ford     |  5.8 | movie | 1076366 | Willow: Behind the Magic                                         | Indiana Jones / Han Solo (archive footage) (uncredited) |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |     901 | City Lights                                                      | A Tramp                                                 |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |    3082 | Modern Times                                                     | The Tramp (A Factory Worker)                            |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |   10098 | The Kid                                                          | A Tramp                                                 |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |   22858 | Between Showers                                                  | The Tramp, a Second Gallant                             |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |   22885 | Kid Auto Races at Venice                                         | The Tramp                                               |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |   22936 | Mabel's Strange Predicament                                      | The Tramp (uncredited)                                  |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |   22938 | The Fatal Mallet                                                 | Suitor aka The Tramp (uncredited)                       |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |   28978 | The Circus                                                       | A Tramp                                                 |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |   30982 | The Tramp                                                        | The Tramp                                               |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |   36208 | A Dog's Life                                                     | Tramp                                                   |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |   42510 | The Idle Class                                                   | Tramp / Husband                                         |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |   53369 | A Film Johnnie                                                   | The Film Johnnie aka The Tramp                          |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |   53372 | The Star Boarder                                                 | The Star Boarder aka The Tramp (uncredited)             |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |   53376 | Caught in the Rain                                               | Tipsy Hotel Guest aka The Tramp (uncredited)            |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |   53391 | Recreation                                                       | Tramp                                                   |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |   53411 | Shanghaied                                                       | Tramp                                                   |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |   53427 | Nice and Friendly                                                | Tramp                                                   |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |  327683 | The Chaplin Puzzle                                               | Self / The Tramp (archive footage)                      |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |  765149 | Charlie Chaplin Meets Harry Lauder                               | A Tramp                                                 |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie |  765152 | Zepped                                                           | The Tramp (archive footage)                             |
+| Little Tramp           |     13848 | Charlie Chaplin   |  2.7 | movie | 1338771 | The Way of the World                                             | The Tramp (Archive Footage)                             |
+| Mad Max                |      2461 | Mel Gibson        |  6.8 | movie |    8810 | Mad Max 2                                                        | Max Rockatansky                                         |
+| Mad Max                |      2461 | Mel Gibson        |  6.8 | movie |    9355 | Mad Max Beyond Thunderdome                                       | Max Rockatansky                                         |
+| Mad Max                |      2461 | Mel Gibson        |  6.8 | movie |    9659 | Mad Max                                                          | Max Rockatansky                                         |
+| Mad Max                |      2524 | Tom Hardy         | 11.3 | movie |   76341 | Mad Max: Fury Road                                               | Max Rockatansky                                         |
+| Man of Steel           |     20006 | Christopher Reeve |  2.3 | movie |    1924 | Superman                                                         | Superman / Clark Kent                                   |
+| Man of Steel           |     20006 | Christopher Reeve |  2.3 | movie |    8536 | Superman II                                                      | Superman / Clark Kent                                   |
+| Man of Steel           |     20006 | Christopher Reeve |  2.3 | movie |    9531 | Superman III                                                     | Clark Kent / Superman                                   |
+| Man of Steel           |     20006 | Christopher Reeve |  2.3 | movie |   11411 | Superman IV: The Quest for Peace                                 | Clark Kent / Superman                                   |
+| Man of Steel           |     20006 | Christopher Reeve |  2.3 | movie |   50056 | Secret Origin: The Story of DC Comics                            | Self / Clark Kent / Superman (archive footage)          |
+| Man of Steel           |     20006 | Christopher Reeve |  2.3 | movie |  228088 | Once Upon a Time: The Super Heroes                               | Superman (archive footage)                              |
+| Man of Steel           |     20006 | Christopher Reeve |  2.3 | movie |  624479 | Superman II: The Richard Donner Cut                              | Clark Kent / Superman                                   |
+| Man of Steel           |     20006 | Christopher Reeve |  2.3 | movie | 1356604 | My Superhero                                                     | Superman (archive footage, uncredited)                  |
+| Man of Steel           |     73968 | Henry Cavill      | 25.9 | movie |  141052 | Justice League                                                   | Superman / Clark Kent                                   |
+| Man of Steel           |     73968 | Henry Cavill      | 25.9 | movie |  209112 | Batman v Superman: Dawn of Justice                               | Clark Kent / Superman                                   |
+| Man of Steel           |     73968 | Henry Cavill      | 25.9 | movie |  436270 | Black Adam                                                       | Clark Kent / Superman (uncredited)                      |
+| Man of Steel           |     73968 | Henry Cavill      | 25.9 | movie |  791373 | Zack Snyder's Justice League                                     | Superman / Clark Kent                                   |
+| Man with No Name       |       190 | Clint Eastwood    |  7.7 | movie |     391 | A Fistful of Dollars                                             | Joe                                                     |
+| Man with No Name       |       190 | Clint Eastwood    |  7.7 | movie |     429 | The Good, the Bad and the Ugly                                   | Blondie                                                 |
+| Man with No Name       |       190 | Clint Eastwood    |  7.7 | movie |     938 | For a Few Dollars More                                           | Manco                                                   |
+| Six Million Dollar Man |     18589 | Lee Majors        |  2.5 | serie |    1663 | The Six Million Dollar Man                                       | Steve Austin                                            |
+| The Dude               |      1229 | Jeff Bridges      |  5.2 | movie |     115 | The Big Lebowski                                                 | The Dude                                                |
+| The Fonz               |     31903 | Henry Winkler     |  2.7 | serie |     920 | The Fonz and the Happy Days Gang                                 | Fonzie                                                  |
+| The Fonz               |     31903 | Henry Winkler     |  2.7 | serie |    2552 | Mork & Mindy                                                     | Fonzie                                                  |
+| The Fonz               |     31903 | Henry Winkler     |  2.7 | serie |    3845 | Happy Days                                                       | Arthur Fonzarelli                                       |
+| The Fonz               |     31903 | Henry Winkler     |  2.7 | serie |   31407 | The Mork & Mindy / Laverne & Shirley / Fonz Hour                 | The Fonz (voice)                                        |
++------------------------+-----------+-------------------+------+-------+---------+------------------------------------------------------------------+---------------------------------------------------------+
++-------------------+---+--------------+
+| PERSON_NAME       | n | ids          |
++-------------------+---+--------------+
+| Adam West         | 1 | 26847        |
+| Charlie Chaplin   | 1 | 13848        |
+| Christian Bale    | 1 | 3894         |
+| Christopher Reeve | 1 | 20006        |
+| Clint Eastwood    | 1 | 190          |
+| Harrison Ford     | 2 | 3,148815     |
+| Henry Cavill      | 1 | 73968        |
+| Henry Winkler     | 1 | 31903        |
+| Jeff Bridges      | 1 | 1229         |
+| Lee Majors        | 1 | 18589        |
+| Lindsay Wagner    | 1 | 57905        |
+| Mel Gibson        | 1 | 2461         |
+| Michael Keaton    | 1 | 2232         |
+| Tom Hardy         | 2 | 2524,1413704 |
+| Will Smith        | 2 | 2888,234120  |
++-------------------+---+--------------+
