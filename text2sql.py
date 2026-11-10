@@ -2354,6 +2354,86 @@ def _is_structured_outputs_refusal(exc: Exception) -> bool:
     ))
 
 
+# FASTAPI-TEXT2SQL-375. The Anthropic route keeps its own structured-outputs switch: a schema
+# refusal there (an organisation under customer-managed encryption keys has no structured
+# outputs on Fable) must not turn them off for the OpenAI route, and the reverse.
+_VISION_ANTHROPIC_STRUCTURED_OUTPUTS_AVAILABLE = True
+
+# The Claude API refuses an image over 10 MB once base64-encoded, and over 8000 px a side
+# (platform.claude.com/docs/en/build-with-claude/vision, read 2026-11-10; 5 MB on Bedrock).
+# The upload endpoint accepts 25 MB, so the gap is checked here and named, instead of letting
+# the provider answer a bare 400.
+_ANTHROPIC_IMAGE_MAX_BASE64_BYTES = 10 * 1024 * 1024
+
+
+def _call_vision_llm_anthropic(*, model_norm: str, system_prompt: str, user_prompt: str,
+                               imagebytes: bytes, media_type: str, cache_label: str) -> str:
+    """Read one image with a Claude model through the Messages API (FASTAPI-TEXT2SQL-375).
+
+    Same contract as the OpenAI route: one user message (the image block first, then the
+    prompt, the order Anthropic recommends), the strict `_VISION_RESPONSE_SCHEMA`, the raw JSON
+    text returned to `f_identify_from_image`, which parses and guards it as before.
+
+    - **Structured outputs, not tool use.** Fable 5.2, Opus 5.5 and Sonnet 5.5 answer 400 to a
+      forced `tool_choice`, so the schema goes in `output_config.format`. It uses nothing
+      Anthropic's strict mode refuses (enums and numbers, no numerical or length constraint).
+    - **Effort, not temperature.** `_anthropic_sampling_kwargs` gives the effort of the task
+      tier (`vision_identification` is `cheapest`: `low`, the counterpart of gpt-6-astra's
+      `reasoning_effort` `low`), and a `temperature` to the 4.x models that still take one.
+    - **No server-side fallback**, as in the text tasks: an evaluation row must be scored under
+      the model that answered it. A refusal or a cut-off answer raises in `_anthropic_text`.
+    - **No cache breakpoint**: the recognition cache (-114) already covers the same-photo case,
+      and the prompt alone is below the minimum cacheable prefix of these models.
+    """
+    global _VISION_ANTHROPIC_STRUCTURED_OUTPUTS_AVAILABLE
+    if anthropic_sdk is None:
+        raise RuntimeError("anthropic package is not installed")
+    if not anthropic_api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY not found in environment variables")
+    image_b64 = base64.standard_b64encode(imagebytes).decode("ascii")
+    if len(image_b64) > _ANTHROPIC_IMAGE_MAX_BASE64_BYTES:
+        raise RuntimeError(
+            f"Image too large for {model_norm}: {len(imagebytes)} bytes, "
+            f"{len(image_b64)} once base64-encoded; the Claude API accepts "
+            f"{_ANTHROPIC_IMAGE_MAX_BASE64_BYTES} (10 MB) per image. Resize it before sending."
+        )
+
+    user_prompt_plain = user_prompt.replace(CACHE_BOUNDARY_MARKER, "")
+    messages = [{"role": "user", "content": [
+        {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
+        {"type": "text", "text": user_prompt_plain},
+    ]}]
+    sampling_kwargs = _anthropic_sampling_kwargs(model_norm, 0, cache_label)
+    client = anthropic_sdk.Anthropic(api_key=anthropic_api_key)
+
+    def _send(output_format: Optional[dict]):
+        kwargs = dict(sampling_kwargs)
+        if output_format is not None:
+            kwargs["output_config"] = {**kwargs.get("output_config", {}), "format": output_format}
+        message = client.messages.create(
+            model=model_norm,
+            max_tokens=_CLAUDE_MAX_TOKENS,
+            system=system_prompt,
+            messages=messages,
+            **kwargs,
+        )
+        _log_anthropic_cache_usage(message, model_norm=model_norm, label=cache_label)
+        return _anthropic_text(message, model_norm=model_norm, label=cache_label)
+
+    if _VISION_ANTHROPIC_STRUCTURED_OUTPUTS_AVAILABLE:
+        try:
+            return _send({"type": "json_schema", "schema": _VISION_RESPONSE_SCHEMA})
+        except RuntimeError:
+            raise
+        except Exception as structured_error:
+            if not _is_structured_outputs_refusal(structured_error):
+                raise
+            _VISION_ANTHROPIC_STRUCTURED_OUTPUTS_AVAILABLE = False
+            print(f"[vision] Anthropic structured outputs refused ({structured_error}); falling "
+                  "back to the plain-JSON contract on this route for the rest of this process.")
+    return _send(None)
+
+
 def _call_vision_llm(*, model: str, system_prompt: str, user_prompt: str,
                      imagebytes: bytes, media_type: str,
                      cache_label: str = "vision_identification") -> str:
@@ -2363,20 +2443,25 @@ def _call_vision_llm(*, model: str, system_prompt: str, user_prompt: str,
     every provider encodes an image differently, so merging them would put three content
     builders behind one signature for the benefit of one caller.
 
-    **OpenAI only, and the error says so.** `gpt-4o` and the GPT-5.x / GPT-6 families read
-    images through `chat.completions` with an `image_url` content block, which is the route
-    this function implements; the o-series would need the Responses API and is not wired.
-    Anthropic and Gemini both accept images and neither is wired either: an unexercised branch
-    that formats bytes for a provider nobody has tested against is a liability, not a feature.
-    Adding one is a small, explicit job, not an accident to have in advance.
+    **OpenAI and Anthropic, and the error says so for anything else.** `gpt-4o` and the
+    GPT-5.x / GPT-6 families read images through `chat.completions` with an `image_url` content
+    block; the o-series would need the Responses API and is not wired. `claude-*` models go
+    through `_call_vision_llm_anthropic` (FASTAPI-TEXT2SQL-375, written to compare
+    claude-fable-5-2 with gpt-6-astra). Gemini accepts images and is not wired: an unexercised
+    branch that formats bytes for a provider nobody has tested against is a liability, not a
+    feature.
     """
     global _VISION_STRUCTURED_OUTPUTS_AVAILABLE
     model_norm = str(model).strip()
+    if model_norm.startswith("claude-"):
+        return _call_vision_llm_anthropic(model_norm=model_norm, system_prompt=system_prompt,
+                                          user_prompt=user_prompt, imagebytes=imagebytes,
+                                          media_type=media_type, cache_label=cache_label)
     if not (model_norm.startswith("gpt-") or model_norm.startswith("chatgpt-")):
         raise RuntimeError(
             f"Unsupported vision model: {model_norm}. The vision task reads images through the "
-            "OpenAI chat.completions route only (gpt-4o, gpt-5.x, gpt-6-astra). "
-            "Anthropic and Gemini vision are not wired in this repository."
+            "OpenAI chat.completions route (gpt-4o, gpt-5.x, gpt-6-astra) and the Anthropic "
+            "Messages API (claude-*). Gemini vision is not wired in this repository."
         )
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY not found in environment variables")

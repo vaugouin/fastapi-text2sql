@@ -38,6 +38,9 @@ PRICES = {
     "gpt-4o-mini": {"input": 0.15, "cached": 0.075, "cache_write": 0.15, "output": 0.60},
     "gpt-4o": {"input": 2.50, "cached": 1.25, "cache_write": 2.50, "output": 10.00},
     "claude-opus-5-5": {"input": 4.00, "cached": 0.20, "cache_write": 5.00, "output": 20.00},
+    # FASTAPI-TEXT2SQL-375, 2026-11-10: platform.claude.com/docs/en/models/fable-5-2/overview
+    # ($8 input, $40 output, 5-minute cache write $10, cache read $0.20).
+    "claude-fable-5-2": {"input": 8.00, "cached": 0.20, "cache_write": 10.00, "output": 40.00},
     "text-embedding-3-large": {"input": 0.13, "cached": 0.13, "cache_write": 0.13, "output": 0.0},
 }
 

@@ -81,11 +81,15 @@ was computed from, and its family is declared in the reasoning block (**-274**) 
 `vision_identification` at the cheapest rung, `reasoning_effort: "low"`. Raise the rung only if
 recognition weakens on the bench.
 
-**`_call_vision_llm` is OpenAI only, deliberately.** It is not folded into `_call_chat_llm`
-because that dispatcher takes a string and every provider encodes an image differently.
-Anthropic and Gemini both read images and neither is wired: an untested branch that formats
-bytes for a provider nobody has exercised is a liability. A non-OpenAI model name raises an
-error that says exactly that.
+**`_call_vision_llm` reads images through OpenAI and Anthropic.** It is not folded into
+`_call_chat_llm` because that dispatcher takes a string and every provider encodes an image
+differently. `claude-*` names go to `_call_vision_llm_anthropic` (**-375**, written to compare
+claude-fable-5-2 with gpt-6-astra on the 83 image evaluations of -277): a base64 `image` block
+before the prompt, the strict schema in `output_config.format` (Fable 5.2 refuses a forced
+`tool_choice` and `temperature`), the effort of the task tier (`low`), no server-side fallback,
+its own structured-outputs switch, and a readable error above the Claude API limit of 10 MB
+per image once base64-encoded. Gemini reads images and is not wired: a Gemini name raises an
+error that says so.
 
 **Structured outputs degrade once.** The contract is sent as a strict `json_schema`, which
 OpenAI documents as compatible with `reasoning_effort` on `chat.completions`. On a refusal
@@ -171,8 +175,8 @@ where letting them drift apart is dangerous rather than merely untidy.
 
 **Not done, and deliberately so: no bench, no evaluation campaign.** The twenty-image bench of
 FASTAPI-TEXT2SQL-277 does not exist, so recognition quality is unmeasured, the two confidence
-constants are unmeasured, and `T_WC_T2S_EVALUATION_EXECUTION` still has no column for a sixth
-model. Everything above is verified offline or by reading; nothing here was run against a live
+constants are unmeasured, and, until -277 (2026-11-10), `T_WC_T2S_EVALUATION_EXECUTION` had no column for a sixth
+model: it now has `VISION_MODEL`, and the bank holds 83 image evaluations (2732 to 2814). Everything above is verified offline or by reading; nothing here was run against a live
 model.
 
 ## `T_WC_T2S_VISION_CACHE`
