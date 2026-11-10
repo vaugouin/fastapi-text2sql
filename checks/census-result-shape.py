@@ -15,10 +15,22 @@ Usage, from the repository root:
     # --old: a result_shape.py to compare against (default: the HEAD version, via git)
     # --eval-dir: the text2sql-eval clone (default: ../text2sql-eval)
 
+Census mode (TEXT2SQL-EVAL-004, 2026-11-10). Each evaluation counts once, from its latest
+export in the folder. The intent fed to both modules is the one stored in the export (the
+model's, from the 2026-11-08 campaign on), else the keyword rules of result_intent on the
+question; never a model call. The report adds the served representation against the
+recomputed one (the module in service must reproduce it), the intent sources, and the
+representations emitted on questions with no result-shape assertion.
+    --strict: exit 1 when a question with a result-shape assertion changes representation
+              between the old and the new module (other flips are listed, not blocking).
+Acceptance: on the 1.1.20 exports of 2026-11-08 the module in service reproduces the served
+representation on the 82 labelled questions of each language, with no flip.
+
 Written for FASTAPI-TEXT2SQL-351 (2026-11-02); the first census, for -350, was ad hoc.
 """
 import argparse
 import glob
+import inspect
 import importlib.util
 import json
 import os
@@ -51,6 +63,25 @@ def _head_module():
 
 
 INTENT_MODE = "rules"
+
+
+def _takes_intent(mod):
+    """An old module from before FASTAPI-TEXT2SQL-354 has no intent parameter."""
+    try:
+        return "intent" in inspect.signature(mod.classify_result).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _latest_exports(exec_dir):
+    """One export per evaluation: the latest file (names start with the run timestamp)."""
+    latest = {}
+    for path in sorted(glob.glob(os.path.join(exec_dir, "*.json"))):
+        name = os.path.basename(path)
+        parts = name.split("_")
+        key = parts[1] if len(parts) > 1 else name
+        latest[key] = path
+    return [latest[k] for k in sorted(latest)]
 
 
 def _api_output(d):
@@ -88,11 +119,14 @@ def _assertions(eval_dir):
 
 
 def census(exec_dir, old, new, assertions, rsa):
-    flips, fails = [], []
+    flips, fails, served_miss = [], [], []
+    sources, unasserted = Counter(), Counter()
+    asserted_flips = 0
+    old_intent = _takes_intent(old)
     ranked = defaultdict(list)
     counts_old, counts_new = Counter(), Counter()
     n = n_pass = n_fail = 0
-    for path in sorted(glob.glob(os.path.join(exec_dir, "*.json"))):
+    for path in _latest_exports(exec_dir):
         try:
             d = json.load(open(path, encoding="utf-8"))
         except Exception:
@@ -104,13 +138,19 @@ def census(exec_dir, old, new, assertions, rsa):
         n += 1
         eid, lang = d.get("evaluation_id"), d.get("language") or "?"
         sql, ent = api.get("sql_query") or "", api.get("result_entity") or ""
-        o = old.classify_result(sql, rows, ent)
         q = _question(d, api)
         # The intent the export carries (1.2.0 on), else the keyword rules on the question:
         # the exports of 1.1.20 and before have none (TEXT2SQL-EVAL-004 makes this the census).
         stored = api.get("intent") if isinstance(api.get("intent"), dict) else None
         core = result_intent.core_intent(q, stored, None) if INTENT_MODE != "off" else None
+        sources["stored (" + str(stored.get("source") or "?") + ")" if stored else ("rules" if core else "none")] += 1
+        o = old.classify_result(sql, rows, ent, intent=core) if (core and old_intent) else old.classify_result(sql, rows, ent)
         c = new.classify_result(sql, rows, ent, intent=core) if core else new.classify_result(sql, rows, ent)
+        served = api.get("representation")
+        if served and served != c["representation"]:
+            served_miss.append((eid, lang, served, c["representation"], (core or {}).get("task"), q[:80]))
+        if eid not in assertions:
+            unasserted[c["representation"]] += 1
         counts_old[o["representation"]] += 1
         counts_new[c["representation"]] += 1
         ordered = [(x["name"], x.get("ordered")) for x in c["columns"] if x.get("ordered")]
@@ -118,6 +158,8 @@ def census(exec_dir, old, new, assertions, rsa):
             print(f"  OPTIONS MISS {eid} {lang}: {c['representation']} not in {c['representation_options']}")
         if o["representation"] != c["representation"]:
             flips.append((eid, lang, o["representation"], c["representation"], (core or {}).get("task"), ordered, q[:90], len(rows)))
+            if eid in assertions:
+                asserted_flips += 1
         if c["representation"] == "ranked-bars":
             ranked[ordered[0][0] if ordered else "(no ordered column)"].append((eid, q[:70]))
         spec = assertions.get(eid)
@@ -135,7 +177,12 @@ def census(exec_dir, old, new, assertions, rsa):
     print(f"{os.path.basename(exec_dir.rstrip(os.sep))}: {n} exports with rows")
     print("old:", dict(sorted(counts_old.items())))
     print("new:", dict(sorted(counts_new.items())))
-    print(f"\nFLIPS ({len(flips)}):")
+    print("intent:", dict(sorted(sources.items())), "" if old_intent else "(old module takes no intent)")
+    print("no result-shape assertion, new module:", dict(sorted(unasserted.items())))
+    print(f"\nSERVED != RECOMPUTED ({len(served_miss)}):")
+    for m in served_miss:
+        print("  ", m)
+    print(f"\nFLIPS ({len(flips)}, {asserted_flips} on asserted questions):")
     for f in flips:
         print("  ", f)
     print("\nranked-bars under the new module, by ordered column:")
@@ -151,6 +198,7 @@ def census(exec_dir, old, new, assertions, rsa):
             print(f"  {eid} [{lang}]")
             for m in msgs:
                 print(f"     {m}")
+    return asserted_flips
 
 
 def main():
@@ -160,6 +208,8 @@ def main():
     ap.add_argument("--eval-dir", default=os.path.join(os.path.dirname(ROOT), "text2sql-eval"))
     ap.add_argument("--intent", choices=("rules", "off"), default="rules",
                     help="rules: the stored intent, else the keyword rules on the question (default); off: no intent")
+    ap.add_argument("--strict", action="store_true",
+                    help="exit 1 when an asserted question changes representation between the two modules")
     args = ap.parse_args()
     global INTENT_MODE
     INTENT_MODE = args.intent
@@ -174,11 +224,15 @@ def main():
     if os.path.isfile(os.path.join(args.eval_dir, "result_shape_assertions.py")):
         sys.path.insert(0, args.eval_dir)
         import result_shape_assertions as rsa  # noqa: E402
+    asserted_flips = 0
     for exec_dir in args.exec_dirs:
         if not os.path.isdir(exec_dir):
             print(f"not a directory: {exec_dir}", file=sys.stderr)
             continue
-        census(exec_dir, old, new, assertions, rsa)
+        asserted_flips += census(exec_dir, old, new, assertions, rsa)
+    if args.strict and asserted_flips:
+        print(f"\nSTRICT: {asserted_flips} asserted question(s) changed representation", file=sys.stderr)
+        return 1
     return 0
 
 
