@@ -47,7 +47,11 @@ strtext2sqlprompttemplate = "text_to_sql.md"
 # LLM-TASKS-010 (2026-10-03, Philippe's decision): gpt-6-sol, switched before the -305 rerun
 # that GPT-6-006 was waiting for (last measured: -19 EN / -14 FR against gpt-4o, before the
 # -305 prompt fixes). Also serves SQL regeneration and the answer-entity guard retry.
-strtext2sqlmodeldefault = "gpt-6-sol"
+# GPT-6-008 (2026-11-10, Philippe's decision): gpt-6.1-terra. Campaign of 2026-11-09 on 1.1.20,
+# 1,069 common questions: 937 against 927 EN, 926 against 919 FR, about even once the flips
+# caused by data drift are set aside; $1.59 per 1,000 text2sql calls against about $5. Served at
+# the standard tier: production requests never ask for Flex, and on Flex Terra's p90 tripled.
+strtext2sqlmodeldefault = "gpt-6.1-terra"
 
 # Complex question feature (stronger model)
 strcomplexquestionprompttemplate = "complex_question.md"
