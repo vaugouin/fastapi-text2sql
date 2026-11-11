@@ -1098,6 +1098,14 @@ Never emit `BETWEEN 1969 AND 1980` (nor 1969/1981, nor any other widened pair) f
 
 The same forms apply to `FIRST_AIR_YEAR`, `LAST_AIR_YEAR`, `BIRTH_YEAR` and `DEATH_YEAR`: pick the column from what the question is dating (a release, a first broadcast, a birth, a death). Adding another filter (a genre, a curated list, black and white, a country) never moves the bounds.
 
+#### A trend per year or per decade stops at the current year
+
+The database also holds announced films and series, dated years ahead (2027, 2028...) or on a placeholder year (2099). A question that counts or averages **per year or per decade** ("how many films were released each year since 2000", "per year", "per decade since 1950", "combien de films par an depuis 2000", "chaque année", "par décennie") asks about years that have happened: close the range at the current year, `<year column> <= YEAR(CURDATE())`, next to the lower bound the question gives (or alone when it gives none). The current year stays in. This is not the `YEAR(...)` forbidden above: the column is still compared as an integer, only the constant is computed.
+
+`SELECT T_WC_T2S_MOVIE.RELEASE_YEAR, COUNT(DISTINCT T_WC_T2S_MOVIE.ID_MOVIE) AS FILM_COUNT FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.RELEASE_YEAR >= 2000 AND T_WC_T2S_MOVIE.RELEASE_YEAR <= YEAR(CURDATE()) GROUP BY T_WC_T2S_MOVIE.RELEASE_YEAR ORDER BY T_WC_T2S_MOVIE.RELEASE_YEAR ASC`
+
+Leave the range open only when the question asks for the future itself: "upcoming", "announced", "scheduled", "à venir", "annoncés", or a bound beyond the current year ("after 2026" asked in 2026). Series take `FIRST_AIR_YEAR <= YEAR(CURDATE())` the same way.
+
 Year placeholders follow the same rule: `{{Release_yearN}}` and `{{First_air_yearN}}` are widened only in the title-disambiguation case above (`{{First_air_yearN}}` always on `FIRST_AIR_YEAR`); `{{Birth_yearN}}` and `{{Death_yearN}}` are always compared with equality (`BIRTH_YEAR = '{{Birth_year1}}'`).
 
 ### Technical format filtering and detail
@@ -1273,7 +1281,9 @@ Serie side: T_WC_T2S_SERIE.ID_SERIE AS ID_CONTENT, 'serie' AS CONTENT_TYPE, T_WC
 belongs to the junction, it is absent from the fifteen projected columns, and each junction
 counts from 1 on its own side, so movie 1 and serie 1 would interleave meaninglessly. A
 UNION therefore sorts on a column it actually projects, `ORDER BY IMDB_RATING_WEIGHTED DESC`
-by default. The `DISPLAY_ORDER` rule stated in the sorting section applies to SINGLE-TYPE
+by default. A question that asks when the works came out or asks for them in order is not the
+default: it sorts on the projected date, `DAT_FIRST_AIR` (see "Ordering by a date or a year"
+below). The `DISPLAY_ORDER` rule stated in the sorting section applies to SINGLE-TYPE
 queries, where the junction is in scope and its counter is the publisher's own order.
 
 **The ONE exception, because it IS projected: the Criterion spine.** `ID_CRITERION_SPINE` sits in
@@ -1368,13 +1378,20 @@ series (*Dekalog*, *Berlin Alexanderplatz*, *Scenes from a Marriage*...).
 - Unless the question restricts the type ("which FILMS in...", "which SERIES in..."), a
   question about the content of a collection must return **both**, through the UNION
   contract described in "Movies AND Series (UNION)" above, with its 15 columns.
+- **"movies" or "films" next to the collection name IS that restriction**: "the Harry Potter
+  movies", "the Jaws films", "les films Star Wars", "les films Shrek"
+  query `T_WC_T2S_MOVIE` alone, through `T_WC_T2S_MOVIE_COLLECTION`, with the Movies result
+  columns and no UNION, whatever else the question asks (when, in which order, how long).
+  "When were the {{Collection_name1}} movies released?" →
+  `SELECT DISTINCT T_WC_T2S_MOVIE.ID_MOVIE, T_WC_T2S_MOVIE.MOVIE_TITLE, T_WC_T2S_MOVIE.DAT_RELEASE, T_WC_T2S_MOVIE.ID_IMDB, T_WC_T2S_MOVIE.IMDB_RATING, T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED, T_WC_T2S_MOVIE.IMDB_VOTES, T_WC_T2S_MOVIE.POSTER_PATH, T_WC_T2S_MOVIE.RUNTIME, T_WC_T2S_MOVIE.TAGLINE, T_WC_T2S_MOVIE.ID_CRITERION_SPINE FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_MOVIE_COLLECTION ON T_WC_T2S_MOVIE_COLLECTION.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE JOIN T_WC_T2S_COLLECTION ON T_WC_T2S_COLLECTION.ID_T2S_COLLECTION = T_WC_T2S_MOVIE_COLLECTION.ID_T2S_COLLECTION WHERE T_WC_T2S_COLLECTION.COLLECTION_NAME = '{{Collection_name1}}' ORDER BY CASE WHEN T_WC_T2S_MOVIE.DAT_RELEASE IS NULL THEN 1 ELSE 0 END, T_WC_T2S_MOVIE.DAT_RELEASE ASC`
 - Restricting to movies when the question did not ask silently drops part of the answer, and
   a missing row looks exactly like a row that does not exist.
 - For a SINGLE-TYPE query the display order comes free: `ORDER BY DISPLAY_ORDER ASC` on the
   junction, as the sorting rules below already say. For a publisher catalogue that order IS
   the publisher's own, the Criterion spine order for instance, so never re-sort such a query
   by rating unless asked.
-- For a UNION of both types, `DISPLAY_ORDER` is out of reach and rating takes over. See
+- For a UNION of both types, `DISPLAY_ORDER` is out of reach and rating takes over, or the
+  date `DAT_FIRST_AIR` when the question asks when or in which order. See
   "Sorting a UNION" above: this is a real limit of the shape, not an oversight, and asking
   for both types is therefore asking to lose the publisher's order.
 
@@ -1513,7 +1530,7 @@ Example, the shape to follow for a comparison (a year named with a title narrows
 - When display movies for a given nomination, ORDER BY T_WC_T2S_MOVIE_NOMINATION.DISPLAY_ORDER ASC
 - When display series for a given nomination, ORDER BY T_WC_T2S_SERIE_NOMINATION.DISPLAY_ORDER ASC
 - When display persons for a given nomination, ORDER BY T_WC_T2S_PERSON_NOMINATION.DISPLAY_ORDER ASC
-- When listing movies AND series together (UNION) for a given collection, movement, topic, list, award, nomination, or group: the junction-specific DISPLAY_ORDER columns are not part of the 13-column UNION SELECT shape, so they cannot be referenced in the outer ORDER BY. Fall back to `ORDER BY IMDB_RATING_WEIGHTED DESC` on the UNION result. Never emit an unqualified `ORDER BY DISPLAY_ORDER` after a UNION.
+- When listing movies AND series together (UNION) for a given collection, movement, topic, list, award, nomination, or group: the junction-specific DISPLAY_ORDER columns are not part of the 13-column UNION SELECT shape, so they cannot be referenced in the outer ORDER BY. Fall back to `ORDER BY IMDB_RATING_WEIGHTED DESC` on the UNION result, except for a "when" or "in order" question, which sorts on `DAT_FIRST_AIR` (see "Ordering by a date or a year"). Never emit an unqualified `ORDER BY DISPLAY_ORDER` after a UNION.
 - Persons → POPULARITY DESC
 - When display persons for a given movie (cast or crew), ORDER BY T_WC_T2S_PERSON_MOVIE.DISPLAY_ORDER ASC
 - When display persons for a given serie (cast or crew), ORDER BY T_WC_T2S_PERSON_SERIE.DISPLAY_ORDER ASC
@@ -1545,6 +1562,7 @@ Example, the shape to follow for a comparison (a year named with a title narrows
 
 MariaDB sorts `NULL` **first** in an ascending order. A nullable date or year column (`DAT_RELEASE`, `RELEASE_YEAR`, `DAT_FIRST_AIR`, `FIRST_AIR_YEAR`, `DAT_AIR`, `BIRTH_YEAR`, `DEATH_YEAR`) ordered `ASC` therefore opens on the rows whose date is unknown: "Pixar films from oldest to newest" started with three undated future films, and "the oldest actor" is someone with no birth year.
 
+- **A question about WHEN works came out, or that asks for them IN ORDER, is ordered by the date, never by a rating**, whatever the default sort of the entity or of the collection: "when were the X films released?", "in which years did ... come out?", "quand sont sortis ...", "en quelles années ...", "in order", "in release order", "from first to last", "oldest first", "in chronological order", "dans l'ordre", "dans l'ordre de sortie". Ascending release date, unknowns last: `T_WC_T2S_MOVIE.DAT_RELEASE` on movies, `T_WC_T2S_SERIE.DAT_FIRST_AIR` on series, and `DAT_FIRST_AIR` on a UNION, whose movie side projects `DAT_RELEASE AS DAT_FIRST_AIR`. Only on a single-type collection query, a question that names the collection's own order ("in saga order", "in the collection's order", "dans l'ordre de la saga") takes `ORDER BY T_WC_T2S_MOVIE_COLLECTION.DISPLAY_ORDER ASC` instead. "The {{Collection_name1}} trilogy in order", answered on both types → `... UNION ... ORDER BY CASE WHEN DAT_FIRST_AIR IS NULL THEN 1 ELSE 0 END, DAT_FIRST_AIR ASC`, never `ORDER BY IMDB_RATING_WEIGHTED DESC`.
 - **Every ascending order on a nullable date or year pushes the unknowns to the end**, with the same guard as the Criterion spine: `ORDER BY CASE WHEN T_WC_T2S_MOVIE.DAT_RELEASE IS NULL THEN 1 ELSE 0 END, T_WC_T2S_MOVIE.DAT_RELEASE ASC`. Applies to "oldest", "earliest", "first", "from oldest to newest", "in chronological order", "le plus ancien", "du plus ancien au plus récent", "par ordre chronologique".
 - **A superlative on a date excludes them instead**: "the oldest living actor", "the first film of ..." add `AND <column> IS NOT NULL` and keep `ORDER BY <column> ASC LIMIT 1`; a row with no date cannot be the oldest.
 - **A `GROUP BY` on a year or a decade excludes the unknown year**: "how many films per year", "combien de films par décennie" add `WHERE <year column> IS NOT NULL`, otherwise the first group is a `NULL` year with a count nobody asked for.

@@ -107,6 +107,13 @@ are stored as collections in the database, and the collection join returns the
 complete, authoritative member list; listing member titles from memory is incomplete
 and wrong. Keep "items" empty. Strip generic words ("universe", "franchise", "saga",
 "trilogy", "films", "movies") from the name — e.g. "Star Wars universe" -> `Collection Star Wars`.
+That bare `Collection` question is for a question that only names the franchise. **When the
+question asks something ABOUT its works** (when they came out, in which order, how long they
+run), the relation rule above applies: keep the interrogative and the verb, and correct only
+the franchise name. A sub-saga that no collection carries under its own name is reduced to
+its franchise the same way. `When were the Star Wars Skywalker saga films released?` ->
+question `When were the Star Wars films released?`, never `Collection Star Wars`, which
+returns the collection card and drops the dates that were asked.
 
 **Topics, genres, types, lists and rankings: NEVER replace the criterion with titles from memory.**
 If the question asks for the works or persons that match a criterion the database stores (a

@@ -192,6 +192,12 @@ they address the table directly.
   any evaluation that already has a live execution row for the same version,
   models and language, so a "full re-run" over a populated version runs almost
   nothing. Read the trap section before choosing to keep recent rows.
+- `cache-retire-376-378.sql` : soft-deletes the 1.1.20 cache rows of the sequence, trend and timeline
+  questions (evaluations 2600 to 2619, 2721 to 2730, 2830 to 2839) after the prompt fix of
+  FASTAPI-TEXT2SQL-376 to -378 shipped without a bump. Beyond the raw rows it retires their
+  anonymized twins (same `QUESTION_HASHED`) and every anonymized row carrying the same template,
+  since one template serves every collection. Written 2026-11-11, to run right after the pull into
+  the clone in service.
 - `vision-cache-reset-image.sql` : soft-deletes one photo from `T_WC_T2S_VISION_CACHE` (before /
   update / after), so a rehearsal or a shoot pays a real recognition again instead of a cached
   0.3 s answer. The key is the MD5 of the **resized JPEG** sent by the browser, read in the
