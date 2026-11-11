@@ -25,6 +25,7 @@ or false rather than often-true, which is how an API defect is closed here.
 """
 import re
 from datetime import date, datetime
+from math import gcd
 from decimal import Decimal
 from numbers import Number
 
@@ -50,6 +51,9 @@ REPRESENTATIONS = (
     "compare-cards",   # 2 to 4 named entities side by side, one or two quantities, the winner marked (phase 2 lot B)
     "fact-card",       # one entity and the one quantity or date the question asks about (phase 2 lot B)
     "verdict",         # a yes/no answer read from the rows: a row exists, none does, a count above zero (phase 2 lot B)
+    "histogram",       # rows that are bins of one quantity plus a count, drawn in bin order (phase 2 lot C)
+    "share-bar",       # 2 to 8 parts of a complete whole, or one share, as one 100% bar (phase 2 lot C)
+    "flag-list",       # countries with their flag and name, and the count when there is one (phase 2 lot C)
     "table",         # the honest fallback, never an empty card
 )
 
@@ -60,9 +64,32 @@ _VALUE_TASKS = ("value", "compare")
 # each one asks for; honoured only when that representation is a valid option for the shape.
 _REQUESTED_VIEW_REPRESENTATIONS = {
     "table": ("table",),
-    "chart": ("ranked-bars", "trend-columns", "timeline"),
+    "chart": ("ranked-bars", "trend-columns", "timeline", "histogram"),
     "cards": ("value-cards", "card-grid"),
+    "share": ("share-bar",),
 }
+# Phase 2 lot C. A share bar holds two to eight parts: more falls back to ranked-bars (a bar of
+# thirty slivers says nothing), one part says nothing a number card does not.
+_SHARE_MIN_PARTS, _SHARE_MAX_PARTS = 2, 8
+# A histogram fills the empty bins between two filled ones (a missing bin would read as no gap)
+# as long as the filled axis stays readable; past this many bins it keeps the bins it was given.
+_HISTOGRAM_MAX_FILLED_BINS = 60
+# The name of a bin column says which quantity it cuts: a measure word, or a bin word. A numeric
+# GROUP BY key that says neither (GENDER, an ID, a STATUS code) is a category, not a bin.
+_BIN_NAME_RE = re.compile(
+    r"RUNTIME|DURATION|DUREE|MINUTE|BUDGET|REVENUE|GROSS|RECETTE|RATING|VOTE|SCORE|NOTE|SEASON|SAISON"
+    r"|EPISODE|\bAGE\b|_AGE\b|^AGE_|POPULARITY|BIN|BUCKET|BAND|RANGE|TRANCHE|INTERVAL|CLASSE?\b", re.IGNORECASE)
+# Of two bin columns, the one whose name says it is the top of the range.
+_BIN_HIGH_RE = re.compile(r"END|MAX|HIGH|UPPER|_TO\b|FIN\b", re.IGNORECASE)
+# One share of a whole, as the model names it: FILM_SHARE 0.74, PERCENT_OF_FILMS 27.27.
+_SHARE_NAME_RE = re.compile(r"SHARE|PROPORTION|FRACTION|PERCENT|PCT|POURCENT|PART\b", re.IGNORECASE)
+_PERCENT_NAME_RE = re.compile(r"PERCENT|PCT|POURCENT", re.IGNORECASE)
+# TMDb's gender code (0 not set, 1 woman, 2 man, 3 non-binary): a category, never a measure.
+_GENDER_RE = re.compile(r"^GENDER$|_GENDER$|^GENRE_SEXE$|^SEXE$", re.IGNORECASE)
+# A country code column: COUNTRY_CODE, ORIGIN_COUNTRY, COUNTRY_OF_BIRTH, PAYS.
+_COUNTRY_COLUMN_RE = re.compile(r"COUNTRY|PAYS", re.IGNORECASE)
+_LOCATION_COUNTRY_SQL_RE = re.compile(r"LOCATION_TYPE\s*=\s*'country'", re.IGNORECASE)
+_LIMIT_RE = re.compile(r"\bLIMIT\s+(\d+)(?:\s*,\s*(\d+))?(?:\s+OFFSET\s+(\d+))?", re.IGNORECASE)
 # Phase 2 lot B. A comparison is drawn side by side for two to four entities; more rows (homonyms
 # of a named title, a set) keep value-cards. A comparison shows at most two quantities.
 _COMPARE_MIN_ROWS, _COMPARE_MAX_ROWS, _COMPARE_MAX_COLUMNS = 2, 4, 2
@@ -175,7 +202,7 @@ def _column_role(name, sample_value, id_columns):
         return "label"
     if isinstance(sample_value, (date, datetime)) or _DATE_NAME_RE.search(name):
         return "date"
-    if _FLAG_RE.search(name) or _OTHER_ID_RE.search(name):
+    if _FLAG_RE.search(name) or _OTHER_ID_RE.search(name) or _GENDER_RE.search(name):
         return "other"
     if _is_numeric(sample_value):
         return "metric"
@@ -478,6 +505,284 @@ def _fact(rows, columns, fact_col):
             "value": _number(raw) if _is_numeric(raw) else raw, "others": len(rows) - 1}
 
 
+def _aggregate_alias(sql, name, functions=("COUNT", "SUM")):
+    """Tell whether `name` is the alias of a COUNT (or SUM) the model wrote: `COUNT(DISTINCT x) AS name`.
+
+    The aggregate must be the whole expression before the alias, so a ratio of two counts
+    (`COUNT(...) / NULLIF(COUNT(...), 0) AS FILM_SHARE`) is not a count.
+    """
+    funcs = "|".join(functions)
+    return re.search(r"\b(?:" + funcs + r")\s*\((?:[^()]|\([^()]*\))*\)\s*AS\s+`?" + re.escape(name) + r"`?(?!\w)",
+                     sql or "", re.IGNORECASE) is not None
+
+
+def _limit_truncates(sql, row_count):
+    """True when the outer LIMIT may have cut the rows: they reach it (a page, a top N) or an OFFSET skips some."""
+    matches = list(_LIMIT_RE.finditer(sql or ""))
+    if not matches:
+        return False
+    m = matches[-1]
+    if m.group(2):
+        offset, limit = int(m.group(1)), int(m.group(2))
+    else:
+        limit, offset = int(m.group(1)), int(m.group(3) or 0)
+    return offset > 0 or row_count >= limit
+
+
+def _bin_step(lows):
+    """The regular step of sorted bin starts (the greatest common divisor of their gaps), or None."""
+    decimals = 0
+    for v in lows:
+        text = repr(float(v))
+        if "e" in text:
+            return None
+        decimals = max(decimals, len(text.split(".")[1].rstrip("0")) if "." in text else 0)
+    if decimals > 4:
+        return None
+    scale = 10 ** decimals
+    ints = [round(float(v) * scale) for v in lows]
+    step = 0
+    for a, b in zip(ints, ints[1:]):
+        if b > a:
+            step = gcd(step, b - a)
+    return _number(step / scale) if step else None
+
+
+def _histogram(sql, rows, columns, order_col):
+    """The bins of a histogram, or None (phase 2 lot C).
+
+    The rows must already be bins: a grouped aggregate with no entity, exactly one COUNT the model
+    wrote (the measure), and every other column a bin of one quantity: one or two numeric columns
+    whose name says the quantity or the bin (RATING_BAND, RUNTIME_RANGE_START and _END,
+    NUMBER_OF_SEASONS, IMDB_RATING), or one text column so named (a CASE label "under 90 min")
+    when the rows are not ordered by the count. A year or a decade is a date, never a bin
+    (trend-columns); a numeric code (GENDER) is a category (share-bar). The API never bins entity
+    rows itself.
+
+    Numeric bins come back sorted by their start; when the starts are regular, the bins missing
+    between two filled ones are added with a count of 0 (`empty`), up to _HISTOGRAM_MAX_FILLED_BINS,
+    so an empty range shows as a gap and not as nothing. A row whose bin is NULL is counted apart.
+    """
+    if len(rows) < 2 or not _GROUP_BY_RE.search(sql or ""):
+        return None
+    measures = [c for c in columns if c["role"] == "metric" and _aggregate_alias(sql, c["name"], ("COUNT",))]
+    if len(measures) != 1:
+        return None
+    measure = measures[0]
+    others = [c for c in columns if c is not measure]
+    if not others or any(c["role"] in ("entity_id", "date") for c in others):
+        return None
+    numeric = [c for c in others if c["role"] == "metric" and _BIN_NAME_RE.search(c["name"])]
+    facts = {"column": None, "high_column": None, "unit": None, "width": None, "value_column": measure["name"],
+             "bins": [], "total": 0, "unbinned": 0}
+    if numeric and len(numeric) == len(others) and len(numeric) <= 2:
+        low_col, high_col = numeric[0], None
+        if len(numeric) == 2:
+            first_high, second_high = (bool(_BIN_HIGH_RE.search(c["name"])) for c in numeric)
+            if second_high and not first_high:
+                low_col, high_col = numeric
+            elif first_high and not second_high:
+                high_col, low_col = numeric
+            else:
+                return None
+        binned = []
+        for i, row in enumerate(rows):
+            count = _number(row.get(measure["name"])) if _is_numeric(row.get(measure["name"])) else None
+            low = row.get(low_col["name"])
+            if count is None:
+                continue
+            if not _is_numeric(low):
+                facts["unbinned"] += count
+                continue
+            high = row.get(high_col["name"]) if high_col else None
+            binned.append((float(low), i, _number(high) if _is_numeric(high) else None, count))
+        if len(binned) < 2:
+            return None
+        binned.sort()
+        width = _bin_step([b[0] for b in binned])
+        facts.update({"column": low_col["name"], "high_column": high_col["name"] if high_col else None,
+                      "unit": low_col.get("unit"), "width": width})
+        by_low = {round(b[0], 6): b for b in binned}
+        lo, hi = binned[0][0], binned[-1][0]
+        fill = width and (hi - lo) / width + 1 <= _HISTOGRAM_MAX_FILLED_BINS
+        lows = ([lo + k * width for k in range(int(round((hi - lo) / width)) + 1)] if fill else [b[0] for b in binned])
+        for low in lows:
+            b = by_low.get(round(low, 6))
+            if b:
+                facts["bins"].append({"index": b[1], "low": _number(b[0]), "high": b[2], "label": None,
+                                      "value": b[3], "empty": False})
+            else:
+                facts["bins"].append({"index": None, "low": _number(low), "high": None, "label": None,
+                                      "value": 0, "empty": True})
+        low_col["bin"] = "low"
+        if high_col:
+            high_col["bin"] = "high"
+    elif (len(others) == 1 and others[0]["role"] in ("label", "other") and _BIN_NAME_RE.search(others[0]["name"])
+          and isinstance(_first_non_null(rows, others[0]["name"]), str) and order_col != measure["name"]):
+        label_col = others[0]
+        for i, row in enumerate(rows):
+            count = _number(row.get(measure["name"])) if _is_numeric(row.get(measure["name"])) else None
+            if count is None:
+                continue
+            if row.get(label_col["name"]) in (None, ""):
+                facts["unbinned"] += count
+                continue
+            facts["bins"].append({"index": i, "low": None, "high": None, "label": row.get(label_col["name"]),
+                                  "value": count, "empty": False})
+        if len(facts["bins"]) < 2:
+            return None
+        facts["column"] = label_col["name"]
+        label_col["bin"] = "label"
+    else:
+        return None
+    facts["total"] = _number(sum(b["value"] for b in facts["bins"]) + facts["unbinned"])
+    peak = max(range(len(facts["bins"])), key=lambda k: facts["bins"][k]["value"])
+    facts["peak"] = peak
+    return facts
+
+
+def _label_column(columns, rows):
+    """The column that names each row of a grouped result: a label, else a code, a text or a gender."""
+    named = next((c for c in columns if c["role"] == "label"), None)
+    if named:
+        return named
+    return next((c for c in columns if c["role"] == "other" and (
+        _CODE_RE.search(c["name"]) or _GENDER_RE.search(c["name"])
+        or isinstance(_first_non_null(rows, c["name"]), str))), None)
+
+
+def _share(sql, rows, columns, has_entity, is_images):
+    """Parts of a whole for a share bar, or None (phase 2 lot C).
+
+    Two shapes. One share: one row, no entity, no GROUP BY, one metric named as a share
+    (FILM_SHARE, PERCENT_OF_FILMS) between 0 and 1, or between 0 and 100 when the name says
+    percent or the value is above 1: the part and the rest. Parts: two to eight rows, one COUNT or
+    SUM the model wrote and no other metric, a column that names each part (a label, a code, a
+    text, GENDER), every value zero or more, and a complete result (the outer LIMIT did not cut it,
+    no OFFSET): the shares are of the sum of the rows shown, never of a page.
+    """
+    if len(rows) == 1 and not has_entity and not _GROUP_BY_RE.search(sql or ""):
+        metrics = [c for c in columns if c["role"] == "metric"]
+        if len(metrics) != 1 or not _SHARE_NAME_RE.search(metrics[0]["name"]):
+            return None
+        raw = rows[0].get(metrics[0]["name"])
+        value = _number(raw) if _is_numeric(raw) else None
+        if value is None:
+            return None
+        scale = 100 if (_PERCENT_NAME_RE.search(metrics[0]["name"]) or value > 1) else 1
+        part = value / scale
+        if not 0 <= part <= 1:
+            return None
+        return {"kind": "single", "value_column": metrics[0]["name"], "label_column": None,
+                "scale": scale, "total": None,
+                "parts": [{"index": 0, "label": None, "value": value, "share": round(part, 4), "rest": False},
+                          {"index": None, "label": None, "value": None, "share": round(1 - part, 4), "rest": True}]}
+    if not (_SHARE_MIN_PARTS <= len(rows) <= _SHARE_MAX_PARTS) or is_images:
+        return None
+    metrics = [c for c in columns if c["role"] == "metric"]
+    if len(metrics) != 1 or not _aggregate_alias(sql, metrics[0]["name"]):
+        return None
+    label = _label_column(columns, rows)
+    if label is None or _limit_truncates(sql, len(rows)):
+        return None
+    values = [_number(r.get(metrics[0]["name"])) if _is_numeric(r.get(metrics[0]["name"])) else None for r in rows]
+    if any(v is None or v < 0 for v in values) or not sum(values):
+        return None
+    total = sum(values)
+    return {"kind": "parts", "value_column": metrics[0]["name"], "label_column": label["name"], "scale": 1,
+            "total": _number(total),
+            "parts": [{"index": i, "label": rows[i].get(label["name"]), "value": v,
+                       "share": round(v / total, 4), "rest": False} for i, v in enumerate(values)]}
+
+
+def _countries(sql, rows, columns, has_entity, id_columns):
+    """The countries of a flag list, or None (phase 2 lot C).
+
+    Three shapes, each giving one ISO 3166-1 alpha-2 code per row for the flag (result_countries):
+    (a) no entity: a country code column (COUNTRY_CODE, ORIGIN_COUNTRY, COUNTRY_OF_BIRTH grouped)
+    and at most one metric, the count drawn beside the flag; (b) location rows of type country
+    (LOCATION_TYPE projected as 'country', or the SQL filters on it), two or more: the code comes
+    from the place's name (Wikidata's English label; England, Scotland and Wales give GB and keep
+    their own name); (c) one entity repeated once per country (a film and its production
+    countries), two rows or more. A person list carrying COUNTRY_OF_BIRTH stays a person list.
+    """
+    if not rows:
+        return None
+    try:
+        import result_countries
+    except ImportError:
+        return None
+    by_name = {c["name"]: c for c in columns}
+
+    def code_column():
+        for c in columns:
+            if not _COUNTRY_COLUMN_RE.search(c["name"]) or c["role"] not in ("label", "other"):
+                continue
+            # Two letters on every row, and a known code on nine rows in ten at least (TMDb files a
+            # few productions under codes no table holds).
+            values = [str(r.get(c["name"])).strip() for r in rows if r.get(c["name"]) not in (None, "")]
+            known = sum(1 for v in values if result_countries.is_code(v))
+            if values and all(len(v) == 2 and v.isalpha() for v in values) and known >= 0.9 * len(values):
+                return c
+        return None
+
+    def entry(i, code, label, value=None):
+        code = str(code).upper() if code else None
+        return {"index": i, "code": code, "label": label, "value": value,
+                "name": result_countries.names_for(code) if code else None,
+                "flag": bool(code) and code in result_countries.NAMES}
+
+    out = None
+    if not has_entity:
+        col = code_column()
+        metrics = [c for c in columns if c["role"] == "metric"]
+        if col is None or len(metrics) > 1:
+            return None
+        value_col = metrics[0]["name"] if metrics else None
+        out = {"source": "codes", "column": col["name"], "value_column": value_col,
+               "countries": [entry(i, r.get(col["name"]) or None, None,
+                                   _number(r.get(value_col)) if value_col and _is_numeric(r.get(value_col)) else None)
+                             for i, r in enumerate(rows)]}
+    elif len(rows) >= 2 and "ID_LOCATION" in by_name and (
+            all(str(r.get("LOCATION_TYPE") or "").lower() == "country" for r in rows) if "LOCATION_TYPE" in by_name
+            else _LOCATION_COUNTRY_SQL_RE.search(sql or "")):
+        label = next((c["name"] for c in columns if c["role"] == "label"), None)
+        if label is None:
+            return None
+        found = []
+        for i, r in enumerate(rows):
+            code = result_countries.code_for_name(r.get(label)) or result_countries.code_for_name(r.get("LOCATION_NAME_FR"))
+            found.append(entry(i, code, r.get(label)))
+        if not any(f["code"] for f in found):
+            return None
+        out = {"source": "locations", "column": label, "value_column": None, "countries": found}
+    elif len(rows) >= 2:
+        id_col = next((c["name"] for c in columns if c["role"] == "entity_id"), None)
+        col = code_column()
+        if id_col is None or col is None or len({r.get(id_col) for r in rows}) != 1:
+            return None
+        seen, found = set(), []
+        for i, r in enumerate(rows):
+            code = str(r.get(col["name"]) or "").upper()
+            if code and code not in seen:
+                seen.add(code)
+                found.append(entry(i, code, None))
+        if len(found) < 2:
+            return None
+        out = {"source": "repeated", "column": col["name"], "value_column": None, "countries": found}
+    return out
+
+
+def _with_option(options, rep):
+    """`options` with `rep` added before "table" (the fallback stays last)."""
+    if rep in options:
+        return options
+    if "table" in options:
+        k = options.index("table")
+        return options[:k] + [rep] + options[k:]
+    return options + [rep]
+
+
 def _options(representation, family, has_value_col, has_bar_col, has_time_axis=False, has_sequence=False,
              has_compare=False):
     """The valid representations for the shape, default first (FASTAPI-TEXT2SQL-354).
@@ -571,6 +876,7 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
     family = "other"
     compare_cols = []
     ranking = False
+    histogram = None
 
     # Entity rows: one entity is a page, many are a grid, many ordered by a metric is a
     # ranking (the poster-versus-bar choice is the client's, VOICE-AGENT-244). A ranking is
@@ -655,12 +961,22 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
         date_cols = [c for c in columns if c["role"] == "date"]
         trend_metric = (focus[0] if focus and by_name[focus[0]]["role"] == "metric"
                         else metric_cols[0]["name"] if len(metric_cols) == 1 else None)
+        # Phase 2 lot C: rows that are bins of one quantity plus a count (read before a text bin
+        # turns into a label below).
+        histogram = _histogram(sql, rows, columns, order_col)
         if not label_cols:
             label_cols = [c for c in columns if c["role"] == "other" and (
-                _CODE_RE.search(c["name"]) or isinstance(_first_non_null(rows, c["name"]), str))][:1]
+                _CODE_RE.search(c["name"]) or _GENDER_RE.search(c["name"])
+                or isinstance(_first_non_null(rows, c["name"]), str))][:1]
             for c in label_cols:
                 c["role"] = "label"  # so a client labels the bars without guessing
-        if task == "trend" and len(date_cols) == 1 and trend_metric and not label_cols:
+        if histogram:
+            # "How are Kubrick's films distributed by runtime?": one column per bin, in bin order,
+            # whatever the order of the rows; never a ranking of the bins by their count.
+            representation = "histogram"
+            value_col = histogram["value_column"]
+            family = "histogram"
+        elif task == "trend" and len(date_cols) == 1 and trend_metric and not label_cols:
             # Phase 2 lot A: "how many films were released per decade", one period column
             # (year or decade) plus the metric, drawn as one column per period.
             representation = "trend-columns"
@@ -698,6 +1014,29 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
     has_sequence = family == "entity_many" and in_sequence and task == "sequence"
     options = _options(representation, family, value_col is not None, bar_col is not None,
                        has_time_axis, has_sequence, bool(compare_cols))
+
+    # Phase 2 lot C. share-bar: offered wherever the rows are the parts of a complete whole; the
+    # default when the question asks for parts ("what share", "split", "as a pie": requested_view
+    # share, applied below with the other requested views) and for one share alone (FILM_SHARE
+    # 0.74 is a part, never a bare 0.74). flag-list: the default wherever the rows are countries,
+    # over ranked-bars or the poster grid, which stay offered.
+    histogram = histogram if family == "histogram" else None
+    share = None if histogram else _share(sql, rows, columns, has_entity, family == "entity_images")
+    countries = None if histogram else _countries(sql, rows, columns, has_entity, ids)
+    if share:
+        options = _with_option(options, "share-bar")
+        if share["kind"] == "single":
+            representation = "share-bar"
+            value_col = share["value_column"]
+            options = ["share-bar"] + [o for o in options if o != "share-bar"]
+    if countries:
+        if share and share["kind"] == "single":
+            countries = None
+        else:
+            representation = "flag-list"
+            options = ["flag-list"] + [o for o in options if o != "flag-list"]
+            if countries["value_column"] and not value_col:
+                value_col = countries["value_column"]
 
     # Phase 2 lot B, over the options of the shape they stand on (each is put first).
     # fact-card: a value task on one entity, or on homonyms of one title (every row carries the
@@ -750,5 +1089,12 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
             summary = {"count": 0, "total": None, "value_column": None, "unit": None, "order": None,
                        "order_direction": None, "top": None}
         summary["verdict"], summary["verdict_basis"] = verdict, basis
+    # Phase 2 lot C, each where its form is offered.
+    if histogram and "histogram" in options:
+        summary["histogram"] = histogram
+    if share and "share-bar" in options:
+        summary["share"] = share
+    if countries and "flag-list" in options:
+        summary["countries"] = countries
     return {"result_kind": kind, "columns": columns, "representation": representation,
             "representation_options": options, "summary_facts": summary}

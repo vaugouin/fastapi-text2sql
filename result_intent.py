@@ -28,7 +28,10 @@ import json
 import re
 
 INTENT_TASKS = ("list", "value", "rank", "count", "compare", "sequence", "trend", "relate", "verdict")
-REQUESTED_VIEWS = ("table", "chart", "cards")
+# "share" (phase 2 lot C): the question asks for parts of a whole ("what share of", "split", "as a
+# pie", "repartition", "en camembert"). Only the keyword rules read it, whatever the source: the
+# classifier's vocabulary predates it (core_intent below).
+REQUESTED_VIEWS = ("table", "chart", "cards", "share")
 
 # Canonical focus names -> the column-name pattern of the projected column that carries it.
 # The unit patterns of result_shape.py cover runtime, money, ratio and counts; the rest are
@@ -183,6 +186,12 @@ _FR_QUESTION_WORD_RE = re.compile(
 _RELATE_RE = re.compile(r"\bconnected\b|\brelationship between\b|\bin common\b|\bboth\b.*\band\b|\bpoint commun\b|\ben commun\b|\blien entre\b")
 _VIEW_RES = (
     ("table", re.compile(r"\bas a table\b|\bin a table\b|\btabular\b|\ben tableau\b|\bsous forme de tableau\b|\bdans un tableau\b")),
+    # Phase 2 lot C: parts of a whole. Before "chart", so "as a pie chart" is the share form.
+    ("share", re.compile(
+        r"\b(?:as|in) a (?:pie|donut|doughnut)\b|\bpie chart\b|\bwhat (?:share|proportion|percentage|fraction)\b"
+        r"|\b(?:the )?(?:share|proportion|percentage) of\b|\bsplit\b|\bbreakdown\b|\bbroken down\b"
+        r"|\ben camembert\b|\bcamembert\b|\brepartition\b|\bse repartiss|\bquelle (?:part|proportion)\b|\bquel pourcentage\b"
+        r"|\b(?:la )?(?:part|proportion|pourcentage) (?:des|de|du|d')")),
     ("chart", re.compile(r"\bas a (?:bar )?(?:chart|graph)\b|\bbar chart\b|\bplot\b|\ben graphique\b|\bsous forme de graphique\b|\bhistogramme\b")),
     ("cards", re.compile(r"\bas cards\b|\bwith (?:the )?posters\b|\ben cartes\b|\bavec (?:les )?affiches\b")),
 )
@@ -318,10 +327,16 @@ def core_intent(question, llm_intent=None, cached_intent=None):
     """
     for candidate in (llm_intent, cached_intent):
         if isinstance(candidate, dict) and candidate.get("task") in INTENT_TASKS:
+            view = candidate.get("requested_view") if candidate.get("requested_view") in REQUESTED_VIEWS else ""
+            # Phase 2 lot C: "share" comes from the keyword rules whatever the source, since the
+            # classifier is not asked for it. It wins over "" and over "chart": "as a pie" reads
+            # chart to the classifier, and a pie is the share form.
+            if view in ("", "chart") and question and rules_requested_view(question) == "share":
+                view = "share"
             return {
                 "task": candidate["task"],
                 "focus": canonical_focus(candidate.get("focus") or []),
-                "requested_view": candidate.get("requested_view") if candidate.get("requested_view") in REQUESTED_VIEWS else "",
+                "requested_view": view,
                 "source": candidate.get("source") if candidate.get("source") in ("llm", "rules") else "llm",
             }
     return rules_intent(question)

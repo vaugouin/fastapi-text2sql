@@ -234,6 +234,94 @@ check("verdict on a count of zero", rs.classify_result("SELECT COUNT(*) AS N FRO
 check("verdict on a sum: no verdict", rs.classify_result("SELECT SUM(RUNTIME) AS TOTAL_RUNTIME FROM T", [{"index": 0, "data": {"TOTAL_RUNTIME": 9}}], "", intent=YES)["representation"], "number-card")
 check("empty without a verdict: no facts, no verdict", (vn["summary_facts"] is not None, rs.classify_result("SELECT 1", [], "movie")["representation"]), (True, "card-grid"))
 
+# 5d. Phase 2 lot C: histogram, share-bar, flag-list (made-up questions and rows, not the bank's).
+COUNT_TASK = {"task": "count", "focus": ["count"], "requested_view": "", "source": "llm"}
+H_SQL = ("SELECT FLOOR(T_WC_T2S_MOVIE.RUNTIME / 30) * 30 AS RUNTIME_BUCKET, COUNT(DISTINCT T_WC_T2S_MOVIE.ID_MOVIE) AS FILM_COUNT "
+         "FROM T_WC_T2S_MOVIE WHERE X GROUP BY FLOOR(T_WC_T2S_MOVIE.RUNTIME / 30) ORDER BY RUNTIME_BUCKET ASC LIMIT 100")
+h_rows = [{"RUNTIME_BUCKET": 60, "FILM_COUNT": 4}, {"RUNTIME_BUCKET": 120, "FILM_COUNT": 2}, {"RUNTIME_BUCKET": 90, "FILM_COUNT": 7}]
+h = rs.classify_result(H_SQL, h_rows, "", intent=COUNT_TASK)
+hf = h["summary_facts"]["histogram"]
+check("histogram: bins of a runtime plus a count", (h["representation"], h["representation_options"], hf["column"], hf["unit"], hf["width"]),
+      ("histogram", ["histogram", "table"], "RUNTIME_BUCKET", "minutes", 30))
+check("histogram: bins sorted by their start, never by count", [(b["low"], b["value"], b["index"]) for b in hf["bins"]],
+      [(60, 4, 0), (90, 7, 2), (120, 2, 1)])
+check("histogram: peak and total", (hf["peak"], hf["total"]), (1, 13))
+check("histogram: no intent, same shape", rs.classify_result(H_SQL, h_rows, "")["representation"], "histogram")
+gap = rs.classify_result(H_SQL, [{"RUNTIME_BUCKET": 0, "FILM_COUNT": 1}, {"RUNTIME_BUCKET": 30, "FILM_COUNT": 2}, {"RUNTIME_BUCKET": 90, "FILM_COUNT": 3}], "")["summary_facts"]["histogram"]
+check("histogram: an empty bin between two filled ones is filled with 0", [(b["low"], b["value"], b["empty"]) for b in gap["bins"]],
+      [(0, 1, False), (30, 2, False), (60, 0, True), (90, 3, False)])
+RANGE_SQL = ("SELECT FLOOR(RUNTIME / 30) * 30 AS RUNTIME_RANGE_START, FLOOR(RUNTIME / 30) * 30 + 29 AS RUNTIME_RANGE_END, "
+             "COUNT(DISTINCT ID_MOVIE) AS FILM_COUNT FROM T GROUP BY FLOOR(RUNTIME / 30) ORDER BY RUNTIME_RANGE_START")
+hr = rs.classify_result(RANGE_SQL, [{"RUNTIME_RANGE_START": 90, "RUNTIME_RANGE_END": 119, "FILM_COUNT": 2},
+                                    {"RUNTIME_RANGE_START": 120, "RUNTIME_RANGE_END": 149, "FILM_COUNT": 5}], "")
+check("histogram: a range start and end", (hr["representation"], hr["summary_facts"]["histogram"]["high_column"],
+      hr["summary_facts"]["histogram"]["bins"][0]["high"], [c.get("bin") for c in hr["columns"]]),
+      ("histogram", "RUNTIME_RANGE_END", 119, ["low", "high", None]))
+TEXT_BINS = ("SELECT CASE WHEN RUNTIME < 90 THEN 'under 90' ELSE '90 or more' END AS RUNTIME_RANGE, COUNT(*) AS FILM_COUNT "
+             "FROM T GROUP BY 1 ORDER BY MIN(RUNTIME)")
+check("histogram: text bins in the SQL's order", rs.classify_result(TEXT_BINS, [{"RUNTIME_RANGE": "under 90", "FILM_COUNT": 3},
+      {"RUNTIME_RANGE": "90 or more", "FILM_COUNT": 9}], "")["representation"], "histogram")
+DECADE_SQL = "SELECT DECADE, COUNT(*) AS FILM_COUNT FROM T GROUP BY DECADE ORDER BY DECADE"
+check("histogram never takes a decade (trend-columns)", rs.classify_result(DECADE_SQL, [{"DECADE": 1960, "FILM_COUNT": 2}, {"DECADE": 1970, "FILM_COUNT": 5}], "",
+      intent={"task": "trend", "focus": ["count"], "requested_view": "", "source": "llm"})["representation"], "trend-columns")
+check("histogram never takes entity rows", rs.classify_result("SELECT ID_MOVIE, MOVIE_TITLE, RUNTIME FROM T ORDER BY RUNTIME",
+      [{"ID_MOVIE": 1, "MOVIE_TITLE": "A", "RUNTIME": 90}, {"ID_MOVIE": 2, "MOVIE_TITLE": "B", "RUNTIME": 120}], "movie")["representation"] != "histogram", True)
+check("histogram needs a COUNT the model wrote", rs.classify_result("SELECT RUNTIME_BUCKET, AVG(BUDGET) AS AVG_BUDGET FROM T GROUP BY RUNTIME_BUCKET",
+      [{"RUNTIME_BUCKET": 60, "AVG_BUDGET": 1}, {"RUNTIME_BUCKET": 90, "AVG_BUDGET": 2}], "")["representation"], "table")
+
+SPLIT = {"task": "count", "focus": ["count"], "requested_view": "share", "source": "rules"}
+S_SQL = "SELECT T.SERIE_TYPE, COUNT(DISTINCT T.ID_SERIE) AS SERIE_COUNT FROM T GROUP BY T.SERIE_TYPE ORDER BY SERIE_COUNT DESC LIMIT 100"
+s_rows = [{"SERIE_TYPE": "Scripted", "SERIE_COUNT": 6}, {"SERIE_TYPE": "Miniseries", "SERIE_COUNT": 3}, {"SERIE_TYPE": "News", "SERIE_COUNT": 1}]
+sb = rs.classify_result(S_SQL, s_rows, "", intent=SPLIT)
+check("share-bar: asked for, parts of a complete whole", (sb["representation"], sb["representation_options"]),
+      ("share-bar", ["share-bar", "ranked-bars", "table"]))
+check("share-bar: shares of the rows shown", [(p["label"], p["share"]) for p in sb["summary_facts"]["share"]["parts"]] + [sb["summary_facts"]["share"]["total"]],
+      [("Scripted", 0.6), ("Miniseries", 0.3), ("News", 0.1), 10])
+check("share-bar: not asked, offered beside the ranking", rs.classify_result(S_SQL, s_rows, "", intent=COUNT_TASK)["representation_options"],
+      ["ranked-bars", "share-bar", "table"])
+check("share-bar: never on a page or a top N", "share-bar" in rs.classify_result(S_SQL.replace("LIMIT 100", "LIMIT 3"), s_rows, "", intent=SPLIT)["representation_options"], False)
+check("share-bar: never past eight parts", "share-bar" in rs.classify_result(S_SQL, [{"SERIE_TYPE": str(k), "SERIE_COUNT": 1} for k in range(9)], "", intent=SPLIT)["representation_options"], False)
+GENDER_SQL = "SELECT P.GENDER, COUNT(DISTINCT P.ID_PERSON) AS CAST_COUNT FROM P GROUP BY P.GENDER"
+g = rs.classify_result(GENDER_SQL, [{"GENDER": 1, "CAST_COUNT": 7}, {"GENDER": 2, "CAST_COUNT": 13}], "", intent=SPLIT)
+check("share-bar: GENDER is a category, never a measure or a bin", (g["representation"], [c["role"] for c in g["columns"]], g["summary_facts"]["share"]["label_column"]),
+      ("share-bar", ["label", "metric"], "GENDER"))
+one = rs.classify_result("SELECT COUNT(DISTINCT CASE WHEN X THEN ID END) / NULLIF(COUNT(DISTINCT ID), 0) AS FILM_SHARE FROM T",
+                         [{"FILM_SHARE": 0.74}], "", intent={"task": "value", "focus": [], "requested_view": "", "source": "llm"})
+check("share-bar: one share is the part and the rest", (one["representation"], one["representation_options"], [(p["share"], p["rest"]) for p in one["summary_facts"]["share"]["parts"]]),
+      ("share-bar", ["share-bar", "number-card", "table"], [(0.74, False), (0.26, True)]))
+pct = rs.classify_result("SELECT 100.0 * COUNT(X) / COUNT(Y) AS PERCENT_OF_FILMS FROM T", [{"PERCENT_OF_FILMS": 27.27}], "")
+check("share-bar: a percentage reads on 0 to 100", (pct["representation"], pct["summary_facts"]["share"]["scale"], pct["summary_facts"]["share"]["parts"][0]["share"]), ("share-bar", 100, 0.2727))
+check("share-bar: a total is not a share", rs.classify_result("SELECT SUM(RUNTIME) AS TOTAL_RUNTIME FROM T", [{"TOTAL_RUNTIME": 900}], "")["representation"], "number-card")
+
+C_SQL = "SELECT PC.COUNTRY_CODE, COUNT(DISTINCT M.ID_MOVIE) AS FILM_COUNT FROM PC JOIN M GROUP BY PC.COUNTRY_CODE ORDER BY FILM_COUNT DESC LIMIT 100"
+fl = rs.classify_result(C_SQL, [{"COUNTRY_CODE": "JP", "FILM_COUNT": 9}, {"COUNTRY_CODE": "US", "FILM_COUNT": 2}, {"COUNTRY_CODE": "SU", "FILM_COUNT": 1}], "",
+                        intent={"task": "rank", "focus": ["count"], "requested_view": "", "source": "llm"})
+fc = fl["summary_facts"]["countries"]
+check("flag-list: grouped country codes", (fl["representation"], fl["representation_options"], fc["source"], fc["value_column"]),
+      ("flag-list", ["flag-list", "ranked-bars", "share-bar", "table"], "codes", "FILM_COUNT"))
+check("flag-list: code, names, value, flag", [(c["code"], c["name"]["fr"], c["value"], c["flag"]) for c in fc["countries"]],
+      [("JP", "Japon", 9, True), ("US", "États-Unis", 2, True), ("SU", "Union soviétique", 1, False)])
+check("flag-list: as a chart is the ranking", rs.classify_result(C_SQL, [{"COUNTRY_CODE": "JP", "FILM_COUNT": 9}, {"COUNTRY_CODE": "US", "FILM_COUNT": 2}], "",
+      intent={"task": "rank", "focus": ["count"], "requested_view": "chart", "source": "llm"})["representation"], "ranked-bars")
+LOC_SQL = "SELECT DISTINCT L.ID_LOCATION, L.LOCATION_NAME, L.POSTER_PATH FROM L WHERE L.LOCATION_TYPE = 'country' ORDER BY L.LOCATION_NAME"
+loc = rs.classify_result(LOC_SQL, [{"ID_LOCATION": 1, "LOCATION_NAME": "England", "POSTER_PATH": None},
+                                   {"ID_LOCATION": 2, "LOCATION_NAME": "Morocco", "POSTER_PATH": None},
+                                   {"ID_LOCATION": 3, "LOCATION_NAME": "Ruritania", "POSTER_PATH": None}], "location")
+check("flag-list: location rows of type country, codes from the names", (loc["representation"], [(c["code"], c["label"]) for c in loc["summary_facts"]["countries"]["countries"]]),
+      ("flag-list", [("GB", "England"), ("MA", "Morocco"), (None, "Ruritania")]))
+check("flag-list: other locations stay a grid", rs.classify_result(LOC_SQL.replace("country", "city"), [{"ID_LOCATION": 1, "LOCATION_NAME": "Paris"}, {"ID_LOCATION": 2, "LOCATION_NAME": "Rome"}], "location")["representation"], "card-grid")
+rep = rs.classify_result("SELECT M.ID_MOVIE, M.MOVIE_TITLE, PC.COUNTRY_CODE FROM M JOIN PC", [{"ID_MOVIE": 120, "MOVIE_TITLE": "X", "COUNTRY_CODE": "NZ"},
+                         {"ID_MOVIE": 120, "MOVIE_TITLE": "X", "COUNTRY_CODE": "US"}], "movie")
+check("flag-list: one film repeated per production country", (rep["representation"], [c["code"] for c in rep["summary_facts"]["countries"]["countries"]]), ("flag-list", ["NZ", "US"]))
+check("flag-list: a person list with COUNTRY_OF_BIRTH stays a person list", rs.classify_result("SELECT ID_PERSON, PERSON_NAME, COUNTRY_OF_BIRTH FROM P",
+      [{"ID_PERSON": 1, "PERSON_NAME": "A", "COUNTRY_OF_BIRTH": "GB"}, {"ID_PERSON": 2, "PERSON_NAME": "B", "COUNTRY_OF_BIRTH": "US"}], "person")["representation"], "card-grid")
+check("share view words", [ri.rules_requested_view(q) for q in ("What part of the films are long?", "Show it as a pie chart", "Répartition des séries par statut en camembert",
+      "Quel pourcentage de films est en couleur ?", "the posters of the films")], ["", "share", "share", "share", ""])
+check("share view wins over the classifier's chart and its empty view", (ri.core_intent("Show the split as a pie", {"task": "count", "focus": [], "requested_view": "chart", "source": "llm"})["requested_view"],
+      ri.core_intent("What share of these films are long?", {"task": "value", "focus": [], "requested_view": "", "source": "llm"})["requested_view"],
+      ri.core_intent("Show them as a table", {"task": "list", "focus": [], "requested_view": "table", "source": "llm"})["requested_view"]),
+      ("share", "share", "table"))
+
 
 # 6. sql_cache degrades column by column, newest first.
 class FakeCursor:

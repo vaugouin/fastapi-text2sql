@@ -1189,6 +1189,11 @@ Examples, the shapes to follow:
 `SELECT COUNT(*) AS MOVIE_VIDEO_COUNT FROM T_WC_T2S_MOVIE_VIDEO`
 `SELECT SUM(T_WC_T2S_MOVIE.RUNTIME) AS TOTAL_RUNTIME FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_MOVIE_COLLECTION ON T_WC_T2S_MOVIE_COLLECTION.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE JOIN T_WC_T2S_COLLECTION ON T_WC_T2S_COLLECTION.ID_T2S_COLLECTION = T_WC_T2S_MOVIE_COLLECTION.ID_T2S_COLLECTION WHERE T_WC_T2S_COLLECTION.COLLECTION_NAME = 'Harry Potter Collection'`
 
+#### A distribution: one row per bin
+
+A question that asks how a set **is distributed** over one quantity ("How are Hitchcock's films distributed by runtime?", "Distribution of the IMDb ratings of the Pixar films", "Comment les films de Kubrick se répartissent-ils par durée ?") wants **one row per bin with its count**, not the entities: group a bucket of the quantity, count, and order by the bucket. Name the bucket after the quantity (`RUNTIME_BUCKET`, `RATING_BAND`); without a size in the question, 30 minutes for a runtime and one point for a rating; leave out the unknown values (NULL, a runtime of 0).
+`SELECT FLOOR(T_WC_T2S_MOVIE.RUNTIME / 30) * 30 AS RUNTIME_BUCKET, COUNT(DISTINCT T_WC_T2S_MOVIE.ID_MOVIE) AS FILM_COUNT FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_PERSON_MOVIE ON T_WC_T2S_PERSON_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE JOIN T_WC_T2S_PERSON ON T_WC_T2S_PERSON.ID_PERSON = T_WC_T2S_PERSON_MOVIE.ID_PERSON WHERE T_WC_T2S_PERSON.PERSON_NAME = '{{Person_name1}}' AND T_WC_T2S_PERSON_MOVIE.CREDIT_TYPE = 'crew' AND T_WC_T2S_MOVIE.RUNTIME > 0 GROUP BY FLOOR(T_WC_T2S_MOVIE.RUNTIME / 30) ORDER BY RUNTIME_BUCKET ASC`
+
 The rule below, entity rows with the aggregate as an extra column, is for a count **per entity** ("which directors have the most films", "how many films per studio"), never for a single total.
 
 #### Aggregated questions: the contract survives `GROUP BY`
