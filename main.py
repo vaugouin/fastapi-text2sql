@@ -4569,6 +4569,36 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # true and complex_question_processing_time zero. The success path below returns the
         # INNER response, which carries its own consolidated figure, so this never double counts.
         complex_question_processing_time += _complex_call_seconds
+
+        # FASTAPI-TEXT2SQL-367. `authoritative_empty` defers to a database result, and when the
+        # first pass wrote no SQL there is none: a descriptive identification is routed here
+        # before Text2SQL, and a failed generation leaves nothing either. The model still takes
+        # the -221 branch on part of the calls ("the series linked to Keri Russell"), and the
+        # request ended on "Complex entity resolution is required". Asked once more, with the
+        # fact stated. A relationship question whose SQL ran and came back empty keeps -221.
+        if retry_payload.get("authoritative_empty") and not (first_pass_sql or "").strip():
+            messages.append(TextMessage(
+                position=position_counter,
+                text=(
+                    "Complex question resolution claimed an authoritative empty result, but no "
+                    "SQL query has run for this question; asking the stronger model once more."
+                )
+            ))
+            position_counter += 1
+            _complex_call_start = time.time()
+            _second_payload = await asyncio.to_thread(
+                t2s.f_resolve_complex_question_retry_payload, original_question,
+                strcomplexquestionmodel, t2s.COMPLEX_NO_QUERY_RAN_NOTE
+            )
+            complex_question_processing_time += time.time() - _complex_call_start
+            if isinstance(_second_payload, dict) and not _second_payload.get("has_error"):
+                retry_payload = _second_payload
+            else:
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text="Complex question resolution, second call failed; keeping the first answer."
+                ))
+                position_counter += 1
         resolved_complex = retry_payload.get("resolved")
         try:
             resolved_complex_json = json.dumps(resolved_complex, ensure_ascii=False)

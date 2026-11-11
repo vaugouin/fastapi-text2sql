@@ -151,6 +151,14 @@ wrote is thrown away. (This differs from a
 franchise NAME above, which IS itself a resolvable collection and so routes to a
 `Collection` query — here the relationship query already ran.)
 
+**A described work is NOT such a relationship, even when the question names a person.** The
+branch above applies only when the question asks for the SET of items related to the entity
+(the films of X, the members of Y, the awards of Z). A question that describes ONE work by
+its role, plot or premise and asks which work it is (`In which series does <actor> play a
+career diplomat named ambassador to London?`, `Dans quel film <acteur> joue-t-il un naufragé
+sur une île ?`) is an identification: the person is a clue, not the subject of a lookup.
+Identify the work and return it with the Movie or Serie pattern, `authoritative_empty` false.
+
 **A character named by a nickname or a title is NOT such an entity.** When the question asks
 who played, voiced or portrayed a character designated by an epithet, a title or a translated
 nickname rather than by the name in the credits (`Who played the <epithet>?`, `Qui a joué

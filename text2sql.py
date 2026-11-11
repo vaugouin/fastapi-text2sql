@@ -1402,8 +1402,14 @@ def f_classify_result_intent(user_question: str, allowed_entities, strmodel: str
     return result_intent.parse_classifier_reply(raw, allowed)
 
 
-def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str = "default"):
-    """Rewrite a complex, non-anonymized question into a simpler question for Text-to-SQL."""
+def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str = "default",
+                               context_note: str = ""):
+    """Rewrite a complex, non-anonymized question into a simpler question for Text-to-SQL.
+
+    ``context_note`` (FASTAPI-TEXT2SQL-367) is appended after the filled template, below the
+    cache boundary, so the provider prompt cache keeps the whole instruction prefix. It tells
+    the model a fact about this request that the prompt cannot know, today only that no
+    database query has run yet."""
     print("Complex question resolution")
     print("User question:", user_question)
 
@@ -1414,6 +1420,8 @@ def f_resolve_complex_question(user_question: str, strcomplexquestionmodel: str 
     try:
         try:
             formatted_prompt = complex_question_prompt_template.replace("{user_question}", user_question)
+            if context_note:
+                formatted_prompt = formatted_prompt.rstrip() + "\n\n" + context_note.strip() + "\n"
         except Exception as format_error:
             print(f"Error formatting complex question prompt template: {str(format_error)}")
             print(f"User question: '{user_question}'")
@@ -1778,9 +1786,26 @@ def f_build_complex_identity_target(resolved, retry_question: str):
         return None
 
 
-def f_resolve_complex_question_retry_payload(user_question: str, strcomplexquestionmodel: str = "default"):
+# FASTAPI-TEXT2SQL-367. The -221 branch of complex_question.md defers to a database result,
+# and on a descriptive identification that result does not exist: extraction routed the
+# question here before any SQL was written. The model still answers `authoritative_empty`
+# on part of the calls (2641 EN 2 of 4, 2718 EN, 2705 EN, 2711 EN), so the caller asks once
+# more with this fact stated.
+COMPLEX_NO_QUERY_RAN_NOTE = (
+    "Note from the app: no database query has run for this question yet, so there is no "
+    "database result for you to defer to, and `authoritative_empty` cannot apply. If the "
+    "question describes one work or one person (a role, a plot, a premise), identify it and "
+    "return it with the Movie, Serie or Person pattern. If it asks for the works of a named "
+    "person, return a question the Text-to-SQL app can query for them (`Movies of <Name>`, "
+    "with the year or the role the question gives). Keep `authoritative_empty` false."
+)
+
+
+def f_resolve_complex_question_retry_payload(user_question: str, strcomplexquestionmodel: str = "default",
+                                             context_note: str = ""):
     """Resolve a complex question and package the retry payload used by the API flow."""
-    resolved_complex = f_resolve_complex_question(user_question, strcomplexquestionmodel)
+    resolved_complex = f_resolve_complex_question(user_question, strcomplexquestionmodel,
+                                                  context_note=context_note)
     retry_question = f_build_retry_question_from_reasoning(resolved_complex)
     try:
         reasoning_justification = str(resolved_complex.get("justification") or "").strip()
