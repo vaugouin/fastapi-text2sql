@@ -47,6 +47,9 @@ REPRESENTATIONS = (
     "timeline",      # N entity rows placed on a time axis by the date the question asked (phase 2 lot A)
     "sequence-strip",  # N entity rows in their order (by date or collection order), numbered (phase 2 lot A)
     "trend-columns",   # N rows of a year or decade plus one metric, one column per period (phase 2 lot A)
+    "compare-cards",   # 2 to 4 named entities side by side, one or two quantities, the winner marked (phase 2 lot B)
+    "fact-card",       # one entity and the one quantity or date the question asks about (phase 2 lot B)
+    "verdict",         # a yes/no answer read from the rows: a row exists, none does, a count above zero (phase 2 lot B)
     "table",         # the honest fallback, never an empty card
 )
 
@@ -60,6 +63,12 @@ _REQUESTED_VIEW_REPRESENTATIONS = {
     "chart": ("ranked-bars", "trend-columns", "timeline"),
     "cards": ("value-cards", "card-grid"),
 }
+# Phase 2 lot B. A comparison is drawn side by side for two to four entities; more rows (homonyms
+# of a named title, a set) keep value-cards. A comparison shows at most two quantities.
+_COMPARE_MIN_ROWS, _COMPARE_MAX_ROWS, _COMPARE_MAX_COLUMNS = 2, 4, 2
+# A month or a day projected beside a year (BIRTH_MONTH, BIRTH_DAY for "born before") is a part
+# of a date, not a quantity to compare.
+_DATE_PART_RE = re.compile(r"_(?:MONTH|DAY)$", re.IGNORECASE)
 # An ORDER BY on the collection's own order (the prompt sorts a collection on DISPLAY_ORDER,
 # which it does not project): summary_facts.order is then "collection".
 _COLLECTION_ORDER_RE = re.compile(r"DISPLAY_ORDER|COLLECTION_ORDER", re.IGNORECASE)
@@ -377,16 +386,111 @@ def _summary_facts(sql, rows, result_rows, columns, value_col, order_col, order_
     return facts
 
 
-def _options(representation, family, has_value_col, has_bar_col, has_time_axis=False, has_sequence=False):
+def _fold_label(value):
+    """A title folded for comparison: lowercase, accents stripped, spaces collapsed."""
+    table = str.maketrans("àâäáãåéèêëíìîïóòôöõúùûüçñœæ", "aaaaaaeeeeiiiiooooouuuucnoe")
+    return " ".join(str(value or "").lower().translate(table).split())
+
+
+def _same_label(rows, columns):
+    """True when every row carries the same non-empty label: homonyms of the one title asked for."""
+    label_col = next((c["name"] for c in columns if c["role"] == "label"), None)
+    if not label_col:
+        return False
+    labels = {_fold_label(r.get(label_col)) for r in rows}
+    return len(labels) == 1 and "" not in labels
+
+
+def _compare_columns(focus, value_col, by_name):
+    """The quantities a comparison shows: the focus columns, else the value column; two at most.
+
+    A date part (BIRTH_MONTH) is dropped, and so is IMDB_RATING_WEIGHTED beside IMDB_RATING
+    (the "rating" focus names both; the weighted one is the prompt's sort key, not the rating).
+    """
+    names = [n for n in (focus or ([value_col] if value_col else []))
+             if n in by_name and by_name[n]["role"] in ("metric", "date") and not _DATE_PART_RE.search(n)]
+    upper = {n.upper() for n in names}
+    if "IMDB_RATING" in upper:
+        names = [n for n in names if n.upper() != "IMDB_RATING_WEIGHTED"]
+    return names[:_COMPARE_MAX_COLUMNS]
+
+
+def _comparable(value):
+    """A cell as a number to compare: a metric, a year, or the year-month-day of a date string."""
+    if _is_numeric(value):
+        return float(value)
+    if isinstance(value, (date, datetime)):
+        return float(value.strftime("%Y%m%d"))
+    m = re.match(r"^\s*(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?", str(value or ""))
+    if m:
+        return float(m.group(1) + (m.group(2) or "00") + (m.group(3) or "00"))
+    return None
+
+
+def _winners(rows, columns, compare_cols, order_col, order_dir):
+    """One entry per compared quantity: the row that wins it, or a tie, or no winner.
+
+    The row the outer ORDER BY puts first wins the column it sorts on (the model ordered the
+    answer: "who was born first" sorts BIRTH_YEAR ascending); another metric is won by its
+    maximum; another date has no direction, so no winner. Equal values are a tie.
+    """
+    by_name = {c["name"]: c for c in columns}
+    label_col = next((c["name"] for c in columns if c["role"] == "label"), None)
+    id_col = next((c["name"] for c in columns if c["role"] == "entity_id"), None)
+    out = []
+    for name in compare_cols:
+        role = by_name[name]["role"]
+        values = [(i, _comparable(r.get(name))) for i, r in enumerate(rows)]
+        values = [(i, v) for i, v in values if v is not None]
+        entry = {"column": name, "unit": by_name[name].get("unit"), "role": role,
+                 "index": None, "id": None, "label": None, "value": None, "extreme": None, "tie": False}
+        if len(values) >= 2 and len({v for _, v in values}) == 1:
+            entry["tie"] = True
+        elif values:
+            if name == order_col and values[0][0] == 0:
+                index = 0
+                if role == "metric":
+                    extreme = "min" if order_dir == "asc" else "max"
+                else:
+                    extreme = "earliest" if order_dir == "asc" else "latest"
+            elif role == "metric":
+                index, extreme = max(values, key=lambda iv: iv[1])[0], "max"
+            else:
+                index, extreme = None, None
+            if index is not None:
+                raw = rows[index].get(name)
+                entry.update({"index": index, "id": rows[index].get(id_col) if id_col else None,
+                              "label": rows[index].get(label_col) if label_col else None,
+                              "value": _number(raw) if _is_numeric(raw) else raw, "extreme": extreme})
+        out.append(entry)
+    return out
+
+
+def _fact(rows, columns, fact_col):
+    """The fact of a fact-card: the first row and the value of the column the question asked for."""
+    by_name = {c["name"]: c for c in columns}
+    label_col = next((c["name"] for c in columns if c["role"] == "label"), None)
+    id_col = next((c["name"] for c in columns if c["role"] == "entity_id"), None)
+    raw = rows[0].get(fact_col)
+    return {"index": 0, "id": rows[0].get(id_col) if id_col else None,
+            "label": rows[0].get(label_col) if label_col else None,
+            "column": fact_col, "role": by_name[fact_col]["role"], "unit": by_name[fact_col].get("unit"),
+            "value": _number(raw) if _is_numeric(raw) else raw, "others": len(rows) - 1}
+
+
+def _options(representation, family, has_value_col, has_bar_col, has_time_axis=False, has_sequence=False,
+             has_compare=False):
     """The valid representations for the shape, default first (FASTAPI-TEXT2SQL-354).
 
     Phase 2 lot A: a timeline when the value column is a date, a sequence strip when the rows
     come in date or collection order; the other forms of the shape stay offered beside them.
+    Phase 2 lot B: compare cards for two to four entities with a quantity. The fact card and the
+    verdict are put first by the caller, over the options of the shape they stand on.
     """
     if family == "entity_many":
         candidates = ["card-grid"] + (["timeline"] if has_time_axis else []) + (
-            ["sequence-strip"] if has_sequence else []) + (["value-cards"] if has_value_col else []) + (
-            ["ranked-bars"] if has_bar_col else []) + ["table"]
+            ["sequence-strip"] if has_sequence else []) + (["compare-cards"] if has_compare else []) + (
+            ["value-cards"] if has_value_col else []) + (["ranked-bars"] if has_bar_col else []) + ["table"]
     elif family == "entity_images":
         candidates = ["card-grid", "table"]
     elif family == "entity_one":
@@ -430,7 +534,9 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
           - representation_options: the valid representations for this shape, default first
             (always contains `representation`); what the fronts offer as override chips;
           - summary_facts: language-neutral numbers (count, total, value_column, unit, order,
-            order_direction, top), or None with no rows.
+            order_direction, top), or None with no rows; phase 2 lot B adds `winners` when
+            compare-cards is an option, `fact` on a fact-card, `verdict` and `verdict_basis` on
+            a verdict (an empty verdict is the one rowless result with summary_facts).
     """
     ids = frozenset(id_columns) if id_columns is not None else _DEFAULT_ID_COLUMNS
     result_rows = list(result_rows or [])
@@ -463,6 +569,8 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
     label_cols = [c for c in columns if c["role"] == "label"]
     value_col = None
     family = "other"
+    compare_cols = []
+    ranking = False
 
     # Entity rows: one entity is a page, many are a grid, many ordered by a metric is a
     # ranking (the poster-versus-bar choice is the client's, VOICE-AGENT-244). A ranking is
@@ -486,7 +594,15 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
             value_col = _value_column(sql, columns, focus, order_col)
             order_is_metric = by_name.get(order_col, {}).get("role") == "metric"
             ranking = _is_entity_ranking(sql, order_col, columns, result_entity)
-            if task == "compare" and value_col:
+            # Phase 2 lot B: two to four named entities and the quantity compared, side by side.
+            # A yes/no question that compares ("Is Titanic longer than Avatar?") lands here too
+            # when its focus names the quantity; without a focus a verdict is an existence test.
+            compare_cols = _compare_columns(focus, value_col if task == "compare" else None, by_name)
+            if not (_COMPARE_MIN_ROWS <= len(rows) <= _COMPARE_MAX_ROWS):
+                compare_cols = []
+            if task in ("compare", "verdict") and compare_cols:
+                representation = "compare-cards"
+            elif task == "compare" and value_col:
                 representation = "value-cards"
             elif task == "value" and value_col and not ranking and by_name.get(value_col, {}).get("role") == "date":
                 # Phase 2 lot A: "when were the Alien films released?" asks for a date per
@@ -581,13 +697,58 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
     # would otherwise grow a strip chip it never asked for.
     has_sequence = family == "entity_many" and in_sequence and task == "sequence"
     options = _options(representation, family, value_col is not None, bar_col is not None,
-                       has_time_axis, has_sequence)
-    # An explicit "as a table" / "as a chart" / "as cards" wins when the shape allows it.
-    for wanted in _REQUESTED_VIEW_REPRESENTATIONS.get(requested_view, ()):
+                       has_time_axis, has_sequence, bool(compare_cols))
+
+    # Phase 2 lot B, over the options of the shape they stand on (each is put first).
+    # fact-card: a value task on one entity, or on homonyms of one title (every row carries the
+    # same label and the rows come in the default sort, so the first row is the title meant),
+    # with a focus column projected: "How long is Lawrence of Arabia?", "When was Vertigo
+    # released?" (eleven films named Vertigo).
+    fact_col = None
+    if task == "value" and focus and family in ("entity_one", "entity_many"):
+        default_order = order_col is None or (
+            order_col.upper() in _DEFAULT_ENTITY_METRICS and not _is_computed_alias(sql, order_col))
+        if family == "entity_one" or (_same_label(rows, columns) and default_order and not ranking):
+            fact_col = next(iter(_compare_columns(focus, None, by_name)), None)
+    # verdict: a yes/no question the rows answer without reading the question again. Entity
+    # rows and no focus: the SQL is an existence test ("Did Spielberg direct Jaws?"), a row is
+    # Yes. No row at all: No. One count with no entity: above zero is Yes. A yes/no question
+    # with a focus is a comparison (compare-cards above) and gets no Yes/No (README limits).
+    verdict = basis = None
+    if task == "verdict":
+        if has_entity and rows and not focus and family != "entity_images":
+            verdict, basis = "yes", "rows"
+        elif not rows:
+            verdict, basis = "no", "empty"
+        elif not has_entity and len(rows) == 1 and kind == "count" and metric_cols:
+            count = _number(rows[0].get(metric_cols[0]["name"]))
+            if count is not None:
+                verdict, basis = ("yes" if count > 0 else "no"), "count"
+    if fact_col:
+        representation = "fact-card"
+        by_name[fact_col]["focus"] = True
+    elif verdict:
+        representation = "verdict"
+    if representation in ("fact-card", "verdict"):
+        options = [representation] + [o for o in options if o != representation]
+
+    # An explicit "as a table" / "as a chart" / "as cards" wins when the shape allows it; a
+    # compare-cards or fact-card default already is cards.
+    keep = requested_view == "cards" and representation in ("compare-cards", "fact-card")
+    for wanted in (() if keep else _REQUESTED_VIEW_REPRESENTATIONS.get(requested_view, ())):
         if wanted in options:
             representation = wanted
             options = [wanted] + [o for o in options if o != wanted]
             break
     summary = _summary_facts(sql, rows, result_rows, columns, value_col, order_col, order_dir) if rows else None
+    if compare_cols and "compare-cards" in options:
+        summary["winners"] = _winners(rows, columns, compare_cols, order_col, order_dir)
+    if fact_col:
+        summary["fact"] = _fact(rows, columns, fact_col)
+    if verdict:
+        if summary is None:
+            summary = {"count": 0, "total": None, "value_column": None, "unit": None, "order": None,
+                       "order_direction": None, "top": None}
+        summary["verdict"], summary["verdict_basis"] = verdict, basis
     return {"result_kind": kind, "columns": columns, "representation": representation,
             "representation_options": options, "summary_facts": summary}

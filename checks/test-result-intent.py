@@ -139,7 +139,7 @@ short = rs.classify_result("SELECT ... ORDER BY T_WC_T2S_MOVIE.RUNTIME ASC LIMIT
 check("ascending ranking: bars, top is the minimum", (short["representation"], short["summary_facts"]["top"]["value"], short["summary_facts"]["top"]["extreme"]), ("ranked-bars", 130, "min"))
 PAIR = movie_rows([194, 162])
 cmp_ = rs.classify_result("SELECT ... ORDER BY T_WC_T2S_MOVIE.RUNTIME DESC", PAIR, "movie", intent=ri.core_intent("Which is longer, Titanic (1997) or Avatar (2009)?"))
-check("compare: value-cards", cmp_["representation"], "value-cards")
+check("compare of two: compare-cards (phase 2 lot B)", cmp_["representation"], "compare-cards")
 bud = movie_rows([150, 200], key="BUDGET")
 check("value ordered on itself stays a ranking", rs.classify_result("SELECT ... ORDER BY T_WC_T2S_MOVIE.BUDGET DESC", bud, "movie",
       intent=ri.core_intent("The Toy Story movies with the budget of each"))["representation"], "ranked-bars")
@@ -169,6 +169,70 @@ check("trend: columns, value, options", (tr["representation"], tr["summary_facts
       ("trend-columns", "FILM_COUNT", ["trend-columns", "table"]))
 check("trend asked as a table", rs.classify_result(DEC_SQL, DECADES, "", intent=ri.core_intent("How many films did Woody Allen direct per decade, as a table?"))["representation"], "table")
 check("grouped by decade without a trend intent stays a table", rs.classify_result(DEC_SQL, DECADES, "")["representation"], "table")
+
+# Phase 2 lot B (2026-11-11): compare-cards, fact-card, verdict, and the yes/no rules.
+VERDICT_RULES = [
+    ("Did Ridley Scott direct Gladiator?", "verdict"),
+    ("Can you show me the Kubrick films?", "list"),
+    ("Do you have films with Brad Pitt?", "list"),
+    ("Sergio Leone a-t-il réalisé Il était une fois dans l'Ouest ?", "verdict"),
+    ("Heat est-il plus long que Casino ?", "verdict"),
+    ("Quels films Sergio Leone a-t-il réalisés ?", "list"),
+    ("Pouvez-vous lister les films de Kubrick ?", "list"),
+    ("Est-ce que vous avez des films de Kubrick ?", "list"),
+    ("Combien de films Kubrick a-t-il réalisés ?", "count"),
+    ("Qu'y a-t-il dans la liste des 1001 films ?", "list"),
+]
+for question, want in VERDICT_RULES:
+    check(f"rules {question!r}", ri.rules_task(question), want)
+CMP_SQL = "SELECT ... ORDER BY T_WC_T2S_MOVIE.RUNTIME DESC LIMIT 50"
+LLM_CMP = {"task": "compare", "focus": ["runtime"], "requested_view": "", "source": "llm"}
+cc = rs.classify_result(CMP_SQL, movie_rows([175, 202]), "movie", intent=LLM_CMP)
+check("compare-cards: options", cc["representation_options"], ["compare-cards", "card-grid", "value-cards", "ranked-bars", "table"])
+check("compare-cards: winner is the first row of the ORDER BY", {k: cc["summary_facts"]["winners"][0][k] for k in ("column", "index", "value", "extreme", "tie")},
+      {"column": "RUNTIME", "index": 0, "value": 175, "extreme": "max", "tie": False})
+check("compare of five stays value-cards", rs.classify_result(CMP_SQL, movie_rows([1, 2, 3, 4, 5]), "movie", intent=LLM_CMP)["representation"], "value-cards")
+tie = rs.classify_result(CMP_SQL, movie_rows([5, 5], key="NUMBER_OF_SEASONS"), "serie",
+                         intent={"task": "compare", "focus": ["seasons"], "requested_view": "", "source": "llm"})
+check("compare-cards: a tie has no winner", (tie["representation"], tie["summary_facts"]["winners"][0]["tie"], tie["summary_facts"]["winners"][0]["index"]), ("compare-cards", True, None))
+two = rs.classify_result("SELECT ... ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC", [
+    {"index": 0, "data": {"ID_MOVIE": 1, "MOVIE_TITLE": "A", "BUDGET": 100, "REVENUE": 900}},
+    {"index": 1, "data": {"ID_MOVIE": 2, "MOVIE_TITLE": "B", "BUDGET": 200, "REVENUE": 300}}], "movie",
+    intent={"task": "compare", "focus": ["budget", "revenue"], "requested_view": "", "source": "llm"})
+check("compare-cards: two quantities, max of each", [(w["column"], w["index"]) for w in two["summary_facts"]["winners"]], [("BUDGET", 1), ("REVENUE", 0)])
+PERSONS = [{"index": i, "data": {"ID_PERSON": 10 + i, "PERSON_NAME": n, "BIRTH_YEAR": y, "BIRTH_MONTH": 1, "BIRTH_DAY": 2}}
+           for i, (n, y) in enumerate([("P1", 1899), ("P2", 1915)])]
+born = rs.classify_result("SELECT ... ORDER BY CASE WHEN BIRTH_YEAR IS NULL THEN 1 ELSE 0 END, T_WC_T2S_PERSON.BIRTH_YEAR ASC", PERSONS, "person",
+                          intent={"task": "verdict", "focus": ["birth"], "requested_view": "", "source": "llm"})
+check("yes/no comparison: compare-cards on the year, not the month", (born["representation"], [w["column"] for w in born["summary_facts"]["winners"]],
+      born["summary_facts"]["winners"][0]["extreme"]), ("compare-cards", ["BIRTH_YEAR"], "earliest"))
+FACT_VALUE = {"task": "value", "focus": ["runtime"], "requested_view": "", "source": "llm"}
+fc = rs.classify_result("SELECT ... ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC", movie_rows([228]), "movie", intent=FACT_VALUE)
+check("fact-card: one entity, one value", (fc["representation"], fc["representation_options"], fc["summary_facts"]["fact"]["value"], fc["summary_facts"]["fact"]["others"]),
+      ("fact-card", ["fact-card", "entity-page", "table"], 228, 0))
+HOMONYMS = [{"index": i, "data": {"ID_MOVIE": 426 + i, "MOVIE_TITLE": t, "DAT_RELEASE": d, "IMDB_RATING_WEIGHTED": 8.1 - i}}
+            for i, (t, d) in enumerate([("Vertigo", "1958-05-28"), ("Vertigo", "2016-08-10"), ("Vértigo", "1950-05-28")])]
+WHEN = {"task": "value", "focus": ["release_date"], "requested_view": "", "source": "llm"}
+fh = rs.classify_result("SELECT ... ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC", HOMONYMS, "movie", intent=WHEN)
+check("fact-card: homonyms of one title, first row", (fh["representation"], fh["summary_facts"]["fact"]["id"], fh["summary_facts"]["fact"]["value"], fh["summary_facts"]["fact"]["others"]),
+      ("fact-card", 426, "1958-05-28", 2))
+check("homonyms ordered by date stay a timeline", rs.classify_result(DATE_SQL, HOMONYMS, "movie", intent=WHEN)["representation"], "timeline")
+check("distinct titles stay a timeline", tl["representation"], "timeline")
+check("one entity, no value asked: entity page", rs.classify_result("SELECT ...", movie_rows([228]), "movie", intent=ri.core_intent("Movie Lawrence of Arabia"))["representation"], "entity-page")
+check("fact-card as a table", rs.classify_result("SELECT ...", movie_rows([228]), "movie",
+      intent={"task": "value", "focus": ["runtime"], "requested_view": "table", "source": "llm"})["representation"], "table")
+YES = {"task": "verdict", "focus": [], "requested_view": "", "source": "llm"}
+vy = rs.classify_result("SELECT ... WHERE ... CREW_DEPARTMENT = 'Directing'", movie_rows([124]), "movie", intent=YES)
+check("verdict yes: a row exists", (vy["representation"], vy["representation_options"], vy["summary_facts"]["verdict"], vy["summary_facts"]["verdict_basis"]),
+      ("verdict", ["verdict", "entity-page", "table"], "yes", "rows"))
+vn = rs.classify_result("SELECT ...", [], "movie", intent=YES)
+check("verdict no: no row", (vn["representation"], vn["representation_options"], vn["summary_facts"]["verdict"], vn["summary_facts"]["count"]),
+      ("verdict", ["verdict", "card-grid", "table"], "no", 0))
+vc = rs.classify_result("SELECT COUNT(DISTINCT ID_ROW) AS AWARD_WIN_COUNT FROM T", [{"index": 0, "data": {"AWARD_WIN_COUNT": 3}}], "award", intent=YES)
+check("verdict on a count above zero", (vc["representation"], vc["representation_options"], vc["summary_facts"]["verdict"]), ("verdict", ["verdict", "number-card", "table"], "yes"))
+check("verdict on a count of zero", rs.classify_result("SELECT COUNT(*) AS N FROM T", [{"index": 0, "data": {"N": 0}}], "", intent=YES)["summary_facts"]["verdict"], "no")
+check("verdict on a sum: no verdict", rs.classify_result("SELECT SUM(RUNTIME) AS TOTAL_RUNTIME FROM T", [{"index": 0, "data": {"TOTAL_RUNTIME": 9}}], "", intent=YES)["representation"], "number-card")
+check("empty without a verdict: no facts, no verdict", (vn["summary_facts"] is not None, rs.classify_result("SELECT 1", [], "movie")["representation"]), (True, "card-grid"))
 
 
 # 6. sql_cache degrades column by column, newest first.

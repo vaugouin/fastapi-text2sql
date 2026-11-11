@@ -18,8 +18,8 @@ The intent is a prior for the shape rules (-354), never an order: it never chang
 Pure module, no I/O, so checks/test-result-intent.py runs it offline.
 
 The task vocabulary is the closed set of the evaluation grammar (text2sql-eval
-result_shape_assertions.INTENT_TASKS: list, value, rank, count, compare, sequence, trend) plus
-two the bank does not assert yet, relate and verdict. The ticket's `lookup` and `describe` are
+result_shape_assertions.INTENT_TASKS: list, value, rank, count, compare, sequence, trend, and
+verdict since phase 2 lot B) plus relate, which the bank does not assert yet. The ticket's `lookup` and `describe` are
 folded into `list`: Philippe labelled the identifier lookups 79 and 80 `list` on 2026-11-08,
 since a lookup returns entity rows asked for themselves, with no quantity.
 """
@@ -170,6 +170,16 @@ _WHEN_RE = re.compile(
 _NOT_FOCUS_RE = re.compile(r"\blongs?[ -]metrages?\b")
 _COUNT_RE = re.compile(r"\bhow many\b|\bnumber of\b|\bcount\b|\bcombien\b|\bnombre de\b")
 _VERDICT_RE = re.compile(r"^(?:did|does|do|is|was|were|are|has|have|had|can)\s|^(?:est-ce qu|est-ce que)\b")
+# Phase 2 lot B. A request worded as a question is not a yes/no question ("Can you show me the
+# Kubrick films?", "Pouvez-vous ..."), and French asks yes/no by inversion ("Spielberg a-t-il
+# realise Jaws ?", "Titanic est-il plus long qu'Avatar ?") when no question word asks for
+# something else ("Quels films Spielberg a-t-il realises ?" is a list).
+_NOT_VERDICT_RE = re.compile(
+    r"^(?:can|could|would|will) (?:you|i|we)\b|^do you\b|^(?:est-ce que|est-ce qu) (?:tu|vous)\b"
+    r"|^(?:peux|pouvez|pourrais|pourriez|veux|voulez)[- ]")
+_FR_INVERSION_RE = re.compile(r"\b\w+-(?:t-)?(?:il|elle|ils|elles)\b")
+_FR_QUESTION_WORD_RE = re.compile(
+    r"\b(?:qui|quoi|quel|quelle|quels|quelles|lequel|laquelle|lesquels|lesquelles|quand|comment|combien|pourquoi)\b|^ou\b|^qu'|^que\b")
 _RELATE_RE = re.compile(r"\bconnected\b|\brelationship between\b|\bin common\b|\bboth\b.*\band\b|\bpoint commun\b|\ben commun\b|\blien entre\b")
 _VIEW_RES = (
     ("table", re.compile(r"\bas a table\b|\bin a table\b|\btabular\b|\ben tableau\b|\bsous forme de tableau\b|\bdans un tableau\b")),
@@ -204,9 +214,19 @@ def rules_task(question):
         return "count"
     if _RELATE_RE.search(q):
         return "relate"
-    if _VERDICT_RE.search(q):
+    if _is_verdict(q):
         return "verdict"
     return "list"
+
+
+def _is_verdict(q):
+    """A yes/no question, on the folded question: an English auxiliary first, est-ce que, or a
+    French inversion with no question word; never a request worded as a question."""
+    if _NOT_VERDICT_RE.search(q):
+        return False
+    if _VERDICT_RE.search(q):
+        return True
+    return bool(_FR_INVERSION_RE.search(q)) and not _FR_QUESTION_WORD_RE.search(q)
 
 
 def rules_focus(question):
