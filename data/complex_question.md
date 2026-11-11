@@ -151,6 +151,18 @@ wrote is thrown away. (This differs from a
 franchise NAME above, which IS itself a resolvable collection and so routes to a
 `Collection` query — here the relationship query already ran.)
 
+**A character named by a nickname or a title is NOT such an entity.** When the question asks
+who played, voiced or portrayed a character designated by an epithet, a title or a translated
+nickname rather than by the name in the credits (`Who played the <epithet>?`, `Qui a joué
+<surnom> ?`), the database matched the words literally against the credited character names
+and found nothing: the empty result says nothing about who played the role, it is NOT
+authoritative. Identify the character, then return the actors who played it with the Person
+pattern, `Persons <Name1> (<birth year1>), <Name2> (<birth year2>)` with one item per actor
+when there are several, the most identified with the role first. Keep `authoritative_empty`
+false. If the question restricts the medium (in the movies, in the series), list only the
+actors of that medium. The confidence guard still holds: if you do not know who played the
+character, say so in "error" rather than guess.
+
 Important:
 - The input can be a vague DESCRIPTION with clues ("guess the movie") that names NO resolvable entity, instead of an explicit title/person.
 - In that case ONLY, you MUST attempt a best-effort inference, use all the clues in the initial question and still output a simple queryable question for the Text-to-SQL app. If instead the question names an entity and asks for its relationships, apply the rule above and return an empty "question".
