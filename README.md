@@ -1423,9 +1423,9 @@ This section is the **single source of truth** for the two clients that draw a `
 | Columns used | `entity_id`, `label`, the image path; the compared quantities: the `focus` columns, at most two, without a date part (`BIRTH_MONTH`, `BIRTH_DAY`) and without `IMDB_RATING_WEIGHTED` beside `IMDB_RATING`; formatted by unit (a `date` column as its year or date) |
 | Facts | `summary_facts.winners`: one `{column, unit, role, index, id, label, value, extreme, tie}` per compared quantity. The row the outer `ORDER BY` puts first wins the column it sorts on (`extreme` `max` or `min` for a metric, `earliest` or `latest` for a date: "Who was born first" sorts `BIRTH_YEAR` ascending); another metric is won by its maximum; another date has no winner (`index` `null`). Equal values are a tie (`tie` true, `index` `null`), and no card is marked |
 | Limits | four rows; the API never says Yes or No to a comparative yes/no question (it would need the subject and the direction of the comparison, which the rows do not carry): the marked card answers it. A homonym among the rows (a 2023 short also titled The Godfather) is drawn like the others |
-| Spoken | the count and each winner ("Two titles side by side; Titanic leads on runtime, 3 h 14"; "Deux titres côte à côte ; Titanic l'emporte en durée, 3 h 14"); a tie says so ("same seasons, 5" / "même saisons, 5") |
+| Spoken | the count with the noun of the rows, then each winner ("Two films side by side; Titanic leads on runtime, 3 h 14"; "Deux films côte à côte ; Titanic l'emporte en durée, 3 h 14"; persons "Two people side by side" / "Deux personnes côte à côte"); a date winner "Charlie Chaplin comes first (1889)" / "vient en premier", a minimum "has the lowest runtime"; a tie says so, no card marked. The two fronts word the tie differently today (voice-agent "tied on seasons, 5" / "à égalité en saisons, 5"; t2s-front "same number of seasons, 5"): to align |
 | voice-agent | `renderCompareCards()` |
-| t2s-front | `f_t2srep_render_compare_cards()`, caption from `f_t2srep_caption()` |
+| t2s-front | `f_t2srep_render_compare_cards()`, caption `f_t2srep_caption_compare()` through `f_t2srep_caption()` |
 
 | `fact-card` (phase 2 lot B) | |
 |---|---|
@@ -1436,7 +1436,7 @@ This section is the **single source of truth** for the two clients that draw a `
 | Limits | one fact; a label or text column (a character name, a tagline) is not a fact here: the `focus` vocabulary names quantities and dates only, so "Who played Han Solo?" stays the entity page. Which homonym is meant is the default sort's choice, never guessed otherwise |
 | Spoken | "<label>: <quantity word>, <value>" ("Lawrence of Arabia: runtime, 3 h 48"; "Lawrence d'Arabie : durée, 3 h 48"), plus "(N other titles with this name)" / "(N autres titres portent ce nom)" when `others` is above zero |
 | voice-agent | `renderFactCard()` |
-| t2s-front | `f_t2srep_render_fact_card()`, caption from `f_t2srep_caption()` |
+| t2s-front | `f_t2srep_render_fact_card()`, caption `f_t2srep_caption_fact()` through `f_t2srep_caption()` |
 
 | `verdict` (phase 2 lot B) | |
 |---|---|
@@ -1444,9 +1444,9 @@ This section is the **single source of truth** for the two clients that draw a `
 | When | `intent.task == verdict` and the rows answer without reading the question again: (a) entity rows, not images, and no `focus`: the SQL is an existence test ("Did Steven Spielberg direct Jaws?" filters on both), a row is Yes (`verdict_basis` `rows`); (b) no row at all: No (`empty`); (c) one row, no entity, a `COUNT` (`result_kind` `count`): above zero is Yes, zero is No (`count`). A yes/no question with a `focus` is a comparison and goes to `compare-cards`, never to a verdict; a one-row sum or average gets no verdict |
 | Columns used | `summary_facts.verdict` (`yes` or `no`) and `verdict_basis`; the evidence is drawn below with the renderer of the next option (`entity-page` or `card-grid` for rows, `number-card` for a count, nothing for an empty result) |
 | Limits | a Yes is only as right as the SQL's filter: a query that drops a condition of the question returns rows and reads Yes. A No on an empty result cannot tell "it is not so" from "the database does not have it" or from an entity the pipeline failed to resolve; the fronts say "nothing in the database", never "it is false". On 1.1.20 "Has Meryl Streep ever won an Oscar?" counted `AWARD_NAME = 'Osgar'`, 0, a wrong No (evaluation 2864) |
-| Spoken | "Yes: <N> matching result(s)." / "No: nothing in the database matches."; for a count "Yes: <value>." / "No: 0." ("Oui : <N> résultat(s) correspondant(s)." / "Non : rien dans la base ne correspond.") |
+| Spoken | "Yes: <N> matching result(s)." / "No: nothing in the database matches."; for a count "Yes: <value>." / "No: 0." ("Oui : <N> résultat(s) correspondant(s)." / "Non : rien dans la base ne correspond."); voice-agent says "at least N" when more pages follow. An empty verdict offers no chips. A view the user chose on an earlier answer (say `table`) does not replace a `fact-card` or `verdict` default in voice-agent: they are the answer itself |
 | voice-agent | `renderVerdict()` |
-| t2s-front | `f_t2srep_render_verdict()`, caption from `f_t2srep_caption()` |
+| t2s-front | `f_t2srep_render_verdict()`, caption `f_t2srep_caption_verdict()` through `f_t2srep_caption()`; the evidence is the card view, which also answers to `verdict` |
 
 | `number-card` | |
 |---|---|
