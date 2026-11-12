@@ -57,6 +57,7 @@ REPRESENTATIONS = (
     "scatter",         # N entity rows as dots over two quantities, x against y (phase 3 lot A)
     "map",             # the countries of a flag list shaded on a world outline (phase 3 lot B)
     "hierarchy",       # N entity rows under one or two levels of groups named in the rows (phase 3 lot C)
+    "chain",           # works joined by remake and adaptation links, from the API's lineage walk (phase 3 lot E)
     "table",         # the honest fallback, never an empty card
 )
 
@@ -73,6 +74,7 @@ _REQUESTED_VIEW_REPRESENTATIONS = {
     "scatter": ("scatter",),
     "map": ("map",),
     "hierarchy": ("hierarchy",),
+    "chain": ("chain",),
 }
 # Phase 3 lot A. A scatter needs five points carrying both quantities: fewer is a handful of
 # cards, which value-cards or compare-cards already draw better than a near-empty plot.
@@ -1192,6 +1194,35 @@ def _options(representation, family, has_value_col, has_bar_col, has_time_axis=F
         if c not in out:
             out.append(c)
     return out
+
+
+def apply_chain(shape, chain, default=False):
+    """Phase 3 lot E: add the lineage walk's chain to a classified result, in place.
+
+    classify_result reads rows only and never sees a chain: the walk (result_chain.py) is a second
+    query the API runs after it, so an offline census, with no database, leaves every result as
+    it was. Here `chain` (summary_facts.chain, two edges at least) joins the options before
+    `table`; with `default` it becomes the representation, except over a fact card or a verdict,
+    which answer the question themselves ("Is The Departed a remake of Infernal Affairs?"): the
+    chain then comes right after them. Returns the shape.
+    """
+    if not chain or not shape or not isinstance(shape.get("summary_facts"), dict):
+        return shape
+    if len(chain.get("edges") or []) < 2:
+        return shape
+    options = _with_option(list(shape.get("representation_options") or []), "chain")
+    representation = shape.get("representation")
+    if default:
+        rest = [o for o in options if o != "chain"]
+        if representation in ("fact-card", "verdict"):
+            options = [representation, "chain"] + [o for o in rest if o != representation]
+        else:
+            representation = "chain"
+            options = ["chain"] + rest
+    shape["representation"] = representation
+    shape["representation_options"] = options
+    shape["summary_facts"]["chain"] = chain
+    return shape
 
 
 def classify_result(sql_query, result_rows, result_entity="", id_columns=None, intent=None):

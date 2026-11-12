@@ -29,6 +29,10 @@ representations emitted on questions with no result-shape assertion.
 Acceptance: on the 1.1.20 exports of 2026-11-08 the module in service reproduces the served
 representation on the 82 labelled questions of each language, with no flip.
 
+Phase 3 lot E (2026-11-12): the `chain` representation comes from the API's lineage walk, a second
+query on the database that this census cannot run; the report lists the exports where the live
+API would walk (result_chain.plan, pure), and the shape rules alone never offer `chain`.
+
 Written for FASTAPI-TEXT2SQL-351 (2026-11-02); the first census, for -350, was ad hoc.
 """
 import argparse
@@ -46,6 +50,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 import result_intent  # noqa: E402  (FASTAPI-TEXT2SQL-354: the intent the new module reads)
+import result_chain  # noqa: E402  (phase 3 lot E: the walk's gate, counted here, never run)
 
 
 def _load(name, path):
@@ -128,6 +133,7 @@ def census(exec_dir, old, new, assertions, rsa):
     old_intent = _takes_intent(old)
     ranked = defaultdict(list)
     counts_old, counts_new = Counter(), Counter()
+    chain_planned = []
     n = n_pass = n_fail = 0
     for path in _latest_exports(exec_dir):
         try:
@@ -149,6 +155,11 @@ def census(exec_dir, old, new, assertions, rsa):
         sources["stored (" + str(stored.get("source") or "?") + ")" if stored else ("rules" if core else "none")] += 1
         o = old.classify_result(sql, rows, ent, intent=core) if (core and old_intent) else old.classify_result(sql, rows, ent)
         c = new.classify_result(sql, rows, ent, intent=core) if core else new.classify_result(sql, rows, ent)
+        # Phase 3 lot E: `chain` needs the lineage walk, a second query on the database, so the
+        # census cannot offer it; it counts where the live API would walk (the gate is pure).
+        _plan = result_chain.plan(q, core, api.get("entity_match_scores") or [], rows, ent)
+        if _plan:
+            chain_planned.append((eid, lang, _plan["strength"], _plan["direction"], _plan["anchors"][:3], q[:70]))
         served = api.get("representation")
         if served and served != c["representation"]:
             served_miss.append((eid, lang, served, c["representation"], (core or {}).get("task"), q[:80]))
@@ -188,6 +199,9 @@ def census(exec_dir, old, new, assertions, rsa):
     print("new:", dict(sorted(counts_new.items())))
     print("intent:", dict(sorted(sources.items())), "" if old_intent else "(old module takes no intent)")
     print("no result-shape assertion, new module:", dict(sorted(unasserted.items())))
+    print(f"\nLINEAGE WALK planned, live only (phase 3 lot E; chain is never offered offline) ({len(chain_planned)}):")
+    for m in sorted(chain_planned, key=lambda t: (t[0] or 0)):
+        print("  ", m)
     print(f"\nSERVED != RECOMPUTED ({len(served_miss)}):")
     for m in served_miss:
         print("  ", m)

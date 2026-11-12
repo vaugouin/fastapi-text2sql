@@ -35,6 +35,7 @@ import vision_identity
 import sql_shapes
 import result_shape
 import result_intent
+import result_chain
 import closed_vocab
 import samples_assertions as sa
 
@@ -191,6 +192,23 @@ def _run_generated_sql(db_connection, sql_text: str):
         if code == _MARIADB_STATEMENT_TIMEOUT or "max_statement_time" in str(exc):
             raise SqlTimeout(f"{SQL_MAX_STATEMENT_TIME:g}") from exc
         raise
+
+
+def _walk_lineage(plan, ui_language):
+    """Phase 3 lot E: run the lineage walk of result_chain on a short-lived connection.
+
+    Blocking: call it through asyncio.to_thread. Returns (chain or None, statements run).
+    Read-only SELECTs, parameterized, each capped server side (result_chain.STATEMENT_SECONDS)
+    and the whole walk under result_chain.BUDGET_SECONDS of wall clock.
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            source = result_chain.DbLineage(cur)
+            chain = result_chain.build(source, plan, language=ui_language)
+            return chain, source.statements
+    finally:
+        conn.close()
 
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
@@ -5202,36 +5220,28 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             limit = lngrowsperpage
             calculated_offset = (lngpage - 1) * lngrowsperpage
             
-            # Check if SQL query already has LIMIT/OFFSET
-            match_limit_offset = re.search(r"\blimit\b\s+(\d+)\s+\boffset\b\s+(\d+)", sql_query, re.IGNORECASE)
-            match_limit_comma = re.search(r"\blimit\b\s+(\d+)\s*,\s*(\d+)", sql_query, re.IGNORECASE)
-            match_limit_only = re.search(r"\blimit\b\s+(\d+)", sql_query, re.IGNORECASE)
+            # Check if SQL query already has LIMIT/OFFSET. Phase 3 lot E: only the LIMIT that ends
+            # the statement is the model's page size and is replaced; a LIMIT inside a CTE, a
+            # derived table or one branch of a UNION belongs to the query and stays (it used to
+            # be stripped wherever it was, which changed the meaning of a recursive CTE).
+            _paged_base, _trailing_limit, _trailing_offset = sql_shapes.split_trailing_limit(sql_query)
 
-            if match_limit_offset or match_limit_comma or match_limit_only:
+            if _trailing_limit is not None:
                 messages.append(TextMessage(
-                    position=position_counter, 
+                    position=position_counter,
                     text="SQL query contains existing LIMIT/OFFSET clause; removing for pagination if greater than page size."
                 ))
                 position_counter += 1
 
-                # SQL query already has LIMIT, extract existing values
-                if match_limit_offset:
-                    llm_defined_limit = int(match_limit_offset.group(1))
-                    llm_defined_offset = int(match_limit_offset.group(2))
-                elif match_limit_comma:
-                    # MariaDB syntax: LIMIT offset, count
-                    llm_defined_offset = int(match_limit_comma.group(1))
-                    llm_defined_limit = int(match_limit_comma.group(2))
-                else:
-                    llm_defined_limit = int(match_limit_only.group(1))
-                    llm_defined_offset = 0
+                # SQL query already has LIMIT, extract existing values (MariaDB's
+                # `LIMIT offset, count` is read by split_trailing_limit)
+                llm_defined_limit = _trailing_limit
+                llm_defined_offset = _trailing_offset or 0
 
                 print("FOUND EXISTING LIMIT:", llm_defined_limit, "OFFSET:", llm_defined_offset)
 
-                # Remove any existing LIMIT/OFFSET clause to replace with paginated version
-                sql_query = re.sub(r"\blimit\b\s+\d+\s+\boffset\b\s+\d+", "", sql_query, flags=re.IGNORECASE)
-                sql_query = re.sub(r"\blimit\b\s+\d+\s*,\s*\d+", "", sql_query, flags=re.IGNORECASE)
-                sql_query = re.sub(r"\blimit\b\s+\d+", "", sql_query, flags=re.IGNORECASE).strip()
+                # Remove the trailing LIMIT/OFFSET clause only, to replace it with the page
+                sql_query = _paged_base
 
                 # Respect a smaller LLM-defined limit if present
                 if llm_defined_limit < limit:
@@ -5610,9 +5620,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                         # execution block does, then re-append the suffix it computed.
                         _co_suffix_match = re.search(r"\s+LIMIT\s+\d+(?:\s+OFFSET\s+\d+)?\s*$", sql_query or "", re.IGNORECASE)
                         _co_suffix = _co_suffix_match.group(0) if _co_suffix_match else f" LIMIT {lngrowsperpage}"
-                        _co_exec = re.sub(r"\blimit\b\s+\d+\s+\boffset\b\s+\d+", "", _co_base, flags=re.IGNORECASE)
-                        _co_exec = re.sub(r"\blimit\b\s+\d+\s*,\s*\d+", "", _co_exec, flags=re.IGNORECASE)
-                        _co_exec = re.sub(r"\blimit\b\s+\d+", "", _co_exec, flags=re.IGNORECASE).strip() + _co_suffix
+                        # Phase 3 lot E: the trailing LIMIT only, as the execution block does.
+                        _co_exec = sql_shapes.split_trailing_limit(_co_base)[0] + _co_suffix
                         messages.append(TextMessage(
                             position=position_counter,
                             text=f"{_co['label']}: 0 rows on the first pass; {_co['detail']}. Re-executing: {_co_exec}"
@@ -6312,6 +6321,37 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     _result_shape = result_shape.classify_result(
         sql_query, query_results, result_entity, _RESULT_ENTITY_ID_COLUMNS, intent=_intent_core
     )
+    # Phase 3 lot E: the lineage walk behind `chain`. A second, read-only query run by the API
+    # (decision 5 of 2026-11-12), only when the question asks for a lineage of remakes or
+    # adaptations (or the task is relate) and names a work, or the rows are works of one
+    # lineage; bounded in depth, works and time (result_chain.py). Any failure leaves the
+    # result as classify_result made it.
+    _chain_plan = result_chain.plan(request.question or input_text, _intent_core, entity_match_scores,
+                                    query_results, result_entity)
+    if _chain_plan:
+        _chain_start = time.time()
+        try:
+            _chain, _chain_statements = await asyncio.to_thread(
+                _walk_lineage, _chain_plan, normalize_ui_language(request.ui_language))
+            _chain_default = result_chain.is_default(_chain_plan, _chain)
+            result_shape.apply_chain(_result_shape, _chain, default=_chain_default)
+            messages.append(TextMessage(
+                position=position_counter,
+                text=(f"Lineage walk ({_chain_plan['direction']}, {_chain_plan['strength']}) from "
+                      f"{_chain_plan['anchors']}: "
+                      + (f"{_chain['count']} works, {len(_chain['edges'])} links, {_chain['generations']} generations"
+                         + (f", truncated by {_chain['truncated_by']}" if _chain['truncated'] else "")
+                         + (", default" if _chain_default else ", offered")
+                         if _chain else "no chain to offer")
+                      + f"; {_chain_statements} statements in {time.time() - _chain_start:.3f} s.")
+            ))
+            position_counter += 1
+        except Exception as _chain_exc:
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Lineage walk skipped: {type(_chain_exc).__name__}: {_chain_exc}."
+            ))
+            position_counter += 1
     _intent = result_intent.response_intent(_intent_core, _result_shape["columns"])
     if _intent:
         messages.append(TextMessage(

@@ -43,7 +43,13 @@ INTENT_TASKS = ("list", "value", "rank", "count", "compare", "sequence", "trend"
 # trilogy", "by region", "with the films of each", "regroupes par region", "par trilogie"). Read by
 # the rules whatever the source, over the classifier's "" only; it only moves entity rows that carry
 # a group column (result_shape: two groups and four leaves at least), so it changes nothing else.
-REQUESTED_VIEWS = ("table", "chart", "cards", "share", "scatter", "map", "hierarchy")
+# "chain" (phase 3 lot E): the question asks for a lineage of adaptations or remakes ("the chain of
+# remakes behind", "trace X back to its source", "which films descend from", "filiation", "remonte
+# jusqu'a"). Read by the rules whatever the source, over the classifier's "" only, from the strong
+# lineage words of rules_lineage below; the weak ones ("based on", "adapte de") name a source, not a
+# lineage, and set no view. It only moves a result that carries summary_facts.chain, which the API's
+# lineage walk adds (result_chain.py), so it changes nothing in an offline census.
+REQUESTED_VIEWS = ("table", "chart", "cards", "share", "scatter", "map", "hierarchy", "chain")
 
 # Canonical focus names -> the column-name pattern of the projected column that carries it.
 # The unit patterns of result_shape.py cover runtime, money, ratio and counts; the rest are
@@ -241,6 +247,66 @@ _VIEW_RES = (
 )
 
 
+# Phase 3 lot E: lineage wording, read on the folded question. STRONG words ask for the lineage
+# itself (a chain, a descent, a trace back to the origin) and set requested_view "chain"; WEAK words
+# name one source ("based on", "adapted from", "d'apres") and only let the API walk from a work the
+# question names. The direction: UP toward the sources, DOWN toward the works made from it; both
+# when the question asks both ways or says neither ("the remake lineage of", "filiation").
+_LINEAGE_STRONG_RE = re.compile(
+    r"\blineages?\b|\bdescend(?:s|ed|ants?)?\b|\bchain of (?:remakes|adaptations)\b|\bremakes? of remakes?\b"
+    r"|\bremake by remake\b|\badaptation by adaptation\b|\btrace\b.*\bback\b|\bback to (?:its|their|the) (?!future\b)\w+"
+    r"|\bfamily tree\b|\bcomes? from\b.*\b(?:novel|book|play|film|movie|work)\b"
+    r"|\b(?:novel|book|play|film|movie|work) (?:it|they) (?:\w+ )?comes? from\b|\breach(?:ed|es)? the screen\b"
+    r"|\ba remake of\b|\bremake of\b|\bremakes of\b|\bremade\b|\bremakes? (?:included|behind)\b"
+    r"|\bfiliation\b|\bdescendance\b|\bdescend(?:ent|ants)?\b|\blignee\b|\bgenealogi|\barbre genealogique\b"
+    r"|\bremonte\b|\bretrace\b|\bchaine des (?:remakes|adaptations)\b|\bremakes? de remakes?\b"
+    r"|\b(?:un|le|du) remake\b|\bremakes? compris\b|\bremake par remake\b|\badaptation par adaptation\b"
+    r"|\barrivee? a l'ecran\b|\ben a-t-on tire\b")
+_LINEAGE_WEAK_RE = re.compile(
+    r"\bbased on\b|\badapted from\b|\badaptations? of\b|\binspired by\b|\bderived from\b"
+    r"|\bd'apres\b|\badaptee?s? (?:de|d')|\btiree?s? (?:de|d')|\binspiree?s? (?:de|d')|\bbasee?s? sur\b"
+    r"|\bde quoi\b.*\badapte|\bde quoi\b.*\bremake|\bde quel (?:film|roman|livre|oeuvre)\b.*\b(?:remake|adapte)")
+_LINEAGE_UP_RE = re.compile(
+    r"\bbehind\b|\bback\b|\borigins?\b|\bsources?\b|\bcomes? from\b|\bremake of\b|\bbased on\b|\badapted from\b"
+    r"|\binspired by\b|\bderived from\b"
+    r"|\bremonte\b|\bderriere\b|\borigine\b|\bjusqu'|\bdecoule\b|\ble remake\b|\bremake de\b"
+    r"|\bd'apres\b|\badaptee?s? (?:de|d')|\btiree?s? (?:de|d')|\binspiree?s? (?:de|d')|\bbasee?s? sur\b"
+    r"|\bde quoi\b|\bde quel\b")
+_LINEAGE_DOWN_RE = re.compile(
+    r"\bdescend(?:s|ed|ants?)?\b|\bremakes of\b|\bremade\b|\breach(?:ed|es)? the screen\b|\badaptations? of\b"
+    r"|\bspawn"
+    r"|\bdescendance\b|\bdescend(?:ent|ants)?\b|\barrivee? a l'ecran\b|\ben a-t-on tire\b|\bremakes de\b"
+    r"|\badaptations? (?:de|du|des|d')")
+
+
+def rules_lineage(question):
+    """Phase 3 lot E: the lineage the question asks for, or None. "descending" and "par ordre
+    descendant" are sort orders and "Back to the Future" a title, not a lineage (census of the
+    1.1.20 campaigns, 2026-11-12).
+
+    Returns {"strength": "strong" | "weak", "direction": "up" | "down" | "both"}. Strong words ask
+    for the lineage itself and set requested_view "chain"; weak words name one source ("What is
+    Shogun based on?") and let the API walk only from a work the question names. The direction is
+    up (toward the sources: "behind", "back to its origin", "a remake of", "remonte jusqu'a"), down
+    (toward the works made from it: "descend from", "the remakes of", "reach the screen",
+    "descendance"), or both when the question asks both ways or names the lineage alone ("the
+    remake lineage of", "filiation"). The cues are read apart from the strong and weak sets, so
+    "What is it a remake of, and what was remade from it?" is both.
+    """
+    q = re.sub(r"\b(?:ordre|order|tri|sort(?:ed)?) (?:descendant|descending)\b", " ", _fold(question).strip())
+    if not q:
+        return None
+    strong = bool(_LINEAGE_STRONG_RE.search(q))
+    if not strong and not _LINEAGE_WEAK_RE.search(q):
+        return None
+    # "remakes of remakes" and "remakes de remakes" say "every generation", not a direction.
+    cues = re.sub(r"\bremakes? (?:of|de) remakes?\b", " ", q)
+    up = bool(_LINEAGE_UP_RE.search(cues))
+    down = bool(_LINEAGE_DOWN_RE.search(cues))
+    direction = "both" if up == down else ("up" if up else "down")
+    return {"strength": "strong" if strong else "weak", "direction": direction}
+
+
 def rules_task(question):
     """The task the keyword rules read in the question; "list" when nothing else matches.
 
@@ -304,6 +370,11 @@ def rules_requested_view(question):
     if view in ("", "chart") and (_SCATTER_VIEW_RE.search(q) or (
             _SCATTER_RELATION_RE.search(q) and len(rules_focus(question)) >= 2)):
         return "scatter"
+    # Phase 3 lot E: strong lineage words ask for the chain, over nothing only.
+    if view == "":
+        lineage = rules_lineage(question)
+        if lineage and lineage["strength"] == "strong":
+            return "chain"
     return view
 
 
@@ -384,11 +455,12 @@ def core_intent(question, llm_intent=None, cached_intent=None):
             # same way ("plot X against Y" reads chart to the classifier). Phase 3 lot B: "map" too
             # ("Show on a world map..." reads "" to the classifier, "plot them on a map" chart).
             # Phase 3 lot C: "hierarchy" the same way, over "" only ("grouped by trilogy" reads ""
-            # to the classifier; a chart it read stays a chart).
+            # to the classifier; a chart it read stays a chart). Phase 3 lot E: "chain" the same
+            # way, over "" only ("Trace Nosferatu back to its source" reads "" to the classifier).
             if view in ("", "chart") and question and rules_requested_view(question) in ("share", "scatter", "map"):
                 view = rules_requested_view(question)
-            elif view == "" and question and rules_requested_view(question) == "hierarchy":
-                view = "hierarchy"
+            elif view == "" and question and rules_requested_view(question) in ("hierarchy", "chain"):
+                view = rules_requested_view(question)
             return {
                 "task": candidate["task"],
                 "focus": canonical_focus(candidate.get("focus") or []),

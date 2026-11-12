@@ -597,5 +597,41 @@ check("both missing: legacy write", "RESULT_ENTITY" in conn.queries[-1][0], Fals
 check("flags after both", (sql_cache._RESULT_ENTITY_COLUMN_AVAILABLE, sql_cache._RESULT_INTENT_COLUMN_AVAILABLE), (False, False))
 reset_flags()
 
+# 7. Phase 3 lot E: lineage wording (made-up questions, not the bank's 2930 to 2939, which the
+# lineage walk's own check reads: checks/test-result-chain.py).
+LINEAGE = (
+    ("Trace Ben-Hur back to the novel it comes from", ("strong", "up")),
+    ("What is Solaris (2002) a remake of?", ("strong", "up")),
+    ("Show the remakes of The Wages of Fear", ("strong", "down")),
+    ("Which films descend from Rashomon?", ("strong", "down")),
+    ("Show the remake lineage of Cape Fear", ("strong", "both")),
+    ("What is The Thing a remake of, and what was remade from it?", ("strong", "both")),
+    ("What is Shogun based on?", ("weak", "up")),
+    ("Remonte de Solaris (2002) jusqu'à sa source", ("strong", "up")),
+    ("Quelle est la descendance de Rashomon ?", ("strong", "down")),
+    ("Montre la filiation des Nerfs à vif", ("strong", "both")),
+    ("De quoi Shogun est-il adapté ?", ("weak", "up")),
+    ("Films d'après Dracula", ("weak", "up")),
+)
+for q, want in LINEAGE:
+    got = ri.rules_lineage(q)
+    check(f"lineage: {q}", (got or {}).get("strength"), want[0])
+    check(f"lineage direction: {q}", (got or {}).get("direction"), want[1])
+check("lineage: no lineage words", [ri.rules_lineage(q) for q in (
+    "Which films did Kurosawa direct?", "Where was Lawrence of Arabia filmed?",
+    "Where does the money come from in Hollywood?", "Les films de Kurosawa",
+    "List Criterion Collection movies ordered by IMDb rating descending", "Les films par ordre descendant de note",
+    "List movies in the back to the future collection")], [None] * 7)
+check("chain view: strong words only", [ri.rules_requested_view(q) for q in (
+    "Trace Ben-Hur back to the novel it comes from", "Which films descend from Rashomon?",
+    "What is Shogun based on?", "Show the remakes of The Wages of Fear as a table")],
+      ["chain", "chain", "", "table"])
+check("chain view wins over the classifier's empty view only", (
+    ri.core_intent("Which films descend from Rashomon?", {"task": "list", "focus": [], "requested_view": "", "source": "llm"})["requested_view"],
+    ri.core_intent("Which films descend from Rashomon? As a chart", {"task": "list", "focus": [], "requested_view": "chart", "source": "llm"})["requested_view"]),
+      ("chain", "chart"))
+check("chain is a requested view the classifier may return", ri.parse_classifier_reply(
+    '{"entity": "movie", "task": "relate", "focus": [], "requested_view": "chain"}', ["movie"])[1]["requested_view"], "chain")
+
 print(f"\n{'all ok' if not failures else f'{failures} FAILED'}")
 sys.exit(1 if failures else 0)

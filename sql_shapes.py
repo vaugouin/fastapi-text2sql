@@ -83,3 +83,28 @@ def detect_person_role_collapse(sql_query, result_entity):
         if _PERSON_CREDIT_TABLE_RE.search(block) and _PINNED_PERSON_NAME_RE.search(block):
             return True
     return False
+
+
+# --- Paging: only the statement's own trailing LIMIT (phase 3 lot E) -------------------
+# The execution block used to strip every `LIMIT n` it found anywhere in the SQL before
+# appending its page, including one inside a recursive CTE, a derived table or one branch of
+# a UNION, which silently changed the meaning of the query (the phase 3 study, 2026-11-11:
+# the model writes WITH RECURSIVE on its own for remake chains). Only the LIMIT that ends
+# the statement is the model's page size; an inner one belongs to the query.
+_TRAILING_LIMIT_RE = re.compile(
+    r"\s+LIMIT\s+(\d+)(?:\s+OFFSET\s+(\d+)|\s*,\s*(\d+))?\s*;?\s*$", re.IGNORECASE)
+
+
+def split_trailing_limit(sql_query):
+    """(sql without its trailing LIMIT, limit, offset); limit and offset None when the
+    statement does not end with one. `LIMIT n OFFSET m` and MariaDB's `LIMIT m, n` both read;
+    a trailing semicolon goes with the clause. Any LIMIT inside the statement is kept."""
+    text = sql_query or ""
+    m = _TRAILING_LIMIT_RE.search(text)
+    if not m:
+        return text.rstrip().rstrip(";").rstrip(), None, None
+    if m.group(3) is not None:
+        offset, limit = int(m.group(1)), int(m.group(3))
+    else:
+        limit, offset = int(m.group(1)), int(m.group(2) or 0)
+    return text[:m.start()].rstrip(), limit, offset
