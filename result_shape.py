@@ -55,6 +55,7 @@ REPRESENTATIONS = (
     "share-bar",       # 2 to 8 parts of a complete whole, or one share, as one 100% bar (phase 2 lot C)
     "flag-list",       # countries with their flag and name, and the count when there is one (phase 2 lot C)
     "scatter",         # N entity rows as dots over two quantities, x against y (phase 3 lot A)
+    "map",             # the countries of a flag list shaded on a world outline (phase 3 lot B)
     "table",         # the honest fallback, never an empty card
 )
 
@@ -69,6 +70,7 @@ _REQUESTED_VIEW_REPRESENTATIONS = {
     "cards": ("value-cards", "card-grid"),
     "share": ("share-bar",),
     "scatter": ("scatter",),
+    "map": ("map",),
 }
 # Phase 3 lot A. A scatter needs five points carrying both quantities: fewer is a handful of
 # cards, which value-cards or compare-cards already draw better than a near-empty plot.
@@ -102,6 +104,10 @@ _SCATTER_LOG_RATIO = 100
 # Phase 2 lot C. A share bar holds two to eight parts: more falls back to ranked-bars (a bar of
 # thirty slivers says nothing), one part says nothing a number card does not.
 _SHARE_MIN_PARTS, _SHARE_MAX_PARTS = 2, 8
+# Phase 3 lot B. The shading of a map with a count: at most five steps from light to dark, each
+# holding about as many countries (quantiles: film counts run from a handful to thousands, and
+# equal ranges would leave all but the United States in the lightest step).
+_MAP_STEPS = 5
 # A histogram fills the empty bins between two filled ones (a missing bin would read as no gap)
 # as long as the filled axis stays readable; past this many bins it keeps the bins it was given.
 _HISTOGRAM_MAX_FILLED_BINS = 60
@@ -761,7 +767,8 @@ def _countries(sql, rows, columns, has_entity, id_columns):
         code = str(code).upper() if code else None
         return {"index": i, "code": code, "label": label, "value": value,
                 "name": result_countries.names_for(code) if code else None,
-                "flag": bool(code) and code in result_countries.NAMES}
+                "flag": bool(code) and code in result_countries.NAMES,
+                "numeric": result_countries.numeric_for(code) if code else None}
 
     out = None
     if not has_entity:
@@ -914,6 +921,42 @@ def _scatter(rows, result_rows, columns, focus):
     }
 
 
+def _map_steps(values):
+    """The shading steps of a map, light to dark: [{"min", "max"}], each the smallest and the
+    largest value of the countries it holds, or [] with no value. Five distinct values or fewer
+    give one step each; more are cut at the quantiles, a value never split across two steps."""
+    vals = sorted(v for v in values if v is not None)
+    if not vals:
+        return []
+    distinct = sorted(set(vals))
+    if len(distinct) <= _MAP_STEPS:
+        return [{"min": _number(v), "max": _number(v)} for v in distinct]
+    n = len(vals)
+    bounds = sorted({vals[0]} | {vals[(i * n) // _MAP_STEPS] for i in range(1, _MAP_STEPS)})
+    steps = []
+    for i, lo in enumerate(bounds):
+        hi = bounds[i + 1] if i + 1 < len(bounds) else None
+        members = [v for v in vals if v >= lo and (hi is None or v < hi)]
+        if members:
+            steps.append({"min": _number(members[0]), "max": _number(members[-1])})
+    return steps
+
+
+def _map(countries):
+    """summary_facts.map (phase 3 lot B): what the two fronts need beyond summary_facts.countries
+    to shade the same countries the same way. located: the countries with an ISO numeric code
+    (the outline is keyed by it); unlocated: the indexes, in countries.countries, of the others
+    (a dissolved state, Kosovo), which the fronts list under the map; steps: the shading."""
+    entries = countries["countries"]
+    return {
+        "count": len(entries),
+        "located": sum(1 for c in entries if c.get("numeric")),
+        "unlocated": [i for i, c in enumerate(entries) if not c.get("numeric")],
+        "value_column": countries["value_column"],
+        "steps": _map_steps([c["value"] for c in entries if c.get("numeric")]) if countries["value_column"] else [],
+    }
+
+
 def _with_option(options, rep):
     """`options` with `rep` added before "table" (the fallback stays last)."""
     if rep in options:
@@ -983,7 +1026,8 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
             order_direction, top), or None with no rows; phase 2 lot B adds `winners` when
             compare-cards is an option, `fact` on a fact-card, `verdict` and `verdict_basis` on
             a verdict (an empty verdict is the one rowless result with summary_facts); phase 2
-            lot C `histogram`, `share`, `countries`, phase 3 lot A `scatter`, each where its
+            lot C `histogram`, `share`, `countries`, phase 3 lot A `scatter`, lot B `map` (with
+            `countries`, whose entries carry their ISO `numeric` code), each where its
             representation is an option.
     """
     ids = frozenset(id_columns) if id_columns is not None else _DEFAULT_ID_COLUMNS
@@ -1181,6 +1225,14 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
             options = ["flag-list"] + [o for o in options if o != "flag-list"]
             if countries["value_column"] and not value_col:
                 value_col = countries["value_column"]
+    # Phase 3 lot B. map: offered wherever the flag list is and one country at least has a place
+    # on the outline (an ISO numeric code), right after the flag list; the default only when the
+    # question asks for a map (requested_view map, applied below: "on a world map", "sur une
+    # carte"). The flag list stays the default otherwise: it names every country, the map hides
+    # the small ones and has no place for a dissolved state.
+    if countries and any(c.get("numeric") for c in countries["countries"]):
+        options = [o for o in options if o != "map"]
+        options.insert(options.index("flag-list") + 1 if "flag-list" in options else max(len(options) - 1, 0), "map")
 
     # Phase 3 lot A. scatter: entity rows over the two quantities the question names, offered
     # wherever five rows carry both; the default when the question asks how the two relate
@@ -1254,8 +1306,10 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
         summary["histogram"] = histogram
     if share and "share-bar" in options:
         summary["share"] = share
-    if countries and "flag-list" in options:
+    if countries and ("flag-list" in options or "map" in options):
         summary["countries"] = countries
+    if countries and "map" in options:
+        summary["map"] = _map(countries)
     if scatter and "scatter" in options:
         summary["scatter"] = scatter
     return {"result_kind": kind, "columns": columns, "representation": representation,

@@ -298,7 +298,7 @@ fl = rs.classify_result(C_SQL, [{"COUNTRY_CODE": "JP", "FILM_COUNT": 9}, {"COUNT
                         intent={"task": "rank", "focus": ["count"], "requested_view": "", "source": "llm"})
 fc = fl["summary_facts"]["countries"]
 check("flag-list: grouped country codes", (fl["representation"], fl["representation_options"], fc["source"], fc["value_column"]),
-      ("flag-list", ["flag-list", "ranked-bars", "share-bar", "table"], "codes", "FILM_COUNT"))
+      ("flag-list", ["flag-list", "map", "ranked-bars", "share-bar", "table"], "codes", "FILM_COUNT"))
 check("flag-list: code, names, value, flag", [(c["code"], c["name"]["fr"], c["value"], c["flag"]) for c in fc["countries"]],
       [("JP", "Japon", 9, True), ("US", "États-Unis", 2, True), ("SU", "Union soviétique", 1, False)])
 check("flag-list: as a chart is the ranking", rs.classify_result(C_SQL, [{"COUNTRY_CODE": "JP", "FILM_COUNT": 9}, {"COUNTRY_CODE": "US", "FILM_COUNT": 2}], "",
@@ -381,6 +381,54 @@ vr = rs.classify_result(SC_SQL, scatter_rows([(30, 6.1), (900, 6.5), (25000, 7.2
 check("scatter: votes over two orders of magnitude are a log axis", (vr["x"]["column"], vr["x"]["unit"], vr["x"]["scale"], vr["y"]["scale"]), ("IMDB_VOTES", "votes", "log", "linear"))
 vl = rs.classify_result(SC_SQL, scatter_rows([(3e5, 6.1), (4e5, 6.5), (5e5, 7.2), (8e5, 8.1), (9e5, 8.8)], x="IMDB_VOTES", y="IMDB_RATING"), "movie", intent=VR)["summary_facts"]["scatter"]
 check("scatter: close votes stay linear", vl["x"]["scale"], "linear")
+
+# 5f. Phase 3 lot B: map of countries (made-up questions and rows, not the bank's).
+check("map view words", [ri.rules_requested_view(q) for q in (
+      "Show on a world map the countries that produced the most westerns",
+      "World map of the number of anime series per country",
+      "On a map, the countries of birth of the Bond actors",
+      "Map of the countries where Kurosawa's films were produced",
+      "Plot the production countries of the Pixar films on a map",
+      "Montre sur une carte les pays producteurs des films de Fellini",
+      "Carte du monde des pays qui ont produit le plus de documentaires",
+      "Carte des pays de naissance des réalisateurs de la Nouvelle Vague",
+      "Montre les films de Fellini en cartes",
+      "Mapplethorpe documentaries",
+      "The countries that produced the most westerns, as a chart")],
+      ["map", "map", "map", "map", "map", "map", "map", "map", "cards", "", "chart"])
+check("map view wins over the classifier's empty view and chart, not over an explicit table", (
+      ri.core_intent("Show on a world map the countries of the Bond films", {"task": "list", "focus": [], "requested_view": "", "source": "llm"})["requested_view"],
+      ri.core_intent("Plot the countries of the Bond films on a map", {"task": "list", "focus": [], "requested_view": "chart", "source": "llm"})["requested_view"],
+      ri.core_intent("The countries of the Bond films on a map, as a table", {"task": "list", "focus": [], "requested_view": "table", "source": "llm"})["requested_view"]),
+      ("map", "map", "table"))
+MAP_ROWS = [{"COUNTRY_CODE": c, "FILM_COUNT": n} for c, n in (
+    ("US", 3957), ("GB", 1127), ("FR", 928), ("DE", 640), ("JP", 512), ("SU", 40), ("SG", 12), ("UK", 3), ("XK", 2))]
+MAP_ASKED = {"task": "rank", "focus": ["count"], "requested_view": "map", "source": "rules"}
+mp = rs.classify_result(C_SQL, MAP_ROWS, "", intent=MAP_ASKED)
+mf = mp["summary_facts"]
+check("map: asked for, the default, the flag list right after it", (mp["representation"], mp["representation_options"]),
+      ("map", ["map", "flag-list", "ranked-bars", "table"]))
+check("map: not asked, the flag list stays the default with the map right after it",
+      rs.classify_result(C_SQL, MAP_ROWS, "", intent={"task": "rank", "focus": ["count"], "requested_view": "", "source": "llm"})["representation_options"][:2],
+      ["flag-list", "map"])
+check("map: each country carries its ISO numeric code, none for a dissolved state or Kosovo",
+      [(c["code"], c["numeric"]) for c in mf["countries"]["countries"]],
+      [("US", "840"), ("GB", "826"), ("FR", "250"), ("DE", "276"), ("JP", "392"), ("SU", None), ("SG", "702"), ("UK", "826"), ("XK", None)])
+check("map: located and unlocated", (mf["map"]["count"], mf["map"]["located"], mf["map"]["unlocated"], mf["map"]["value_column"]), (9, 7, [5, 8], "FILM_COUNT"))
+check("map: quantile steps over the located values, light to dark", mf["map"]["steps"],
+      [{"min": 3, "max": 3}, {"min": 12, "max": 12}, {"min": 512, "max": 640}, {"min": 928, "max": 928}, {"min": 1127, "max": 3957}])
+check("map: five values or fewer give one step each", rs._map_steps([4, 1, 4, 9]), [{"min": 1, "max": 1}, {"min": 4, "max": 4}, {"min": 9, "max": 9}])
+check("map: a value never straddles two steps", rs._map_steps([1] * 8 + [2, 3, 5, 8, 13, 21]),
+      [{"min": 1, "max": 1}, {"min": 2, "max": 5}, {"min": 8, "max": 21}])
+check("map: no count, no steps", rs.classify_result(LOC_SQL, [{"ID_LOCATION": 1, "LOCATION_NAME": "England"}, {"ID_LOCATION": 2, "LOCATION_NAME": "Morocco"}], "location",
+      intent={"task": "list", "focus": [], "requested_view": "map", "source": "rules"})["summary_facts"]["map"]["steps"], [])
+check("map: only dissolved states, no map", "map" in rs.classify_result(C_SQL, [{"COUNTRY_CODE": "SU", "FILM_COUNT": 9}, {"COUNTRY_CODE": "YU", "FILM_COUNT": 2}], "",
+      intent=MAP_ASKED)["representation_options"], False)
+check("map: asked of rows that are not countries, nothing moves", rs.classify_result(LOC_SQL.replace("country", "city"),
+      [{"ID_LOCATION": 1, "LOCATION_NAME": "Paris"}, {"ID_LOCATION": 2, "LOCATION_NAME": "Rome"}], "location",
+      intent={"task": "list", "focus": [], "requested_view": "map", "source": "rules"})["representation"], "card-grid")
+check("map: as a chart is still the ranking", rs.classify_result(C_SQL, MAP_ROWS, "", intent={"task": "rank", "focus": ["count"], "requested_view": "chart", "source": "llm"})["representation"],
+      "ranked-bars")
 
 
 # 6. sql_cache degrades column by column, newest first.

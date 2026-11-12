@@ -35,7 +35,11 @@ INTENT_TASKS = ("list", "value", "rank", "count", "compare", "sequence", "trend"
 # or sets two quantities against each other ("the budget against the revenue", "versus", "en
 # fonction de", "a link between the runtime and the rating"). Read by the rules whatever the
 # source, as "share": the classifier reads "plot" as chart, which drew bars of one quantity.
-REQUESTED_VIEWS = ("table", "chart", "cards", "share", "scatter")
+# "map" (phase 3 lot B): the question asks for a map ("on a world map", "map of", "sur une carte",
+# "carte des"). Read by the rules whatever the source, as "share"; it only moves a result whose
+# rows are countries (result_shape: the map is offered where the flag list is), so a map asked of
+# anything else changes nothing.
+REQUESTED_VIEWS = ("table", "chart", "cards", "share", "scatter", "map")
 
 # Canonical focus names -> the column-name pattern of the projected column that carries it.
 # The unit patterns of result_shape.py cover runtime, money, ratio and counts; the rest are
@@ -206,6 +210,16 @@ _VIEW_RES = (
         r"|\b(?:the )?(?:share|proportion|percentage) of\b|\bsplit\b|\bbreakdown\b|\bbroken down\b"
         r"|\ben camembert\b|\bcamembert\b|\brepartition\b|\bse repartiss|\bquelle (?:part|proportion)\b|\bquel pourcentage\b"
         r"|\b(?:la )?(?:part|proportion|pourcentage) (?:des|de|du|d')")),
+    # Phase 3 lot B: a map. Before "chart", so "plot them on a map" is the map. A question that
+    # starts with "map" names the form ("Map of the filming locations", "Map the countries...");
+    # mid-sentence only "a/the map of" does, so a title such as "The Map of Tiny Perfect Things"
+    # can read as one, harmless on rows that are not countries. "en cartes" stays cards.
+    ("map", re.compile(
+        r"\bon (?:a|the) (?:world |interactive )?map\b|\bworld ?map\b|\b(?:as|in|into|onto|with) a map\b"
+        r"|^(?:show (?:me )?|draw (?:me )?)?(?:a |the )?map\b|\b(?:a|the) map (?:of|showing)\b|\bmap out\b|\bmapped\b"
+        r"|\bsur (?:une|la) carte\b|\bcarte du monde\b|\bplanisphere\b|\ben carte\b|\bsous forme de carte\b"
+        r"|^(?:montre(?:-moi)? |dessine(?:-moi)? )?(?:une |la )?carte (?:des?|du|d')|\b(?:une|la) carte (?:des?|du|d')"
+        r"|\bcartographi")),
     ("chart", re.compile(r"\bas a (?:bar )?(?:chart|graph)\b|\bbar chart\b|\bplot\b|\ben graphique\b|\bsous forme de graphique\b|\bhistogramme\b")),
     ("cards", re.compile(r"\bas cards\b|\bwith (?:the )?posters\b|\ben cartes\b|\bavec (?:les )?affiches\b")),
 )
@@ -351,8 +365,9 @@ def core_intent(question, llm_intent=None, cached_intent=None):
             # Phase 2 lot C: "share" comes from the keyword rules whatever the source, since the
             # classifier is not asked for it. It wins over "" and over "chart": "as a pie" reads
             # chart to the classifier, and a pie is the share form. Phase 3 lot A: "scatter" the
-            # same way ("plot X against Y" reads chart to the classifier).
-            if view in ("", "chart") and question and rules_requested_view(question) in ("share", "scatter"):
+            # same way ("plot X against Y" reads chart to the classifier). Phase 3 lot B: "map" too
+            # ("Show on a world map..." reads "" to the classifier, "plot them on a map" chart).
+            if view in ("", "chart") and question and rules_requested_view(question) in ("share", "scatter", "map"):
                 view = rules_requested_view(question)
             return {
                 "task": candidate["task"],
