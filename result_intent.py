@@ -31,7 +31,11 @@ INTENT_TASKS = ("list", "value", "rank", "count", "compare", "sequence", "trend"
 # "share" (phase 2 lot C): the question asks for parts of a whole ("what share of", "split", "as a
 # pie", "repartition", "en camembert"). Only the keyword rules read it, whatever the source: the
 # classifier's vocabulary predates it (core_intent below).
-REQUESTED_VIEWS = ("table", "chart", "cards", "share")
+# "scatter" (phase 3 lot A): the question names a scatter plot ("scatter plot", "nuage de points"),
+# or sets two quantities against each other ("the budget against the revenue", "versus", "en
+# fonction de", "a link between the runtime and the rating"). Read by the rules whatever the
+# source, as "share": the classifier reads "plot" as chart, which drew bars of one quantity.
+REQUESTED_VIEWS = ("table", "chart", "cards", "share", "scatter")
 
 # Canonical focus names -> the column-name pattern of the projected column that carries it.
 # The unit patterns of result_shape.py cover runtime, money, ratio and counts; the rest are
@@ -184,6 +188,16 @@ _FR_INVERSION_RE = re.compile(r"\b\w+-(?:t-)?(?:il|elle|ils|elles)\b")
 _FR_QUESTION_WORD_RE = re.compile(
     r"\b(?:qui|quoi|quel|quelle|quels|quelles|lequel|laquelle|lesquels|lesquelles|quand|comment|combien|pourquoi)\b|^ou\b|^qu'|^que\b")
 _RELATE_RE = re.compile(r"\bconnected\b|\brelationship between\b|\bin common\b|\bboth\b.*\band\b|\bpoint commun\b|\ben commun\b|\blien entre\b")
+# Phase 3 lot A. A scatter named as such, whatever else the question says.
+_SCATTER_VIEW_RE = re.compile(
+    r"\bscatter\s*(?:plot|chart|graph|diagram)?s?\b|\bscatterplot\b|\bnuages? de points\b|\ben nuage\b"
+    r"|\bdiagramme de dispersion\b|\bgraphique de dispersion\b")
+# Two quantities set against each other: a scatter only when the question names two of them
+# (rules_focus), so "films against the war" or "Alien versus Predator" never reads as one.
+_SCATTER_RELATION_RE = re.compile(
+    r"\bagainst\b|\bversus\b|\bvs\.?(?=\s)|\ben fonction d|\bpar rapport (?:a|au|aux)\b|\bcorrelat|\bcorrelation\b"
+    r"|\blink between\b|\brelationship between\b|\brelation between\b|\brelate\b|\brelated to\b"
+    r"|\blien entre\b|\brapport entre\b|\brelation entre\b")
 _VIEW_RES = (
     ("table", re.compile(r"\bas a table\b|\bin a table\b|\btabular\b|\ben tableau\b|\bsous forme de tableau\b|\bdans un tableau\b")),
     # Phase 2 lot C: parts of a whole. Before "chart", so "as a pie chart" is the share form.
@@ -254,7 +268,13 @@ def rules_focus(question):
 
 def rules_requested_view(question):
     q = _fold(question)
-    return next((view for view, rx in _VIEW_RES if rx.search(q)), "")
+    view = next((view for view, rx in _VIEW_RES if rx.search(q)), "")
+    # Phase 3 lot A: a scatter wins over "chart" ("Plot the budget against the revenue" is not a
+    # bar chart) and over nothing; an explicit table, share or cards stays.
+    if view in ("", "chart") and (_SCATTER_VIEW_RE.search(q) or (
+            _SCATTER_RELATION_RE.search(q) and len(rules_focus(question)) >= 2)):
+        return "scatter"
+    return view
 
 
 def rules_intent(question):
@@ -330,9 +350,10 @@ def core_intent(question, llm_intent=None, cached_intent=None):
             view = candidate.get("requested_view") if candidate.get("requested_view") in REQUESTED_VIEWS else ""
             # Phase 2 lot C: "share" comes from the keyword rules whatever the source, since the
             # classifier is not asked for it. It wins over "" and over "chart": "as a pie" reads
-            # chart to the classifier, and a pie is the share form.
-            if view in ("", "chart") and question and rules_requested_view(question) == "share":
-                view = "share"
+            # chart to the classifier, and a pie is the share form. Phase 3 lot A: "scatter" the
+            # same way ("plot X against Y" reads chart to the classifier).
+            if view in ("", "chart") and question and rules_requested_view(question) in ("share", "scatter"):
+                view = rules_requested_view(question)
             return {
                 "task": candidate["task"],
                 "focus": canonical_focus(candidate.get("focus") or []),

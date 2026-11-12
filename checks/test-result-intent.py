@@ -322,6 +322,66 @@ check("share view wins over the classifier's chart and its empty view", (ri.core
       ri.core_intent("Show them as a table", {"task": "list", "focus": [], "requested_view": "table", "source": "llm"})["requested_view"]),
       ("share", "share", "table"))
 
+# 5e. Phase 3 lot A: scatter (made-up questions and rows, not the bank's).
+check("scatter view words", [ri.rules_requested_view(q) for q in (
+      "Scatter plot of the runtime and the rating of the Pixar films",
+      "Montre la durée des films de Lynch en nuage de points",
+      "Plot the budget against the revenue of the Ridley Scott films",
+      "Trace la note en fonction de la durée des films de Truffaut",
+      "Runtime versus rating of the Coen brothers films",
+      "Is there a link between the budget and the box office of Fincher's films?",
+      "Plot the ten longest films of Kurosawa",
+      "Films against the war",
+      "Alien versus Predator",
+      "The Bergman films with their runtime and rating, as a table")],
+      ["scatter", "scatter", "scatter", "scatter", "scatter", "scatter", "chart", "", "", "table"])
+check("scatter view wins over the classifier's chart and its empty view", (
+      ri.core_intent("Plot the budget against the revenue of Spielberg's films", {"task": "value", "focus": ["budget", "revenue"], "requested_view": "chart", "source": "llm"})["requested_view"],
+      ri.core_intent("Le budget en fonction des recettes des films de Spielberg", {"task": "value", "focus": ["budget", "revenue"], "requested_view": "", "source": "llm"})["requested_view"],
+      ri.core_intent("Budget against revenue of these films, as cards", {"task": "value", "focus": ["budget", "revenue"], "requested_view": "cards", "source": "llm"})["requested_view"]),
+      ("scatter", "scatter", "cards"))
+
+
+def scatter_rows(pairs, x="BUDGET", y="REVENUE"):
+    return [{"index": i, "data": {"ID_MOVIE": 500 + i, "MOVIE_TITLE": f"Film {i}", "DAT_RELEASE": f"19{60 + i}-05-01",
+                                  "IMDB_RATING": 7.1, "IMDB_RATING_WEIGHTED": 7.0, "RUNTIME": 100 + i, x: a, y: b}}
+            for i, (a, b) in enumerate(pairs)]
+
+
+SC_SQL = "SELECT M.ID_MOVIE, M.MOVIE_TITLE, M.BUDGET, M.REVENUE FROM M WHERE X ORDER BY M.IMDB_RATING_WEIGHTED DESC LIMIT 50"
+BR = {"task": "value", "focus": ["budget", "revenue"], "requested_view": "scatter", "source": "rules"}
+sc_rows = scatter_rows([(10e6, 50e6), (20e6, 30e6), (0, 80e6), (40e6, 0), (5e6, 9e6), (60e6, 200e6), (None, None), (15e6, 45e6)])
+sc = rs.classify_result(SC_SQL, sc_rows, "movie", intent=BR)
+sf = sc["summary_facts"]["scatter"]
+check("scatter: asked for, the default", (sc["representation"], sc["representation_options"][0], "table" == sc["representation_options"][-1]), ("scatter", "scatter", True))
+check("scatter: budget across, revenue up, linear", (sf["x"]["column"], sf["x"]["unit"], sf["x"]["scale"], sf["y"]["column"], sf["y"]["unit"]),
+      ("BUDGET", "usd", "linear", "REVENUE", "usd"))
+check("scatter: a 0 or NULL is missing, counted per axis", (sf["count"], sf["plotted"], sf["left_out"], sf["missing"]), (8, 5, 3, {"x": 2, "y": 2}))
+check("scatter: points keep the row index, label and id", sf["points"][0], {"index": 0, "label": "Film 0", "id": 500, "x": 10000000, "y": 50000000})
+check("scatter: extremes index the points", (sf["points"][sf["extremes"]["y_max"]]["label"], sf["points"][sf["extremes"]["x_min"]]["label"]), ("Film 5", "Film 4"))
+not_asked = rs.classify_result(SC_SQL, sc_rows, "movie", intent={"task": "value", "focus": ["budget", "revenue"], "requested_view": "", "source": "llm"})
+check("scatter: not asked, offered beside the cards", (not_asked["representation"], "scatter" in not_asked["representation_options"], "scatter" in not_asked["summary_facts"]),
+      ("value-cards", True, True))
+check("scatter: a relation is the default", rs.classify_result(SC_SQL, sc_rows, "movie", intent={"task": "relate", "focus": ["budget", "revenue"], "requested_view": "", "source": "llm"})["representation"], "scatter")
+check("scatter: a chart of two quantities is a scatter, a ranking stays bars", (
+      rs.classify_result(SC_SQL, sc_rows, "movie", intent={"task": "value", "focus": ["budget", "revenue"], "requested_view": "chart", "source": "llm"})["representation"],
+      rs.classify_result(SC_SQL.replace("IMDB_RATING_WEIGHTED", "REVENUE"), sc_rows, "movie", intent={"task": "rank", "focus": ["budget", "revenue"], "requested_view": "chart", "source": "llm"})["representation"]),
+      ("scatter", "ranked-bars"))
+check("scatter: fewer than five points is no scatter", "scatter" in rs.classify_result(SC_SQL, sc_rows[:6], "movie", intent=BR)["representation_options"], False)
+check("scatter: one quantity is no scatter", "scatter" in rs.classify_result(SC_SQL, sc_rows, "movie", intent={"task": "value", "focus": ["budget"], "requested_view": "scatter", "source": "rules"})["representation_options"], False)
+check("scatter: three quantities is no scatter", "scatter" in rs.classify_result(SC_SQL, sc_rows, "movie", intent={"task": "value", "focus": ["budget", "revenue", "runtime"], "requested_view": "scatter", "source": "rules"})["representation_options"], False)
+RR = {"task": "relate", "focus": ["runtime", "rating"], "requested_view": "", "source": "llm"}
+rr = rs.classify_result(SC_SQL, scatter_rows([(1, 1)] * 6), "movie", intent=RR)["summary_facts"]["scatter"]
+check("scatter: IMDB_RATING over its weighted twin, runtime across", (rr["x"]["column"], rr["y"]["column"], rr["y"]["unit"]), ("RUNTIME", "IMDB_RATING", "rating"))
+YR = {"task": "trend", "focus": ["rating", "release_date"], "requested_view": "scatter", "source": "llm"}
+yr = rs.classify_result(SC_SQL, scatter_rows([(1, 1)] * 6), "movie", intent=YR)["summary_facts"]["scatter"]
+check("scatter: a date string gives its year, across", (yr["x"]["column"], yr["x"]["unit"], yr["points"][2]["x"], yr["y"]["column"]), ("DAT_RELEASE", "year", 1962, "IMDB_RATING"))
+VR = {"task": "value", "focus": ["votes", "rating"], "requested_view": "scatter", "source": "llm"}
+vr = rs.classify_result(SC_SQL, scatter_rows([(30, 6.1), (900, 6.5), (25000, 7.2), (800000, 8.1), (2100000, 8.8)], x="IMDB_VOTES", y="IMDB_RATING"), "movie", intent=VR)["summary_facts"]["scatter"]
+check("scatter: votes over two orders of magnitude are a log axis", (vr["x"]["column"], vr["x"]["unit"], vr["x"]["scale"], vr["y"]["scale"]), ("IMDB_VOTES", "votes", "log", "linear"))
+vl = rs.classify_result(SC_SQL, scatter_rows([(3e5, 6.1), (4e5, 6.5), (5e5, 7.2), (8e5, 8.1), (9e5, 8.8)], x="IMDB_VOTES", y="IMDB_RATING"), "movie", intent=VR)["summary_facts"]["scatter"]
+check("scatter: close votes stay linear", vl["x"]["scale"], "linear")
+
 
 # 6. sql_cache degrades column by column, newest first.
 class FakeCursor:

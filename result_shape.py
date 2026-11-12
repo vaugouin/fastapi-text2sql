@@ -54,6 +54,7 @@ REPRESENTATIONS = (
     "histogram",       # rows that are bins of one quantity plus a count, drawn in bin order (phase 2 lot C)
     "share-bar",       # 2 to 8 parts of a complete whole, or one share, as one 100% bar (phase 2 lot C)
     "flag-list",       # countries with their flag and name, and the count when there is one (phase 2 lot C)
+    "scatter",         # N entity rows as dots over two quantities, x against y (phase 3 lot A)
     "table",         # the honest fallback, never an empty card
 )
 
@@ -67,7 +68,37 @@ _REQUESTED_VIEW_REPRESENTATIONS = {
     "chart": ("ranked-bars", "trend-columns", "timeline", "histogram"),
     "cards": ("value-cards", "card-grid"),
     "share": ("share-bar",),
+    "scatter": ("scatter",),
 }
+# Phase 3 lot A. A scatter needs five points carrying both quantities: fewer is a handful of
+# cards, which value-cards or compare-cards already draw better than a near-empty plot.
+_SCATTER_MIN_POINTS = 5
+# The quantity a scatter axis carries, read from the column name; a date is a year. Two columns
+# of one quantity (IMDB_RATING and IMDB_RATING_WEIGHTED, DAT_RELEASE and RELEASE_YEAR) are one
+# axis, never a plot of a rating against itself. Checked in order (VOTE_COUNT is votes, not a
+# rating; VOTE_AVERAGE is a rating).
+_SCATTER_QUANTITIES = (
+    ("votes", re.compile(r"VOTE_COUNT|VOTES\b", re.IGNORECASE)),
+    ("rating", re.compile(r"RATING|VOTE_AVERAGE|SCORE|\bNOTE", re.IGNORECASE)),
+    ("budget", re.compile(r"BUDGET", re.IGNORECASE)),
+    ("revenue", re.compile(r"REVENUE|GROSS|BOX_?OFFICE|EARNING|RECETTE", re.IGNORECASE)),
+    ("profit", re.compile(r"PROFIT|BENEFI", re.IGNORECASE)),
+    ("runtime", re.compile(r"RUNTIME|DURATION|DUREE|MINUTE", re.IGNORECASE)),
+    ("seasons", re.compile(r"SEASON|SAISON", re.IGNORECASE)),
+    ("episodes", re.compile(r"EPISODE", re.IGNORECASE)),
+    ("popularity", re.compile(r"POPULARITY", re.IGNORECASE)),
+    ("age", re.compile(r"\bAGE\b|_AGE\b|^AGE_", re.IGNORECASE)),
+)
+# Which of the two quantities goes across: "A against B" is read both ways by the people who
+# ask it ("plot the budget against the revenue" means budget across as often as up), so the
+# API fixes the axes by a convention instead of the word order: time always across, then what
+# goes in (budget, runtime, seasons, votes), and what comes out (revenue, profit, rating) up.
+_SCATTER_X_ORDER = ("year", "budget", "runtime", "seasons", "episodes", "count", "votes", "popularity",
+                    "age", "other", "revenue", "profit", "rating")
+# IMDb votes run from a few dozen to millions on one director's films: a linear axis crushes all
+# but the three biggest into one corner. A votes axis is logarithmic when its largest value is a
+# hundred times its smallest; no other quantity is (money and minutes read in plain amounts).
+_SCATTER_LOG_RATIO = 100
 # Phase 2 lot C. A share bar holds two to eight parts: more falls back to ranked-bars (a bar of
 # thirty slivers says nothing), one part says nothing a number card does not.
 _SHARE_MIN_PARTS, _SHARE_MAX_PARTS = 2, 8
@@ -773,6 +804,116 @@ def _countries(sql, rows, columns, has_entity, id_columns):
     return out
 
 
+def _scatter_quantity(column):
+    """The quantity a column carries on a scatter axis: "year" for a date, a named quantity, else
+    "other:<name>" (each unnamed metric is its own quantity)."""
+    if column["role"] == "date":
+        return "year"
+    for quantity, rx in _SCATTER_QUANTITIES:
+        if rx.search(column["name"]):
+            return quantity
+    return "count" if column.get("unit") == "count" else "other:" + column["name"].upper()
+
+
+def _scatter_value(value, quantity):
+    """A cell as a number on its axis, or None when missing. A date gives its year. Zero is a
+    missing value except on a count (TMDb stores an unknown budget, revenue or runtime as 0)."""
+    if quantity == "year":
+        if _is_numeric(value):
+            v = float(value)
+        elif isinstance(value, (date, datetime)):
+            v = float(value.year)
+        else:
+            m = re.match(r"^\s*(\d{4})", str(value or ""))
+            v = float(m.group(1)) if m else None
+        return v if v and v > 0 else None
+    if not _is_numeric(value):
+        return None
+    v = float(value)
+    if quantity == "count":
+        return v if v >= 0 else None
+    return v if v > 0 else None
+
+
+def _scatter(rows, result_rows, columns, focus):
+    """summary_facts.scatter, or None: entity rows plotted over exactly two quantities.
+
+    The two quantities are the ones the intent's focus names (projected metric or date columns);
+    one column per quantity (IMDB_RATING over its weighted twin, a numeric year over a date
+    string). Three quantities or more is not a scatter (which two?), one is a ranking or cards.
+    Rows missing either value are left out and counted per axis; five points at least.
+    """
+    by_name = {c["name"]: c for c in columns}
+    picked = {}
+    for name in focus or []:
+        column = by_name.get(name)
+        if column is None or column["role"] not in ("metric", "date") or _DATE_PART_RE.search(name):
+            continue
+        quantity = _scatter_quantity(column)
+        current = picked.get(quantity)
+        if current is None:
+            picked[quantity] = column
+        elif quantity == "rating" and "WEIGHTED" in current["name"].upper() and "WEIGHTED" not in name.upper():
+            picked[quantity] = column
+        elif quantity == "year" and not _is_numeric(_first_non_null(rows, current["name"])) and _is_numeric(
+                _first_non_null(rows, name)):
+            picked[quantity] = column
+    if len(picked) != 2:
+        return None
+
+    def rank(quantity):
+        key = "other" if quantity.startswith("other:") else quantity
+        return _SCATTER_X_ORDER.index(key) if key in _SCATTER_X_ORDER else len(_SCATTER_X_ORDER)
+
+    (qx, cx), (qy, cy) = sorted(picked.items(), key=lambda kv: (rank(kv[0]), kv[1]["name"]))
+    label_col = next((c["name"] for c in columns if c["role"] == "label"), None)
+    id_col = next((c["name"] for c in columns if c["role"] == "entity_id"), None)
+    points, missing_x, missing_y = [], 0, 0
+    for i, row in enumerate(rows):
+        x = _scatter_value(row.get(cx["name"]), qx)
+        y = _scatter_value(row.get(cy["name"]), qy)
+        missing_x += x is None
+        missing_y += y is None
+        if x is None or y is None:
+            continue
+        raw = result_rows[i] if i < len(result_rows) and isinstance(result_rows[i], dict) else {}
+        points.append({
+            "index": raw.get("index", i) if "data" in raw else i,
+            "label": row.get(label_col) if label_col else None,
+            "id": row.get(id_col) if id_col else None,
+            "x": _number(x),
+            "y": _number(y),
+        })
+    if len(points) < _SCATTER_MIN_POINTS:
+        return None
+
+    def axis(column, quantity, values):
+        if quantity == "year":
+            unit = "year"
+        elif quantity in ("rating", "votes"):
+            unit = quantity
+        else:
+            unit = column.get("unit")
+        lo, hi = min(values), max(values)
+        scale = "log" if quantity == "votes" and lo > 0 and hi / lo >= _SCATTER_LOG_RATIO else "linear"
+        return {"column": column["name"], "quantity": "other" if quantity.startswith("other:") else quantity,
+                "unit": unit, "scale": scale, "min": lo, "max": hi}
+
+    xs = [p["x"] for p in points]
+    ys = [p["y"] for p in points]
+    return {
+        "x": axis(cx, qx, xs),
+        "y": axis(cy, qy, ys),
+        "points": points,
+        "count": len(rows),
+        "plotted": len(points),
+        "left_out": len(rows) - len(points),
+        "missing": {"x": missing_x, "y": missing_y},
+        "extremes": {"x_min": xs.index(min(xs)), "x_max": xs.index(max(xs)),
+                     "y_min": ys.index(min(ys)), "y_max": ys.index(max(ys))},
+    }
+
+
 def _with_option(options, rep):
     """`options` with `rep` added before "table" (the fallback stays last)."""
     if rep in options:
@@ -841,7 +982,9 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
           - summary_facts: language-neutral numbers (count, total, value_column, unit, order,
             order_direction, top), or None with no rows; phase 2 lot B adds `winners` when
             compare-cards is an option, `fact` on a fact-card, `verdict` and `verdict_basis` on
-            a verdict (an empty verdict is the one rowless result with summary_facts).
+            a verdict (an empty verdict is the one rowless result with summary_facts); phase 2
+            lot C `histogram`, `share`, `countries`, phase 3 lot A `scatter`, each where its
+            representation is an option.
     """
     ids = frozenset(id_columns) if id_columns is not None else _DEFAULT_ID_COLUMNS
     result_rows = list(result_rows or [])
@@ -877,6 +1020,7 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
     compare_cols = []
     ranking = False
     histogram = None
+    scatter = None
 
     # Entity rows: one entity is a page, many are a grid, many ordered by a metric is a
     # ranking (the poster-versus-bar choice is the client's, VOICE-AGENT-244). A ranking is
@@ -1038,6 +1182,20 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
             if countries["value_column"] and not value_col:
                 value_col = countries["value_column"]
 
+    # Phase 3 lot A. scatter: entity rows over the two quantities the question names, offered
+    # wherever five rows carry both; the default when the question asks how the two relate
+    # (task relate: "Is there a link between runtime and rating?", "Does a bigger budget mean a
+    # better rating?") or names the plot (requested_view scatter, below: "budget against revenue",
+    # "en fonction de", "as a scatter plot"), and for a chart of two quantities that is not a
+    # ranking ("Plot the runtime and the rating of the Ghibli films": a bar shows one quantity).
+    if family == "entity_many" and not countries:
+        scatter = _scatter(rows, result_rows, columns, focus)
+    if scatter:
+        options = _with_option(options, "scatter")
+        if task == "relate" or (requested_view == "chart" and task != "rank"):
+            representation = "scatter"
+            options = ["scatter"] + [o for o in options if o != "scatter"]
+
     # Phase 2 lot B, over the options of the shape they stand on (each is put first).
     # fact-card: a value task on one entity, or on homonyms of one title (every row carries the
     # same label and the rows come in the default sort, so the first row is the title meant),
@@ -1072,8 +1230,10 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
         options = [representation] + [o for o in options if o != representation]
 
     # An explicit "as a table" / "as a chart" / "as cards" wins when the shape allows it; a
-    # compare-cards or fact-card default already is cards.
-    keep = requested_view == "cards" and representation in ("compare-cards", "fact-card")
+    # compare-cards or fact-card default already is cards; a scatter chosen above already is the
+    # chart of two quantities.
+    keep = (requested_view == "cards" and representation in ("compare-cards", "fact-card")) or (
+        requested_view == "chart" and representation == "scatter")
     for wanted in (() if keep else _REQUESTED_VIEW_REPRESENTATIONS.get(requested_view, ())):
         if wanted in options:
             representation = wanted
@@ -1096,5 +1256,7 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
         summary["share"] = share
     if countries and "flag-list" in options:
         summary["countries"] = countries
+    if scatter and "scatter" in options:
+        summary["scatter"] = scatter
     return {"result_kind": kind, "columns": columns, "representation": representation,
             "representation_options": options, "summary_facts": summary}
