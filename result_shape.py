@@ -1240,7 +1240,8 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
         id_columns: The authoritative set of entity id column names; defaults to the
             module's own copy of _RESULT_ENTITY_SOURCES.
         intent: The core intent {task, focus, requested_view, source} of result_intent.py
-            (optionally with `focus_columns` already resolved), or None.
+            (optionally with `focus_columns` already resolved, and `share_shape` "pie" when the
+            question asks for a pie), or None.
 
     Returns:
         A dict with:
@@ -1442,6 +1443,11 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
     # over ranked-bars or the poster grid, which stay offered.
     histogram = histogram if family == "histogram" else None
     share = None if histogram else _share(sql, rows, columns, has_entity, family == "entity_images")
+    if share:
+        # The form the fronts draw the parts in: "pie" when the question asks for a pie or a donut
+        # (result_intent.rules_share_shape, carried as intent["share_shape"]), else "bar". The
+        # representation stays share-bar either way; a front that does not know a shape draws the bar.
+        share["shape"] = "pie" if isinstance(intent, dict) and intent.get("share_shape") == "pie" else "bar"
     countries = None if histogram else _countries(sql, rows, columns, has_entity, ids)
     if share:
         options = _with_option(options, "share-bar")

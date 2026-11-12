@@ -216,8 +216,9 @@ _VIEW_RES = (
     ("table", re.compile(r"\bas a table\b|\bin a table\b|\btabular\b|\ben tableau\b|\bsous forme de tableau\b|\bdans un tableau\b")),
     # Phase 2 lot C: parts of a whole. Before "chart", so "as a pie chart" is the share form.
     ("share", re.compile(
-        r"\b(?:as|in) a (?:pie|donut|doughnut)\b|\bpie chart\b|\bwhat (?:share|proportion|percentage|fraction)\b"
+        r"\b(?:as|in|on) a (?:pie|donut|doughnut)\b|\bpie[ -]chart\b|\bwhat (?:share|proportion|percentage|fraction)\b"
         r"|\b(?:the )?(?:share|proportion|percentage) of\b|\bsplit\b|\bbreakdown\b|\bbroken down\b"
+        r"|\b(?:donut|doughnut) (?:chart|graph)\b|\ben (?:beignet|anneau|secteurs)\b|\b(?:diagramme|graphique) (?:circulaire|en secteurs)\b"
         r"|\ben camembert\b|\bcamembert\b|\brepartition\b|\bse repartiss|\bquelle (?:part|proportion)\b|\bquel pourcentage\b"
         r"|\b(?:la )?(?:part|proportion|pourcentage) (?:des|de|du|d')")),
     # Phase 3 lot B: a map. Before "chart", so "plot them on a map" is the map. A question that
@@ -245,6 +246,26 @@ _VIEW_RES = (
         r"|\bpar (?:trilogie|saga|franchise|collection|univers|region|etat|nation|province|comte|departement)\b"
         r"|\bavec (?:les|ses|leurs) \w+ (?:\w+ )?de chacune?\b|\bpour chaque \w+(?: \w+)?,? (?:ses|son|sa|leurs?)\b")),
 )
+
+# A pie asked by name ("as a pie", "pie chart", "donut chart", "en camembert", "en beignet",
+# "diagramme circulaire"). Every match is also a "share" word above, so the representation stays
+# share-bar; this only sets summary_facts.share.shape to "pie" (result_shape.classify_result), the
+# form the fronts draw the parts in. "pie" alone is not enough: "American Pie" is a title.
+_PIE_RE = re.compile(
+    r"\b(?:as|in|on) a (?:pie|donut|doughnut)\b|\bpie[ -]chart\b|\b(?:donut|doughnut) (?:chart|graph)\b"
+    r"|\bcamembert\b|\ben (?:beignet|anneau|secteurs)\b|\b(?:diagramme|graphique) (?:circulaire|en secteurs)\b")
+
+
+def rules_share_shape(question):
+    """"pie" when the question asks for the parts as a pie or a donut, else "bar"."""
+    return "pie" if _PIE_RE.search(_fold(question)) else "bar"
+
+
+def _share_shape_key(question):
+    """{"share_shape": "pie"} when the question asks for a pie, else nothing, so the intent keeps
+    its four keys for every other question. The cache stores only those four (dumps_for_cache): the
+    shape is read again from the question on every request, cache hit included."""
+    return {"share_shape": "pie"} if question and rules_share_shape(question) == "pie" else {}
 
 
 # Phase 3 lot E: lineage wording, read on the folded question. STRONG words ask for the lineage
@@ -387,6 +408,7 @@ def rules_intent(question):
         "focus": rules_focus(question),
         "requested_view": rules_requested_view(question),
         "source": "rules",
+        **_share_shape_key(question),
     }
 
 
@@ -466,6 +488,7 @@ def core_intent(question, llm_intent=None, cached_intent=None):
                 "focus": canonical_focus(candidate.get("focus") or []),
                 "requested_view": view,
                 "source": candidate.get("source") if candidate.get("source") in ("llm", "rules") else "llm",
+                **_share_shape_key(question),
             }
     return rules_intent(question)
 

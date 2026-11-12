@@ -321,6 +321,26 @@ check("share view wins over the classifier's chart and its empty view", (ri.core
       ri.core_intent("What share of these films are long?", {"task": "value", "focus": [], "requested_view": "", "source": "llm"})["requested_view"],
       ri.core_intent("Show them as a table", {"task": "list", "focus": [], "requested_view": "table", "source": "llm"})["requested_view"]),
       ("share", "share", "table"))
+# A pie asked by name: summary_facts.share.shape "pie", the representation still share-bar.
+check("pie words", [ri.rules_share_shape(q) for q in (
+      "Show the split of the HBO series by status as a pie", "Breakdown of the Pixar films by genre, pie chart please",
+      "Split of the Netflix series by type in a donut", "Show it as a doughnut chart",
+      "Répartition des séries HBO par statut en camembert", "La répartition des films en beignet",
+      "Répartition des séries par type, diagramme circulaire", "Show the split of the HBO series by status",
+      "The split of the American Pie films by year", "Le pourcentage de films en couleur")],
+      ["pie", "pie", "pie", "pie", "pie", "pie", "pie", "bar", "bar", "bar"])
+check("pie words are share words", [ri.rules_requested_view(q) for q in ("Show it as a doughnut chart", "La répartition en beignet",
+      "Les séries par statut en diagramme circulaire")], ["share", "share", "share"])
+check("pie carried by the intent, whatever the source; absent otherwise",
+      (ri.core_intent("Show the split of the HBO series by status as a pie", {"task": "count", "focus": [], "requested_view": "chart", "source": "llm"}).get("share_shape"),
+       ri.core_intent("Répartition des séries HBO par statut en camembert", None, {"task": "count", "focus": [], "requested_view": "share", "source": "llm"}).get("share_shape"),
+       ri.rules_intent("Show the split as a pie chart").get("share_shape"),
+       "share_shape" in ri.core_intent("Show the split of the HBO series by status", None, None),
+       ri.dumps_for_cache(ri.rules_intent("Show the split as a pie chart"))),
+      ("pie", "pie", "pie", False, '{"task":"list","focus":[],"requested_view":"share","source":"rules"}'))
+pie = rs.classify_result(S_SQL, s_rows, "", intent=ri.core_intent("Show the split of these series by type as a pie"))
+check("pie: share-bar with shape pie", (pie["representation"], pie["summary_facts"]["share"]["shape"]), ("share-bar", "pie"))
+check("pie: a bar otherwise, and on a single share", (sb["summary_facts"]["share"]["shape"], one["summary_facts"]["share"]["shape"]), ("bar", "bar"))
 
 # 5e. Phase 3 lot A: scatter (made-up questions and rows, not the bank's).
 check("scatter view words", [ri.rules_requested_view(q) for q in (
