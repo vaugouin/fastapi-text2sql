@@ -38,6 +38,7 @@ import result_intent
 import result_chain
 import closed_vocab
 import samples_assertions as sa
+import feedback
 
 # Load environment variables from .env file
 load_dotenv()
@@ -2563,6 +2564,13 @@ class Text2SQLResponse(BaseModel):
     requires_complex_resolution: bool = False
     ui_language: str = "en"
     api_version: str
+    # FASTAPI-TEXT2SQL-061. The id of this request (uuid4 hex), generated when the outer pass
+    # starts, also in the JSON journal; a client sends it back with POST /feedback so the
+    # analysis finds the journal of the rated answer. Shared by the complex retry's inner pass.
+    request_id: str = ""
+    # FASTAPI-TEXT2SQL-061. True when an open thumbs down on this question made the request skip
+    # every cache lookup and every cache write (feedback.f_has_open_negative_feedback).
+    cache_bypassed_by_feedback: bool = False
     messages: List[TextMessage] = []
     result: List[dict] = []  # Array of records with index and data
 
@@ -2925,6 +2933,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
               cached under the original question. False on a retry that kept the
               intention. FASTAPI-TEXT2SQL-263.
             - api_version: Running API version string.
+            - request_id: uuid4 hex id of this request, also at the top of its JSON journal;
+              sent back with POST /feedback. FASTAPI-TEXT2SQL-061.
+            - cache_bypassed_by_feedback: True when an open thumbs down on this question
+              made the request skip every cache lookup and write. FASTAPI-TEXT2SQL-061.
 
     Raises:
         ValueError: If neither question nor question_hashed is provided.
@@ -2942,6 +2954,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     if not getattr(request, "complex_question_already_resolved", False):
         t2s.reset_prompt_cache_events()
         t2s.reset_llm_usage()
+        # FASTAPI-TEXT2SQL-061: a fresh request id and no feedback bypass yet; the complex
+        # retry's inner pass inherits both from this context.
+        feedback.f_start_request()
     # TEXT2SQL-EVAL-002. Set on every pass; the retry copies the request, so the value is the same.
     t2s.set_flex_processing(getattr(request, "flex_processing", False))
     # FASTAPI-TEXT2SQL-347. Same lifecycle: set on every pass from the (copied) request.
@@ -3166,6 +3181,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             llm_model_vision=strvisionmodel,
             ui_language=request.ui_language,
             api_version=strapiversion,
+            request_id=feedback.current_request_id(),
+            cache_bypassed_by_feedback=feedback.cache_bypass_active(),
             messages=messages,
             result=[],
             **t2s.snapshot_usage_fields(),
@@ -3721,6 +3738,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             **t2s.snapshot_usage_fields(),
             ui_language=request.ui_language,
             api_version=strapiversion,
+            request_id=feedback.current_request_id(),
+            cache_bypassed_by_feedback=feedback.cache_bypass_active(),
             result=fast_path_results,
             result_kind=_fp_result_shape["result_kind"],
             result_columns=_fp_result_shape["columns"],
@@ -3739,17 +3758,42 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         return fast_path_response
     # --- end bare-identifier fast path -----------------------------------------
 
+    # FASTAPI-TEXT2SQL-061. An open thumbs down on this question (feedback table, status new or
+    # analysed) means the answer the cache holds is under suspicion: skip every cache lookup
+    # (exact, anonymized, embeddings) and every cache write (exact, anonymized, ChromaDB) of this
+    # request, so the answer is computed fresh and the evidence rows stay the latest. The cache
+    # rows themselves are never touched. The inner pass of a complex retry inherits the outer
+    # decision. A request with no question text (pagination by hash alone) cannot be answered
+    # without the cache, so it is not bypassed. A missing table or grant degrades silently.
+    intcachebypassfeedback = feedback.cache_bypass_active()
+    if (not intcachebypassfeedback and request.question
+            and (request.retrieve_from_cache or request.store_to_cache)):
+        intcachebypassfeedback = feedback.f_has_open_negative_feedback(
+            connection,
+            [hashlib.sha256(request.question.encode('utf-8')).hexdigest(), request.question_hashed],
+            request.ui_language,
+        )
+        if intcachebypassfeedback:
+            feedback.set_cache_bypass(True)
+    if intcachebypassfeedback:
+        messages.append(TextMessage(
+            position=position_counter,
+            text="Open negative user feedback on this question (FASTAPI-TEXT2SQL-061): every cache lookup and cache write is skipped; the answer is computed fresh."
+        ))
+        position_counter += 1
+    intretrievefromcache = bool(request.retrieve_from_cache) and not intcachebypassfeedback
+
     # Try to retrieve user question from cache if requested.
     # FASTAPI-TEXT2SQL-300: not for an identity-seeded retry. The rows cached under `Serie
     # Game of Thrones` before the fix are the series' images, and an exact hit would serve
     # them again before the seed is ever read.
-    if request.retrieve_from_cache and dctidentityseed:
+    if intretrievefromcache and dctidentityseed:
         messages.append(TextMessage(
             position=position_counter,
             text=f"Identity retry seeded by the complex step ('{dctidentityseed['result_entity']}'); SQL caches skipped (FASTAPI-TEXT2SQL-300)."
         ))
         position_counter += 1
-    elif request.retrieve_from_cache:
+    elif intretrievefromcache:
         messages.append(TextMessage(
             position=position_counter, 
             text="Attempting to retrieve exact question from cache."
@@ -3818,7 +3862,9 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     else:
         messages.append(TextMessage(
             position=position_counter, 
-            text="Cache retrieval disabled; proceeding with full processing."
+            text=("Cache retrieval skipped because of open negative user feedback; proceeding with full processing."
+                  if intcachebypassfeedback else
+                  "Cache retrieval disabled; proceeding with full processing.")
         ))
         position_counter += 1
     
@@ -3873,6 +3919,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 llm_model_vision=strvisionmodel,
                 ui_language=request.ui_language,
                 api_version=strapiversion,
+                request_id=feedback.current_request_id(),
+                cache_bypassed_by_feedback=intcachebypassfeedback,
                 messages=messages,
                 result=[],
             )
@@ -3969,7 +4017,7 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                 position_counter += 1
         cache_result_anonymized = None
 
-        if request.retrieve_from_cache and not requires_complex_resolution and not dctidentityseed:
+        if intretrievefromcache and not requires_complex_resolution and not dctidentityseed:
             messages.append(TextMessage(
                 position=position_counter, 
                 text="Searching cache for anonymized question."
@@ -4846,12 +4894,20 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
 
                 retry_store_allowed = (
                     bool(request.store_to_cache)
+                    and not intcachebypassfeedback  # FASTAPI-TEXT2SQL-061
                     and not (retry_returned_nothing and not CACHE_EMPTY_RESULTS)
                     and not _rewrite_added_constraint
                     and not _retry_intent_dropped
                 )
                 _retry_cache_policy = "stored" if retry_store_allowed else "skipped:not_requested"
-                if request.store_to_cache and retry_returned_nothing and not CACHE_EMPTY_RESULTS:
+                if request.store_to_cache and intcachebypassfeedback:
+                    _retry_cache_policy = "skipped:open_feedback"
+                    messages.append(TextMessage(
+                        position=position_counter,
+                        text="Not cached under the original question (FASTAPI-TEXT2SQL-061): the question carries an open negative user feedback."
+                    ))
+                    position_counter += 1
+                elif request.store_to_cache and retry_returned_nothing and not CACHE_EMPTY_RESULTS:
                     _retry_cache_policy = "skipped:empty_result"
                     messages.append(TextMessage(
                         position=position_counter,
@@ -6063,8 +6119,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         )
         store_to_cache_allowed = bool(request.store_to_cache) and not (
             empty_result_on_first_page and not CACHE_EMPTY_RESULTS
-        )
-        if request.store_to_cache and not store_to_cache_allowed:
+        ) and not intcachebypassfeedback  # FASTAPI-TEXT2SQL-061
+        if request.store_to_cache and intcachebypassfeedback:
+            messages.append(TextMessage(
+                position=position_counter,
+                text="Open negative user feedback on this question (FASTAPI-TEXT2SQL-061); skipping every cache write so the rated rows stay the latest."
+            ))
+            position_counter += 1
+        elif request.store_to_cache and not store_to_cache_allowed:
             messages.append(TextMessage(
                 position=position_counter,
                 text="0 rows returned; skipping every cache write so a possibly defective query is not frozen for this question and its anonymized template (set CACHE_EMPTY_RESULTS=1 to restore caching)."
@@ -6421,6 +6483,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         requires_complex_resolution=requires_complex_resolution,
         ui_language=request.ui_language,
         api_version=strapiversion,
+        request_id=feedback.current_request_id(),
+        cache_bypassed_by_feedback=intcachebypassfeedback,
         result=query_results,
         result_kind=_result_shape["result_kind"],
         result_columns=_result_shape["columns"],
@@ -6434,12 +6498,187 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
     
     # Log the request and response
     log_data = {
+        "request_id": feedback.current_request_id(),  # FASTAPI-TEXT2SQL-061
+        "cache_bypassed_by_feedback": intcachebypassfeedback,
         "request": request.model_dump(),
         "response": response.model_dump()
     }
     print("LOG DATA:", log_data)
     logs.log_usage("text2sql_post", log_data, strapiversion)
-    
+
+    return response
+
+# ---------------------------------------------------------------------------
+# User feedback (FASTAPI-TEXT2SQL-061)
+# ---------------------------------------------------------------------------
+
+# --- feedback models (checks/verif-061.py executes this block) ---
+class FeedbackRequest(BaseModel):
+    """One rating of one search answer, as t2s-front and voice-agent send it."""
+    rating: int
+    comment: Optional[str] = None
+    client: str
+    ui_language: Optional[str] = "en"
+    question: str = Field(..., min_length=1, max_length=feedback.MAX_QUESTION_CHARS)
+    question_hashed: Optional[str] = Field(None, max_length=64)
+    request_id: Optional[str] = Field(None, max_length=feedback.MAX_REQUEST_ID_CHARS)
+    api_version: Optional[str] = Field(None, max_length=feedback.MAX_API_VERSION_CHARS)
+    sql_query: Optional[str] = None
+    result_entity: Optional[str] = Field(None, max_length=feedback.MAX_RESULT_ENTITY_CHARS)
+
+    @field_validator("rating", mode="before")
+    @classmethod
+    def _check_rating(cls, v):
+        """Accept 1 (thumbs up) or -1 (thumbs down), nothing else (a bool is refused)."""
+        if isinstance(v, bool) or v not in (1, -1):
+            raise ValueError("rating must be 1 (thumbs up) or -1 (thumbs down)")
+        return int(v)
+
+    @field_validator("comment", mode="before")
+    @classmethod
+    def _check_comment(cls, v):
+        """Strip the comment; an empty one becomes None; longer than the cap is refused."""
+        if v is None:
+            return None
+        strcomment = str(v).strip()
+        if not strcomment:
+            return None
+        if len(strcomment) > feedback.MAX_COMMENT_CHARS:
+            raise ValueError(f"comment is limited to {feedback.MAX_COMMENT_CHARS} characters")
+        return strcomment
+
+    @field_validator("client", mode="before")
+    @classmethod
+    def _check_client(cls, v):
+        """Accept one of feedback.FEEDBACK_CLIENTS."""
+        strclient = str(v or "").strip().lower()
+        if strclient not in feedback.FEEDBACK_CLIENTS:
+            raise ValueError(f"client must be one of {', '.join(feedback.FEEDBACK_CLIENTS)}")
+        return strclient
+
+    @field_validator("ui_language", mode="before")
+    @classmethod
+    def _normalize_ui_language(cls, v):
+        """Normalize ui_language like Text2SQLRequest does (en / fr, fallback en)."""
+        return normalize_ui_language(v)
+
+    @field_validator("question", mode="before")
+    @classmethod
+    def _strip_question(cls, v):
+        """Strip the question; the length rules then apply to the stripped text."""
+        return str(v).strip() if v is not None else v
+
+    @field_validator("question_hashed", "request_id", "api_version", "sql_query", "result_entity", mode="before")
+    @classmethod
+    def _blank_to_none(cls, v):
+        """Turn an empty or blank optional string into None."""
+        if v is None:
+            return None
+        strvalue = str(v).strip()
+        return strvalue or None
+
+
+class FeedbackResponse(BaseModel):
+    """What POST /feedback answers once the rating is stored."""
+    id_feedback: int
+    status: str = "recorded"
+    cache_bypassed: bool
+    api_version: str
+# --- end feedback models ---
+
+
+@app.post("/feedback", response_model=FeedbackResponse, summary="Record a user rating of a search answer")
+async def post_feedback(request: FeedbackRequest, api_key: str = Depends(get_api_key)):
+    """Record a thumbs up or thumbs down, with an optional comment, on one search answer.
+
+    FASTAPI-TEXT2SQL-061. One row per call in `T_WC_T2S_FEEDBACK`, kept for analysis (Nestor,
+    TEXT2SQL-EVAL-006). Nothing in the cache is deleted or modified. A thumbs down opens a cache
+    bypass instead: while the rating's `ANALYSIS_STATUS` is `new` or `analysed`, every
+    `/search/text2sql` request on the same question (same hash, same UI language) skips the
+    cache lookups and writes and is answered fresh (`cache_bypassed_by_feedback` in its
+    response). The bypass ends when the analysis marks the rating `fixed` or `not_a_defect`.
+
+    Args:
+        request (FeedbackRequest): Request body:
+            - rating (int, required): 1 (thumbs up) or -1 (thumbs down); anything else is 422.
+            - comment (str, optional): free text, stripped, at most 2000 characters (422 beyond).
+            - client (str, required): "t2s-front", "voice-agent" or "other".
+            - ui_language (str, default "en"): normalized like the search route (en / fr).
+            - question (str, required): the question as the user asked it, at most 4000
+              characters.
+            - question_hashed (str, optional): the `question_hashed` the search returned; when
+              absent, the SHA-256 of the question normalized as the search route does it.
+            - request_id (str, optional): the `request_id` the search returned, at most 64
+              characters; ties the rating to the JSON journal of that request.
+            - api_version (str, optional): the `api_version` the search returned.
+            - sql_query (str, optional): the `sql_query` the search returned.
+            - result_entity (str, optional): the `result_entity` the search returned.
+        api_key (str): Valid API key injected via X-API-Key header.
+
+    Returns:
+        FeedbackResponse: `id_feedback` (the new row), `status` "recorded", `cache_bypassed`
+            (true for a thumbs down: the question is answered fresh from now on) and
+            `api_version` (the running version).
+
+    Raises:
+        HTTPException 422: invalid body (rating, comment length, client, missing question).
+        HTTPException 503: the rating could not be stored (table missing, grant missing,
+            database unreachable); the cause is on the console.
+        HTTPException 401: invalid API key.
+    """
+    strquestionhashed = request.question_hashed or feedback.f_question_hash(request.question)
+    dctfeedback = {
+        "request_id": request.request_id,
+        "question": request.question,
+        "question_hashed": strquestionhashed,
+        "ui_language": request.ui_language,
+        "api_version": request.api_version,
+        "client": request.client,
+        "rating": request.rating,
+        "comment": request.comment,
+        "sql_query": request.sql_query,
+        "result_entity": request.result_entity,
+    }
+    connection = None
+    try:
+        connection = get_db_connection()
+        lngidfeedback = await asyncio.to_thread(feedback.f_record_feedback, connection, dctfeedback)
+    except Exception as e:
+        print(
+            f"[feedback] could not store the rating in {feedback.FEEDBACK_TABLE}: {e} "
+            f"(error 1146: table missing, run doc/sql/T_WC_T2S_FEEDBACK.sql; "
+            f"error 1142: GRANT SELECT, INSERT, UPDATE missing for the API account)",
+            flush=True,
+        )
+        logs.log_usage(
+            "feedback_post",
+            {"request": request.model_dump(), "question_hashed": strquestionhashed,
+             "error": str(e), "api_version": strapiversion},
+            strapiversion,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="The feedback could not be recorded: the feedback store is unavailable. Please try again later.",
+        )
+    finally:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+    response = FeedbackResponse(
+        id_feedback=lngidfeedback,
+        status="recorded",
+        cache_bypassed=request.rating == -1,
+        api_version=strapiversion,
+    )
+    logs.log_usage(
+        "feedback_post",
+        {"request": request.model_dump(), "question_hashed": strquestionhashed,
+         "response": response.model_dump()},
+        strapiversion,
+    )
     return response
 
 # ---------------------------------------------------------------------------

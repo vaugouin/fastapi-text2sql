@@ -670,6 +670,7 @@ curl -X POST "http://localhost:8187/search/text2sql" \
 - `cached_exact_question` (bool): Whether exact question was found in cache
 - `cached_anonymized_question` (bool): Whether anonymized question was cached
 - `cached_anonymized_question_embedding` (bool): Whether similar question found via embeddings
+- `cache_bypassed_by_feedback` (bool, default `false`): **True when an open thumbs down on this question made the request skip every cache lookup and every cache write** (FASTAPI-TEXT2SQL-061). The three flags above are then all `false` and nothing was written to the cache. See [User Feedback](#6-user-feedback).
 
 **Configuration & Status:**
 - `ambiguous_question_for_text2sql` (bool): Whether question was too ambiguous for SQL generation, or entity resolution left unresolved placeholders
@@ -683,6 +684,7 @@ curl -X POST "http://localhost:8187/search/text2sql" \
 - `complex_model_used` (bool, default `false`): **Whether the stronger model was actually invoked** during the request — set to `true` when any of the four complex-retry code paths fired (text2sql error, SQL execution error, zero-row result on page 1, or single-cell zero-count direct answer). Use this rather than `llm_model_complex` to know whether the extra LLM call happened.
 - `ui_language` (str): Normalized language code used for the `answer` field and the cache key — either `"en"` or `"fr"` (any other requested value falls back to `"en"`)
 - `api_version` (str): Current API version
+- `request_id` (str): The id of this request, a uuid4 hex string generated when the request starts, also written at the top of its JSON journal (`logs/`). Present on every response of the route, the short-circuit ones (vision, bare identifier, cache miss) included; the inner pass of a stronger-model retry shares the outer one's id. A client keeps it beside the answer and sends it back with `POST /feedback`, which is how the analysis finds the journal of the rated answer (FASTAPI-TEXT2SQL-061)
 - `messages` (list): Array of processing step messages, each with `position` (int) and `text` (str). On a stronger-model retry, the messages from the outer and inner runs are merged and renumbered.
 
 #### 3. Entity Detail Endpoints
@@ -1211,6 +1213,48 @@ gap to fill later.
 the deposit is what needed a content type of its own, and it has one. See the vision pre-stage
 in *Query Processing Pipeline*, and `vision_evidence` in the response fields.
 
+#### 6. User Feedback
+
+```http
+POST /feedback
+```
+
+FASTAPI-TEXT2SQL-061. Records one rating of one search answer, a thumbs up or a thumbs down with an optional comment, sent by t2s-front or voice-agent. One row per call in `T_WC_T2S_FEEDBACK` (DDL and grant: `doc/sql/T_WC_T2S_FEEDBACK.sql`, run by hand), kept for analysis: the improvement loop reads the thumbs down and the comments, finds the journal of each request by its `request_id`, turns every confirmed defect into evaluations of the Cinéphile Bench and a ticket, and records its verdict in the analysis columns (`ANALYSIS_STATUS`, `ANALYSIS_NOTE`, `TICKET_ID`, `EVALUATION_IDS`, `TIM_ANALYSED`). Requires the `X-API-Key` header.
+
+**Request body:**
+
+| field | type | rule |
+|---|---|---|
+| `rating` | int, required | `1` (thumbs up) or `-1` (thumbs down); anything else is a 422 |
+| `comment` | str, optional | stripped, empty becomes null, at most 2000 characters (422 beyond) |
+| `client` | str, required | `t2s-front`, `voice-agent` or `other` |
+| `ui_language` | str, default `en` | normalized like the search route (`fr-FR` gives `fr`, unsupported gives `en`) |
+| `question` | str, required | the question as the user asked it, at most 4000 characters |
+| `question_hashed` | str, optional | the `question_hashed` the search returned; when absent, the SHA-256 of the question normalized exactly as the search route does it (strip, double spaces, `&#039;` and the typographic apostrophe) |
+| `request_id` | str, optional | the `request_id` the search returned, at most 64 characters |
+| `api_version` | str, optional | the `api_version` the search returned, at most 20 characters |
+| `sql_query` | str, optional | the `sql_query` the search returned |
+| `result_entity` | str, optional | the `result_entity` the search returned, at most 50 characters |
+
+```json
+{"rating": -1, "comment": "These are not his films", "client": "voice-agent", "ui_language": "en",
+ "question": "Movies directed by Tony Scott", "question_hashed": "<from the search>",
+ "request_id": "<from the search>", "api_version": "1.1.20", "sql_query": "<from the search>",
+ "result_entity": "movie"}
+```
+
+**Response (200):**
+
+```json
+{"id_feedback": 42, "status": "recorded", "cache_bypassed": true, "api_version": "1.1.20"}
+```
+
+`cache_bypassed` is `true` for a thumbs down. **On a database failure** (table not created yet, error 1146; grant missing, error 1142; database unreachable) the route answers `503` with a plain `detail`, and the console names the cause. The call is logged as `feedback_post`.
+
+**What a thumbs down does to the cache: nothing is deleted, nothing is modified.** The cache row is the evidence of the defect (question, SQL, answer), and the anonymized row carries the hash of the original question, so flagging rows by hash would also poison a template other questions reuse. Instead, `/search/text2sql` asks, before its cache tiers, whether the question has an **open** negative rating (`RATING < 0`, `ANALYSIS_STATUS` `new` or `analysed`, not soft-deleted, same hash, same UI language or a null one, like the cache's own language scoping). When it has, the request skips the exact, anonymized and embeddings lookups and every cache write (exact, anonymized, ChromaDB, and the original-question row of a stronger-model retry), answers fresh, and says so in `cache_bypassed_by_feedback` and in its `messages`. The rows the user rated therefore stay the latest. The bypass ends by itself when the analysis sets the rating to `fixed` or `not_a_defect` (or soft-deletes it with `DELETED = 1`); the next request then caches normally again. A thumbs up changes nothing.
+
+Limits, by design: a request carrying only a `question_hashed` (pagination with no question text) cannot be answered without the cache and is never bypassed; the recognition cache of the picture-based search (keyed on the image, not the question) is not bypassed either. Until the DDL has run, the check degrades to the normal cache behaviour (one console line per process) and never fails a search. A thumbs down is not tied to an API version: it holds the question out of the cache across a version bump until its analysis closes it.
+
 ### Client handling for quota / rate-limit errors
 
 When an upstream LLM provider rejects a request because of quota exhaustion or temporary rate limiting, the API returns the failure in the normal JSON response and also exposes structured retry metadata.
@@ -1674,6 +1718,7 @@ fastapi-text2sql/
 ├── closed_vocab.py          # Closed-vocabulary resolver (Movie_genre, Serie_genre, Technical_format, Status_name, Serie_type, Department_name) — DB-driven canonicals + JSON aliases + RapidFuzz typo tolerance
 ├── uploads.py               # Vision-mode image deposits: magic-number check, house filename, 30-day retention, safe image_ref parsing (FASTAPI-TEXT2SQL-275)
 ├── sql_cache.py             # SQL cache lookups and cache writes for exact/anonymized questions
+├── feedback.py              # User feedback (POST /feedback): request id, rating storage, and the cache bypass while a thumbs down is open (FASTAPI-TEXT2SQL-061)
 ├── vision_cache.py          # Recognition cache of the picture-based search: keyed on the MD5 of the image bytes, its own table, degrades to a silent miss before the migration runs (FASTAPI-TEXT2SQL-114)
 ├── auth.py                  # API key authentication middleware (multi-key support via API_KEYS)
 ├── logs.py                  # API usage logging (JSON log files in logs/ folder)
@@ -1838,6 +1883,10 @@ The API implements a sophisticated four-tier caching system for optimal performa
 - A photo with nothing of cinema in it **is** cached, unlike an empty SQL result: it will still be a photo of a meal tomorrow, and that is the case where the cache most reliably avoids a pointless spend.
 - Survives the 30-day image purge, because the key is the fingerprint and not the file. It then serves the identification, never the pixels.
 - Governed by the same `retrieve_from_cache` / `store_to_cache` request flags as the three tiers above. Its table is created by `maintenance/vision-recognition-cache.sql`, run in production on 2026-09-20. Should the table ever be absent (another database, a dropped table), the module degrades to a silent miss and the picture-based search works uncached rather than failing.
+
+#### What is bypassed: a question under an open thumbs down
+
+While a question carries a thumbs down whose analysis is still open, every request on it skips the three question tiers, for reading and for writing, and the cache rows are left untouched as evidence (FASTAPI-TEXT2SQL-061). See [User Feedback](#6-user-feedback).
 
 #### What is never cached: an empty result
 
