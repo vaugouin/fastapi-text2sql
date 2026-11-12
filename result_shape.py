@@ -192,8 +192,12 @@ _DEFAULT_ID_COLUMNS = frozenset({
 #
 # `ratio` is tested before `usd` on purpose: a column expressing a ratio ("how many times
 # the budget", TIMES_BUDGET) contains a money word but must never read as money.
+#
+# `percent` comes first: PERCENTAGE 49.3 (ROUND(100 * part / whole, 1)) is a percentage the fronts
+# print "49.3%", never a ratio, which they print "×49.3" (2026-11-12, Barbie cast by gender).
 _UNIT_PATTERNS = (
-    ("ratio", re.compile(r"RATIO|PERCENT|_RATE\b|\bTIMES_|_PER_", re.IGNORECASE)),
+    ("percent", re.compile(r"PERCENT|POURCENT|^PCT$|_PCT$|^PCT_", re.IGNORECASE)),
+    ("ratio", re.compile(r"RATIO|_RATE\b|\bTIMES_|_PER_", re.IGNORECASE)),
     ("usd", re.compile(r"BUDGET|REVENUE|GROSS|BOX_?OFFICE|_USD\b|EARNING", re.IGNORECASE)),
     ("minutes", re.compile(r"RUNTIME|DURATION|_MINUTES?\b", re.IGNORECASE)),
     ("years", re.compile(r"_YEAR\b|\bYEARS?\b|\bAGE\b", re.IGNORECASE)),
