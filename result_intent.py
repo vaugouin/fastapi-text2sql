@@ -39,7 +39,11 @@ INTENT_TASKS = ("list", "value", "rank", "count", "compare", "sequence", "trend"
 # "carte des"). Read by the rules whatever the source, as "share"; it only moves a result whose
 # rows are countries (result_shape: the map is offered where the flag list is), so a map asked of
 # anything else changes nothing.
-REQUESTED_VIEWS = ("table", "chart", "cards", "share", "scatter", "map")
+# "hierarchy" (phase 3 lot C): the question asks for the rows grouped under a parent ("grouped by
+# trilogy", "by region", "with the films of each", "regroupes par region", "par trilogie"). Read by
+# the rules whatever the source, over the classifier's "" only; it only moves entity rows that carry
+# a group column (result_shape: two groups and four leaves at least), so it changes nothing else.
+REQUESTED_VIEWS = ("table", "chart", "cards", "share", "scatter", "map", "hierarchy")
 
 # Canonical focus names -> the column-name pattern of the projected column that carries it.
 # The unit patterns of result_shape.py cover runtime, money, ratio and counts; the rest are
@@ -222,6 +226,18 @@ _VIEW_RES = (
         r"|\bcartographi")),
     ("chart", re.compile(r"\bas a (?:bar )?(?:chart|graph)\b|\bbar chart\b|\bplot\b|\ben graphique\b|\bsous forme de graphique\b|\bhistogramme\b")),
     ("cards", re.compile(r"\bas cards\b|\bwith (?:the )?posters\b|\ben cartes\b|\bavec (?:les )?affiches\b")),
+    # Phase 3 lot C: a grouping under a parent. Last, so an explicit table, chart or cards wins.
+    # "by" or "par" alone is no grouping ("films by Nolan", "realise par"): only before the name
+    # of a parent level, or in "grouped by", "regroupes par", "with the films of each".
+    ("hierarchy", re.compile(
+        r"\bgrouped (?:by|under|into)\b|\bgroup(?:ed)? (?:them |it |these )?by\b|\borgani[sz]ed (?:by|into)\b"
+        r"|\barranged by\b|\bsorted into\b|\bbroken (?:up )?into\b"
+        r"|\bby (?:trilogy|trilogies|saga|franchise|collection|universe|region|state|nation|province|county|department|phase)\b"
+        r"|\bwith the \w+ (?:\w+ )?of each\b|\beach with (?:its|their)\b|\bunder each\b"
+        r"|\bfor each (?:of the )?\w+(?: \w+)?,? (?:its|their|his|her)\b"
+        r"|\b(?:re)?groupee?s? (?:par|sous)\b|\branges? par\b|\brangees? par\b|\borganisee?s? par\b|\breparti(?:e|s|es)? (?:par|en)\b"
+        r"|\bpar (?:trilogie|saga|franchise|collection|univers|region|etat|nation|province|comte|departement)\b"
+        r"|\bavec (?:les|ses|leurs) \w+ (?:\w+ )?de chacune?\b|\bpour chaque \w+(?: \w+)?,? (?:ses|son|sa|leurs?)\b")),
 )
 
 
@@ -367,8 +383,12 @@ def core_intent(question, llm_intent=None, cached_intent=None):
             # chart to the classifier, and a pie is the share form. Phase 3 lot A: "scatter" the
             # same way ("plot X against Y" reads chart to the classifier). Phase 3 lot B: "map" too
             # ("Show on a world map..." reads "" to the classifier, "plot them on a map" chart).
+            # Phase 3 lot C: "hierarchy" the same way, over "" only ("grouped by trilogy" reads ""
+            # to the classifier; a chart it read stays a chart).
             if view in ("", "chart") and question and rules_requested_view(question) in ("share", "scatter", "map"):
                 view = rules_requested_view(question)
+            elif view == "" and question and rules_requested_view(question) == "hierarchy":
+                view = "hierarchy"
             return {
                 "task": candidate["task"],
                 "focus": canonical_focus(candidate.get("focus") or []),

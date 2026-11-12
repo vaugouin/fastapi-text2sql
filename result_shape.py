@@ -56,6 +56,7 @@ REPRESENTATIONS = (
     "flag-list",       # countries with their flag and name, and the count when there is one (phase 2 lot C)
     "scatter",         # N entity rows as dots over two quantities, x against y (phase 3 lot A)
     "map",             # the countries of a flag list shaded on a world outline (phase 3 lot B)
+    "hierarchy",       # N entity rows under one or two levels of groups named in the rows (phase 3 lot C)
     "table",         # the honest fallback, never an empty card
 )
 
@@ -71,6 +72,7 @@ _REQUESTED_VIEW_REPRESENTATIONS = {
     "share": ("share-bar",),
     "scatter": ("scatter",),
     "map": ("map",),
+    "hierarchy": ("hierarchy",),
 }
 # Phase 3 lot A. A scatter needs five points carrying both quantities: fewer is a handful of
 # cards, which value-cards or compare-cards already draw better than a near-empty plot.
@@ -101,6 +103,40 @@ _SCATTER_X_ORDER = ("year", "budget", "runtime", "seasons", "episodes", "count",
 # but the three biggest into one corner. A votes axis is logarithmic when its largest value is a
 # hundred times its smallest; no other quantity is (money and minutes read in plain amounts).
 _SCATTER_LOG_RATIO = 100
+# Phase 3 lot C. A hierarchy is entity rows (the leaves: films, places, persons) under one or two
+# levels of groups whose names the rows carry (TRILOGY_NAME, REGION_NAME, COLLECTION_NAME...). Two
+# groups at least and four leaves at least, three levels at most (two group columns and the
+# leaves): a deeper tree needs data the base does not hold (decision 7 of 2026-11-12).
+_HIERARCHY_MIN_GROUPS, _HIERARCHY_MIN_LEAVES, _HIERARCHY_MAX_GROUP_LEVELS = 2, 4, 2
+# The groups must be a partition, or close to one. A place comes back once per ancestor when the
+# SQL joins every ancestor of a type (Giverny under Eure, Giverny and Normandy): a leaf under two
+# groups is shown under each and counted in `shared`, but when more than this share of the
+# distinct leaves sit under two groups or more the rows are a graph, not a tree, and nested
+# sections would state an order the data does not have: no hierarchy.
+_HIERARCHY_MAX_SHARED = 1 / 3
+# What a level groups, read from its column name, so each front names it in its own language
+# ("three trilogies", "trois trilogies"); "group" when nothing matches. Checked in order.
+_HIERARCHY_KINDS = (
+    ("trilogy", re.compile(r"TRILOG", re.IGNORECASE)),
+    ("saga", re.compile(r"SAGA", re.IGNORECASE)),
+    ("franchise", re.compile(r"FRANCHISE", re.IGNORECASE)),
+    ("universe", re.compile(r"UNIVERSE|UNIVERS_", re.IGNORECASE)),
+    ("collection", re.compile(r"COLLECTION", re.IGNORECASE)),
+    ("region", re.compile(r"REGION", re.IGNORECASE)),
+    ("state", re.compile(r"STATE|ETAT", re.IGNORECASE)),
+    ("nation", re.compile(r"NATION", re.IGNORECASE)),
+    ("country", re.compile(r"COUNTRY|PAYS", re.IGNORECASE)),
+    ("province", re.compile(r"PROVINCE", re.IGNORECASE)),
+    ("county", re.compile(r"COUNTY|COMTE", re.IGNORECASE)),
+    ("department", re.compile(r"DEPARTMENT|DEPARTEMENT", re.IGNORECASE)),
+    ("city", re.compile(r"CITY|VILLE", re.IGNORECASE)),
+    ("actor", re.compile(r"ACTOR|ACTRESS|ACTEUR|ACTRICE", re.IGNORECASE)),
+    ("director", re.compile(r"DIRECTOR|REALISAT", re.IGNORECASE)),
+    ("company", re.compile(r"COMPANY|STUDIO", re.IGNORECASE)),
+    ("network", re.compile(r"NETWORK", re.IGNORECASE)),
+    ("genre", re.compile(r"GENRE", re.IGNORECASE)),
+    ("person", re.compile(r"PERSON", re.IGNORECASE)),
+)
 # Phase 2 lot C. A share bar holds two to eight parts: more falls back to ranked-bars (a bar of
 # thirty slivers says nothing), one part says nothing a number card does not.
 _SHARE_MIN_PARTS, _SHARE_MAX_PARTS = 2, 8
@@ -957,6 +993,171 @@ def _map(countries):
     }
 
 
+def _entity_base(name):
+    """The entity a column name speaks of: ID_T2S_COLLECTION and COLLECTION_NAME both give
+    COLLECTION, MOVIE_TITLE gives MOVIE; "" for a name that names none (TITLE)."""
+    upper = str(name or "").upper()
+    if upper.startswith("ID_"):
+        base = upper[3:]
+    else:
+        m = re.match(r"^(.+)_(?:TITLE|NAME)$", upper)
+        if not m:
+            return ""
+        base = m.group(1)
+    return base[4:] if base.startswith("T2S_") else base
+
+
+def _contiguous(keys):
+    """True when each value of `keys` comes in one run (the rows arrive grouped)."""
+    seen, previous = set(), object()
+    for key in keys:
+        if key != previous:
+            if key in seen:
+                return False
+            seen.add(key)
+            previous = key
+    return True
+
+
+def _hierarchy_kind(name):
+    for kind, rx in _HIERARCHY_KINDS:
+        if rx.search(str(name or "")):
+            return kind
+    return "group"
+
+
+def _hierarchy(rows, columns, asked):
+    """summary_facts.hierarchy (phase 3 lot C), or None.
+
+    The leaves are the entity id column with the most distinct values (ID_MOVIE beside the
+    ID_T2S_COLLECTION of its collection), named by the label column of the same entity
+    (MOVIE_TITLE), else the first label after the id. A level of groups is another label column
+    (TRILOGY_NAME, REGION_NAME, COLLECTION_NAME; never the leaf's own name) holding two non-empty
+    values at least and fewer groups than leaves; the level with the fewest groups is the outer
+    one, and a second label column nests inside it when each of its values falls under one outer
+    value. An entity id column constant within each group of a level (ID_T2S_COLLECTION) is that
+    level's id. The rows must come grouped (each group in one run, the SQL ordered by the group)
+    unless the question asks for the grouping (`asked`): then the groups are read in the order
+    they first appear. Two groups and four leaves at least; a leaf under several groups is shown
+    under each and counted in `shared`, but more than a third of the leaves shared is a graph:
+    None.
+    """
+    if not rows:
+        return None
+    ids = [c for c in columns if c["role"] == "entity_id"]
+    if not ids:
+        return None
+    position = {c["name"]: k for k, c in enumerate(columns)}
+
+    def distinct(name):
+        return len({r.get(name) for r in rows if r.get(name) not in (None, "")})
+
+    leaf_id = max(ids, key=lambda c: (distinct(c["name"]), -position[c["name"]]))
+    labels = [c for c in columns if c["role"] == "label"]
+    base = _entity_base(leaf_id["name"])
+    leaf_label = next((c for c in labels if base and _entity_base(c["name"]) == base), None) or next(
+        (c for c in labels if position[c["name"]] > position[leaf_id["name"]]), None)
+    leaf_key = leaf_id["name"]
+    leaves = distinct(leaf_key)
+    if leaves < _HIERARCHY_MIN_LEAVES:
+        return None
+    candidates = []
+    for c in labels:
+        if leaf_label is not None and c["name"] == leaf_label["name"]:
+            continue
+        if base and _entity_base(c["name"]) == base:
+            continue
+        n = distinct(c["name"])
+        if n < _HIERARCHY_MIN_GROUPS or n >= leaves:
+            continue
+        if not asked and not _contiguous([r.get(c["name"]) for r in rows]):
+            continue
+        candidates.append((n, position[c["name"]], c))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda t: (t[0], t[1]))
+    levels = [candidates[0][2]]
+    for n, _, c in candidates[1:]:
+        if len(levels) >= _HIERARCHY_MAX_GROUP_LEVELS:
+            break
+        if n <= candidates[0][0]:
+            continue
+        outer_of = {}
+        nested = True
+        for r in rows:
+            inner, outer = r.get(c["name"]), r.get(levels[0]["name"])
+            if inner in (None, ""):
+                continue
+            if outer_of.setdefault(inner, outer) != outer:
+                nested = False
+                break
+        if nested and (asked or _contiguous([(r.get(levels[0]["name"]), r.get(c["name"])) for r in rows])):
+            levels.append(c)
+
+    # A level's id: another entity id column holding one value per group of that level.
+    def level_id(level):
+        for c in ids:
+            if c["name"] == leaf_key:
+                continue
+            by_group = {}
+            if all(by_group.setdefault(r.get(level["name"]), r.get(c["name"])) == r.get(c["name"]) for r in rows):
+                return c["name"]
+        return None
+
+    def norm(value):
+        return None if value in (None, "") else value
+
+    homes = {}
+    for r in rows:
+        homes.setdefault(r.get(leaf_key), set()).add(norm(r.get(levels[-1]["name"])))
+    shared = sum(1 for h in homes.values() if len(h) > 1)
+    if shared > _HIERARCHY_MAX_SHARED * leaves:
+        return None
+
+    # The groups, outer first, in the order they first appear; the leaves in row order.
+    level_ids = [level_id(lv) for lv in levels]
+    top, top_index = [], {}
+    for i, r in enumerate(rows):
+        key = norm(r.get(levels[0]["name"]))
+        group = top_index.get(key)
+        if group is None:
+            group = {"label": key, "id": r.get(level_ids[0]) if level_ids[0] else None, "count": 0}
+            group["groups" if len(levels) > 1 else "rows"] = []
+            top_index[key] = group
+            top.append(group)
+        group["count"] += 1
+        if len(levels) == 1:
+            group["rows"].append(i)
+            continue
+        inner_key = norm(r.get(levels[1]["name"]))
+        inner = next((g for g in group["groups"] if g["label"] == inner_key), None)
+        if inner is None:
+            inner = {"label": inner_key, "id": r.get(level_ids[1]) if level_ids[1] else None, "count": 0, "rows": []}
+            group["groups"].append(inner)
+        inner["count"] += 1
+        inner["rows"].append(i)
+    named = [g for g in top if g["label"] is not None]
+    if len(named) < _HIERARCHY_MIN_GROUPS:
+        return None
+    level_counts = [len(named)]
+    if len(levels) > 1:
+        level_counts.append(len({(g["label"], sub["label"]) for g in named for sub in g["groups"] if sub["label"] is not None}))
+    sizes = [g["count"] for g in named]
+    largest = max(range(len(top)), key=lambda k: (top[k]["label"] is not None, top[k]["count"], -k))
+    return {
+        "levels": [{"column": lv["name"], "id_column": level_ids[k], "kind": _hierarchy_kind(lv["name"]),
+                    "count": level_counts[k]} for k, lv in enumerate(levels)],
+        "leaf": {"id_column": leaf_key, "label_column": leaf_label["name"] if leaf_label else None,
+                 "image": position[leaf_key] == min(position[c["name"]] for c in ids), "count": leaves},
+        "count": len(rows),
+        "shared": shared,
+        "ungrouped": sum(g["count"] for g in top if g["label"] is None),
+        "even": len(set(sizes)) == 1,
+        "largest": largest,
+        "groups": top,
+    }
+
+
 def _with_option(options, rep):
     """`options` with `rep` added before "table" (the fallback stays last)."""
     if rep in options:
@@ -1027,8 +1228,8 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
             compare-cards is an option, `fact` on a fact-card, `verdict` and `verdict_basis` on
             a verdict (an empty verdict is the one rowless result with summary_facts); phase 2
             lot C `histogram`, `share`, `countries`, phase 3 lot A `scatter`, lot B `map` (with
-            `countries`, whose entries carry their ISO `numeric` code), each where its
-            representation is an option.
+            `countries`, whose entries carry their ISO `numeric` code), lot C `hierarchy`, each
+            where its representation is an option.
     """
     ids = frozenset(id_columns) if id_columns is not None else _DEFAULT_ID_COLUMNS
     result_rows = list(result_rows or [])
@@ -1248,6 +1449,21 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
             representation = "scatter"
             options = ["scatter"] + [o for o in options if o != "scatter"]
 
+    # Phase 3 lot C. hierarchy: entity rows under one or two levels of groups the rows name
+    # (a TRILOGY_NAME, a REGION_NAME, the COLLECTION_NAME beside each film), offered wherever the
+    # rows come grouped; the default when the question asks for the grouping (requested_view
+    # hierarchy, applied below: "grouped by trilogy", "regroupees par region", "with the films of
+    # each") and when the SQL sorts on the outer group first over a plain grid (the model grouped
+    # the rows itself). A flag list keeps its place: countries under their continent are offered.
+    hierarchy = None
+    if family == "entity_many":
+        hierarchy = _hierarchy(rows, columns, requested_view == "hierarchy")
+    if hierarchy:
+        options = _with_option(options, "hierarchy")
+        if representation == "card-grid" and order_col == hierarchy["levels"][0]["column"]:
+            representation = "hierarchy"
+            options = ["hierarchy"] + [o for o in options if o != "hierarchy"]
+
     # Phase 2 lot B, over the options of the shape they stand on (each is put first).
     # fact-card: a value task on one entity, or on homonyms of one title (every row carries the
     # same label and the rows come in the default sort, so the first row is the title meant),
@@ -1312,5 +1528,7 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
         summary["map"] = _map(countries)
     if scatter and "scatter" in options:
         summary["scatter"] = scatter
+    if hierarchy and "hierarchy" in options:
+        summary["hierarchy"] = hierarchy
     return {"result_kind": kind, "columns": columns, "representation": representation,
             "representation_options": options, "summary_facts": summary}

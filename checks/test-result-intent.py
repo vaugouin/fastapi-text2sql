@@ -431,6 +431,104 @@ check("map: as a chart is still the ranking", rs.classify_result(C_SQL, MAP_ROWS
       "ranked-bars")
 
 
+# 5g. Phase 3 lot C: hierarchy (made-up questions and rows, not the bank's).
+check("hierarchy view words", [ri.rules_requested_view(q) for q in (
+      "The Mission: Impossible films grouped by director",
+      "Which towns of Spain were used as filming locations, by region?",
+      "Which collections make up the DC Extended Universe, with the films of each?",
+      "For each Batman actor, his films",
+      "Les films Alien regroupés par réalisateur",
+      "Les lieux de tournage de Kubrick en Angleterre, par comté",
+      "Quelles collections composent la saga, avec les films de chacune ?",
+      "Films by Christopher Nolan",
+      "Les films réalisés par Agnès Varda",
+      "The Star Trek films grouped by crew, as a table")],
+      ["hierarchy", "hierarchy", "hierarchy", "hierarchy", "hierarchy", "hierarchy", "hierarchy", "", "", "table"])
+check("hierarchy view wins over the classifier's empty view only", (
+      ri.core_intent("The Alien films grouped by director", {"task": "list", "focus": [], "requested_view": "", "source": "llm"})["requested_view"],
+      ri.core_intent("The Alien films grouped by director", {"task": "list", "focus": [], "requested_view": "chart", "source": "llm"})["requested_view"]),
+      ("hierarchy", "chart"))
+
+H_SQL = "SELECT ID_MOVIE, MOVIE_TITLE, POSTER_PATH, c.COLLECTION_NAME AS TRILOGY_NAME FROM T_WC_T2S_MOVIE ORDER BY TRILOGY_NAME ASC, DISPLAY_ORDER ASC"
+H_ASKED = {"task": "list", "focus": [], "requested_view": "hierarchy", "source": "rules"}
+H_LIST = {"task": "list", "focus": [], "requested_view": "", "source": "llm"}
+
+
+def h_rows(groups, group_col="TRILOGY_NAME", start=100):
+    out, k = [], start
+    for name, n in groups:
+        for _ in range(n):
+            out.append({"ID_MOVIE": k, "MOVIE_TITLE": f"Film {k}", "POSTER_PATH": f"/p{k}.jpg", group_col: name})
+            k += 1
+    return out
+
+
+hr = h_rows([("Original trilogy", 3), ("Prequel trilogy", 3), ("Sequel trilogy", 3)])
+hc = rs.classify_result(H_SQL, hr, "movie", intent=H_ASKED)
+hf = hc["summary_facts"]["hierarchy"]
+check("hierarchy: asked for, the default", (hc["representation"], hc["representation_options"]), ("hierarchy", ["hierarchy", "card-grid", "table"]))
+check("hierarchy: one level, its kind and count; the leaves", (hf["levels"], hf["leaf"]),
+      ([{"column": "TRILOGY_NAME", "id_column": None, "kind": "trilogy", "count": 3}],
+       {"id_column": "ID_MOVIE", "label_column": "MOVIE_TITLE", "image": True, "count": 9}))
+check("hierarchy: the groups in row order, the leaves as row positions", [(g["label"], g["count"], g["rows"]) for g in hf["groups"]],
+      [("Original trilogy", 3, [0, 1, 2]), ("Prequel trilogy", 3, [3, 4, 5]), ("Sequel trilogy", 3, [6, 7, 8])])
+check("hierarchy: even, largest, nothing shared", (hf["even"], hf["largest"], hf["shared"], hf["ungrouped"], hf["count"]), (True, 0, 0, 0, 9))
+check("hierarchy: sorted on the group, the default without being asked", rs.classify_result(H_SQL, hr, "movie", intent=H_LIST)["representation"], "hierarchy")
+check("hierarchy: not sorted on the group, offered beside the grid",
+      [rs.classify_result(H_SQL.replace("ORDER BY TRILOGY_NAME ASC, ", "ORDER BY "), hr, "movie", intent=H_LIST)[k] for k in ("representation", "representation_options")],
+      ["card-grid", ["card-grid", "hierarchy", "table"]])
+mixed = [hr[0], hr[3], hr[1], hr[4], hr[2], hr[5]]
+check("hierarchy: groups not in runs, not offered unless asked", (
+      "hierarchy" in rs.classify_result(H_SQL, mixed, "movie", intent=H_LIST)["representation_options"],
+      [(g["label"], g["rows"]) for g in rs.classify_result(H_SQL, mixed, "movie", intent=H_ASKED)["summary_facts"]["hierarchy"]["groups"]]),
+      (False, [("Original trilogy", [0, 2, 4]), ("Prequel trilogy", [1, 3, 5])]))
+check("hierarchy: one group, no hierarchy", "hierarchy" in rs.classify_result(H_SQL, h_rows([("Only", 6)]), "movie", intent=H_ASKED)["representation_options"], False)
+check("hierarchy: three leaves, no hierarchy", "hierarchy" in rs.classify_result(H_SQL, h_rows([("A", 2), ("B", 1)]), "movie", intent=H_ASKED)["representation_options"], False)
+check("hierarchy: one leaf per group is a list, not a hierarchy", "hierarchy" in rs.classify_result(H_SQL, h_rows([("A", 1), ("B", 1), ("C", 1), ("D", 1)]), "movie", intent=H_ASKED)["representation_options"], False)
+check("hierarchy: a ranking keeps its bars, the grouping offered", (lambda c: (c["representation"], "hierarchy" in c["representation_options"]))(
+      rs.classify_result(H_SQL.replace("ORDER BY TRILOGY_NAME ASC, DISPLAY_ORDER ASC", "ORDER BY BOX_OFFICE DESC LIMIT 6"),
+                         [dict(r, BOX_OFFICE=1000 - i) for i, r in enumerate(h_rows([("A", 3), ("B", 3)]))], "movie", intent={"task": "rank", "focus": ["revenue"], "requested_view": "", "source": "llm"})),
+      ("ranked-bars", True))
+
+# Places once per ancestor: shown under each when few, refused when they are most of the rows.
+P_SQL = "SELECT place.ID_LOCATION, place.LOCATION_NAME, place.POSTER_PATH, region.LOCATION_NAME AS REGION_NAME FROM T_WC_T2S_LOCATION place ORDER BY REGION_NAME ASC, place.LOCATION_NAME ASC"
+places = [{"ID_LOCATION": i, "LOCATION_NAME": n, "POSTER_PATH": None, "REGION_NAME": g} for i, n, g in (
+    (1, "Bari", "Apulia"), (2, "Lecce", "Apulia"), (3, "Cirella", "Calabria"), (4, "Crotone", "Calabria"),
+    (3, "Cirella", "Diamante"), (5, "Naples", "Campania"), (6, "Caserta", "Campania"))]
+pf = rs.classify_result(P_SQL, places, "location", intent=H_ASKED)["summary_facts"]["hierarchy"]
+check("hierarchy: a place under two regions is shown under each and counted", (pf["shared"], pf["leaf"]["count"], pf["count"], [g["label"] for g in pf["groups"]]),
+      (1, 6, 7, ["Apulia", "Calabria", "Diamante", "Campania"]))
+graph = [{"ID_LOCATION": i, "LOCATION_NAME": n, "POSTER_PATH": None, "REGION_NAME": g} for i, n, g in (
+    (1, "Giverny", "Eure"), (1, "Giverny", "Normandy"), (2, "Paris", "Grand Paris"), (2, "Paris", "Ile-de-France"),
+    (3, "Versailles", "Ile-de-France"), (3, "Versailles", "Yvelines"), (4, "Rouen", "Normandy"), (5, "Evreux", "Eure"))]
+check("hierarchy: most leaves under two groups is a graph, no hierarchy", "hierarchy" in rs.classify_result(P_SQL, graph, "location", intent=H_ASKED)["representation_options"], False)
+
+# Two entities in the rows: the film is the leaf, the collection its group with its id; no image.
+C_HSQL = "SELECT c.ID_T2S_COLLECTION, c.COLLECTION_NAME, c.POSTER_PATH, m.ID_MOVIE, m.MOVIE_TITLE FROM T_WC_T2S_COLLECTION c ORDER BY c.COLLECTION_NAME, m.MOVIE_TITLE"
+coll = [{"ID_T2S_COLLECTION": cid, "COLLECTION_NAME": cn, "POSTER_PATH": "/c.jpg", "ID_MOVIE": mid, "MOVIE_TITLE": f"M{mid}"} for cid, cn, mid in (
+    (10, "Iron Man Collection", 1), (10, "Iron Man Collection", 2), (10, "Iron Man Collection", 3), (20, "Thor Collection", 4), (20, "Thor Collection", 5))]
+cf = rs.classify_result(C_HSQL, coll, "collection", intent=H_ASKED)["summary_facts"]["hierarchy"]
+check("hierarchy: the collection is the group, the film the leaf without the collection's poster",
+      (cf["levels"][0]["column"], cf["levels"][0]["id_column"], cf["leaf"]["id_column"], cf["leaf"]["label_column"], cf["leaf"]["image"], [g["id"] for g in cf["groups"]]),
+      ("COLLECTION_NAME", "ID_T2S_COLLECTION", "ID_MOVIE", "MOVIE_TITLE", False, [10, 20]))
+
+# Three levels: nation, county, place; a county under one nation only.
+T_SQL = "SELECT ID_LOCATION, LOCATION_NAME, NATION_NAME, COUNTY_NAME FROM T_WC_T2S_LOCATION ORDER BY NATION_NAME, COUNTY_NAME, LOCATION_NAME"
+three = [{"ID_LOCATION": i, "LOCATION_NAME": f"P{i}", "NATION_NAME": n, "COUNTY_NAME": c} for i, n, c in (
+    (1, "England", "Oxfordshire"), (2, "England", "Oxfordshire"), (3, "England", "Greater London"), (4, "England", "Greater London"),
+    (5, "England", "Greater London"), (6, "Scotland", "Highland"), (7, "Scotland", "Highland"), (8, "Wales", "Pembrokeshire"))]
+tf = rs.classify_result(T_SQL, three, "location", intent=H_LIST)
+tg = tf["summary_facts"]["hierarchy"]
+check("hierarchy: three levels, outer first", (tf["representation"], [(lv["column"], lv["kind"], lv["count"]) for lv in tg["levels"]]),
+      ("hierarchy", [("NATION_NAME", "nation", 3), ("COUNTY_NAME", "county", 4)]))
+check("hierarchy: nested groups carry the rows", [(g["label"], g["count"], [(sub["label"], sub["rows"]) for sub in g["groups"]]) for g in tg["groups"]],
+      [("England", 5, [("Oxfordshire", [0, 1]), ("Greater London", [2, 3, 4])]), ("Scotland", 2, [("Highland", [5, 6])]), ("Wales", 1, [("Pembrokeshire", [7])])])
+check("hierarchy: a second column that does not nest stays out", [lv["column"] for lv in rs.classify_result(T_SQL, [dict(r, COUNTY_NAME=("Border" if r["ID_LOCATION"] in (5, 6) else r["COUNTY_NAME"])) for r in three], "location", intent=H_LIST)["summary_facts"]["hierarchy"]["levels"]],
+      ["NATION_NAME"])
+check("hierarchy: a missing group is ungrouped, not a group", (lambda f: (f["ungrouped"], f["levels"][0]["count"], [g["label"] for g in f["groups"]]))(
+      rs.classify_result(H_SQL, h_rows([("A", 2), ("B", 2), (None, 2)]), "movie", intent=H_ASKED)["summary_facts"]["hierarchy"]),
+      (2, 2, ["A", "B", None]))
+
 # 6. sql_cache degrades column by column, newest first.
 class FakeCursor:
     def __init__(self, conn):
