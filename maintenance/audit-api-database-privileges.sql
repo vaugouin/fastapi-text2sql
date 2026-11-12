@@ -1,0 +1,160 @@
+-- FASTAPI-TEXT2SQL-113: read-only audit of the API database account.
+--
+-- Run this file while authenticated with the exact DB_USER / DB_PASSWORD used
+-- by fastapi-text2sql. Running it as an administrator would audit the wrong
+-- security boundary. It performs no writes and deliberately does not invoke
+-- file functions, locks, delays, stored routines, or other active probes.
+--
+-- Not verified from a developer machine: the production database is reachable
+-- only from the VPS. SHOW GRANTS is the authoritative account-level result;
+-- INFORMATION_SCHEMA visibility can itself be restricted.
+
+-- 1. Connection identity and server context
+SELECT
+    CURRENT_USER() AS AUTHENTICATED_ACCOUNT,
+    USER() AS CONNECTION_IDENTITY,
+    DATABASE() AS DEFAULT_SCHEMA,
+    VERSION() AS SERVER_VERSION;
+
+SHOW GRANTS;
+
+SELECT
+    CURRENT_ROLE() AS CURRENT_ROLE;
+
+SELECT
+    ROLE_NAME,
+    IS_DEFAULT
+FROM INFORMATION_SCHEMA.APPLICABLE_ROLES
+ORDER BY ROLE_NAME;
+
+SELECT
+    ROLE_NAME
+FROM INFORMATION_SCHEMA.ENABLED_ROLES
+ORDER BY ROLE_NAME;
+
+-- 2. Global, schema, table, column, and routine privileges
+-- CONCAT(QUOTE(...)) builds the GRANTEE form used by INFORMATION_SCHEMA while
+-- remaining safe when ANSI_QUOTES is enabled.
+SELECT
+    GRANTEE,
+    PRIVILEGE_TYPE,
+    IS_GRANTABLE
+FROM INFORMATION_SCHEMA.USER_PRIVILEGES
+WHERE GRANTEE = CONCAT(
+    QUOTE(SUBSTRING_INDEX(CURRENT_USER(), '@', 1)),
+    '@',
+    QUOTE(SUBSTRING_INDEX(CURRENT_USER(), '@', -1))
+)
+ORDER BY PRIVILEGE_TYPE;
+
+SELECT
+    TABLE_SCHEMA,
+    PRIVILEGE_TYPE,
+    IS_GRANTABLE
+FROM INFORMATION_SCHEMA.SCHEMA_PRIVILEGES
+WHERE GRANTEE = CONCAT(
+    QUOTE(SUBSTRING_INDEX(CURRENT_USER(), '@', 1)),
+    '@',
+    QUOTE(SUBSTRING_INDEX(CURRENT_USER(), '@', -1))
+)
+ORDER BY TABLE_SCHEMA, PRIVILEGE_TYPE;
+
+SELECT
+    TABLE_SCHEMA,
+    TABLE_NAME,
+    PRIVILEGE_TYPE,
+    IS_GRANTABLE
+FROM INFORMATION_SCHEMA.TABLE_PRIVILEGES
+WHERE GRANTEE = CONCAT(
+    QUOTE(SUBSTRING_INDEX(CURRENT_USER(), '@', 1)),
+    '@',
+    QUOTE(SUBSTRING_INDEX(CURRENT_USER(), '@', -1))
+)
+ORDER BY TABLE_SCHEMA, TABLE_NAME, PRIVILEGE_TYPE;
+
+SELECT
+    TABLE_SCHEMA,
+    TABLE_NAME,
+    COLUMN_NAME,
+    PRIVILEGE_TYPE,
+    IS_GRANTABLE
+FROM INFORMATION_SCHEMA.COLUMN_PRIVILEGES
+WHERE GRANTEE = CONCAT(
+    QUOTE(SUBSTRING_INDEX(CURRENT_USER(), '@', 1)),
+    '@',
+    QUOTE(SUBSTRING_INDEX(CURRENT_USER(), '@', -1))
+)
+ORDER BY TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, PRIVILEGE_TYPE;
+
+SELECT
+    ROUTINE_SCHEMA,
+    ROUTINE_NAME,
+    ROUTINE_TYPE,
+    PRIVILEGE_TYPE,
+    IS_GRANTABLE
+FROM INFORMATION_SCHEMA.ROUTINE_PRIVILEGES
+WHERE GRANTEE = CONCAT(
+    QUOTE(SUBSTRING_INDEX(CURRENT_USER(), '@', 1)),
+    '@',
+    QUOTE(SUBSTRING_INDEX(CURRENT_USER(), '@', -1))
+)
+ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME, PRIVILEGE_TYPE;
+
+-- 3. Objects that can execute with a definer's privileges
+SELECT
+    TABLE_SCHEMA,
+    TABLE_NAME,
+    DEFINER,
+    SECURITY_TYPE,
+    VIEW_DEFINITION
+FROM INFORMATION_SCHEMA.VIEWS
+WHERE TABLE_SCHEMA = 'vaugouindb'
+ORDER BY TABLE_NAME;
+
+SELECT
+    ROUTINE_SCHEMA,
+    ROUTINE_NAME,
+    ROUTINE_TYPE,
+    SQL_DATA_ACCESS,
+    SECURITY_TYPE,
+    DEFINER
+FROM INFORMATION_SCHEMA.ROUTINES
+WHERE ROUTINE_SCHEMA = 'vaugouindb'
+ORDER BY ROUTINE_TYPE, ROUTINE_NAME;
+
+SELECT
+    TRIGGER_SCHEMA,
+    TRIGGER_NAME,
+    EVENT_MANIPULATION,
+    EVENT_OBJECT_TABLE,
+    ACTION_TIMING,
+    DEFINER,
+    ACTION_STATEMENT
+FROM INFORMATION_SCHEMA.TRIGGERS
+WHERE TRIGGER_SCHEMA = 'vaugouindb'
+ORDER BY EVENT_OBJECT_TABLE, TRIGGER_NAME;
+
+-- 4. Server capabilities relevant to generated SQL
+SHOW VARIABLES
+WHERE Variable_name IN (
+    'local_infile',
+    'max_execution_time',
+    'max_statement_time',
+    'read_only',
+    'secure_file_priv',
+    'skip_name_resolve',
+    'super_read_only'
+);
+
+SELECT
+    PLUGIN_NAME,
+    PLUGIN_STATUS,
+    PLUGIN_TYPE,
+    PLUGIN_LIBRARY
+FROM INFORMATION_SCHEMA.PLUGINS
+ORDER BY PLUGIN_TYPE, PLUGIN_NAME;
+
+-- Review any global FILE, SUPER, GRANT OPTION, SET USER, CREATE USER,
+-- CREATE ROUTINE, ALTER ROUTINE, EXECUTE, EVENT, TRIGGER, CREATE TEMPORARY
+-- TABLES, LOCK TABLES, or broad write/DDL privilege. Expected application
+-- writes are table-scoped INSERT/UPDATE grants on cache-related tables only.
