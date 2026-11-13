@@ -118,6 +118,14 @@ LLM calls and the generated SQL run through `asyncio.to_thread`; a blocking call
 
 Any place that executes model-written SQL calls `_run_generated_sql` (off the event loop, capped by `SET STATEMENT max_statement_time`, `SQL_MAX_STATEMENT_TIME`, default 60 s). A query killed at the cap returns `sql_timeout` and is **not** regenerated nor retried on the stronger model. `COUNT(...) OVER ()` is refused before MariaDB (-303). The answer-entity guard exempts a single `COUNT` / `AVG` / `SUM` total and an attribute-keyed statistics table, never `MIN` / `MAX` (-303, -311; check with `uv run checks/verif-311.py`). Why and how it was measured: `doc/pipeline-internals.md`.
 
+Since -113, `_run_generated_sql` also validates every generated query against
+`generated_sql_guard.py` before opening a cursor, then executes inside a read-only transaction.
+The table inventory is explicit; when `data/text_to_sql.md` adds a table, review the grant and add
+it there deliberately. A function outside `SAFE_FUNCTIONS` is rejected until reviewed. Keep
+cached, rescue and regeneration SQL on this same helper. Optional `DB_GENERATED_USER` and
+`DB_GENERATED_PASSWORD` make this helper use a separate SELECT-only account; provision both grants
+and environment variables before relying on it. Check: `uv run checks/verif-113.py`.
+
 ## The six LLM tasks, and what each one actually costs
 
 `entity_extraction`, `text2sql`, `result_entity`, `complex_question`, `vision_identification` (image only, OpenAI only), and the retired `answer_single_value` (-331, selector ignored). Each carries a `cache_label` (prompt-cache log key and default reasoning effort); find call sites with `grep -n 'cache_label="' text2sql.py entity.py`, never by line number. Extraction and text2sql carry 97 % of the bill: measure there first. `embedding_usage` is deliberately **not** a task of `llm_usage` (consumers sum its entries as chat calls). Measured costs, latencies, client selectors and the bench discipline (noise floor first, three outcomes, never one accuracy number): `doc/llm-tasks-and-costs.md`.

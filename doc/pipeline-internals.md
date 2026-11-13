@@ -126,6 +126,32 @@ keep different instructions:
 
 ## One slow SQL query must not freeze the API (FASTAPI-TEXT2SQL-302)
 
+**Generated SQL authorization (FASTAPI-TEXT2SQL-113, coded locally 2026-11-12).**
+`generated_sql_guard.validate_generated_sql()` is the first operation of `_run_generated_sql`.
+It parses with SQLGlot's MySQL dialect, requires exactly one `SELECT` or `UNION` query, resolves
+CTE and subquery scopes, and admits only the 65 physical read-model tables listed explicitly in
+the module (plus MariaDB's `DUAL`). It refuses writes, qualified names, cache tables, locks,
+variables, SQL comments (including executable `/*!...*/`) and functions outside a reviewed
+side-effect-free list. Fresh, cached, rescue and regeneration SQL all pass this helper. The original
+SQL is executed after validation: never execute SQLGlot's rendered text, which can omit unsupported
+MariaDB clauses. The helper starts `START TRANSACTION READ ONLY` and always rolls back before
+the same connection is used for application-owned writes. The parser failure is coded
+`sql_guard_rejected`, with a short reason code that contains no SQL. Offline check:
+`uv run checks/verif-113.py`. When `DB_GENERATED_USER` and `DB_GENERATED_PASSWORD` are both set,
+the helper opens and closes a separate connection under that account for each generated query;
+the application connection remains for cache and feedback writes. The dedicated SELECT-only
+account of MARIADB-001 is not yet provisioned on the VPS, so until then the read-only transaction
+and parser are the current runtime boundary.
+
+**Historical compatibility check (2026-11-12, offline).** A deduplicated replay of 41,882
+request logs from 2025-08 through 2026-11 found 40,239 final `sql_query` strings. The guard
+accepted 38,720 and rejected 1,519: 1,214 named a table outside the current prompt inventory,
+252 were not a single read query, 44 were invalid SQL and 9 used an unreviewed function. At least
+1,425 rejected final SQLs had positive execution time in their historical logs. This is a
+compatibility finding, not proof that those tables should be admitted: inspect the recent and
+current-version cases before deployment. Earlier logs predate this guard and do not prove that
+it protected any historical request.
+
 The generated SQL runs through `_run_generated_sql` (main.py), **never** with a bare
 `cursor.execute` inside the async endpoint. Two reasons, both learned the hard way on
 2026-09-27, when a gpt-6-sol query for "How many movies are there?" (`COUNT(*) OVER ()` over

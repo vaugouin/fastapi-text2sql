@@ -33,6 +33,7 @@ from response_rounding import RoundedJSONResponse, round_tree
 import vision_cache
 import vision_identity
 import sql_shapes
+from generated_sql_guard import GeneratedSqlRejected, validate_generated_sql
 import result_shape
 import result_intent
 import result_chain
@@ -176,23 +177,50 @@ class SqlTimeout(Exception):
 
 
 def _run_generated_sql(db_connection, sql_text: str):
-    """Execute generated SQL with the statement-time cap and return every row.
+    """Validate and execute generated SQL with a statement-time cap.
 
     Blocking: call it through asyncio.to_thread. Raises SqlTimeout when MariaDB interrupts
     the query at the cap, and lets any other database error through unchanged.
     """
+    validate_generated_sql(sql_text)
     capped = sql_text
     if SQL_MAX_STATEMENT_TIME > 0:
         capped = f"SET STATEMENT max_statement_time={SQL_MAX_STATEMENT_TIME:g} FOR {sql_text}"
+    generated_user = os.getenv("DB_GENERATED_USER")
+    generated_password = os.getenv("DB_GENERATED_PASSWORD")
+    if bool(generated_user) != bool(generated_password):
+        raise RuntimeError("DB_GENERATED_USER and DB_GENERATED_PASSWORD must be configured together")
+    query_connection = db_connection
+    if generated_user:
+        query_connection = pymysql.connect(
+            host=os.getenv("DB_HOST"),
+            port=int(os.getenv("DB_PORT", 3306)),
+            user=generated_user,
+            password=generated_password,
+            database=os.getenv("DB_NAME"),
+            cursorclass=_TimedDictCursor,
+            autocommit=True,
+        )
     try:
-        with db_connection.cursor() as cur:
-            cur.execute(capped)
-            return cur.fetchall()
+        with query_connection.cursor() as cur:
+            # The API connection also writes caches. Scope this execution to a
+            # read-only transaction so a parser miss cannot write through it.
+            cur.execute("START TRANSACTION READ ONLY")
+            try:
+                cur.execute(capped)
+                return cur.fetchall()
+            finally:
+                # The connection is reused for application-owned cache writes.
+                # End the read-only transaction even on timeout or SQL error.
+                query_connection.rollback()
     except pymysql.err.MySQLError as exc:
         code = exc.args[0] if exc.args else None
         if code == _MARIADB_STATEMENT_TIMEOUT or "max_statement_time" in str(exc):
             raise SqlTimeout(f"{SQL_MAX_STATEMENT_TIME:g}") from exc
         raise
+    finally:
+        if query_connection is not db_connection:
+            query_connection.close()
 
 
 def _walk_lineage(plan, ui_language):
@@ -5444,6 +5472,18 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                     )
                 ))
                 position_counter += 1
+            except GeneratedSqlRejected as e:
+                # FASTAPI-TEXT2SQL-113. The generated SQL is outside the read-only
+                # contract. Keep the reason code free of SQL and database details.
+                print(f"Generated SQL rejected before execution: {e}")
+                sql_execution_failed = True
+                sql_execution_failure_code = "sql_guard_rejected"
+                sql_execution_failure_reason = f"generated SQL rejected: {e}"
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text="Generated SQL rejected before execution; trying one safe regeneration."
+                ))
+                position_counter += 1
             except Exception as e:
                 print(f"Database operation failed: {e}")
                 sql_execution_failed = True
@@ -5593,6 +5633,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                                 text=f"No-entity rescue: re-executed with the resolved value(s), {len(_rescue_rows)} row(s): {_rescued_sql_exec}"
                             ))
                             position_counter += 1
+                    except GeneratedSqlRejected as _rescue_exc:
+                        no_entity_rescue_outcome = "guard_rejected"
+                        print(f"No-entity rescue SQL rejected before execution: {_rescue_exc}")
+                        messages.append(TextMessage(
+                            position=position_counter,
+                            text="No-entity rescue SQL rejected before execution; the first-pass result stands."
+                        ))
+                        position_counter += 1
                     except Exception as _rescue_exc:
                         no_entity_rescue_outcome = "error"
                         print(f"No-entity rescue failed: {_rescue_exc}")
@@ -5708,6 +5756,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                                 "adopted." if _co_rows else "the first-pass result stands.")
                         ))
                         position_counter += 1
+            except GeneratedSqlRejected as _co_exc:
+                co_constraint_rescue_outcome = "guard_rejected"
+                print(f"Co-constrained rescue SQL rejected before execution: {_co_exc}")
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text="Co-constrained rescue SQL rejected before execution; the first-pass result stands."
+                ))
+                position_counter += 1
             except Exception as _co_exc:
                 co_constraint_rescue_outcome = "error"
                 print(f"Co-constrained rescue failed: {_co_exc}")
@@ -5878,6 +5934,14 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
                             text=f"SQL regeneration: the regenerated query executed and returned {len(_regen_rows)} row(s), the question untouched: {_regen_exec}"
                         ))
                         position_counter += 1
+            except GeneratedSqlRejected as _regen_exc:
+                sql_regeneration_outcome = "guard_rejected"
+                print(f"SQL regeneration rejected before execution: {_regen_exc}")
+                messages.append(TextMessage(
+                    position=position_counter,
+                    text="SQL regeneration rejected before execution; the original failure stands."
+                ))
+                position_counter += 1
             except Exception as _regen_exc:
                 sql_regeneration_outcome = "error"
                 print(f"SQL regeneration failed: {_regen_exc}")

@@ -182,11 +182,20 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    - Replace placeholders in the generated SQL query, justification, and answer with actual validated entity values
    - Pure string substitution (`apply_entity_resolutions`), microseconds of work: everything expensive already happened in step 5
    - Apply parameters from the entity extraction step (person names, movie titles, etc.)
+
    - Produce the complete, executable SQL query with proper SQL escaping
    - The `answer` field undergoes the same de-anonymization as `justification`
 
 8. **SQL Execution & Retry Strategy**
    - Execute the SQL query against MariaDB with pagination support
+    - Generated and cached SQL is parsed before execution (FASTAPI-TEXT2SQL-113). The API accepts
+      one read query using only the 65 read-model tables named in `data/text_to_sql.md`, or `DUAL`
+      for a scalar answer. It rejects writes, cache and feedback tables, other schemas, locks,
+      variables, comments and unreviewed functions. Execution runs in a MariaDB read-only
+      transaction with the existing statement time limit. A rejection is `sql_guard_rejected` and
+      may receive one SQL regeneration; rejected SQL is never cached. If both `DB_GENERATED_USER`
+      and `DB_GENERATED_PASSWORD` are set, this query uses a separate connection with that account.
+      Provision it with only table-level `SELECT` grants before setting the pair (MARIADB-001).
    - Three conditions can trigger a one-time **full pipeline retry** using the stronger model (`llm_model_complex`), **but only when `complex_question_processing: true`**:
      - The text-to-SQL model returns an error instead of a SQL query
      - The generated SQL raises a MariaDB execution error
@@ -262,6 +271,9 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    DB_USER=your_db_user
    DB_PASSWORD=your_db_password
    DB_NAME=your_database_name
+    # Optional: set both after provisioning a SELECT-only generated-query account
+    DB_GENERATED_USER=your_query_only_user
+    DB_GENERATED_PASSWORD=your_query_only_password
    
    # ChromaDB Configuration
    CHROMADB_HOST=localhost
