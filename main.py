@@ -37,6 +37,7 @@ from generated_sql_guard import GeneratedSqlRejected, validate_generated_sql
 import result_shape
 import result_intent
 import result_chain
+import result_places
 import closed_vocab
 import samples_assertions as sa
 import feedback
@@ -236,6 +237,23 @@ def _walk_lineage(plan, ui_language):
             source = result_chain.DbLineage(cur)
             chain = result_chain.build(source, plan, language=ui_language)
             return chain, source.statements
+    finally:
+        conn.close()
+
+
+def _read_place_coordinates(ids, rows, ui_language):
+    """Phase 3 lot D: read the coordinates of the place rows on a short-lived connection.
+
+    Blocking: call it through asyncio.to_thread. Returns (summary_facts.places or None, True when
+    the columns do not exist yet). One parameterized SELECT, capped server side
+    (result_places.STATEMENT_SECONDS).
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            source = result_places.DbPlaces(cur)
+            coordinates = source.fetch(ids)
+            return result_places.build(rows, coordinates, language=ui_language), source.missing_columns
     finally:
         conn.close()
 
@@ -6476,6 +6494,37 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             messages.append(TextMessage(
                 position=position_counter,
                 text=f"Lineage walk skipped: {type(_chain_exc).__name__}: {_chain_exc}."
+            ))
+            position_counter += 1
+    # Phase 3 lot D: the coordinates behind the map of places. A second, read-only query by
+    # ID_LOCATION (decision 3 of 2026-11-12: LATITUDE and LONGITUDE written on T_WC_T2S_LOCATION
+    # by tmdb-movie-preprocess), only when the rows are places. Any failure, or a base without
+    # the two columns, leaves the result as classify_result made it.
+    _places_ids = result_places.plan(query_results, result_entity)
+    if _places_ids:
+        _places_start = time.time()
+        try:
+            _places, _places_missing = await asyncio.to_thread(
+                _read_place_coordinates, _places_ids, query_results, normalize_ui_language(request.ui_language))
+            _places_default = result_places.is_default(_places, (_intent_core or {}).get("requested_view") or "")
+            result_shape.apply_places(_result_shape, _places, default=_places_default)
+            messages.append(TextMessage(
+                position=position_counter,
+                text=(f"Place coordinates for {len(_places_ids)} places: "
+                      + ("the columns LATITUDE and LONGITUDE do not exist yet (migration-075)"
+                         if _places_missing else
+                         f"{len(_places['pins'])} pins, {len(_places['areas'])} areas, "
+                         f"{len(_places['unlocated'])} not located"
+                         + (", map by default" if _places_default and _result_shape.get('representation') == 'map'
+                            else ", map offered")
+                         if _places else "none located, no map")
+                      + f"; {time.time() - _places_start:.3f} s.")
+            ))
+            position_counter += 1
+        except Exception as _places_exc:
+            messages.append(TextMessage(
+                position=position_counter,
+                text=f"Place coordinates skipped: {type(_places_exc).__name__}: {_places_exc}."
             ))
             position_counter += 1
     _intent = result_intent.response_intent(_intent_core, _result_shape["columns"])

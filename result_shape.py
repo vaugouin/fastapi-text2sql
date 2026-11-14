@@ -1229,6 +1229,37 @@ def apply_chain(shape, chain, default=False):
     return shape
 
 
+def apply_places(shape, places, default=False):
+    """Phase 3 lot D: add the coordinates of the place rows to a classified result, in place.
+
+    Like apply_chain: classify_result reads rows only, and the coordinates come from a second,
+    read-only query (result_places.py), so an offline census leaves every result as it was.
+    `places` (summary_facts.places) makes `map` an option before `table`. With `default` (the
+    question asks for a map, or two pins at least, decision 4 of 2026-11-12) the map becomes the
+    representation over the card grid of place photos, and over any form when the question asks
+    for a map; never over a fact card or a verdict, which answer the question themselves: the map
+    then comes right after them. A result whose rows are countries keeps lot B's map of shaded
+    countries (summary_facts.map): the two maps never meet in one answer. Returns the shape.
+    """
+    if not places or not shape or not isinstance(shape.get("summary_facts"), dict):
+        return shape
+    if shape["summary_facts"].get("map") or shape["summary_facts"].get("countries"):
+        return shape
+    options = _with_option(list(shape.get("representation_options") or []), "map")
+    representation = shape.get("representation")
+    if default:
+        rest = [o for o in options if o != "map"]
+        if representation in ("fact-card", "verdict"):
+            options = [representation, "map"] + [o for o in rest if o != representation]
+        elif default == "asked" or representation in ("card-grid", "entity-page"):
+            representation = "map"
+            options = ["map"] + rest
+    shape["representation"] = representation
+    shape["representation_options"] = options
+    shape["summary_facts"]["places"] = places
+    return shape
+
+
 def classify_result(sql_query, result_rows, result_entity="", id_columns=None, intent=None):
     """Classify a result into its rendering hint. Pure, no DB, no LLM.
 
