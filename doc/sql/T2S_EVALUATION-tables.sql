@@ -25,6 +25,9 @@ CREATE TABLE `T_WC_T2S_EVALUATION` (
   `ASSERTION_REFRESH_SQL` mediumtext DEFAULT NULL COMMENT 'SQL canonique (SELECT une colonne ID ... ORDER BY ... LIMIT N) rejoue chaque jour pour reconstruire ASSERTIONS_QUERY_RESULT ; NULL = eval statique',
   `ASSERTION_REFRESH_LAST` datetime DEFAULT NULL COMMENT 'Date du dernier passage du job de refresh (fraicheur de l assertion)',
   `RESOLUTION_MODE` varchar(10) DEFAULT NULL COMMENT 'Mode qui doit resoudre la question : standard (sans escalade), complex (escalade indispensable), any (aucune attente). NULL = any.',
+  `INPUT_KIND` varchar(10) DEFAULT NULL COMMENT 'FASTAPI-TEXT2SQL-277 : image = la question part de INPUT_IMAGE_PATH ; NULL = question texte',
+  `INPUT_IMAGE_PATH` varchar(255) DEFAULT NULL COMMENT 'FASTAPI-TEXT2SQL-277 : chemin de l image relatif a la racine des fixtures de l evaluateur (vision/<fichier>), jamais un image_ref de l API',
+  `ASSERTIONS_VISION_IDENTIFICATION` mediumtext DEFAULT NULL COMMENT 'FASTAPI-TEXT2SQL-277 : identification attendue (JSON type, id, title, original_title, year), notee hors ASSERTIONS_TOTAL_SCORE',
   PRIMARY KEY (`ID_T2S_EVALUATION`),
   KEY `IS_SAMPLE` (`IS_SAMPLE`),
   KEY `ID_T2S_EVALUATION_CATEGORY` (`ID_T2S_EVALUATION_CATEGORY`),
@@ -39,7 +42,8 @@ CREATE TABLE `T_WC_T2S_EVALUATION` (
   KEY `IS_EVAL` (`IS_EVAL`),
   KEY `IDX_T2S_EVALUATION_ASSERTION_REFRESH_LAST` (`ASSERTION_REFRESH_LAST`),
   KEY `IS_SHOWCASE` (`IS_SHOWCASE`),
-  KEY `RESOLUTION_MODE` (`RESOLUTION_MODE`)
+  KEY `RESOLUTION_MODE` (`RESOLUTION_MODE`),
+  KEY `INPUT_KIND` (`INPUT_KIND`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -86,6 +90,7 @@ CREATE TABLE `T_WC_T2S_EVALUATION_EXECUTION` (
   `COMPLEX_MODEL` varchar(50) DEFAULT NULL,
   `RESULT_ENTITY_MODEL` varchar(50) DEFAULT NULL COMMENT 'Modele de la tache result_entity pour ce passage (-234). NULL = ligne ecrite avant que la colonne existe, pas gpt-4o.',
   `ANSWER_SINGLE_VALUE_MODEL` varchar(50) DEFAULT NULL COMMENT 'Modele de la tache answer_single_value pour ce passage (-234). NULL = ligne ecrite avant que la colonne existe, pas gpt-4o.',
+  `VISION_MODEL` varchar(50) DEFAULT NULL COMMENT 'FASTAPI-TEXT2SQL-277 : modele de vision du passage. NULL = evaluation texte ou ligne anterieure a la colonne.',
   `FLEX_PROCESSING` tinyint(1) DEFAULT NULL COMMENT 'Campagne lancee en OpenAI Flex processing (TEXT2SQL-EVAL-002). 1 = Flex ; NULL ou 0 = tarif standard.',
   `FLEX_FALLBACK_COUNT` smallint(6) DEFAULT NULL COMMENT 'Appels LLM de la requete passes au tarif standard apres echec des essais Flex (TEXT2SQL-EVAL-002). NULL = pas de Flex.',
   `JSON_RESULT` mediumtext DEFAULT NULL,
@@ -106,6 +111,7 @@ CREATE TABLE `T_WC_T2S_EVALUATION_EXECUTION` (
   `COMPLEX_QUESTION_PROCESSING_TIME` double DEFAULT NULL,
   `COMPLEX_MODEL_USED` int(5) DEFAULT NULL COMMENT 'L escalade vers le modele fort a-t-elle servi (1/0). Couvre les chemins que COMPLEX_QUESTION_PROCESSING_TIME rate, dont la reponse scalaire directe.',
   `ANSWER_SINGLE_VALUE_PROCESSING_TIME` double DEFAULT NULL COMMENT 'Temps de la reponse scalaire directe, quand le SQL a rendu une cellule unique valant 0. 0 quand ce chemin n a pas tire.',
+  `VISION_IDENTIFICATION_PROCESSING_TIME` double DEFAULT NULL COMMENT 'FASTAPI-TEXT2SQL-277 : temps de la tache de vision, en secondes',
   `RESOLUTION_MODE` varchar(10) DEFAULT NULL COMMENT 'Mode declare par la banque AU MOMENT DE CE PASSAGE. Copie exprès : requalifier une evaluation plus tard ne doit pas reecrire le sens des campagnes deja jouees.',
   `RESOLUTION_MODE_RESPECTED` int(5) DEFAULT NULL COMMENT 'Le mode declare a-t-il ete respecte (1/0). NULL quand le mode vaut any ou n est pas declare. Volontairement separe de ASSERTIONS_TOTAL_SCORE, qui doit rester comparable entre campagnes.',
   `FIRST_PASS_FAILURE_CODE` varchar(120) DEFAULT NULL,
@@ -120,6 +126,7 @@ CREATE TABLE `T_WC_T2S_EVALUATION_EXECUTION` (
   `ASSERTIONS_SQL_QUERY_SCORE` double DEFAULT NULL,
   `ASSERTIONS_RESULT_SCORE` double DEFAULT NULL,
   `ASSERTIONS_TOTAL_SCORE` double DEFAULT NULL,
+  `ASSERTIONS_VISION_IDENTIFICATION_SCORE` double DEFAULT NULL COMMENT 'FASTAPI-TEXT2SQL-277 : 1/0 sur ASSERTIONS_VISION_IDENTIFICATION, hors ASSERTIONS_TOTAL_SCORE. NULL = pas d assertion de vision.',
   `ASSERTIONS_RESULT_DETAILED` varchar(2000) DEFAULT NULL,
   `DELETED` int(5) DEFAULT NULL,
   `DISPLAY_ORDER` int(5) DEFAULT NULL,
@@ -174,6 +181,9 @@ CREATE TABLE `T_WC_T2S_EVALUATION_EXECUTION` (
   KEY `LLM_CACHED_TOKENS` (`LLM_CACHED_TOKENS`),
   KEY `LLM_COMPLETION_TOKENS` (`LLM_COMPLETION_TOKENS`),
   KEY `LLM_REASONING_TOKENS` (`LLM_REASONING_TOKENS`),
-  KEY `FLEX_PROCESSING` (`FLEX_PROCESSING`)
+  KEY `FLEX_PROCESSING` (`FLEX_PROCESSING`),
+  KEY `VISION_MODEL` (`VISION_MODEL`),
+  KEY `VISION_IDENTIFICATION_PROCESSING_TIME` (`VISION_IDENTIFICATION_PROCESSING_TIME`),
+  KEY `ASSERTIONS_VISION_IDENTIFICATION_SCORE` (`ASSERTIONS_VISION_IDENTIFICATION_SCORE`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;

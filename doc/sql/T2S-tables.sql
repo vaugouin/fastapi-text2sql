@@ -601,6 +601,9 @@ CREATE TABLE `T_WC_T2S_EVALUATION` (
   `ASSERTION_REFRESH_SQL` mediumtext DEFAULT NULL COMMENT 'SQL canonique (SELECT une colonne ID ... ORDER BY ... LIMIT N) rejoue chaque jour pour reconstruire ASSERTIONS_QUERY_RESULT ; NULL = eval statique',
   `ASSERTION_REFRESH_LAST` datetime DEFAULT NULL COMMENT 'Date du dernier passage du job de refresh (fraicheur de l assertion)',
   `RESOLUTION_MODE` varchar(10) DEFAULT NULL COMMENT 'Mode qui doit resoudre la question : standard (sans escalade), complex (escalade indispensable), any (aucune attente). NULL = any.',
+  `INPUT_KIND` varchar(10) DEFAULT NULL COMMENT 'FASTAPI-TEXT2SQL-277 : image = la question part de INPUT_IMAGE_PATH ; NULL = question texte',
+  `INPUT_IMAGE_PATH` varchar(255) DEFAULT NULL COMMENT 'FASTAPI-TEXT2SQL-277 : chemin de l image relatif a la racine des fixtures de l evaluateur (vision/<fichier>), jamais un image_ref de l API',
+  `ASSERTIONS_VISION_IDENTIFICATION` mediumtext DEFAULT NULL COMMENT 'FASTAPI-TEXT2SQL-277 : identification attendue (JSON type, id, title, original_title, year), notee hors ASSERTIONS_TOTAL_SCORE',
   PRIMARY KEY (`ID_T2S_EVALUATION`),
   KEY `IS_SAMPLE` (`IS_SAMPLE`),
   KEY `ID_T2S_EVALUATION_CATEGORY` (`ID_T2S_EVALUATION_CATEGORY`),
@@ -615,7 +618,8 @@ CREATE TABLE `T_WC_T2S_EVALUATION` (
   KEY `IS_EVAL` (`IS_EVAL`),
   KEY `IDX_T2S_EVALUATION_ASSERTION_REFRESH_LAST` (`ASSERTION_REFRESH_LAST`),
   KEY `IS_SHOWCASE` (`IS_SHOWCASE`),
-  KEY `RESOLUTION_MODE` (`RESOLUTION_MODE`)
+  KEY `RESOLUTION_MODE` (`RESOLUTION_MODE`),
+  KEY `INPUT_KIND` (`INPUT_KIND`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -662,6 +666,7 @@ CREATE TABLE `T_WC_T2S_EVALUATION_EXECUTION` (
   `COMPLEX_MODEL` varchar(50) DEFAULT NULL,
   `RESULT_ENTITY_MODEL` varchar(50) DEFAULT NULL COMMENT 'Modele de la tache result_entity pour ce passage (-234). NULL = ligne ecrite avant que la colonne existe, pas gpt-4o.',
   `ANSWER_SINGLE_VALUE_MODEL` varchar(50) DEFAULT NULL COMMENT 'Modele de la tache answer_single_value pour ce passage (-234). NULL = ligne ecrite avant que la colonne existe, pas gpt-4o.',
+  `VISION_MODEL` varchar(50) DEFAULT NULL COMMENT 'FASTAPI-TEXT2SQL-277 : modele de vision du passage. NULL = evaluation texte ou ligne anterieure a la colonne.',
   `FLEX_PROCESSING` tinyint(1) DEFAULT NULL COMMENT 'Campagne lancee en OpenAI Flex processing (TEXT2SQL-EVAL-002). 1 = Flex ; NULL ou 0 = tarif standard.',
   `FLEX_FALLBACK_COUNT` smallint(6) DEFAULT NULL COMMENT 'Appels LLM de la requete passes au tarif standard apres echec des essais Flex (TEXT2SQL-EVAL-002). NULL = pas de Flex.',
   `JSON_RESULT` mediumtext DEFAULT NULL,
@@ -682,6 +687,7 @@ CREATE TABLE `T_WC_T2S_EVALUATION_EXECUTION` (
   `COMPLEX_QUESTION_PROCESSING_TIME` double DEFAULT NULL,
   `COMPLEX_MODEL_USED` int(5) DEFAULT NULL COMMENT 'L escalade vers le modele fort a-t-elle servi (1/0). Couvre les chemins que COMPLEX_QUESTION_PROCESSING_TIME rate, dont la reponse scalaire directe.',
   `ANSWER_SINGLE_VALUE_PROCESSING_TIME` double DEFAULT NULL COMMENT 'Temps de la reponse scalaire directe, quand le SQL a rendu une cellule unique valant 0. 0 quand ce chemin n a pas tire.',
+  `VISION_IDENTIFICATION_PROCESSING_TIME` double DEFAULT NULL COMMENT 'FASTAPI-TEXT2SQL-277 : temps de la tache de vision, en secondes',
   `RESOLUTION_MODE` varchar(10) DEFAULT NULL COMMENT 'Mode declare par la banque AU MOMENT DE CE PASSAGE. Copie exprès : requalifier une evaluation plus tard ne doit pas reecrire le sens des campagnes deja jouees.',
   `RESOLUTION_MODE_RESPECTED` int(5) DEFAULT NULL COMMENT 'Le mode declare a-t-il ete respecte (1/0). NULL quand le mode vaut any ou n est pas declare. Volontairement separe de ASSERTIONS_TOTAL_SCORE, qui doit rester comparable entre campagnes.',
   `FIRST_PASS_FAILURE_CODE` varchar(120) DEFAULT NULL,
@@ -696,6 +702,7 @@ CREATE TABLE `T_WC_T2S_EVALUATION_EXECUTION` (
   `ASSERTIONS_SQL_QUERY_SCORE` double DEFAULT NULL,
   `ASSERTIONS_RESULT_SCORE` double DEFAULT NULL,
   `ASSERTIONS_TOTAL_SCORE` double DEFAULT NULL,
+  `ASSERTIONS_VISION_IDENTIFICATION_SCORE` double DEFAULT NULL COMMENT 'FASTAPI-TEXT2SQL-277 : 1/0 sur ASSERTIONS_VISION_IDENTIFICATION, hors ASSERTIONS_TOTAL_SCORE. NULL = pas d assertion de vision.',
   `ASSERTIONS_RESULT_DETAILED` varchar(2000) DEFAULT NULL,
   `DELETED` int(5) DEFAULT NULL,
   `DISPLAY_ORDER` int(5) DEFAULT NULL,
@@ -750,7 +757,46 @@ CREATE TABLE `T_WC_T2S_EVALUATION_EXECUTION` (
   KEY `LLM_CACHED_TOKENS` (`LLM_CACHED_TOKENS`),
   KEY `LLM_COMPLETION_TOKENS` (`LLM_COMPLETION_TOKENS`),
   KEY `LLM_REASONING_TOKENS` (`LLM_REASONING_TOKENS`),
-  KEY `FLEX_PROCESSING` (`FLEX_PROCESSING`)
+  KEY `FLEX_PROCESSING` (`FLEX_PROCESSING`),
+  KEY `VISION_MODEL` (`VISION_MODEL`),
+  KEY `VISION_IDENTIFICATION_PROCESSING_TIME` (`VISION_IDENTIFICATION_PROCESSING_TIME`),
+  KEY `ASSERTIONS_VISION_IDENTIFICATION_SCORE` (`ASSERTIONS_VISION_IDENTIFICATION_SCORE`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `T_WC_T2S_FEEDBACK` (
+  `ID_FEEDBACK` int(11) NOT NULL AUTO_INCREMENT,
+  `REQUEST_ID` varchar(64) DEFAULT NULL,
+  `QUESTION` mediumtext DEFAULT NULL,
+  `QUESTION_HASHED` varchar(64) DEFAULT NULL,
+  `UI_LANGUAGE` varchar(5) DEFAULT NULL,
+  `API_VERSION` varchar(20) DEFAULT NULL,
+  `CLIENT` varchar(30) DEFAULT NULL,
+  `RATING` tinyint(4) DEFAULT NULL,
+  `COMMENT` text DEFAULT NULL,
+  `SQL_QUERY` mediumtext DEFAULT NULL,
+  `RESULT_ENTITY` varchar(50) DEFAULT NULL,
+  `ANALYSIS_STATUS` varchar(20) NOT NULL DEFAULT 'new',
+  `ANALYSIS_NOTE` mediumtext DEFAULT NULL,
+  `TICKET_ID` varchar(50) DEFAULT NULL,
+  `EVALUATION_IDS` varchar(500) DEFAULT NULL,
+  `TIM_ANALYSED` datetime DEFAULT NULL,
+  `DELETED` int(5) DEFAULT 0,
+  `DAT_CREAT` date DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL COMMENT 'Back-office audit column (t2s-back screen t2sfeedback); never written by the API',
+  `ID_OWNER` int(5) DEFAULT NULL COMMENT 'Back-office audit column (t2s-back screen t2sfeedback); never written by the API',
+  `TIM_CREATED` datetime DEFAULT NULL,
+  `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL COMMENT 'Back-office audit column, written by the update and soft delete of the t2s-back screen',
+  `QUESTION_HTML` varchar(2000) GENERATED ALWAYS AS (replace(replace(replace(replace(replace(replace(left(`QUESTION`,300),'&','&amp;'),'#','&#035;'),'{','&#123;'),'<','&lt;'),'>','&gt;'),'"','&quot;')) VIRTUAL COMMENT 'Escaped start of QUESTION for the t2s-back list (T2S-BACK-011)',
+  `COMMENT_HTML` varchar(2000) GENERATED ALWAYS AS (replace(replace(replace(replace(replace(replace(left(`COMMENT`,300),'&','&amp;'),'#','&#035;'),'{','&#123;'),'<','&lt;'),'>','&gt;'),'"','&quot;')) VIRTUAL COMMENT 'Escaped start of COMMENT for the t2s-back list (T2S-BACK-011)',
+  PRIMARY KEY (`ID_FEEDBACK`),
+  KEY `QUESTION_HASHED` (`QUESTION_HASHED`),
+  KEY `REQUEST_ID` (`REQUEST_ID`),
+  KEY `ANALYSIS_STATUS` (`ANALYSIS_STATUS`),
+  KEY `RATING` (`RATING`),
+  KEY `TIM_CREATED` (`TIM_CREATED`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -974,6 +1020,8 @@ CREATE TABLE `T_WC_T2S_LOCATION` (
   `OVERVIEW_FR` mediumtext DEFAULT NULL,
   `LOCATION_SOURCE` varchar(20) DEFAULT NULL,
   `LOCATION_TYPE` varchar(20) DEFAULT NULL,
+  `LATITUDE` decimal(9,6) DEFAULT NULL,
+  `LONGITUDE` decimal(9,6) DEFAULT NULL,
   `DELETED` int(5) DEFAULT NULL,
   `DISPLAY_ORDER` int(5) DEFAULT NULL,
   `ID_CREATOR` int(5) DEFAULT NULL,
@@ -3340,7 +3388,10 @@ CREATE TABLE `T_WC_T2S_VISION_CACHE` (
   `VISION_IDENTIFICATION_PROCESSING_TIME` decimal(10,4) DEFAULT NULL,
   `DELETED` tinyint(1) DEFAULT 0,
   `DAT_CREAT` date DEFAULT NULL,
+  `ID_CREATOR` int(5) DEFAULT NULL COMMENT 'Back-office audit column (t2s-back screen t2svisioncache); never written by the API',
+  `ID_OWNER` int(5) DEFAULT NULL COMMENT 'Back-office audit column (t2s-back screen t2svisioncache); never written by the API',
   `TIM_UPDATED` datetime DEFAULT NULL,
+  `ID_USER_UPDATED` int(5) DEFAULT NULL COMMENT 'Back-office audit column, written by the soft delete of the t2s-back screen',
   PRIMARY KEY (`ID_ROW`),
   UNIQUE KEY `UK_T2S_VISION_CACHE` (`IMAGE_MD5`,`API_VERSION`),
   KEY `IDX_T2S_VISION_CACHE_REF` (`IMAGE_REF`)
