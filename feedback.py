@@ -16,6 +16,9 @@ cache write (exact, anonymized, ChromaDB), so the answer is computed fresh each 
 evidence rows stay the latest ones. The bypass closes by itself when the analysis sets
 `ANALYSIS_STATUS` to `fixed` or `not_a_defect` (or soft-deletes the rating).
 
+A thumbs up without a comment needs no analysis: it is recorded as `no_action`, so `new` only
+ever means work to do (a thumbs down, or any rating with a comment).
+
 The module also owns the request id: a uuid4 hex generated when the outer search pass starts,
 echoed as `request_id` in the response and the JSON journal, and sent back by the client with
 its rating so the analysis finds the journal of that very request. Both values live in
@@ -34,6 +37,9 @@ FEEDBACK_CLIENTS = ("t2s-front", "voice-agent", "other")
 # A rating keeps the cache bypassed while its analysis is in one of these states. `fixed` and
 # `not_a_defect` close it; nothing else does, so a new status added later is closed by default.
 OPEN_ANALYSIS_STATUSES = ("new", "analysed")
+# Initial status of a rating that needs no analysis: a thumbs up without a comment.
+NO_ACTION_STATUS = "no_action"
+NEW_STATUS = "new"
 MAX_COMMENT_CHARS = 2000
 MAX_QUESTION_CHARS = 4000
 MAX_REQUEST_ID_CHARS = 64
@@ -60,7 +66,7 @@ INSERT_FEEDBACK_QUERY = """
 INSERT INTO T_WC_T2S_FEEDBACK
 (REQUEST_ID, QUESTION, QUESTION_HASHED, UI_LANGUAGE, API_VERSION, CLIENT, RATING, COMMENT,
  SQL_QUERY, RESULT_ENTITY, ANALYSIS_STATUS, DELETED, DAT_CREAT, TIM_CREATED, TIM_UPDATED)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'new', 0, %s, %s, %s)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s)
 """
 
 
@@ -192,11 +198,23 @@ def f_has_open_negative_feedback(cursor_or_conn, arrquestionhashes, strlanguage=
                 pass
 
 
+def f_initial_analysis_status(lngrating, strcomment) -> str:
+    """Return the `ANALYSIS_STATUS` a new rating starts with.
+
+    `no_action` for a thumbs up without a comment (nothing to analyse), `new` otherwise: a thumbs
+    down, or any rating whose comment is not blank.
+    """
+    if int(lngrating) > 0 and not str(strcomment or "").strip():
+        return NO_ACTION_STATUS
+    return NEW_STATUS
+
+
 def f_record_feedback(connection, dctfeedback: dict) -> int:
     """Insert one rating in T_WC_T2S_FEEDBACK and return its id.
 
     Dates are Paris time (`logs.now_paris()`), written naive as the DATETIME columns expect.
-    `ANALYSIS_STATUS` starts at `new`; the analysis fields stay NULL until Nestor fills them.
+    `ANALYSIS_STATUS` starts at `new`, or `no_action` for a thumbs up without a comment
+    (`f_initial_analysis_status`); the analysis fields stay NULL until Nestor fills them.
 
     Args:
         connection: An open pymysql connection (autocommit, as `get_db_connection()` returns).
@@ -223,6 +241,7 @@ def f_record_feedback(connection, dctfeedback: dict) -> int:
         dctfeedback.get("comment"),
         dctfeedback.get("sql_query"),
         dctfeedback.get("result_entity"),
+        f_initial_analysis_status(dctfeedback.get("rating"), dctfeedback.get("comment")),
         strdate,
         strtimestamp,
         strtimestamp,

@@ -4,7 +4,8 @@
 -- optional comment, sent by t2s-front or voice-agent, tied to the answer it rates by
 -- QUESTION_HASHED (the cache key of the question) and REQUEST_ID (the request_id of the
 -- /search/text2sql response, also at the top of its JSON journal). The analysis fields
--- (ANALYSIS_STATUS new / analysed / fixed / not_a_defect, ANALYSIS_NOTE, TICKET_ID,
+-- (ANALYSIS_STATUS new / analysed / fixed / not_a_defect, or no_action for a thumbs up without
+-- a comment, set at insert since 2026-11-14; ANALYSIS_NOTE, TICKET_ID,
 -- EVALUATION_IDS, TIM_ANALYSED) are filled later by the analysis (TEXT2SQL-EVAL-006).
 -- While a thumbs down is 'new' or 'analysed', the search route bypasses the cache for that
 -- question (feedback.f_has_open_negative_feedback); the cache rows are never modified.
