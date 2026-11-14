@@ -49,7 +49,7 @@ INTENT_TASKS = ("list", "value", "rank", "count", "compare", "sequence", "trend"
 # lineage words of rules_lineage below; the weak ones ("based on", "adapte de") name a source, not a
 # lineage, and set no view. It only moves a result that carries summary_facts.chain, which the API's
 # lineage walk adds (result_chain.py), so it changes nothing in an offline census.
-REQUESTED_VIEWS = ("table", "chart", "cards", "share", "scatter", "map", "hierarchy", "chain")
+REQUESTED_VIEWS = ("table", "chart", "cards", "share", "scatter", "map", "hierarchy", "chain", "cover-flow")
 
 # Canonical focus names -> the column-name pattern of the projected column that carries it.
 # The unit patterns of result_shape.py cover runtime, money, ratio and counts; the rest are
@@ -213,6 +213,9 @@ _SCATTER_RELATION_RE = re.compile(
     r"|\blink between\b|\brelationship between\b|\brelation between\b|\brelate\b|\brelated to\b"
     r"|\blien entre\b|\brapport entre\b|\brelation entre\b")
 _VIEW_RES = (
+    # Cover flow (2026-11-14): the posters as a sweeping carousel. First, so "as a cover flow of
+    # posters" is the carousel, not the plain cards.
+    ("cover-flow", re.compile(r"\bcover[ -]?flow\b|\bcarousel\b|\bcarrousel\b|\bdefilement d'affiches\b")),
     ("table", re.compile(r"\bas a table\b|\bin a table\b|\btabular\b|\ben tableau\b|\bsous forme de tableau\b|\bdans un tableau\b")),
     # Phase 2 lot C: parts of a whole. Before "chart", so "as a pie chart" is the share form.
     ("share", re.compile(
@@ -481,6 +484,8 @@ def core_intent(question, llm_intent=None, cached_intent=None):
             # way, over "" only ("Trace Nosferatu back to its source" reads "" to the classifier).
             if view in ("", "chart") and question and rules_requested_view(question) in ("share", "scatter", "map"):
                 view = rules_requested_view(question)
+            elif view in ("", "cards") and question and rules_requested_view(question) == "cover-flow":
+                view = "cover-flow"
             elif view == "" and question and rules_requested_view(question) in ("hierarchy", "chain"):
                 view = rules_requested_view(question)
             return {

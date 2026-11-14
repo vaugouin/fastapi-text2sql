@@ -58,6 +58,7 @@ REPRESENTATIONS = (
     "map",             # the countries of a flag list shaded on a world outline (phase 3 lot B)
     "hierarchy",       # N entity rows under one or two levels of groups named in the rows (phase 3 lot C)
     "chain",           # works joined by remake and adaptation links, from the API's lineage walk (phase 3 lot E)
+    "cover-flow",      # the card grid's entity rows as a sweeping poster carousel, offered after it (2026-11-14)
     "table",         # the honest fallback, never an empty card
 )
 
@@ -75,7 +76,17 @@ _REQUESTED_VIEW_REPRESENTATIONS = {
     "map": ("map",),
     "hierarchy": ("hierarchy",),
     "chain": ("chain",),
+    "cover-flow": ("cover-flow",),
 }
+# Cover flow: offered right after the card grid when this many rows carry a picture (a poster,
+# a face, a logo or a Wikipedia image); fewer is a short row of cards, nothing to sweep through.
+COVER_FLOW_MIN_IMAGES = 3
+_IMAGE_COLUMN_RE = re.compile(r"(?:POSTER|PROFILE|LOGO|IMAGE)_PATH$")
+
+
+def _image_row_count(rows):
+    return sum(1 for r in rows if any(
+        v and _IMAGE_COLUMN_RE.search(str(k)) for k, v in (r.items() if isinstance(r, dict) else ())))
 # Phase 3 lot A. A scatter needs five points carrying both quantities: fewer is a handful of
 # cards, which value-cards or compare-cards already draw better than a near-empty plot.
 _SCATTER_MIN_POINTS = 5
@@ -1572,6 +1583,11 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
     # An explicit "as a table" / "as a chart" / "as cards" wins when the shape allows it; a
     # compare-cards or fact-card default already is cards; a scatter chosen above already is the
     # chart of two quantities.
+    # Cover flow: the card grid's rows as a poster carousel, offered after it, the default only
+    # when the question asks for it ("as a cover flow", "en carrousel").
+    if "card-grid" in options and _image_row_count(rows) >= COVER_FLOW_MIN_IMAGES:
+        at = options.index("card-grid") + 1
+        options = options[:at] + ["cover-flow"] + options[at:]
     keep = (requested_view == "cards" and representation in ("compare-cards", "fact-card")) or (
         requested_view == "chart" and representation == "scatter")
     for wanted in (() if keep else _REQUESTED_VIEW_REPRESENTATIONS.get(requested_view, ())):

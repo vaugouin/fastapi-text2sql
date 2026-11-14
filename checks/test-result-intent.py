@@ -486,7 +486,7 @@ def h_rows(groups, group_col="TRILOGY_NAME", start=100):
 hr = h_rows([("Original trilogy", 3), ("Prequel trilogy", 3), ("Sequel trilogy", 3)])
 hc = rs.classify_result(H_SQL, hr, "movie", intent=H_ASKED)
 hf = hc["summary_facts"]["hierarchy"]
-check("hierarchy: asked for, the default", (hc["representation"], hc["representation_options"]), ("hierarchy", ["hierarchy", "card-grid", "table"]))
+check("hierarchy: asked for, the default", (hc["representation"], hc["representation_options"]), ("hierarchy", ["hierarchy", "card-grid", "cover-flow", "table"]))
 check("hierarchy: one level, its kind and count; the leaves", (hf["levels"], hf["leaf"]),
       ([{"column": "TRILOGY_NAME", "id_column": None, "kind": "trilogy", "count": 3}],
        {"id_column": "ID_MOVIE", "label_column": "MOVIE_TITLE", "image": True, "count": 9}))
@@ -496,7 +496,7 @@ check("hierarchy: even, largest, nothing shared", (hf["even"], hf["largest"], hf
 check("hierarchy: sorted on the group, the default without being asked", rs.classify_result(H_SQL, hr, "movie", intent=H_LIST)["representation"], "hierarchy")
 check("hierarchy: not sorted on the group, offered beside the grid",
       [rs.classify_result(H_SQL.replace("ORDER BY TRILOGY_NAME ASC, ", "ORDER BY "), hr, "movie", intent=H_LIST)[k] for k in ("representation", "representation_options")],
-      ["card-grid", ["card-grid", "hierarchy", "table"]])
+      ["card-grid", ["card-grid", "cover-flow", "hierarchy", "table"]])
 mixed = [hr[0], hr[3], hr[1], hr[4], hr[2], hr[5]]
 check("hierarchy: groups not in runs, not offered unless asked", (
       "hierarchy" in rs.classify_result(H_SQL, mixed, "movie", intent=H_LIST)["representation_options"],
@@ -653,5 +653,26 @@ check("chain view wins over the classifier's empty view only", (
 check("chain is a requested view the classifier may return", ri.parse_classifier_reply(
     '{"entity": "movie", "task": "relate", "focus": [], "requested_view": "chain"}', ["movie"])[1]["requested_view"], "chain")
 
+
+# Cover flow (2026-11-14): the card grid's rows as a poster carousel, offered after the grid.
+CF_SQL = "SELECT ID_MOVIE, MOVIE_TITLE, POSTER_PATH FROM T_WC_T2S_MOVIE ORDER BY POPULARITY DESC LIMIT 6"
+
+
+def cf_rows(n, posters):
+    return [{"ID_MOVIE": i, "MOVIE_TITLE": f"M{i}", "POSTER_PATH": (f"/p{i}.jpg" if i < posters else None)} for i in range(n)]
+
+
+CF_LIST = {"task": "list", "focus": [], "requested_view": "", "source": "llm"}
+cf = rs.classify_result(CF_SQL, cf_rows(6, 6), "movie", intent=CF_LIST)
+check("cover flow: offered right after the card grid", (cf["representation"], cf["representation_options"][:2]), ("card-grid", ["card-grid", "cover-flow"]))
+check("cover flow: two pictures, not offered", "cover-flow" in rs.classify_result(CF_SQL, cf_rows(6, 2), "movie", intent=CF_LIST)["representation_options"], False)
+check("cover flow: asked, the default", rs.classify_result(CF_SQL, cf_rows(6, 3), "movie", intent=dict(CF_LIST, requested_view="cover-flow"))["representation"], "cover-flow")
+check("cover flow: faces count", "cover-flow" in rs.classify_result("SELECT ID_PERSON, PERSON_NAME, PROFILE_PATH FROM T_WC_T2S_PERSON",
+      [{"ID_PERSON": i, "PERSON_NAME": f"P{i}", "PROFILE_PATH": f"/f{i}.jpg"} for i in range(4)], "person", intent=CF_LIST)["representation_options"], True)
+check("cover flow view words", [ri.rules_requested_view(q) for q in (
+    "Show the Pixar films as a cover flow", "Les films de Miyazaki en carrousel", "Star Wars movies in a carousel", "Star Wars movies with posters")],
+      ["cover-flow", "cover-flow", "cover-flow", "cards"])
+check("cover flow wins over the classifier's cards", ri.core_intent("Show the Pixar films as a cover flow",
+      {"task": "list", "focus": [], "requested_view": "cards", "source": "llm"})["requested_view"], "cover-flow")
 print(f"\n{'all ok' if not failures else f'{failures} FAILED'}")
 sys.exit(1 if failures else 0)
