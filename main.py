@@ -2206,6 +2206,64 @@ def _run_collections(cursor, pcollections, collection, page, rows_per_page):
     return data, pagination, kinds
 
 
+_AWARD_WIN_TABLES = {
+    "ID_MOVIE": "T_WC_T2S_MOVIE_AWARD",
+    "ID_SERIE": "T_WC_T2S_SERIE_AWARD",
+    "ID_PERSON": "T_WC_T2S_PERSON_AWARD",
+}
+
+
+def _attach_award_wins(cursor, rows, entity_col, entity_id=None, award_id=None):
+    """Add the wins behind each row of an award list of the entity endpoints.
+
+    A row of the three award link tables is one win (TMDB-MOVIE-PREPROCESS-071), and the award
+    lists show a winner, or an award, once. This adds to every row of such a list, in place:
+
+    - ``WIN_COUNT``: the number of win rows of the pair;
+    - ``AWARD_YEARS``: the distinct known years, ascending (ceremony year for the Academy Awards
+      and the Cesar Awards), an empty list when no win of the pair carries a year;
+    - on the person table only, ``wins``: one object per win, in the same order, with
+      ``AWARD_YEAR`` and the work the person won it for (``ID_MOVIE_FOR``, ``MOVIE_TITLE``,
+      ``MOVIE_TITLE_FR``, ``ID_SERIE_FOR``, ``SERIE_TITLE``, ``SERIE_TITLE_FR``, each None when
+      not known or outside T2S).
+
+    ``entity_col`` names the link table (ID_MOVIE, ID_SERIE or ID_PERSON). Exactly one of
+    ``entity_id`` (the list is the awards of that entity, rows keyed by ID_AWARD) and
+    ``award_id`` (the list is the winners of that award, rows keyed by ``entity_col``) is given.
+    One query for the page, whatever its size.
+    """
+    if not rows:
+        return
+    table = _AWARD_WIN_TABLES[entity_col]
+    if award_id is not None:
+        key_col, fixed_col, fixed_id = entity_col, "ID_AWARD", award_id
+    else:
+        key_col, fixed_col, fixed_id = "ID_AWARD", entity_col, entity_id
+    keys = [row[key_col] for row in rows if row.get(key_col) is not None]
+    by_key = {}
+    if keys:
+        with_work = entity_col == "ID_PERSON"
+        work_cols = (", w.ID_MOVIE_FOR, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, w.ID_SERIE_FOR, s.SERIE_TITLE, s.SERIE_TITLE_FR"
+                     if with_work else "")
+        work_joins = (" LEFT JOIN T_WC_T2S_MOVIE m ON m.ID_MOVIE = w.ID_MOVIE_FOR"
+                      " LEFT JOIN T_WC_T2S_SERIE s ON s.ID_SERIE = w.ID_SERIE_FOR" if with_work else "")
+        marks = ", ".join(["%s"] * len(keys))
+        cursor.execute(
+            f"SELECT w.{key_col} AS _WIN_KEY, w.AWARD_YEAR{work_cols} FROM {table} w{work_joins} "
+            f"WHERE w.{fixed_col} = %s AND w.{key_col} IN ({marks}) "
+            f"ORDER BY w.AWARD_YEAR IS NULL, w.AWARD_YEAR ASC, w.ID_ROW ASC",
+            (fixed_id, *keys),
+        )
+        for win in cursor.fetchall():
+            by_key.setdefault(win.pop("_WIN_KEY"), []).append(win)
+    for row in rows:
+        wins = by_key.get(row.get(key_col), [])
+        row["WIN_COUNT"] = len(wins)
+        row["AWARD_YEARS"] = sorted({win["AWARD_YEAR"] for win in wins if win.get("AWARD_YEAR") is not None})
+        if entity_col == "ID_PERSON":
+            row["wins"] = wins
+
+
 def _localized_image_groups(data, kinds):
     """Group fetched collection rows by image kind for apply_localized_related_images."""
     groups = {}
@@ -7718,6 +7776,7 @@ async def get_movie(id: int, ui_language: Optional[str] = "en", collection: Opti
         }
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(movie.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
+            _attach_award_wins(cursor, data.get("awards"), "ID_MOVIE", entity_id=id)
             if collection is None:
                 cursor.execute("""
                     SELECT g.ID_GENRE, g.GENRE_NAME, gl.GENRE_NAME AS GENRE_NAME_FR
@@ -8113,6 +8172,7 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
         }
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(serie.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
+            _attach_award_wins(cursor, data.get("awards"), "ID_SERIE", entity_id=id)
             if collection is None:
                 cursor.execute("""
                     SELECT g.ID_GENRE, g.GENRE_NAME, gl.GENRE_NAME AS GENRE_NAME_FR
@@ -8943,6 +9003,7 @@ async def get_person(id: int, ui_language: Optional[str] = "en", collection: Opt
         }
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(person.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
+            _attach_award_wins(cursor, data.get("awards"), "ID_PERSON", entity_id=id)
             if collection is None:
                 cursor.execute("""
                     SELECT ID_ROW, IMAGE_PATH, LANG, ASPECT_RATIO, WIDTH, HEIGHT,
@@ -9925,7 +9986,9 @@ async def get_death(id: int, ui_language: Optional[str] = "en", collection: Opti
 async def get_award(id: int, ui_language: Optional[str] = "en", collection: Optional[str] = None, page: int = 1, rows_per_page: int = COLLECTION_ROWS_PER_PAGE_DEFAULT, wikipedia_format: Optional[str] = "text", api_key: str = Depends(get_api_key)):
     """Return all fields for an award plus associated movies, TV series, and persons,
     all ordered by DISPLAY_ORDER. The id is ID_AWARD. A movie, a series or a person that won
-    the award several times is listed once.
+    the award several times is listed once. Each element of the three lists carries WIN_COUNT and
+    AWARD_YEARS (the distinct known years of its wins, ascending); a person also carries wins,
+    one object per win with AWARD_YEAR and the film or series it was won for.
 
     The award itself includes POSTER_PATH and WIKIPEDIA_IMAGE_PATH. Each nested list
     element carries the canonical image path of its related entity: POSTER_PATH for
@@ -9984,6 +10047,8 @@ async def get_award(id: int, ui_language: Optional[str] = "en", collection: Opti
         # (here and the `awards` list of /movies, /series, /persons) reads the link table through
         # a subquery grouped on the other side of the pair: a winner is listed once, and
         # _TOTAL_COUNT counts winners, not wins. DISPLAY_ORDER is the same on every row of a pair.
+        # The wins themselves (count, years, and for a person the work) are added to each row of
+        # the page by _attach_award_wins().
         pcollections = {
             "movies": ("""
                 SELECT m.ID_MOVIE, m.MOVIE_TITLE, m.MOVIE_TITLE_FR, m.DAT_RELEASE, m.IMDB_RATING_WEIGHTED, m.POSTER_PATH, ma.DISPLAY_ORDER,
@@ -10012,6 +10077,9 @@ async def get_award(id: int, ui_language: Optional[str] = "en", collection: Opti
         }
         with conn.cursor() as cursor:
             data, pagination, kinds = _run_collections(cursor, {**pcollections, **_wikipedia_mention_collections(award.get("ID_WIKIDATA"), ui_language)}, collection, page, rows_per_page)
+            _attach_award_wins(cursor, data.get("movies"), "ID_MOVIE", award_id=id)
+            _attach_award_wins(cursor, data.get("series"), "ID_SERIE", award_id=id)
+            _attach_award_wins(cursor, data.get("persons"), "ID_PERSON", award_id=id)
             if collection is None:
                 wikipedia_images = _fetch_wikipedia_images(cursor, award.get("ID_WIKIDATA"), ui_language)
                 wikipedia_content = _fetch_wikipedia_content(cursor, award.get("ID_WIKIDATA"), ui_language, wikipedia_format)
