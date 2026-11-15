@@ -8,6 +8,8 @@ No API, no database. The function and its table map are read out of main.py by t
 run alone against a fake cursor, so importing main (and its connections) is not needed. Pins:
 
 - every row of an award list gets WIN_COUNT and AWARD_YEARS (distinct known years, ascending);
+- WIN_COUNT counts rows for a person, and distinct known years plus the rows without a year
+  for a movie or a series (one win stated twice in Wikidata is one win);
 - on the person table only, `wins` holds one object per win with the work it was won for;
 - the two directions: the awards of an entity (rows keyed by ID_AWARD) and the winners of an
   award (rows keyed by the entity id);
@@ -88,6 +90,15 @@ check("award movies: params", params, (25677, 21575, 9))
 check("award movies: no work join", "ID_MOVIE_FOR" in sql or "LEFT JOIN" in sql, False)
 check("award movies: years", [r["AWARD_YEARS"] for r in rows], [[2010], [1985, 1990]])
 check("award movies: no wins list outside persons", any("wins" in r for r in rows), False)
+check("award movies: one win per year", [r["WIN_COUNT"] for r in rows], [1, 2])
+
+# 2b. A series whose wins are stated twice for the same year, and a win without a year.
+cur = Cur([{"_WIN_KEY": 14174, "AWARD_YEAR": 2001}, {"_WIN_KEY": 14174, "AWARD_YEAR": 2001}, {"_WIN_KEY": 14174, "AWARD_YEAR": 2002},
+           {"_WIN_KEY": 14174, "AWARD_YEAR": 2002}, {"_WIN_KEY": 5, "AWARD_YEAR": 1999}, {"_WIN_KEY": 5, "AWARD_YEAR": None}, {"_WIN_KEY": 5, "AWARD_YEAR": None}])
+rows = [{"ID_AWARD": 14174}, {"ID_AWARD": 5}]
+attach(cur, rows, "ID_SERIE", entity_id=688)
+check("series awards: a year stated twice is one win", rows[0]["WIN_COUNT"], 2)
+check("series awards: rows without a year each count", rows[1]["WIN_COUNT"], 3)
 
 # 3. The series table, and the persons of an award.
 cur = Cur([])

@@ -2219,7 +2219,10 @@ def _attach_award_wins(cursor, rows, entity_col, entity_id=None, award_id=None):
     A row of the three award link tables is one win (TMDB-MOVIE-PREPROCESS-071), and the award
     lists show a winner, or an award, once. This adds to every row of such a list, in place:
 
-    - ``WIN_COUNT``: the number of win rows of the pair;
+    - ``WIN_COUNT``: the number of wins of the pair. For a person, the number of win rows (two
+      wins of one award in one year, for two works, are two wins). For a movie or a series,
+      the number of distinct known years plus the rows without a year: Wikidata sometimes
+      states one win twice, with different winner lists, and that is one win;
     - ``AWARD_YEARS``: the distinct known years, ascending (ceremony year for the Academy Awards
       and the Cesar Awards), an empty list when no win of the pair carries a year;
     - on the person table only, ``wins``: one object per win, in the same order, with
@@ -2258,8 +2261,11 @@ def _attach_award_wins(cursor, rows, entity_col, entity_id=None, award_id=None):
             by_key.setdefault(win.pop("_WIN_KEY"), []).append(win)
     for row in rows:
         wins = by_key.get(row.get(key_col), [])
-        row["WIN_COUNT"] = len(wins)
         row["AWARD_YEARS"] = sorted({win["AWARD_YEAR"] for win in wins if win.get("AWARD_YEAR") is not None})
+        if entity_col == "ID_PERSON":
+            row["WIN_COUNT"] = len(wins)
+        else:
+            row["WIN_COUNT"] = len(row["AWARD_YEARS"]) + sum(1 for win in wins if win.get("AWARD_YEAR") is None)
         if entity_col == "ID_PERSON":
             row["wins"] = wins
 
