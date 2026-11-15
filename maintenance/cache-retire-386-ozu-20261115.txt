@@ -1,0 +1,63 @@
+-- cache-retire-386-ozu.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-11-15 09:42:08 +0100
+--
++------------+----------------------+
+| RAW_HASHES | ANONYMIZED_TEMPLATES |
++------------+----------------------+
+|         12 |                   10 |
++------------+----------------------+
++--------+-------------+---------------+------------+---------------------------------------------------------------------------------------------+----------+
+| ID_ROW | UI_LANGUAGE | IS_ANONYMIZED | DAT_CREAT  | QUESTION                                                                                    | POST_FIX |
++--------+-------------+---------------+------------+---------------------------------------------------------------------------------------------+----------+
+|  24529 | fr          |             0 | 2026-11-04 | Listez les films de la trilogie Noriko de Yasujirō Ozu.                                     |        0 |
+|  27686 | fr          |             0 | 2026-11-06 | Listez les films de la trilogie Noriko de Yasujirō Ozu.                                     |        0 |
+|  24530 | fr          |             1 | 2026-11-04 | Listez les films de la {{Collection_name1}} de {{Person_name1}}.                            |        0 |
+|  27687 | fr          |             1 | 2026-11-06 | Listez les films de la {{Collection_name1}} de {{Person_name1}}.                            |        0 |
+|  25439 | fr          |             1 | 2026-11-05 | Listez les films de la {{Collection_name1}} de {{Person_name1}}.                            |        0 |
+|  26850 | fr          |             1 | 2026-11-05 | Listez les films de la {{Collection_name1}} de {{Person_name1}}.                            |        0 |
+|  27100 | fr          |             1 | 2026-11-05 | Listez les films de la {{Collection_name1}} de {{Person_name1}}.                            |        0 |
+|  27820 | fr          |             1 | 2026-11-06 | Listez les films de la {{Collection_name1}} de {{Person_name1}}.                            |        0 |
+|  29130 | en          |             0 | 2026-11-14 | Yasujiro Ozu                                                                                |        0 |
+|  24821 | fr          |             0 | 2026-11-04 | Quels sont les films de Yasujirō Ozu ?                                                      |        0 |
+|  26713 | fr          |             0 | 2026-11-05 | Quels sont les films de Yasujirō Ozu ?                                                      |        0 |
+|  26963 | fr          |             0 | 2026-11-05 | Quels sont les films de Yasujirō Ozu ?                                                      |        0 |
+|  24822 | fr          |             1 | 2026-11-04 | Quels sont les films de {{Person_name1}} ?                                                  |        0 |
+|  26714 | fr          |             1 | 2026-11-05 | Quels sont les films de {{Person_name1}} ?                                                  |        0 |
+|  26964 | fr          |             1 | 2026-11-05 | Quels sont les films de {{Person_name1}} ?                                                  |        0 |
+|  29131 | en          |             0 | 2026-11-14 | Where were films directed by Yasujirō Ozu filmed? Include only films he directed, and only  |        0 |
+|  29132 | en          |             1 | 2026-11-14 | Where were films directed by {{Person_name1}} filmed? Include only films he directed, and   |        0 |
+|  29137 | en          |             0 | 2026-11-14 | Map the narrative locations of Yasujiro Ozu's films                                         |        0 |
+|  29138 | en          |             1 | 2026-11-14 | Map the narrative locations of {{Person_name1}}'s films                                     |        0 |
+|  26503 | en          |             1 | 2026-11-05 | the film {{Movie_title1}} directed by {{Person_name1}} released in 1934                     |        0 |
+|  29124 | en          |             0 | 2026-11-14 | Map the filming locations of Yasujiro Ozu's films                                           |        0 |
+|  22733 | en          |             0 | 2026-11-04 | List the movies from Yasujirō Ozu's Noriko trilogy                                          |        0 |
+|  24527 | en          |             0 | 2026-11-04 | List the movies from Yasujirō Ozu's Noriko trilogy                                          |        0 |
+|  27684 | en          |             0 | 2026-11-06 | List the movies from Yasujirō Ozu's Noriko trilogy                                          |        0 |
+|  22734 | en          |             1 | 2026-11-04 | List the movies from {{Person_name1}}'s {{Collection_name1}}                                |        0 |
+|  24528 | en          |             1 | 2026-11-04 | List the movies from {{Person_name1}}'s {{Collection_name1}}                                |        0 |
+|  27685 | en          |             1 | 2026-11-06 | List the movies from {{Person_name1}}'s {{Collection_name1}}                                |        0 |
+|  23212 | en          |             0 | 2026-11-04 | List movies by yasujiro ozu                                                                 |        0 |
+|  26711 | en          |             0 | 2026-11-05 | List movies by yasujiro ozu                                                                 |        0 |
+|  26961 | en          |             0 | 2026-11-05 | List movies by yasujiro ozu                                                                 |        0 |
+|  23213 | en          |             1 | 2026-11-04 | List movies by {{Person_name1}}                                                             |        0 |
+|  26712 | en          |             1 | 2026-11-05 | List movies by {{Person_name1}}                                                             |        0 |
+|  26962 | en          |             1 | 2026-11-05 | List movies by {{Person_name1}}                                                             |        0 |
+|  29139 | en          |             0 | 2026-11-14 | Which Yasujiro Ozu's film happens in Berlin?                                                |        0 |
+|  29140 | en          |             1 | 2026-11-14 | Which {{Person_name1}}'s film happens in {{Location_name1}}?                                |        0 |
+|  26500 | en          |             0 | 2026-11-05 | the film A Story of Floating Weeds directed by Yasujirō Ozu released in 1934                |        0 |
+|  26501 | en          |             1 | 2026-11-05 | the film {{Movie_title1}} directed by {{Person_name1}} released in 1934                     |        0 |
+|  26506 | en          |             0 | 2026-11-05 | the film Floating Weeds directed by Yasujirō Ozu released in 1959                           |        0 |
+|  26507 | en          |             1 | 2026-11-05 | the film {{Movie_title1}} directed by {{Person_name1}} released in 1959                     |        0 |
+|  26490 | en          |             0 | 2026-11-05 | the film Tokyo Story directed by Yasujirō Ozu released in 1953                              |        0 |
+|  26491 | en          |             1 | 2026-11-05 | the film {{Movie_title1}} directed by {{Person_name1}} released in 1953                     |        0 |
++--------+-------------+---------------+------------+---------------------------------------------------------------------------------------------+----------+
++--------------+
+| ROWS_RETIRED |
++--------------+
+|           41 |
++--------------+
++----------------+
+| OZU_STILL_LIVE |
++----------------+
+|              0 |
++----------------+
