@@ -16,6 +16,7 @@ import data_watcher
 import json_guardrails
 import llm_costs
 import logs
+import openai_key
 from dotenv import load_dotenv
 import openai
 try:
@@ -138,17 +139,17 @@ data_watcher.register(strtext2sqlprompttemplate, _on_text2sql_prompt_change)
 data_watcher.register(strcomplexquestionprompttemplate, _on_complex_question_prompt_change)
 data_watcher.register(strvisionprompttemplate, _on_vision_prompt_change)
 
-# Load environment variables (OPENAI_API_KEY)
 load_dotenv()
 
-# Check if API key is available
-api_key = os.getenv("OPENAI_API_KEY")
+# FASTAPI-TEXT2SQL-409: no OpenAI key is read from the environment. Every OpenAI call takes the
+# key of the current request (header X-OpenAI-Key, openai_key.py), so each client pays for its
+# own questions. The other providers keep their environment keys.
 anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
 google_api_key = os.getenv("GOOGLE_API_KEY")
 openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
 
 print("LLM API keys loaded:")
-print("- OPENAI_API_KEY:", "found" if api_key else "missing")
+print("- OpenAI: per request (header X-OpenAI-Key), none read from the environment")
 print("- ANTHROPIC_API_KEY:", "found" if anthropic_api_key else "missing")
 print("- GOOGLE_API_KEY:", "found" if google_api_key else "missing")
 print("- OPENROUTER_API_KEY:", "found" if openrouter_api_key else "missing")
@@ -911,9 +912,7 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
     user_prompt_plain = user_prompt.replace(CACHE_BOUNDARY_MARKER, "")
 
     if model_norm in {"gpt-4o"} or model_norm.startswith("gpt-") or model_norm.startswith("o1") or model_norm.startswith("o3") or model_norm.startswith("o4"):
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY not found in environment variables")
-        client = openai.OpenAI(api_key=api_key)
+        client = openai.OpenAI(api_key=openai_key.require())  # FASTAPI-TEXT2SQL-409
         sampling_kwargs = _openai_sampling_kwargs(model_norm, temperature, cache_label, reasoning_effort)
         sampling_kwargs.update(_openai_cache_routing_kwargs(cache_label))
 
@@ -1181,8 +1180,9 @@ def _classify_result_entity_by_decisions(user_question: str, allowed, instructio
     """
     import httpx  # a dependency of the openai SDK
 
+    api_key = openai_key.current()  # FASTAPI-TEXT2SQL-409
     if not api_key:
-        print("Error in result_entity classification (decisions): OPENAI_API_KEY not set")
+        print("Error in result_entity classification (decisions): no OpenAI key on this request")
         return ""
     choices = [{"value": entity} for entity in allowed] + [{"value": "unknown"}]
     payload = {
@@ -2488,8 +2488,7 @@ def _call_vision_llm(*, model: str, system_prompt: str, user_prompt: str,
             "OpenAI chat.completions route (gpt-4o, gpt-5.x, gpt-6-astra) and the Anthropic "
             "Messages API (claude-*). Gemini vision is not wired in this repository."
         )
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY not found in environment variables")
+    api_key = openai_key.require()  # FASTAPI-TEXT2SQL-409
 
     # FASTAPI-TEXT2SQL-304: deliberately NOT given the explicit cache breakpoint of the text tasks.
     # Measured 2026-09-29 on gpt-6-astra with a real film frame: with an image in the message, the

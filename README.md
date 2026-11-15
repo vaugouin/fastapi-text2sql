@@ -257,8 +257,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    ```env
    # API keys for authentication (comma-separated list)
    API_KEYS=key_for_app,key_for_mcp,key_for_scripts
-   # OpenAI API Key for Text2SQL conversion
-   OPENAI_API_KEY=your_openai_api_key_here
+   # No OpenAI key here: each client sends its own in the X-OpenAI-Key header
    
    # Optional LLM provider keys (only needed if using non-OpenAI models)
    ANTHROPIC_API_KEY=your_anthropic_api_key_here
@@ -296,7 +295,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    ```
 
    Provider key usage:
-   - `OPENAI_API_KEY` is required for `gpt-*`, `o1*`, and `o3*` models.
+   - **OpenAI (`gpt-*`, `o1*`, `o3*`, and the ChromaDB embeddings): no key on the server.** Every request to `/search/text2sql` carries the client's key in the `X-OpenAI-Key` header, and every OpenAI call made for it is paid with that key. See *Bring your own OpenAI key* below.
    - `ANTHROPIC_API_KEY` is required for `claude-*` models.
    - `GOOGLE_API_KEY` is required for `gemini-*` and `gemma-4-google`.
    - `OPENROUTER_API_KEY` is required for `gemma-4`.
@@ -1393,6 +1392,22 @@ Practical notes:
 
 **Note**: Questions can be expressed in English or any language understood by the underlying LLM (currently OpenAI's models). The API can handle complex multi-criteria searches involving actors, directors, genres, years, ratings, characters, locations, and technical specifications for both movies and TV series. Video search capabilities allow finding trailers, clips, and other media content associated with movies and series.
 
+## 🔑 Bring your own OpenAI key (FASTAPI-TEXT2SQL-409)
+
+The API holds no OpenAI key. Each client sends its own on every `/search/text2sql` request:
+
+```http
+POST /search/text2sql
+X-API-Key: <this API's key>
+X-OpenAI-Key: sk-...
+```
+
+- Every OpenAI call of the request uses that key: entity extraction, text-to-SQL, result entity and intent, the complex retry, vision, the `decisions` classifier and the ChromaDB query embeddings. The other providers (Anthropic, Google, OpenRouter) keep their server keys.
+- **Without a key**, an exact-question cache hit is still served (a client's showcase cards cost nothing). Anything that needs a model answers **401** with `{"detail": {"error_code": "openai_key_required", "error": "..."}}` before the first call: on an exact-cache miss, and on an image whose identification is not in the recognition cache.
+- The key is held in a ContextVar for the duration of the request (`openai_key.py`), so two concurrent requests never pay for each other; it is never logged, stored or echoed. A malformed value (spaces, line breaks, under 20 characters) counts as no key.
+- A refused key (wrong, revoked, no quota) surfaces as the provider error of the first call, in `error`: clients check the key once with `GET https://api.openai.com/v1/models` before sending it.
+- Clients that send it: voice-agent (its own key on the owner instance, the visitor's in `BYOK_REQUIRED=1` mode). Still to switch: the evaluator, the web fronts, the Discord bot, listening-companion. Offline check: `uv run --no-project checks/verif-409.py`.
+
 ## 🧭 Result representations: the contract for both fronts
 
 This section is the **single source of truth** for the two clients that draw a `/search/text2sql` answer, voice-agent (`app/static/app.js`) and tmdb-front (`lib/t2s-representation.inc.php`, `lib/text2sql-search.inc.php`). Rule set by Philippe on 2026-10-31 (TMDB-FRONT-112): every representation ships on both fronts in the same batch, and **adding a representation means adding its table here first** (FASTAPI-TEXT2SQL-352). The `AGENTS.md` of both fronts point here; nothing below is duplicated elsewhere.
@@ -2374,8 +2389,8 @@ also holds `logs/` and its exactly opposite regime.
 
 ### Common Issues
 
-1. **Missing OpenAI API Key**
-   - Ensure your `.env` file contains a valid `OPENAI_API_KEY`
+1. **Missing OpenAI API Key** (401 `openai_key_required`)
+   - The client must send its key in the `X-OpenAI-Key` header; the server's `.env` holds none
    - Check that your OpenAI account has sufficient credits
 
 2. **Authentication Errors**

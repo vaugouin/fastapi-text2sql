@@ -1,6 +1,6 @@
 from typing import List, Optional
 import asyncio
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException, Request, Header
 from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 import httpx
@@ -41,6 +41,7 @@ import result_places
 import closed_vocab
 import samples_assertions as sa
 import feedback
+import openai_key
 
 # Load environment variables from .env file
 load_dotenv()
@@ -296,14 +297,10 @@ else:
     print("[startup] *** Anyone reaching this port can call sql_search and every entity tool. ***", flush=True)
     print("[startup] *** Set MCP_API_KEY in the runtime env file for any exposed deployment. ***", flush=True)
 
-# Set your OpenAI API key from environment variable
-print("[startup] Loading OpenAI API key from environment...", flush=True)
-openai.api_key = os.getenv("OPENAI_API_KEY")
-
-# Validate that the API key was loaded
-if not openai.api_key:
-    raise ValueError("OPENAI_API_KEY not found in environment variables. Please check your .env file.")
-print("[startup] OpenAI API key loaded.", flush=True)
+# FASTAPI-TEXT2SQL-409: the API holds no OpenAI key. Each request brings its own in the
+# X-OpenAI-Key header (openai_key.py), and every OpenAI call made for it, the ChromaDB query
+# embeddings included, is paid with that key. OPENAI_API_KEY in the environment is ignored.
+print("[startup] OpenAI key: per request (header X-OpenAI-Key), none read from the environment.", flush=True)
 
 class OpenAIEmbeddingFunction:
     def __init__(self, model="text-embedding-3-large"):
@@ -313,7 +310,7 @@ class OpenAIEmbeddingFunction:
     def __call__(self, input):
         """Generate embeddings for a list of texts using OpenAI's embedding model."""
         started = time.perf_counter()
-        response = openai.embeddings.create(
+        response = openai.OpenAI(api_key=openai_key.require()).embeddings.create(  # -409
             input=input, # Ensure parameter name matches ChromaDB's expectations
             model=self.model
         )
@@ -332,7 +329,7 @@ class OpenAIEmbeddingFunction:
             query_input = input
             
         started = time.perf_counter()
-        response = openai.embeddings.create(
+        response = openai.OpenAI(api_key=openai_key.require()).embeddings.create(  # -409
             input=query_input,
             model=self.model
         )
@@ -2885,8 +2882,31 @@ async def get_vision_image(image_ref: str, api_key: str = Depends(get_api_key)):
         headers={"X-Content-Type-Options": "nosniff"},
     )
 
+def _refuse_without_openai_key(connection, strwhat: str):
+    """Close the request's connection and answer 401: a model is needed and no key came.
+
+    FASTAPI-TEXT2SQL-409. The detail is the contract clients key on (`openai_key_required`).
+    """
+    try:
+        connection.close()
+    except Exception:
+        pass
+    raise HTTPException(
+        status_code=401,
+        detail={
+            "error_code": "openai_key_required",
+            "error": (f"An OpenAI API key is needed to {strwhat}: send it in the "
+                      f"{openai_key.HEADER_NAME} header. Cached answers are served without one."),
+        },
+    )
+
+
 @app.post("/search/text2sql", response_model=Text2SQLResponse)
-async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_api_key)):
+async def search_text2sql(
+    request: Text2SQLRequest,
+    api_key: str = Depends(get_api_key),
+    x_openai_key: Optional[str] = Header(default=None, alias=openai_key.HEADER_NAME),
+):
     """Convert a natural language question about cinema or TV into SQL, execute it, and return the result set.
 
     Covers the full entertainment database: movies, TV series, persons (actors, directors,
@@ -3067,6 +3087,10 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         # FASTAPI-TEXT2SQL-061: a fresh request id and no feedback bypass yet; the complex
         # retry's inner pass inherits both from this context.
         feedback.f_start_request()
+        # FASTAPI-TEXT2SQL-409: the OpenAI key of this request. The retry's inner pass calls
+        # this function directly, where x_openai_key is the Header() default, not a string:
+        # it inherits the outer pass's key from the context instead.
+        openai_key.set_request_key(x_openai_key if isinstance(x_openai_key, str) else "")
     # TEXT2SQL-EVAL-002. Set on every pass; the retry copies the request, so the value is the same.
     t2s.set_flex_processing(getattr(request, "flex_processing", False))
     # FASTAPI-TEXT2SQL-347. Same lifecycle: set on every pass from the (copied) request.
@@ -3417,6 +3441,8 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
             ))
             position_counter += 1
 
+            if not openai_key.current():
+                _refuse_without_openai_key(connection, "identify the image")
             _vision_start_time = time.time()
             # Blocking provider call, so it goes to a worker thread like the three others
             # (FASTAPI-TEXT2SQL-201): a vision call is the slowest of the six and would
@@ -3978,6 +4004,13 @@ async def search_text2sql(request: Text2SQLRequest, api_key: str = Depends(get_a
         ))
         position_counter += 1
     
+    # FASTAPI-TEXT2SQL-409: past this point a model is needed (extraction, embeddings, SQL
+    # generation). An exact cache hit is served without a key, which is what lets a client
+    # show its showcase answers before the visitor has typed one.
+    if (not cached_exact_question and not openai_key.current()
+            and not (request.question_hashed and not request.question)):  # hash-only: handled cache_miss below
+        _refuse_without_openai_key(connection, "answer this question")
+
     # If the exact question was not found in the exact cache, proceed to entity extraction and anonymization
     if not cached_exact_question:
         if request.question:

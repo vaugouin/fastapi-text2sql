@@ -68,7 +68,7 @@ Edit at the right layer: `main.py` orchestrates only, the LLM calls live in `tex
 
 The variables are in `README.md`, *Set up environment variables*. What it does not say:
 
-- **`OPENAI_API_KEY` is required at startup even when no OpenAI model is selected**: the ChromaDB embedding function is OpenAI.
+- **No OpenAI key on the server (FASTAPI-TEXT2SQL-409, 2026-11-15)**: each request brings its own in `X-OpenAI-Key`, held in a ContextVar by `openai_key.py`; `OPENAI_API_KEY` in the env file is ignored. A new OpenAI call takes `openai_key.require()`, **never** a module global (two concurrent visitors would pay for each other), and a new worker thread goes through `asyncio.to_thread` / `create_task`, which copy the context (a bare `ThreadPoolExecutor.submit` does not: the call would see no key). The ChromaDB embedding function is OpenAI too, so a request without a key must stop before its first resolution: `_refuse_without_openai_key()` answers 401 `openai_key_required` after an exact-cache miss and before an uncached vision call. Never log the key; `openai_key.fingerprint()` tells two keys apart. Check: `uv run --no-project checks/verif-409.py`.
 - **`MCP_API_KEY` empty means `/mcp` is open**, not weakly protected (`_verify_mcp_bearer` only enforces a bearer `if MCP_API_KEY:`). Startup logs a warning, the only signal.
 - **`UPLOADS_FOLDER`, `UPLOAD_RETENTION_DAYS` (30) and `MAX_UPLOAD_IMAGE_BYTES` (25 MB)** are read at import (restart to change), and `UPLOAD_RETENTION_DAYS` must match the `--days` the cron passes to `purge-uploads.sh`.
 
