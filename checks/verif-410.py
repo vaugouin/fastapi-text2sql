@@ -99,6 +99,23 @@ check(seen[0][0] == "chat" and "service_tier" not in seen[0][1], "task without U
 
 check(t2s.ultrafast_tasks_enabled() == ["complex_question", "text2sql"], "echo of the Ultrafast tasks, sorted")
 
+# The picture task (vision_identification)
+t2s.set_ultrafast_tasks(["vision_identification"])
+calls.clear()
+out = t2s._call_vision_llm(model="gpt-6-astra", system_prompt="sys", user_prompt="user", imagebytes=b"x", media_type="image/jpeg")
+check(out == "ULTRA" and calls[0][0] == "responses" and calls[0][1].get("service_tier") == "ultrafast"
+      and calls[0][1]["input"][1]["content"][1]["type"] == "input_image",
+      "picture task in Ultrafast: responses.create with the image as input_image")
+t2s.set_ultrafast_tasks([])
+t2s.set_fast_tasks(["vision_identification"])
+calls.clear()
+out = t2s._call_vision_llm(model="gpt-6-astra", system_prompt="sys", user_prompt="user", imagebytes=b"x", media_type="image/jpeg")
+check(out == "CHAT" and calls[0][0] == "chat" and calls[0][1].get("service_tier") == "fast", "picture task in Fast: chat.completions with service_tier=fast")
+t2s.set_fast_tasks([])
+calls.clear()
+out = t2s._call_vision_llm(model="gpt-6-astra", system_prompt="sys", user_prompt="user", imagebytes=b"x", media_type="image/jpeg")
+check(calls[0][0] == "chat" and "service_tier" not in calls[0][1], "picture task in Normal: no service_tier")
+
 entry = {"model": "gpt-6.1-sol", "prompt_tokens": 1_000_000, "cached_tokens": 0, "cache_write_tokens": 0, "completion_tokens": 0}
 standard = llm_costs.task_cost_usd(dict(entry))
 ultra = llm_costs.task_cost_usd(dict(entry, service_tier="ultrafast"))

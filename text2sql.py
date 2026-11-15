@@ -2562,6 +2562,39 @@ def _call_vision_llm(*, model: str, system_prompt: str, user_prompt: str,
         ]},
     ]
 
+    # Speed of the picture task (2026-11-15), same rules as the text tasks (FASTAPI-TEXT2SQL-347,
+    # -410): Ultrafast on the Responses API for gpt-6-astra / gpt-6.1-sol, else or on a refusal
+    # Fast on chat.completions; nothing asked, nothing sent.
+    if _uses_openai_ultrafast(model_norm, cache_label):
+        ultrafast_kwargs = dict(_as_responses_api_kwargs(sampling_kwargs))
+        if _VISION_STRUCTURED_OUTPUTS_AVAILABLE:
+            ultrafast_kwargs["text"] = {"format": {"type": "json_schema", "name": "vision_identification",
+                                                   "strict": True, "schema": _VISION_RESPONSE_SCHEMA}}
+        try:
+            response = client.responses.create(
+                model=model_norm,
+                input=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": [
+                        {"type": "input_text", "text": user_prompt_plain},
+                        {"type": "input_image", "image_url": data_url, "detail": VISION_IMAGE_DETAIL},
+                    ]},
+                ],
+                service_tier="ultrafast",
+                **ultrafast_kwargs,
+            )
+            _record_service_tier(cache_label, model_norm, response)
+            _log_openai_cache_usage(response, model_norm=model_norm, label=cache_label)
+            out_text = getattr(response, "output_text", None)
+            if out_text:
+                return out_text
+            raise RuntimeError("No output_text in OpenAI Ultrafast response")
+        except openai.BadRequestError as ultrafast_error:
+            print(f"[ultrafast] {cache_label} {model_norm}: refused ({ultrafast_error}); "
+                  "falling back to Fast.")
+    if _uses_openai_fast(model_norm, cache_label):
+        sampling_kwargs["service_tier"] = "fast"
+
     if _VISION_STRUCTURED_OUTPUTS_AVAILABLE:
         try:
             response = client.chat.completions.create(
@@ -2577,6 +2610,8 @@ def _call_vision_llm(*, model: str, system_prompt: str, user_prompt: str,
                 },
                 **sampling_kwargs,
             )
+            if sampling_kwargs.get("service_tier"):
+                _record_service_tier(cache_label, model_norm, response)
             _log_openai_cache_usage(response, model_norm=model_norm, label=cache_label)
             if (response.choices and response.choices[0].message
                     and response.choices[0].message.content):
@@ -2596,6 +2631,8 @@ def _call_vision_llm(*, model: str, system_prompt: str, user_prompt: str,
         messages=messages,
         **sampling_kwargs,
     )
+    if sampling_kwargs.get("service_tier"):
+        _record_service_tier(cache_label, model_norm, response)
     _log_openai_cache_usage(response, model_norm=model_norm, label=cache_label)
     if not response.choices or not response.choices[0].message or not response.choices[0].message.content:
         raise RuntimeError("No content in OpenAI API response")

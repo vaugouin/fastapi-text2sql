@@ -2388,6 +2388,9 @@ class Text2SQLRequest(BaseModel):
     llm_ultrafast_text2sql: bool = False
     llm_ultrafast_complex: bool = False
     llm_ultrafast_result_entity: bool = False
+    # 2026-11-15: the same two speeds for the picture task (vision_identification).
+    llm_fast_vision: bool = False
+    llm_ultrafast_vision: bool = False
 
     @field_validator("ui_language", mode="before")
     @classmethod
@@ -2993,6 +2996,8 @@ async def search_text2sql(
               times the price, gpt-6-astra and gpt-6.1-sol only (Fast on other GPT-5.x/6 models,
               and when OpenAI refuses it); wins over Fast and Flex. Echoed as `ultrafast_tasks`.
               FASTAPI-TEXT2SQL-410.
+            - llm_fast_vision, llm_ultrafast_vision (bool, default False): the same two speeds
+              for the picture task (vision_identification).
             - llm_model_result_entity = "gpt-6-luna-decisions": the answer-entity
               classifier through OpenAI's Decisions API. FASTAPI-TEXT2SQL-310.
         api_key (str): Valid API key injected via X-API-Key header.
@@ -3113,6 +3118,7 @@ async def search_text2sql(
         ("text2sql", "llm_fast_text2sql"),
         ("complex_question", "llm_fast_complex"),
         ("result_entity", "llm_fast_result_entity"),
+        ("vision_identification", "llm_fast_vision"),
     ) if getattr(request, field, False)])
     # FASTAPI-TEXT2SQL-410. Same lifecycle for Ultrafast.
     t2s.set_ultrafast_tasks([label for label, field in (
@@ -3120,6 +3126,7 @@ async def search_text2sql(
         ("text2sql", "llm_ultrafast_text2sql"),
         ("complex_question", "llm_ultrafast_complex"),
         ("result_entity", "llm_ultrafast_result_entity"),
+        ("vision_identification", "llm_ultrafast_vision"),
     ) if getattr(request, field, False)])
 
     # The user's own wording, as everything downstream reads it: the complex-question retry
