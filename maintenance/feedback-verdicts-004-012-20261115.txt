@@ -1,0 +1,16 @@
+-- feedback-verdicts-004-012.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-11-15 11:19:38 +0100
+--
++-------------+--------+-----------------+----------------------+---------------------+
+| ID_FEEDBACK | RATING | ANALYSIS_STATUS | TICKET_ID            | TIM_ANALYSED        |
++-------------+--------+-----------------+----------------------+---------------------+
+|           4 |      1 | not_a_defect    | FASTAPI-TEXT2SQL-389 | 2026-11-15 11:19:38 |
+|           5 |     -1 | analysed        | FASTAPI-TEXT2SQL-390 | 2026-11-15 11:19:38 |
+|           6 |     -1 | analysed        | FASTAPI-TEXT2SQL-389 | 2026-11-15 11:19:38 |
+|           7 |     -1 | analysed        | FASTAPI-TEXT2SQL-389 | 2026-11-15 11:19:38 |
+|           8 |     -1 | analysed        | VOICE-AGENT-268      | 2026-11-15 11:19:38 |
+|           9 |     -1 | analysed        | VOICE-AGENT-268      | 2026-11-15 11:19:38 |
+|          10 |      1 | not_a_defect    | FASTAPI-TEXT2SQL-389 | 2026-11-15 11:19:38 |
+|          11 |      1 | not_a_defect    | FASTAPI-TEXT2SQL-386 | 2026-11-15 11:19:38 |
+|          12 |     -1 | analysed        | VOICE-AGENT-267      | 2026-11-15 11:19:38 |
++-------------+--------+-----------------+----------------------+---------------------+
