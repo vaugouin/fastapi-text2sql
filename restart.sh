@@ -20,7 +20,6 @@ docker ps --filter "name=$NAME"
 docker stop "$NAME"
 
 cd "$STACK_DIR" || exit 1
-clear
 # Ensure ChromaDB is healthy before (re)starting the API — main.py connects to
 # Chroma at import time and the container crashes on boot if it is unreachable.
 bash "$HOME/docker/chromadb/chromadb-ensure.sh" || echo "WARNING: ChromaDB not healthy — the API will crash on boot until Chroma is up."
@@ -49,4 +48,7 @@ docker run -d --rm --network="host" --env-file "$STACK_DIR/.env" -v "$STACK_DIR"
 
 docker ps --filter "name=$NAME"
 echo "=== $(date '+%Y-%m-%d %H:%M:%S %Z') === $NAME"
-docker logs -f "$NAME"
+# Returns once the container is started, with its last log lines (2026-11-15): follow them with
+# docker logs -f "$NAME" when needed. Wait for bktrees_ready: true in GET / before judging it.
+sleep 3
+docker logs --tail 20 "$NAME"
