@@ -77,6 +77,15 @@ for where, sent, got in asyncio.run(two_requests()):
 check(openai_key.current() == "", "the requests' keys did not leak into the outer context")
 
 
+# 2b. The other providers: the request's key wins, the server's is the fallback
+openai_key.set_provider_keys({"anthropic": "sk-ant-" + "a" * 40, "google": "bad key", "other": "sk-" + "x" * 40})
+check(openai_key.provider_key("anthropic", "server") == "sk-ant-" + "a" * 40, "request Anthropic key wins over the server's")
+check(openai_key.provider_key("google", "server") == "server", "malformed Google key: the server's is used")
+check(openai_key.provider_key("openrouter", None) == "", "no key anywhere: empty")
+openai_key.set_provider_keys({})
+check(openai_key.provider_key("anthropic", "server") == "server", "no request key: the server's")
+
+
 # 3. Sources
 def read(name):
     with open(os.path.join(ROOT, name), encoding="utf-8") as f:
@@ -92,7 +101,7 @@ check("openai.embeddings.create" not in main_src, "the embedding function uses n
 check(main_src.count("openai.OpenAI(api_key=openai_key.require()).embeddings.create") == 2,
       "both embedding paths take the request's key")
 openai_clients = re.findall(r"openai\.OpenAI\(\s*api_key=([a-z_.]+(?:\(\))?)", t2s_src)
-check(sorted(openai_clients) == sorted(["openai_key.require()", "api_key", "openrouter_api_key"]),
+check(sorted(openai_clients) == sorted(["openai_key.require()", "api_key", "strrouterkey"]),
       f"text2sql.py OpenAI clients: request key, vision's local key, OpenRouter ({openai_clients})")
 check("api_key = openai_key.require()" in t2s_src and "api_key = openai_key.current()" in t2s_src,
       "vision and decisions read the request's key")

@@ -1024,10 +1024,11 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
         return response.choices[0].message.content
 
     if model_norm == "google/gemma-4-26b-a4b-it:free" or model_norm.startswith("google/"):
-        if not openrouter_api_key:
+        strrouterkey = openai_key.provider_key("openrouter", openrouter_api_key)
+        if not strrouterkey:
             raise RuntimeError("OPENROUTER_API_KEY not found in environment variables")
         client = openai.OpenAI(
-            api_key=openrouter_api_key,
+            api_key=strrouterkey,
             base_url="https://openrouter.ai/api/v1",
         )
         response = client.chat.completions.create(
@@ -1045,9 +1046,10 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
     if model_norm.startswith("claude-"):
         if anthropic_sdk is None:
             raise RuntimeError("anthropic package is not installed")
-        if not anthropic_api_key:
+        stranthropickey = openai_key.provider_key("anthropic", anthropic_api_key)
+        if not stranthropickey:
             raise RuntimeError("ANTHROPIC_API_KEY not found in environment variables")
-        client = anthropic_sdk.Anthropic(api_key=anthropic_api_key)
+        client = anthropic_sdk.Anthropic(api_key=stranthropickey)
         message = client.messages.create(
             model=model_norm,
             max_tokens=_CLAUDE_MAX_TOKENS,
@@ -1063,10 +1065,11 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
             raise RuntimeError("google-genai is not installed")
         if genai_types is None:
             raise RuntimeError("google-genai is not installed")
-        if not google_api_key:
+        strgooglekey = openai_key.provider_key("google", google_api_key)
+        if not strgooglekey:
             raise RuntimeError("GOOGLE_API_KEY not found in environment variables")
 
-        client = genai.Client(api_key=google_api_key)
+        client = genai.Client(api_key=strgooglekey)
 
         tried_models = []
         models_to_try = [model_norm]
@@ -2466,7 +2469,8 @@ def _call_vision_llm_anthropic(*, model_norm: str, system_prompt: str, user_prom
     global _VISION_ANTHROPIC_STRUCTURED_OUTPUTS_AVAILABLE
     if anthropic_sdk is None:
         raise RuntimeError("anthropic package is not installed")
-    if not anthropic_api_key:
+    stranthropickey = openai_key.provider_key("anthropic", anthropic_api_key)
+    if not stranthropickey:
         raise RuntimeError("ANTHROPIC_API_KEY not found in environment variables")
     image_b64 = base64.standard_b64encode(imagebytes).decode("ascii")
     if len(image_b64) > _ANTHROPIC_IMAGE_MAX_BASE64_BYTES:
@@ -2482,7 +2486,7 @@ def _call_vision_llm_anthropic(*, model_norm: str, system_prompt: str, user_prom
         {"type": "text", "text": user_prompt_plain},
     ]}]
     sampling_kwargs = _anthropic_sampling_kwargs(model_norm, 0, cache_label)
-    client = anthropic_sdk.Anthropic(api_key=anthropic_api_key)
+    client = anthropic_sdk.Anthropic(api_key=stranthropickey)
 
     def _send(output_format: Optional[dict]):
         kwargs = dict(sampling_kwargs)

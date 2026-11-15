@@ -57,6 +57,33 @@ def require() -> str:
     return strkey
 
 
+# The other providers (2026-11-15). The API keeps its own Anthropic, Google and OpenRouter keys,
+# but a client may send its own in these headers, and that request is then paid with it: the
+# evaluator does, so a campaign on a Claude model bills the evaluator's account. Same ContextVar
+# rule as the OpenAI key; a malformed value counts as none.
+PROVIDER_HEADERS = {
+    "anthropic": "X-Anthropic-Key",
+    "google": "X-Google-Key",
+    "openrouter": "X-OpenRouter-Key",
+}
+_provider_keys: "contextvars.ContextVar[dict]" = contextvars.ContextVar("provider_request_keys", default={})
+
+
+def set_provider_keys(keys) -> None:
+    """Store the other providers' keys of the current request: {provider: key}, malformed dropped."""
+    clean = {}
+    for provider, value in (keys or {}).items():
+        strkey = value.strip() if isinstance(value, str) else ""
+        if provider in PROVIDER_HEADERS and is_well_formed(strkey):
+            clean[provider] = strkey
+    _provider_keys.set(clean)
+
+
+def provider_key(provider: str, env_value) -> str:
+    """The request's key for this provider, else the server's own (env_value), else ""."""
+    return _provider_keys.get().get(provider) or (env_value or "")
+
+
 def fingerprint(key: str = None) -> str:
     """A short, non-reversible tag of a key, for traces ("" when there is no key)."""
     strkey = current() if key is None else key

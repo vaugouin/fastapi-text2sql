@@ -2918,6 +2918,9 @@ async def search_text2sql(
     request: Text2SQLRequest,
     api_key: str = Depends(get_api_key),
     x_openai_key: Optional[str] = Header(default=None, alias=openai_key.HEADER_NAME),
+    x_anthropic_key: Optional[str] = Header(default=None, alias=openai_key.PROVIDER_HEADERS["anthropic"]),
+    x_google_key: Optional[str] = Header(default=None, alias=openai_key.PROVIDER_HEADERS["google"]),
+    x_openrouter_key: Optional[str] = Header(default=None, alias=openai_key.PROVIDER_HEADERS["openrouter"]),
 ):
     """Convert a natural language question about cinema or TV into SQL, execute it, and return the result set.
 
@@ -3110,6 +3113,12 @@ async def search_text2sql(
         # this function directly, where x_openai_key is the Header() default, not a string:
         # it inherits the outer pass's key from the context instead.
         openai_key.set_request_key(x_openai_key if isinstance(x_openai_key, str) else "")
+        # The other providers: the request's key when it brings one, the server's otherwise.
+        openai_key.set_provider_keys({
+            "anthropic": x_anthropic_key if isinstance(x_anthropic_key, str) else "",
+            "google": x_google_key if isinstance(x_google_key, str) else "",
+            "openrouter": x_openrouter_key if isinstance(x_openrouter_key, str) else "",
+        })
     # TEXT2SQL-EVAL-002. Set on every pass; the retry copies the request, so the value is the same.
     t2s.set_flex_processing(getattr(request, "flex_processing", False))
     # FASTAPI-TEXT2SQL-347. Same lifecycle: set on every pass from the (copied) request.

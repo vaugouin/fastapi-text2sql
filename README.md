@@ -1402,7 +1402,8 @@ X-API-Key: <this API's key>
 X-OpenAI-Key: sk-...
 ```
 
-- Every OpenAI call of the request uses that key: entity extraction, text-to-SQL, result entity and intent, the complex retry, vision, the `decisions` classifier and the ChromaDB query embeddings. The other providers (Anthropic, Google, OpenRouter) keep their server keys.
+- Every OpenAI call of the request uses that key: entity extraction, text-to-SQL, result entity and intent, the complex retry, vision, the `decisions` classifier and the ChromaDB query embeddings.
+- The other providers keep their server keys (`ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`), but a request may bring its own in `X-Anthropic-Key`, `X-Google-Key` and `X-OpenRouter-Key`; it then pays with it. The evaluator sends every key it has.
 - **Without a key**, an exact-question cache hit is still served (a client's showcase cards cost nothing). Anything that needs a model answers **401** with `{"detail": {"error_code": "openai_key_required", "error": "..."}}` before the first call: on an exact-cache miss, and on an image whose identification is not in the recognition cache.
 - The key is held in a ContextVar for the duration of the request (`openai_key.py`), so two concurrent requests never pay for each other; it is never logged, stored or echoed. A malformed value (spaces, line breaks, under 20 characters) counts as no key.
 - A refused key (wrong, revoked, no quota) surfaces as the provider error of the first call, in `error`: clients check the key once with `GET https://api.openai.com/v1/models` before sending it.
