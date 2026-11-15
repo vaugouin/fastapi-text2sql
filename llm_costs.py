@@ -50,6 +50,11 @@ FLEX_FACTOR = 0.5
 # (2026-10-28); OpenAI's own figure is to be checked against the invoice. A task with any call
 # served Fast is priced at the Fast rate: the higher figure is the safe one.
 FAST_FACTOR = 2.0
+# FASTAPI-TEXT2SQL-410. Ultrafast: six times the standard rates on input and output, from the
+# developers.openai.com pricing table read 2026-11-15 (gpt-6.1-sol $12 / $60 against $2 / $10,
+# gpt-6-astra $60 / $300 against $10 / $50). Applied to the cached and cache-write rates too,
+# which that table does not list separately for Ultrafast: the higher figure is the safe one.
+ULTRAFAST_FACTOR = 6.0
 
 # Names that would fall into a priced row by prefix but are billed differently and at a price we
 # do not know: the Decisions API (FASTAPI-TEXT2SQL-310) is not a Luna chat call.
@@ -100,7 +105,9 @@ def task_cost_usd(entry: dict) -> Optional[float]:
     cost = (uncached * price["input"] + cached * price["cached"]
             + write * price["cache_write"] + output * price["output"]) / 1_000_000
     tiers = str(entry.get("service_tier") or "")
-    if "fast" in tiers.split(","):
+    if "ultrafast" in tiers.split(","):
+        cost *= ULTRAFAST_FACTOR
+    elif "fast" in tiers.split(","):
         cost *= FAST_FACTOR
     elif tiers == "flex":
         cost *= FLEX_FACTOR

@@ -365,8 +365,38 @@ def fast_tasks_enabled() -> list:
     return sorted(_fast_tasks.get())
 
 
+# FASTAPI-TEXT2SQL-410 (2026-11-15). OpenAI Ultrafast mode (`service_tier="ultrafast"`), the tier
+# above Fast: about six times the standard price (developers.openai.com pricing, read 2026-11-15:
+# gpt-6.1-sol $12 / $60 per 1M tokens against $2 / $10), no speed figure published by OpenAI.
+# Asked per task like Fast. Two limits from OpenAI's Ultrafast guide decide the code below:
+# only gpt-6-astra and gpt-6.1-sol have it, and it is served on the Responses API, not on
+# chat.completions, the route every other GPT-6 call of this pipeline takes (-274). So an
+# Ultrafast task goes through responses.create, without the explicit cache breakpoint of the
+# chat route (-304), which that route does not take in this form. A task that asks for
+# Ultrafast on another model, or whose Ultrafast call is refused (400), falls back to Fast:
+# the person who asked wanted speed. On a task that asks for both, Ultrafast wins.
+_ultrafast_tasks: "contextvars.ContextVar" = contextvars.ContextVar("ultrafast_tasks", default=frozenset())
+_ULTRAFAST_MODELS = frozenset({"gpt-6-astra", "gpt-6.1-sol"})
+
+
+def set_ultrafast_tasks(labels) -> None:
+    """Ask for OpenAI Ultrafast mode on the calls of these tasks (cache labels) in this request."""
+    _ultrafast_tasks.set(frozenset(str(label) for label in (labels or ()) if label))
+
+
+def ultrafast_tasks_enabled() -> list:
+    """The tasks of the current request that asked for Ultrafast mode, sorted."""
+    return sorted(_ultrafast_tasks.get())
+
+
+def _uses_openai_ultrafast(model_norm: str, cache_label: str) -> bool:
+    return (cache_label in _ultrafast_tasks.get()
+            and str(model_norm).strip().lower() in _ULTRAFAST_MODELS)
+
+
 def _uses_openai_fast(model_norm: str, cache_label: str) -> bool:
-    return (cache_label in _fast_tasks.get()
+    # FASTAPI-TEXT2SQL-410: a task that asked for Ultrafast on a model without it gets Fast.
+    return ((cache_label in _fast_tasks.get() or cache_label in _ultrafast_tasks.get())
             and str(model_norm).strip().lower().startswith(_FAST_MODEL_PREFIXES))
 
 
@@ -937,6 +967,29 @@ def _call_chat_llm(*, model: str, system_prompt: str, user_prompt: str, temperat
             except Exception:
                 # Fallback to chat.completions for environments where Responses API isn't available
                 pass
+
+        if _uses_openai_ultrafast(model_norm, cache_label):
+            # FASTAPI-TEXT2SQL-410: Ultrafast lives on the Responses API only.
+            try:
+                response = client.responses.create(
+                    model=model_norm,
+                    input=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt_plain},
+                    ],
+                    service_tier="ultrafast",
+                    **_as_responses_api_kwargs(sampling_kwargs),
+                )
+                _record_service_tier(cache_label, model_norm, response)
+                _log_openai_cache_usage(response, model_norm=model_norm, label=cache_label)
+                out_text = getattr(response, "output_text", None)
+                if out_text:
+                    return out_text
+                raise RuntimeError("No output_text in OpenAI Ultrafast response")
+            except openai.BadRequestError as ultrafast_error:
+                # Refused (model, account or parameter): Fast below, since the task asked for speed.
+                print(f"[ultrafast] {cache_label} {model_norm}: refused ({ultrafast_error}); "
+                      "falling back to Fast.")
 
         # FASTAPI-TEXT2SQL-304: explicit cache breakpoint after the static block on gpt-5.6+.
         user_content, cache_extra = _openai_user_content(user_prompt, model_norm)

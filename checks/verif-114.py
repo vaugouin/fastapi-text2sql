@@ -150,7 +150,8 @@ def charge_modeles_pydantic():
                       # Text2SQLRequest's default factories (TEXT2SQL-EVAL-002 flex_processing,
                       # fast_tasks) read text2sql.py, which this check does not import.
                       "t2s": SimpleNamespace(flex_processing_enabled=lambda: False,
-                                             fast_tasks_enabled=lambda: [])}
+                                             fast_tasks_enabled=lambda: [],
+                                             ultrafast_tasks_enabled=lambda: [])}
     exec(compile(texte[debut:fin], source, "exec"), espace_modeles)
     return espace_modeles["Text2SQLRequest"], espace_modeles["Text2SQLResponse"]
 
