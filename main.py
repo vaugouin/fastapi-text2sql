@@ -2233,7 +2233,7 @@ def _attach_award_wins(cursor, rows, entity_col, entity_id=None, award_id=None):
     ``entity_col`` names the link table (ID_MOVIE, ID_SERIE or ID_PERSON). Exactly one of
     ``entity_id`` (the list is the awards of that entity, rows keyed by ID_AWARD) and
     ``award_id`` (the list is the winners of that award, rows keyed by ``entity_col``) is given.
-    One query for the page, whatever its size.
+    One query for the page, whatever its size. Soft-deleted win rows are left out.
     """
     if not rows:
         return
@@ -2253,7 +2253,7 @@ def _attach_award_wins(cursor, rows, entity_col, entity_id=None, award_id=None):
         marks = ", ".join(["%s"] * len(keys))
         cursor.execute(
             f"SELECT w.{key_col} AS _WIN_KEY, w.AWARD_YEAR{work_cols} FROM {table} w{work_joins} "
-            f"WHERE w.{fixed_col} = %s AND w.{key_col} IN ({marks}) "
+            f"WHERE w.{fixed_col} = %s AND w.{key_col} IN ({marks}) AND w.DELETED = 0 "
             f"ORDER BY w.AWARD_YEAR IS NULL, w.AWARD_YEAR ASC, w.ID_ROW ASC",
             (fixed_id, *keys),
         )
