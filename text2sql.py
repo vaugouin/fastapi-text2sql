@@ -406,10 +406,25 @@ def flex_processing_enabled() -> bool:
     return bool(_flex_processing.get())
 
 
+# 2026-11-17: the GPT-6.2 line refuses Flex with a 400 ("This model does not support
+# service_tier=flex. Use background=true with background_options.completion_window instead."),
+# seen on every complex-question call of the first 6.2 campaign. A 400 is not retried by
+# _openai_flex_call, so the whole complex step failed. These models go to the standard tier.
+_FLEX_UNSUPPORTED_MODEL_PREFIXES = ("gpt-6.2-",)
+
+
 def _uses_openai_flex(model_norm: str, cache_label: str = "") -> bool:
+    name = str(model_norm).strip().lower()
     return (flex_processing_enabled()
             and cache_label not in OPENAI_FLEX_EXCLUDED_TASKS
-            and str(model_norm).strip().lower().startswith(_FLEX_MODEL_PREFIXES))
+            and name.startswith(_FLEX_MODEL_PREFIXES)
+            and not name.startswith(_FLEX_UNSUPPORTED_MODEL_PREFIXES))
+
+
+def _is_flex_unsupported(error: Exception) -> bool:
+    """A 400 saying the model has no Flex tier: the call is worth one try at the standard tier."""
+    text = str(error).lower()
+    return isinstance(error, openai.BadRequestError) and "service_tier" in text and "flex" in text
 
 
 def _record_service_tier(label: str, model_norm: str, response, *, flex_retries: int = 0,
@@ -454,6 +469,13 @@ def _openai_flex_call(send, *, label: str, model_norm: str):
             _record_service_tier(label, model_norm, response, flex_retries=attempt - 1)
             return response
         except Exception as error:
+            if _is_flex_unsupported(error):
+                # A model OpenAI later takes off Flex: no point retrying, go straight to standard.
+                print(f"[flex] {label} {model_norm}: Flex refused for this model ({error}); "
+                      "one call at the standard tier.")
+                response = send({})
+                _record_service_tier(label, model_norm, response, flex_fallback=True)
+                return response
             if not _is_flex_retryable(error):
                 raise
             last_error = error
