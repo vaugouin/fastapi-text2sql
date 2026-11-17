@@ -376,7 +376,8 @@ def fast_tasks_enabled() -> list:
 # Ultrafast on another model, or whose Ultrafast call is refused (400), falls back to Fast:
 # the person who asked wanted speed. On a task that asks for both, Ultrafast wins.
 _ultrafast_tasks: "contextvars.ContextVar" = contextvars.ContextVar("ultrafast_tasks", default=frozenset())
-_ULTRAFAST_MODELS = frozenset({"gpt-6-astra", "gpt-6.1-sol"})
+# gpt-6.2-astra and gpt-6.2-sol added 2026-11-17: OpenAI's launch page gives Ultrafast on both.
+_ULTRAFAST_MODELS = frozenset({"gpt-6-astra", "gpt-6.1-sol", "gpt-6.2-astra", "gpt-6.2-sol"})
 
 
 def set_ultrafast_tasks(labels) -> None:

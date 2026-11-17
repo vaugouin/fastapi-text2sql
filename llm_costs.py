@@ -30,6 +30,12 @@ from typing import Optional
 # input, cached and output from OpenAI's launch page as quoted by eesel.ai and datacamp.com;
 # cache write is the 30-minute retention rate ($2.50 for 12 hours), eesel.ai only.
 PRICES = {
+    # GPT-6.2 (released 2026-11-17), from OpenAI's launch page read 2026-11-17
+    # (openai.com/index/introducing-gpt-6-2-astra-sol): Astra $8 input, $0.40 cached, $40 output;
+    # Sol keeps gpt-6.1-sol's $2 / $0.10 / $10. Cache write is not on that page: 1.25 x input,
+    # the rate of every other GPT-6 row, to be checked against the invoice.
+    "gpt-6.2-astra": {"input": 8.00, "cached": 0.40, "cache_write": 10.00, "output": 40.00},
+    "gpt-6.2-sol": {"input": 2.00, "cached": 0.10, "cache_write": 2.50, "output": 10.00},
     "gpt-6.1-terra": {"input": 1.00, "cached": 0.05, "cache_write": 1.25, "output": 5.00},
     "gpt-6.1-sol": {"input": 2.00, "cached": 0.10, "cache_write": 2.50, "output": 10.00},
     "gpt-6-sol": {"input": 2.00, "cached": 0.20, "cache_write": 2.50, "output": 10.00},
