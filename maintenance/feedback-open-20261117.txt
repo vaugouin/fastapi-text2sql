@@ -1,0 +1,55 @@
+-- feedback-open.sql
+-- run on vaugouindb (container damp-vaugouin-com-mariadb-1) at 2026-11-17 19:38:06 +0100
+--
++---------------------------------------+
+| SECTION                               |
++---------------------------------------+
+| 0. All feedback, by status and rating |
++---------------------------------------+
++-----------------+--------+-------------+---+---------------------+---------------------+
+| ANALYSIS_STATUS | RATING | HAS_COMMENT | N | FIRST_AT            | LAST_AT             |
++-----------------+--------+-------------+---+---------------------+---------------------+
+| analysed        |     -1 |           1 | 7 | 2026-11-14 20:08:06 | 2026-11-15 12:48:35 |
+| new             |     -1 |           1 | 4 | 2026-11-15 14:30:47 | 2026-11-16 11:34:19 |
+| no_action       |      1 |           0 | 3 | 2026-11-13 07:38:17 | 2026-11-13 18:16:44 |
+| not_a_defect    |      1 |           1 | 3 | 2026-11-14 20:06:43 | 2026-11-15 10:19:53 |
++-----------------+--------+-------------+---+---------------------+---------------------+
++----------------------------------------------------+
+| SECTION                                            |
++----------------------------------------------------+
+| 1. Open: thumbs down, or any rating with a comment |
++----------------------------------------------------+
++-------------+---------------------+-------------+-------------+--------+----------------------------------------------------------------+---------------------------------------------------------------------------------------------------------+------------------------------------------------------------------+----------------------------------+-------------+---------------+-----------------+
+| ID_FEEDBACK | TIM_CREATED         | CLIENT      | UI_LANGUAGE | RATING | COMMENT                                                        | QUESTION                                                                                                | QUESTION_HASHED                                                  | REQUEST_ID                       | API_VERSION | RESULT_ENTITY | ANALYSIS_STATUS |
++-------------+---------------------+-------------+-------------+--------+----------------------------------------------------------------+---------------------------------------------------------------------------------------------------------+------------------------------------------------------------------+----------------------------------+-------------+---------------+-----------------+
+|          14 | 2026-11-15 14:30:47 | voice-agent | en          |     -1 | I would need to display budget and revenue gere for each movie | Show the full Harry Potter collection movies with each film's budget and revenue.                       | 562a6f2d57b54bed81bd405fcbc78ae43f1a15e69aca881b554ab0bfbd079521 | 00709700f3f741c584a99a52c5122e97 | 1.1.20      | movie         | new             |
+|          15 | 2026-11-15 14:55:14 | voice-agent | en          |     -1 | The map is too small on my laptop                              | Which countries produced the most films in 2026, shown on a map?                                        | 5a780b8abf351b652d2fc60858c4cfdf68825c089e4e289b44a82cdbab68e6b0 | bc8db6688b8d49108ea6db636b96c511 | 1.1.20      | location      | new             |
+|          17 | 2026-11-16 11:34:19 | t2s-front   | en          |     -1 | Not a pie chart                                                | Quelle part des Palmes d’or a été remportée par des films français ? représente par un camembert        | 82c883ee2b5d89f0f0e13416c615ee8c6f490683c5b775e2fe43424e112f2b4f | 0bd3cd61f7494bac84906f96acfe5c2d | 1.1.20      | movie         | new             |
+|          16 | 2026-11-16 11:29:37 | t2s-front   | en          |     -1 | I expected a pie chart                                         | Quelle part des films de Hitchcock est en noir et blanc ? représente par un camembert                   | 931b957fd7b50e9096d5ba2e1d38fdfde2bff53412ad0033b29240ade8b20c7c | e2c12213333b43fcb5c1b28e6da65d6a | 1.1.20      | movie         | new             |
++-------------+---------------------+-------------+-------------+--------+----------------------------------------------------------------+---------------------------------------------------------------------------------------------------------+------------------------------------------------------------------+----------------------------------+-------------+---------------+-----------------+
++-----------------------------+
+| SECTION                     |
++-----------------------------+
+| 2. Last 20 rows, any rating |
++-----------------------------+
++-------------+---------------------+-------------+-------------+--------+----------------------------------------------------------------------------------+-----------------------------------------------------------------------------------------+-------------+-----------------+
+| ID_FEEDBACK | TIM_CREATED         | CLIENT      | UI_LANGUAGE | RATING | COMMENT_START                                                                    | QUESTION_START                                                                          | API_VERSION | ANALYSIS_STATUS |
++-------------+---------------------+-------------+-------------+--------+----------------------------------------------------------------------------------+-----------------------------------------------------------------------------------------+-------------+-----------------+
+|          17 | 2026-11-16 11:34:19 | t2s-front   | en          |     -1 | Not a pie chart                                                                  | Quelle part des Palmes d’or a été remportée par des films français ? représente         | 1.1.20      | new             |
+|          16 | 2026-11-16 11:29:37 | t2s-front   | en          |     -1 | I expected a pie chart                                                           | Quelle part des films de Hitchcock est en noir et blanc ? représente par un came        | 1.1.20      | new             |
+|          15 | 2026-11-15 14:55:14 | voice-agent | en          |     -1 | The map is too small on my laptop                                                | Which countries produced the most films in 2026, shown on a map?                        | 1.1.20      | new             |
+|          14 | 2026-11-15 14:30:47 | voice-agent | en          |     -1 | I would need to display budget and revenue gere for each movie                   | Show the full Harry Potter collection movies with each film's budget and revenue        | 1.1.20      | new             |
+|          13 | 2026-11-15 12:48:35 | voice-agent | en          |     -1 | Too broad a vision and the app refused to zoom in so I would like + and - icons  | Okay, do this: find the movie Amélie and map the filming locations in Paris.            | 1.1.20      | analysed        |
+|          12 | 2026-11-15 10:50:22 | voice-agent | en          |     -1 | Page title is "Result" where I would expect the name of the location: Monument V | I was searching for location: Monument Valley                                           | 1.1.20      | analysed        |
+|          11 | 2026-11-15 10:19:53 | t2s-front   | en          |      1 | Japan only so it's good                                                          | Show on a map the filming locations of Yasujiro Ozu's films                             | 1.1.20      | not_a_defect    |
+|          10 | 2026-11-15 09:44:01 | voice-agent | en          |      1 | Good chain                                                                       | How did Red Harvest reach the screen, remakes included?                                 | 1.1.20      | not_a_defect    |
+|           9 | 2026-11-15 09:39:56 | voice-agent | en          |     -1 | In fact, the voice comment came very late, after I provided my previous feedback | The Magnificent Seven (1960): what is it a remake of, and what was remade from i        | 1.1.20      | analysed        |
+|           8 | 2026-11-15 09:37:11 | voice-agent | en          |     -1 | The voice never said anything on this result                                     | The Magnificent Seven (1960): what is it a remake of, and what was remade from i        | 1.1.20      | analysed        |
+|           7 | 2026-11-15 09:26:33 | voice-agent | en          |     -1 | Where is Seven Samurai in this chain?                                            | Which films descend from Seven Samurai, remakes of remakes included?                    | 1.1.20      | analysed        |
+|           6 | 2026-11-15 09:25:07 | voice-agent | en          |     -1 | I wanted connections between works and I have the book twice                     | Trace Nosferatu (2024) back to its source, adaptation by adaptation                     | 1.1.20      | analysed        |
+|           5 | 2026-11-14 20:08:06 | t2s-front   | en          |     -1 | It is not the result I expected                                                  | Show a timeline with all the Nosferatu movies                                           | 1.1.20      | analysed        |
+|           4 | 2026-11-14 20:06:43 | t2s-front   | en          |      1 | Very good sample                                                                 | Trace Nosferatu (2024) back to its source, adaptation by adaptation                     | 1.1.20      | not_a_defect    |
+|           3 | 2026-11-13 18:16:44 | t2s-front   | en          |      1 | NULL                                                                             | Which is longer, Titanic (1997) or Avatar (2009)?                                       | 1.1.20      | no_action       |
+|           2 | 2026-11-13 08:03:39 | voice-agent | en          |      1 | NULL                                                                             | tt37424290                                                                              | 1.1.20      | no_action       |
+|           1 | 2026-11-13 07:38:17 | t2s-front   | en          |      1 | NULL                                                                             | Which is longer, Titanic (1997) or Avatar (2009)?                                       | 1.1.20      | no_action       |
++-------------+---------------------+-------------+-------------+--------+----------------------------------------------------------------------------------+-----------------------------------------------------------------------------------------+-------------+-----------------+
