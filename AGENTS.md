@@ -24,7 +24,7 @@ Keep documentation aligned with every change: `README.md` for user-facing behavi
 
 ## Related repositories (project ecosystem)
 
-`fastapi-text2sql` is the serving stage of **Agent BBB**, a multi-repository movie/TV system (`%USERPROFILE%/Code/<repo>`, `github.com/vaugouin/<repo>`) converging on a shared MariaDB (`T_WC_*`) and a ChromaDB store whose collections `embedding-update` builds. Canonical roster: `%USERPROFILE%/Nestor/projets/t2s-backlog/topics/related-repositories.txt`. `tools` (private) holds the host-side scripts for the shared database.
+`fastapi-text2sql` is the serving stage of **Cinephile App**, a multi-repository movie/TV system (`%USERPROFILE%/Code/<repo>`, `github.com/vaugouin/<repo>`) converging on a shared MariaDB (`T_WC_*`) and a ChromaDB store whose collections `embedding-update` builds. Canonical roster: `%USERPROFILE%/Nestor/projets/t2s-backlog/topics/related-repositories.txt`. `tools` (private) holds the host-side scripts for the shared database.
 
 ---
 
