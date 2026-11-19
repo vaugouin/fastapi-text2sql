@@ -6,5 +6,5 @@ Offline checks and benches of the API's internals. Human-facing description and 
 - Run from the repository root: `uv run checks/<script>.py`. The scripts put the repository root on `sys.path` with `dirname(dirname(__file__))`, so they must stay one level deep.
 - Evaluator code is reached through the sibling folder `../text2sql-eval` (same layout under `%USERPROFILE%/Code` and `~/docker`); execution exports through `../shared_data/text2sql-eval` or `$TEXT2SQL_EVAL_EXPORT_DIR`.
 - `data/bench/` is gitignored on purpose: it carries the evaluation questions verbatim.
-- On the VPS, the Docker launchers (`eval-309.sh`, `bench-jev.sh`) mount the API checkout (`~/docker/fastapi-text2sql-<colour>`): `git pull` it first; pulling does not restart the API.
+- On the VPS, the Docker launchers (`eval-309.sh`, `bench-jev.sh`) mount the API checkout (`~/docker/fastapi-text2sql-<instance>`): `git pull` it first; pulling does not restart the API.
 - One-off scripts whose ticket is closed move to `checks/archive/`.

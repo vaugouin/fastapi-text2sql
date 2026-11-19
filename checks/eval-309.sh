@@ -20,7 +20,7 @@
 # with the count of NEW WRONG ACCEPTANCES, which must be 0 for a stage to be switched on.
 #
 # DOCKER ONLY, PRODUCTION UNTOUCHED
-# It runs in a throwaway container built from the API image (fastapi-text2sql-<colour>-app, which
+# It runs in a throwaway container built from the API image (fastapi-text2sql-<instance>-app, which
 # restart.sh builds), with the API checkout mounted read-only at /app and the share at /shared.
 # The stage is set in memory inside that container: neither data/entity_resolution.json nor the
 # running API is changed. So the three stages can be measured one after the other on the same
@@ -48,8 +48,11 @@ set -u
 STAGE=${1:-}
 API_HOME=${API_HOME:-$HOME/docker/fastapi-text2sql-green}
 SHARED_DIR=${SHARED_DIR:-$HOME/docker/shared_data/text2sql-eval}
-COLOR=${COLOR:-$(basename "$API_HOME" | sed 's/^fastapi-text2sql-//')}
-IMAGE=${IMAGE:-fastapi-text2sql-$COLOR-app}
+# The image restart.sh built for that instance (FASTAPI-TEXT2SQL-412): INSTANCE_NAME from its .env,
+# else the folder suffix, exactly as restart.sh names it.
+INSTANCE=${INSTANCE:-$(grep -E '^[[:space:]]*INSTANCE_NAME[[:space:]]*=' "$API_HOME/.env" 2>/dev/null | tail -1 | sed -E 's/^[^=]*=[[:space:]]*//; s/["[:space:]]//g')}
+INSTANCE=${INSTANCE:-$(basename "$API_HOME" | sed 's/^fastapi-text2sql-//')}
+IMAGE=${IMAGE:-fastapi-text2sql-$INSTANCE-app}
 ENV_FILE=${ENV_FILE:-$API_HOME/.env}
 TYPES=${TYPES:-}
 PER_TYPE=${PER_TYPE:-40}

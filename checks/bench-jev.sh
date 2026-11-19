@@ -38,8 +38,8 @@ set -u
 
 EVAL_HOME=${EVAL_HOME:-$HOME/docker/text2sql-eval}
 SHARED_DIR=${SHARED_DIR:-$HOME/docker/shared_data/text2sql-eval}
-# Where the bench and main.py are read from. Green carries 1.1.19; point this at blue once
-# blue is the newer colour.
+# Where the bench and main.py are read from: the clone of any instance carrying the version to
+# measure (blue, green, violet, brown...; FASTAPI-TEXT2SQL-412).
 API_HOME=${API_HOME:-$HOME/docker/fastapi-text2sql-green}
 CODE_HOME=${CODE_HOME:-$API_HOME/checks}
 ENV_FILE=${ENV_FILE:-$EVAL_HOME/.env}

@@ -32,11 +32,12 @@
 # create, NEVER in a directory this script has yet to create: the shell opens a redirect
 # before running the command, and that mistake is exactly why archive-logs.sh never ran once
 # before 2026-08-21.
-#   50 3 * * * /home/debian/docker/fastapi-text2sql-blue/purge-uploads.sh \
+#   50 3 * * * /home/debian/docker/fastapi-text2sql-ops/purge-uploads.sh \
 #     >> /home/debian/docker/shared_data/fastapi-text2sql/uploads/purge-run.log 2>&1
 #
-# One cron for the machine, not one per colour: the folder is shared by blue, green and the
-# colourless third deployment, so a cron in each stack would purge the same files three times.
+# One cron for the machine, not one per instance: the folder is shared by every instance, so a
+# cron in each stack would purge the same files several times. It runs from
+# ~/docker/fastapi-text2sql-ops, the clone of the crons, which is no instance (FASTAPI-TEXT2SQL-412).
 
 set -euo pipefail
 

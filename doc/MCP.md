@@ -42,16 +42,14 @@ app = FastAPI(title="Text2SQL API", version=strapiversion,
               description="Text2SQL API for text to SQL query conversion",
               lifespan=mcp_app.lifespan)
 
-API_PORT_BLUE = int(os.getenv('API_PORT_BLUE', 8000))
-API_PORT_GREEN = int(os.getenv('API_PORT_GREEN', 8001))
-_mcp_patch = int(strapiversion.split('.')[2])
+API_PORT = _read_api_port()   # API_PORT from this instance's .env, required (FASTAPI-TEXT2SQL-412)
 MCP_API_KEY = os.getenv("MCP_API_KEY", "")
 _api_keys_raw = os.getenv("API_KEYS") or os.getenv("API_KEY", "")
 _api_keys_first = next((k.strip() for k in _api_keys_raw.split(",") if k.strip()), "")
 MCP_INTERNAL_API_KEY = os.getenv("MCP_INTERNAL_API_KEY", _api_keys_first)
 MCP_INTERNAL_BASE_URL = os.getenv(
     "MCP_INTERNAL_BASE_URL",
-    f"http://127.0.0.1:{API_PORT_BLUE if _mcp_patch % 2 == 0 else API_PORT_GREEN}"
+    f"http://127.0.0.1:{API_PORT}"
 )
 
 # --- MCP Tools ---
@@ -839,7 +837,7 @@ The script:
 2. Calls the `sql_search` MCP tool with a simple query.
 3. Parses the Server-Sent Events `data:` payload returned by FastMCP.
 4. Extracts the wrapped FastAPI response field `api_version`.
-5. Computes Blue/Green from patch parity: even patch → Blue, odd patch → Green.
+5. Computed Blue/Green from patch parity (even → Blue, odd → Green). That rule is gone since FASTAPI-TEXT2SQL-412: the version no longer tells the instance, `GET /` returns `instance` instead. The script is git-ignored and `/mcp` is closed (404) since 2026-11-15.
 
 Important: MCP `initialize` returns FastMCP server metadata such as `serverInfo.version`; that is not the Text2SQL API version. Use the wrapped `sql_search` response `api_version` field instead.
 

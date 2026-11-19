@@ -23,7 +23,7 @@
 # VPS, puis le repertoire courant. Dans un fichier donne, API_KEYS l'emporte sur API_KEY, qui
 # l'emporte sur TEXT2SQL_API_KEY, le nom que l'evaluateur donne a la meme valeur X-API-Key.
 # Une variable d'environnement KEY deja posee l'emporte sur tout, ce qui permet de tester une
-# autre cle sans toucher au fichier. L'hote par defaut est www.vaugouin.com:8186, l'instance Blue ; depuis
+# autre cle sans toucher au fichier. L'hote par defaut est www.vaugouin.com:8186, l'instance blue (une autre instance : son API_PORT) ; depuis
 # un conteneur sur le VPS, BASE_URL=http://172.17.0.1:8186 evite l'aller-retour par le DNS
 # public, comme le fait deja le reverseproxy.
 #

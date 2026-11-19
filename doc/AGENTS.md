@@ -13,6 +13,7 @@ moving either would break that convention.
 | [pipeline-internals.md](pipeline-internals.md) | you need the file-by-file map of the code, or the reasoning behind scheduling, SQL guards, retries and rescues, entity-endpoint contracts, typographic rescue, rounding, clock and shared folders |
 | [llm-tasks-and-costs.md](llm-tasks-and-costs.md) | changing a model, a prompt-cache setting or a reasoning family, reading costs and latencies, running a model bench, or adding a measured response indicator |
 | [vision-pre-stage.md](vision-pre-stage.md) | touching the image path of `/search/text2sql` or its recognition cache |
+| [instances.md](instances.md) | creating, migrating or switching an API instance on the VPS: one clone, one `.env`, one port (FASTAPI-TEXT2SQL-412), firewall rules, crons clone, client switch |
 | [MCP.md](MCP.md) | working on the MCP server: tool code, resource reference, client setup, bearer token, end-to-end flow |
 | [RAPIDFUZZ.md](RAPIDFUZZ.md) | touching the RapidFuzz path: setup, and the `*_NORM` / `*_KEY` generated columns and FULLTEXT indexes it requires |
 | [EXTEND_T2S_TECHNICAL.md](EXTEND_T2S_TECHNICAL.md) | extending `Technical_format`: schema, prompt and resolver changes, and the retired `Aspect_ratio` history |

@@ -28,24 +28,24 @@ Keep documentation aligned with every change: `README.md` for user-facing behavi
 
 ---
 
-## Clients of this API — read before flipping Blue/Green
+## Instances, and the clients to switch: read before moving a version
 
-Bumping `strapiversion` moves the deployment to the other colour (even patch: Blue, `API_PORT_BLUE`, 8186; odd: Green, 8187). **Only the evaluator follows that parity on its own**; every other client is repointed by hand, so check this list before and after a bump.
+Since FASTAPI-TEXT2SQL-412 an **instance** is a clone folder `~/docker/fastapi-text2sql-<name>` plus its own `.env`: the port is `API_PORT` in that `.env` and nowhere else, the name is `INSTANCE_NAME` or the folder suffix, the container is `fastapi-text2sql-<name>`. **The version decides neither the port nor the name**: never reintroduce a parity rule, a list of colours or a port in code. Production: blue 8186 and violet 8188 in tandem for even versions, green 8187 and brown 8189 for odd ones (an operator convention, nothing in the code checks it). A new instance needs ufw rules (server reference, rule 5f) and no code change; runbook: `doc/instances.md`. `GET /` returns `instance`, and every log record carries `"instance"` after `"ts"`. Clients are switched by hand:
 
-| client | how it picks a colour | what to change |
+| client | how it picks an instance | what to change |
 |---|---|---|
-| **evaluator** (`text2sql-eval`) | port derived from the parity of `--api-version` | nothing |
-| **Claude, via MCP** | `https://www.vaugouin.com/mcp`, routed by NGINX | the `reverseproxy` repo: repoint the upstream port |
-| **t2s-front** (the web front since 2026-11-11, at `/en/`, `/fr/`, `/private/`) | `$strtext2sqlapicolor` hard-coded in `lib/global-light.inc.php` (line 51); the two URLs come from `TEXT2SQL_API_BLUE_URL` / `TEXT2SQL_API_GREEN_URL` in its `.env`. The per-colour version strings below it are a fallback only: the running version is read from `GET /` of each colour (`f_text2sqlapiversion()`, cached five minutes) | swap the commented lines, commit and push `t2s-front` (public repo: no ticket ID in the message), `git pull --ff-only` in `~/docker/t2s-front`; no restart. **Until the switch-over of the old URLs** (T2S-FRONT-002 in the backlog), `/tmdb/` and `/moviematch*/` are still served by the frozen copy of `tmdb-front/lib/global-light.inc.php` (line 143), which agents must not edit: a flip before the switch-over needs Philippe's decision on that copy. `t2s-back` carries the same variable but no page reads it |
-| **voice-agent** | `TEXT2SQL_BASE_URL` in its `.env`, port in full | edit the port, then **recreate** the container (`restart.sh`): `--env-file` is read at `docker run`, a `docker restart` keeps the old value |
-| **agent-runner** (Discord bot, `jobs/discord-bot/bot.py`, tool `movie_db`; runs on the Hostinger server, not on the VPS) | `T2S_BASE_URL` in `/etc/agent-runner/env` on Hostinger, port in full, over Tailscale (`http://100.113.161.122:8186`) | `ssh hostinger`, edit the port in `/etc/agent-runner/env`, then `sudo systemctl restart agent-discord-bot` (the env file is read at service start). ufw rule 5e already admits Hostinger (100.85.106.31) on both 8186 and 8187. A response field the bot reads (`sql_query`, `result_kind`, `rows`, `name_ambiguity`, `error`) changing or disappearing is a change in agent-runner too |
+| **evaluator** (`text2sql-eval`) | port still derived from the parity of `--api-version` (its own `API_PORT_BLUE` / `API_PORT_GREEN`); cannot reach violet or brown until TEXT2SQL-EVAL-011 | the right `--api-version` |
+| **Claude, via MCP** | `/mcp` closed (404) since 2026-11-15; when reopened, routed by NGINX | the `reverseproxy` repo: repoint the upstream port |
+| **t2s-front** (the web front since 2026-11-11, at `/en/`, `/fr/`, `/private/`) | `$strtext2sqlapicolor` hard-coded in `lib/global-light.inc.php` (line 51); the two URLs come from `TEXT2SQL_API_BLUE_URL` / `TEXT2SQL_API_GREEN_URL` in its `.env`, so two instances only until T2S-FRONT-022. The per-colour version strings below it are a fallback only: the running version is read from `GET /` of each colour (`f_text2sqlapiversion()`, cached five minutes) | swap the commented lines (or point a URL at violet/brown), commit and push `t2s-front` (public repo: no ticket ID in the message), `git pull --ff-only` in `~/docker/t2s-front`; no restart. **Until the switch-over of the old URLs** (T2S-FRONT-002 in the backlog), `/tmdb/` and `/moviematch*/` are still served by the frozen copy of `tmdb-front/lib/global-light.inc.php` (line 143), which agents must not edit: a flip before the switch-over needs Philippe's decision on that copy. `t2s-back` carries the same variable but no page reads it |
+| **voice-agent** | `TEXT2SQL_BASE_URL` in its `.env`, port in full | edit the port, then **recreate** the container (`restart.sh`): `--env-file` is read at `docker run`, a `docker restart` keeps the old value. A live switch without restart is VOICE-AGENT-278 |
+| **agent-runner** (Discord bot, `jobs/discord-bot/bot.py`, tool `movie_db`; runs on the Hostinger server, not on the VPS) | `T2S_BASE_URL` in `/etc/agent-runner/env` on Hostinger, port in full, over Tailscale (`http://100.113.161.122:8186`) | `ssh hostinger`, edit the port in `/etc/agent-runner/env`, then `sudo systemctl restart agent-discord-bot` (the env file is read at service start). ufw rule 5e admits Hostinger (100.85.106.31) on 8186 and 8187, rule 5f on 8188 and 8189. A response field the bot reads (`sql_query`, `result_kind`, `rows`, `name_ambiguity`, `error`) changing or disappearing is a change in agent-runner too |
 
-- **Redeploying in place** (shipping code without a bump) makes the table a no-op but blinds `api_version`: prove the new code with a **capability probe** (a field only the new code emits) on the bare-identifier fast path (`{"question":"tt0033467"}`, no LLM call, no cache write). Old `T_WC_T2S_CACHE` rows of the same version stay live, so never reuse the version for a change that alters generated SQL.
+- **Redeploying in place** (shipping code without a bump, on the same instance) makes the table a no-op but blinds `api_version`: prove the new code with a **capability probe** (a field only the new code emits) on the bare-identifier fast path (`{"question":"tt0033467"}`, no LLM call, no cache write). Old `T_WC_T2S_CACHE` rows of the same version stay live, so never reuse the version for a change that alters generated SQL.
 - **Do not diagnose a deployment on its first requests**: wait for `bktrees_ready: true` in `GET /` (the warm-up competes for CPU for several minutes).
 - t2s-front (like the old tmdb-front pages) accepts `?apicolor=Blue` and keeps it in a one-year cookie on path `/`, shared by the old and new URLs: a cheap pre-test, and a trap afterwards (your own browser may be pinned).
-- From the PC, both colours answer over Tailscale at `100.113.161.122`; read the key from `TEXT2SQL_API_KEY` in `~/Code/text2sql-eval/.env`, never hard-code or print it.
+- From the PC, every instance answers over Tailscale at `100.113.161.122` (8186 to 8189); read the key from `TEXT2SQL_API_KEY` in `~/Code/text2sql-eval/.env`, never hard-code or print it.
 
-A flip is complete when every client reports the new version and the instance reports `bktrees_ready: true`. Per-client verification commands and the full reasoning: `README.md` § *Blue/Green Deployment*.
+A switch is complete when every client reports the new version (or, same version, the new `instance`) and the instance reports `bktrees_ready: true`. Per-client verification commands and the full reasoning: `README.md` § *Instances*.
 
 ---
 
@@ -55,7 +55,7 @@ Edit at the right layer: `main.py` orchestrates only, the LLM calls live in `tex
 
 - `sql_shapes.py` is shared by the runtime guard in `main.py` and the measurement in `analyze-complex-retry-logs.py`: never fork the predicate back into either caller.
 - `vision_cache.identification_payload()` is the cache contract: store only what depends on the image, never on the question.
-- `logs.LOGS_FOLDER` and `uploads.UPLOADS_FOLDER` stay **relative**: absolute or per-colour would split the log corpus and make cross-colour image replays fail silently.
+- `logs.LOGS_FOLDER` and `uploads.UPLOADS_FOLDER` stay **relative**: absolute or per-instance would split the log corpus and make cross-instance image replays fail silently.
 - `uploads.f_getuploadfilename()` hashes the raw bytes; do not reuse `logs.f_getlogfilename`, which hashes text.
 - `data_watcher.register()` reads its files eagerly: a registered `data/` file missing at import kills the container at boot.
 - `llm_costs.PRICES` is the only place a price lives. A model missing from it is reported in `unpriced_models`, never priced at zero: add its row (source and date) when you add a model.
@@ -78,7 +78,7 @@ The variables are in `README.md`, *Set up environment variables*. What it does n
 
 `t2slocations` is opened with **`get_collection`, never `get_or_create_collection`** (FASTAPI-TEXT2SQL-247): its HNSW configuration is fixed at creation by process 216 of `embedding-update`, and a `get_or_create` would silently recreate it with server defaults the day it is missing (no error, only worse ranking). The same reasoning dropped the old `locations` collection. If schema, entity IDs, document IDs or language-routed fields change, assume the collection needs rebuilding: stale embeddings resolve to IDs that no longer exist.
 
-`movies` and `series` are on trial before deletion (FASTAPI-TEXT2SQL-360 step 3, since 2026-11-10): the ChromaDB fallback after a lexicon miss on a title is **off by default** (`TITLE_EMBEDDINGS_FALLBACK` in `entity.py`; `on` in the colour's `.env` brings it back, restart needed). The trace says `skipped the ChromaDB fallback on 'movies'`, and the title goes to the raw fallback, then the stronger model. The collections stay open and `embedding-update` keeps them fresh until the decision, due around 2026-12-01: then drop them from `_collection_names` here and from `embedding-update.py`, and delete them, in that order.
+`movies` and `series` are on trial before deletion (FASTAPI-TEXT2SQL-360 step 3, since 2026-11-10): the ChromaDB fallback after a lexicon miss on a title is **off by default** (`TITLE_EMBEDDINGS_FALLBACK` in `entity.py`; `on` in the instance's `.env` brings it back, restart needed). The trace says `skipped the ChromaDB fallback on 'movies'`, and the title goes to the raw fallback, then the stronger model. The collections stay open and `embedding-update` keeps them fresh until the decision, due around 2026-12-01: then drop them from `_collection_names` here and from `embedding-update.py`, and delete them, in that order.
 
 ---
 
@@ -257,13 +257,13 @@ Prefer `bash script.sh` over `./script.sh` when a first run must not be about pe
 Evaluation-bank scripts (in `text2sql-eval`) and `maintenance/*.sql` run with the `tools` runner, never a hand-built `docker exec ... mariadb`. The `.sql` must be pushed first.
 
 ```bash
-cd ~/docker/fastapi-text2sql-green        # the clone of the live colour
+cd ~/docker/fastapi-text2sql-blue         # the clone of the serving instance (blue, green, violet, brown)
 git pull
 ~/docker/tools/runsqlvaugouindb.sh ~/docker/text2sql-eval/<file>.sql
 # result: ~/docker/text2sql-eval/<file>-YYYYMMDD.txt, errors included
 ```
 
-`-f` overwrites a same-day result, `-e` stops at the first error. The `pull` also stages the code the next restart of that colour loads. After an evaluation-bank change, rescore with Phase 20 (offline, no token). Reference: `tools/AGENTS.md`, "Running a .sql file".
+`-f` overwrites a same-day result, `-e` stops at the first error. The `pull` also stages the code the next restart of that instance loads. After an evaluation-bank change, rescore with Phase 20 (offline, no token). Reference: `tools/AGENTS.md`, "Running a .sql file".
 
 ## SQL handling rules
 
@@ -286,8 +286,8 @@ Cache reads and writes take the **formatted** version (`XXX.YYY.ZZZ`, from `form
 
 When updating prompt templates, schema, or resolver behavior:
 1. Edit the hot-reloaded file in `data/` directly (no versioned filename suffix).
-2. Bump `strapiversion` in `main.py` only when the user explicitly asks for a version bump. This also flips the Blue/Green parity, so the client table above applies.
-3. Restart only if you also touched `*.py`, in the checkout whose colour matches the **current** version's parity (`restart.sh` reads its colour from its folder and refuses to run elsewhere). Never infer the live colour from which checkout was restarted last.
+2. Bump `strapiversion` in `main.py` only when the user explicitly asks for a version bump. The new version goes to an instance that is not serving (even versions on blue or violet, odd on green or brown), so the client table above applies.
+3. Restart only if you also touched `*.py`, in the checkout of the instance that should carry the code (`restart.sh` takes the name from `INSTANCE_NAME` or the folder suffix and the port from `API_PORT`, and refuses a folder without `.env`, a missing port or a port another instance declares). Never infer the serving instance from which checkout was restarted last: ask `GET /` (`instance`) and the clients.
 4. If `intcleanupenabled = True`, startup cleanup purges cached queries of the previous version.
 5. If you do not bump after a prompt/config change, tell the user that current-version cache rows may still shadow the new behavior. The same holds for the recognition cache of `vision_cache.py`.
 
@@ -368,15 +368,15 @@ Naming, to preserve in any new SQL: uppercase snake case (the TMDb genre source 
 
 ## Build & deployment (Docker)
 
-Build and run are in `README.md` § *Docker Deployment* and `restart.sh`. Odd patch means Green, even means Blue; see *Version management workflow* for which checkout to restart.
+Build and run are in `README.md` § *Docker Deployment* and `restart.sh`. The version no longer picks the instance or the port (FASTAPI-TEXT2SQL-412); see *Instances* above and `doc/instances.md`. The crons (`archive-logs.sh`, `purge-uploads.sh`) run from `~/docker/fastapi-text2sql-ops`, a clone with no `.env` that is never started.
 
 ### One clock: Paris time, with its offset (FASTAPI-TEXT2SQL-328)
 
 Every date a human reads is **Europe/Paris with its offset**, through `logs.now_paris()` / `PARIS_TZ`, never a fixed `+02:00` (host and container stay on UTC). Compare `uploads.deposited_at()` / `purge_after()` with `logs.now_paris()`, never `datetime.now()` (naive, raises `TypeError`). File names before 2026-10-19 are UTC with no offset; after, Paris time, and every log dict starts with `"ts"`, which is the value to read. Details: `doc/pipeline-internals.md`.
 
-### `logs/` and `uploads/` are shared by every colour
+### `logs/` and `uploads/` are shared by every instance
 
-Both are bind-mounted from `shared_data/fastapi-text2sql/` (mounts, retentions and the ownership trap: `README.md`). A log's colour is read from the **version component of its filename**, never its path. `checks/verif-275.sh` verifies the shared mount, the cross-colour read included (`OTHER_BASE_URL=...`).
+Both are bind-mounted from `shared_data/fastapi-text2sql/` (mounts, retentions and the ownership trap: `README.md`). A log's instance is read from its `"instance"` key (since FASTAPI-TEXT2SQL-412; older records: the version component of the filename), never its path. Do not add the instance to the file name: its readers split it on `_`. `checks/verif-275.sh` verifies the shared mount, the cross-colour read included (`OTHER_BASE_URL=...`).
 
 ---
 

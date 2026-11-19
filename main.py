@@ -264,16 +264,31 @@ strapiversion = "1.1.20"
 # Convert API version to XXX.YYY.ZZZ format
 strapiversionformatted = format_api_version(strapiversion)
 
-API_PORT_BLUE = int(os.getenv('API_PORT_BLUE', 8000))
-API_PORT_GREEN = int(os.getenv('API_PORT_GREEN', 8001))
-_mcp_patch = int(strapiversion.split('.')[2])
+# FASTAPI-TEXT2SQL-412: one instance, one port, declared in its own .env and nowhere else.
+# The folder name (blue, green, violet, brown...), the version and the port are independent:
+# a new instance is a new clone plus its .env, with no code change. The old parity rule
+# (even patch on API_PORT_BLUE, odd on API_PORT_GREEN) is gone; the two old variables are
+# only read to say what to write instead, see _read_api_port().
+def _read_api_port():
+    raw = os.getenv("API_PORT", "").strip()
+    if raw:
+        return int(raw)
+    legacy = [name for name in ("API_PORT_BLUE", "API_PORT_GREEN") if os.getenv(name)]
+    hint = f" (this .env still has {', '.join(legacy)}, replaced by API_PORT)" if legacy else ""
+    raise SystemExit(f"[startup] API_PORT is missing from the instance .env{hint}: nothing to listen on.")
+
+API_PORT = _read_api_port()
+# Name of the instance, written in every log record and returned by GET /. restart.sh passes
+# the name of the clone folder (fastapi-text2sql-violet -> violet) unless the .env sets one.
+INSTANCE_NAME = os.getenv("INSTANCE_NAME", "").strip() or "local"
+logs.INSTANCE_NAME = INSTANCE_NAME
 MCP_API_KEY = os.getenv("MCP_API_KEY", "")
 _api_keys_raw = os.getenv("API_KEYS") or os.getenv("API_KEY", "")
 _api_keys_first = next((k.strip() for k in _api_keys_raw.split(",") if k.strip()), "")
 MCP_INTERNAL_API_KEY = os.getenv("MCP_INTERNAL_API_KEY", _api_keys_first)
 MCP_INTERNAL_BASE_URL = os.getenv(
     "MCP_INTERNAL_BASE_URL",
-    f"http://127.0.0.1:{API_PORT_BLUE if _mcp_patch % 2 == 0 else API_PORT_GREEN}"
+    f"http://127.0.0.1:{API_PORT}"
 )
 
 intcleanupenabled = False
@@ -281,7 +296,7 @@ intcleanupenabled = False
 
 _startup_t0 = time.perf_counter()
 print(f"[startup] {logs.now_paris().isoformat(timespec='seconds')}", flush=True)
-print(f"[startup] Booting Text2SQL API version {strapiversion}...", flush=True)
+print(f"[startup] Booting Text2SQL API version {strapiversion}, instance {INSTANCE_NAME}, port {API_PORT}...", flush=True)
 
 # An empty MCP_API_KEY makes _verify_mcp_bearer a no-op and leaves /mcp open, which is
 # a legitimate development default and a silent hole in production. Found that way on
@@ -2700,13 +2715,13 @@ class ResultItem(BaseModel):
 async def f_hello_world(api_key: str = Depends(get_api_key)):
     """Health and identity probe: is this instance ready, and which one is it?
 
-    Answers both halves of the question a Blue/Green deployment raises. `bktrees_ready`
+    Answers both halves of the question a switch between instances raises. `bktrees_ready`
     is the readiness half (FASTAPI-TEXT2SQL-145): False while the background BK-tree
-    warm-up is still running, though the API already serves. `api_version` is the
-    identity half (FASTAPI-TEXT2SQL-203): the colour of an instance follows the parity
-    of its patch number, so this single field tells a client, or a monitor, which
-    deployment it just reached, without spending a token or touching the cache on
-    `/search/text2sql` merely to read a number.
+    warm-up is still running, though the API already serves. `api_version` and `instance`
+    are the identity half (FASTAPI-TEXT2SQL-203, -412): since -412 the version no longer
+    tells which instance answered (two instances may run the same version), so `instance`
+    carries the name of the instance (`INSTANCE_NAME`, the clone folder's colour), without
+    spending a token or touching the cache on `/search/text2sql` merely to read it.
 
     Same value and same format as the `api_version` field of `Text2SQLResponse`: the raw
     `strapiversion` (e.g. "1.1.18"), never the zero-padded `XXX.YYY.ZZZ` form, which is
@@ -2724,7 +2739,7 @@ async def f_hello_world(api_key: str = Depends(get_api_key)):
     Example:
         GET / with X-API-Key header
         Returns: {"message": "hello world! The universal answer is 42",
-                  "bktrees_ready": true, "api_version": "1.1.18",
+                  "bktrees_ready": true, "api_version": "1.1.18", "instance": "blue",
                   "lexicons": {"T_WC_T2S_MOVIE": {"rows": 695578, ...}}}
     """
     global answer
@@ -2732,6 +2747,7 @@ async def f_hello_world(api_key: str = Depends(get_api_key)):
         "message": "hello world! The universal answer is " + str(answer),
         "bktrees_ready": entity.BKTREES_READY,
         "api_version": strapiversion,
+        "instance": INSTANCE_NAME,
         # FASTAPI-TEXT2SQL-360: which title lexicons are built (table -> rows, forms, built_at).
         "lexicons": title_lexicon.status(),
     }
@@ -4060,8 +4076,8 @@ async def search_text2sql(
         elif request.question_hashed:
             # A hash that misses the cache is an EXPECTED outcome, not a server error.
             # Ambiguous/empty questions return a question_hashed but never store SQL,
-            # and the cache is version-scoped + Blue/Green, so a hash a client still
-            # holds can legitimately vanish across a version bump or colour switch.
+            # and the cache is version-scoped, so a hash a client still holds can
+            # legitimately vanish across a version bump or a switch to another instance.
             # Degrade gracefully (handled HTTP 200 with error_code "cache_miss")
             # instead of raising an uncaught ValueError that FastAPI turns into a
             # generic HTTP 500. Clients should resend the original `question` text so
@@ -11975,12 +11991,7 @@ app.mount("", mcp_app)
 if __name__ == "__main__":
     import uvicorn
     
-    # Determine port based on version: even = API_PORT_BLUE, odd = API_PORT_GREEN
-    version_parts = strapiversion.split('.')
-    patch_version = int(version_parts[2])  # Use patch version (last number)
-    api_port = API_PORT_BLUE if patch_version % 2 == 0 else API_PORT_GREEN
-    
-    result = {"message": f"Text2SQL API start version {strapiversion} on port {api_port}"}
+    result = {"message": f"Text2SQL API start version {strapiversion} on port {API_PORT}", "port": API_PORT}
     logs.log_usage("start", result, strapiversion)
-    print(f"Starting API version {strapiversion} on port {api_port} (patch version {patch_version} is {'even' if patch_version % 2 == 0 else 'odd'})")
-    uvicorn.run(app, host="0.0.0.0", port=api_port)
+    print(f"Starting API version {strapiversion}, instance {INSTANCE_NAME}, on port {API_PORT}")
+    uvicorn.run(app, host="0.0.0.0", port=API_PORT)

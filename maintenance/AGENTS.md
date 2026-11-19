@@ -93,8 +93,9 @@ which is the rule rather than an omission.
   again means that guard regressed.
 - Lookups are keyed on `API_VERSION`, so a stale entry survives a prompt fix
   until either the version is bumped or the row is retired. Bumping
-  `strapiversion` also flips Blue/Green via `_mcp_patch % 2`, so it is a
-  deployment gesture, not only a cache one. Prefer retiring rows.
+  `strapiversion` is a deployment gesture, not only a cache one: it moves the
+  version to another instance and every client must be switched (since
+  FASTAPI-TEXT2SQL-412 the version no longer moves the port). Prefer retiring rows.
 
 ## The DATABASE() trap in the read sections
 

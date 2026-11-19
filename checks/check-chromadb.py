@@ -47,10 +47,10 @@ USAGE
 On the VPS, in Docker, following the pattern of text2sql-eval/README.md:
 
     docker run -it --rm --network="host" \
-      --env-file /home/debian/docker/fastapi-text2sql-blue/.env \
+      --env-file /home/debian/docker/fastapi-text2sql-<instance>/.env \
       --name fastapi-text2sql-check \
-      -v /home/debian/docker/fastapi-text2sql-blue:/app \
-      fastapi-text2sql-blue-app \
+      -v /home/debian/docker/fastapi-text2sql-<instance>:/app \
+      fastapi-text2sql-<instance>-app \
       python checks/check-chromadb.py
 
 The -v mount is REQUIRED, and rebuilding is not an alternative. Neither image can run this
@@ -58,7 +58,8 @@ script alone: the API image installs `chromadb` but its Dockerfile copies only `
 `./data/`, so `checks/` never enters it; the evaluator image (text2sql-eval repo) has
 neither `chromadb` nor `data/`. Mounting the checkout over `/app` gives the API image both the
 script and a `data/entity_resolution.json` read from disk rather than frozen at build time.
-Mount the colour currently serving, since its configuration is the one in force.
+Mount the instance currently serving (blue, green, violet, brown...), since its configuration
+is the one in force.
 
 Exit code is 1 when at least one ERROR is reported, 0 otherwise, so it can gate a deployment.
 

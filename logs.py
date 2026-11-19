@@ -11,6 +11,11 @@ from zoneinfo import ZoneInfo
 import llm_costs
 
 LOGS_FOLDER = "logs"
+# FASTAPI-TEXT2SQL-412: name of the instance that writes (blue, green, violet, brown...), set
+# by main.py from INSTANCE_NAME. Every dict record carries it right after "ts", since the
+# version in the file name no longer tells which instance answered: several instances can
+# run the same version. The file name is unchanged, its readers split it on "_".
+INSTANCE_NAME = os.getenv("INSTANCE_NAME", "").strip() or "local"
 
 # FASTAPI-TEXT2SQL-328 (DEPLOYMENT-015): one clock for the T2S stack. Every date a human reads
 # (log and upload file names, the "ts" inside each log JSON, the startup banner) is Europe/Paris
@@ -179,7 +184,8 @@ def log_usage(endpoint, content, strapiversion):
         offset (FASTAPI-TEXT2SQL-328). It is the reference time of the record; the file name
         carries the same moment without offset, for humans, and repeats 02:00 to 03:00 on the
         last Sunday of October. A caller's own "ts" key, if any, is left as it is.
-        During an HTTP request, "server_time" and "cpu_time" follow "ts" (FASTAPI-TEXT2SQL-337):
+        "instance" follows "ts" (FASTAPI-TEXT2SQL-412): the name of the instance that wrote it.
+        During an HTTP request, "server_time" and "cpu_time" follow it (FASTAPI-TEXT2SQL-337):
         seconds of wall time and of process CPU since the request entered the API.
     """
     def decimal_serializer(obj):
@@ -196,11 +202,17 @@ def log_usage(endpoint, content, strapiversion):
     now = now_paris()
     if isinstance(content, dict) and "ts" not in content:
         content = {"ts": now.isoformat(timespec="seconds"), **content}
+    if isinstance(content, dict) and "instance" not in content:
+        # FASTAPI-TEXT2SQL-412: right after "ts"; also makes the md5 of the name differ when two
+        # instances log the same content in the same second, so neither record is dropped.
+        content = {**{k: v for k, v in content.items() if k == "ts"},
+                   "instance": INSTANCE_NAME,
+                   **{k: v for k, v in content.items() if k != "ts"}}
     if isinstance(content, dict) and "server_time" not in content:
         # FASTAPI-TEXT2SQL-337: right after "ts", measured up to this line of the handler.
-        content = {**{k: v for k, v in content.items() if k == "ts"},
+        content = {**{k: v for k, v in content.items() if k in ("ts", "instance")},
                    **server_usage(),
-                   **{k: v for k, v in content.items() if k != "ts"}}
+                   **{k: v for k, v in content.items() if k not in ("ts", "instance")}}
     contenttext = json.dumps(content, indent=4, ensure_ascii=False, default=decimal_serializer)
     log_filename = f_getlogfilename(endpoint, contenttext, strapiversion, now)
     # Create the JSON file if it doesn't exist

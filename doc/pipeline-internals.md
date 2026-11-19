@@ -10,7 +10,7 @@ Edit at the right layer; the architecture is intentionally split.
 
 **[main.py](../main.py)** (~2460 lines) — FastAPI app, ChromaDB / DB startup, request orchestration only.
 - Version utilities: `format_api_version()` ([main.py:33](../main.py#L33)), `compare_versions()` ([main.py:38](../main.py#L38))
-- `strapiversion` lives at [main.py:137](../main.py#L137) (also drives Blue/Green port parity and `MCP_INTERNAL_BASE_URL`)
+- `strapiversion` lives at [main.py:137](../main.py#L137) (it no longer decides the port: `API_PORT` and `INSTANCE_NAME` come from the instance's `.env`, FASTAPI-TEXT2SQL-412; `MCP_INTERNAL_BASE_URL` defaults to `127.0.0.1:API_PORT`)
 - `Text2SQLRequest` / `Text2SQLResponse` Pydantic models around [main.py:214-269](../main.py#L214-L269); the response rounds its numbers on serialization through [response_rounding.py](../response_rounding.py) (FASTAPI-TEXT2SQL-308), as do the entity endpoints via `RoundedJSONResponse`
 - `POST /search/text2sql` : main pipeline endpoint. Its first stage is the vision pre-stage
   when the request carries an `image_ref` (FASTAPI-TEXT2SQL-114): identify, compose the
@@ -550,9 +550,11 @@ without limit and backed up, `uploads/` purged at 30 days and neither backed up 
 are in `README.md`, sections *The second mount*, *The third mount* and *Vision uploads*. Do not
 restate them here.
 
-**What this changes for an agent reading the logs.** A path no longer says which colour served
-a request; the **version component of the filename** does, and it always did. Anything counting
-questions over `logs/` now sees every colour at once, which is what makes a figure like "35
+**What this changes for an agent reading the logs.** A path no longer says which instance served
+a request. Until FASTAPI-TEXT2SQL-412 the **version component of the filename** did; since then
+several instances may run one version, and the record's `"instance"` key (right after `"ts"`)
+says it. Records written before 2026-11-19 have no `"instance"`: read the version, as before.
+Anything counting questions over `logs/` now sees every instance at once, which is what makes a figure like "35
 retries out of 505 local logs" a statement about the system rather than about one port.
 
 **Verifying the shared mount.** `checks/verif-275.sh` exercises the upload path against a running

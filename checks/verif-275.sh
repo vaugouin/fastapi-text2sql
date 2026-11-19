@@ -27,11 +27,12 @@
 # which is where it lands when eval/ is copied out flat, as ~/docker/text2sql-eval on the VPS
 # is, then the working directory. Within a file API_KEYS wins over API_KEY, which wins over
 # TEXT2SQL_API_KEY, the evaluator's name for the same X-API-Key value. A KEY already in the
-# environment beats all of it. The default host is the blue instance, so green needs BASE_URL.
+# environment beats all of it. The default host is the blue instance (8186); any other instance needs BASE_URL with its
+# API_PORT (green 8187, violet 8188, brown 8189).
 #
 # Usage:
 #   sh checks/verif-275.sh
-#   BASE_URL=http://172.17.0.1:8187 sh verif-275.sh          # green, from a flat copy
+#   BASE_URL=http://172.17.0.1:8188 sh verif-275.sh          # violet, from a flat copy
 #   BASE_URL=http://172.17.0.1:8186 OTHER_BASE_URL=http://172.17.0.1:8187 sh checks/verif-275.sh
 #   docker exec -w /app <container> sh checks/verif-275.sh
 
@@ -374,10 +375,10 @@ check("a replay past the retention window says so, with a date",
 if OTHER_BASE_URL:
     for image_ref, payload in refs.items():
         status, body = call(f"{OTHER_BASE_URL}/uploads/vision/{image_ref}", key)
-        check("deposited on one colour, read back from the other (shared mount)",
+        check("deposited on one instance, read back from another (shared mount)",
               status == 200 and body == payload, f"{OTHER_BASE_URL} status {status}")
 else:
-    print("skip  cross-colour read: set OTHER_BASE_URL to the other colour to prove the shared mount")
+    print("skip  cross-instance read: set OTHER_BASE_URL to another instance to prove the shared mount")
 
 print()
 if failures:

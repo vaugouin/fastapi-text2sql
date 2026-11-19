@@ -19,7 +19,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **Memory Monitoring**: Built-in system memory usage tracking and reporting
 - **Pagination Support**: Built-in pagination with configurable page sizes and question hashing
 - **Robust Error Handling**: Enhanced error handling for malformed responses and SQL escaping issues
-- **Docker Support**: Containerized deployment with Blue/Green deployment strategy
+- **Docker Support**: Containerized deployment, any number of instances side by side (one clone, one `.env`, one port each)
 - **UTF-8 Support**: Proper handling of Unicode characters in queries and logs
 - **Picture-based search**: an optional `image_ref` on `/search/text2sql` turns a photo into a question. A poster, a frame or a Blu-ray sleeve is read by a vision model, the work or person it points at is identified with the clues that support each candidate, and the ordinary pipeline answers from there. A photo alone opens the entity's card, a photo with a question answers the question, a question about the picture itself is answered from the pixels with no catalogue query, and an image with nothing of cinema in it says so rather than guessing
 - **MCP Server**: Remote MCP endpoint for Claude clients (web, desktop, mobile) via FastMCP 2.x
@@ -35,7 +35,7 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 - **Retry Model Visibility**: Retry messages explicitly display the selected complex-question model used during reasoning escalation
 - **No-Results Escalation**: If SQL executes successfully but returns 0 rows (page 1), the question can be escalated to the stronger model and retried once
 - **Automatic Cache Cleanup**: On-startup cache cleanup to remove outdated entries from previous versions
-- **Blue/Green Deployment**: Version-based automatic port selection (even patch: `API_PORT_BLUE`, 8186 in production; odd: `API_PORT_GREEN`, 8187)
+- **Instances**: each clone listens on the `API_PORT` of its own `.env` (blue 8186, green 8187, violet 8188, brown 8189 in production), independent of the version (FASTAPI-TEXT2SQL-412)
 - **Ambiguous Question Handling**: Best-effort SQL generation even for vague or ambiguous questions — the model always makes a choice rather than requesting clarification
 - **Question Hashing**: SHA256 hashing for efficient pagination and cache lookup
 - **Fuzzy Entity Matching**: Vector similarity search handles misspellings and variations in entity names
@@ -278,9 +278,10 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    CHROMADB_HOST=localhost
    CHROMADB_PORT=8000
    
-   # API Port Configuration (Blue/Green deployment; production uses 8186 / 8187, code defaults 8000 / 8001)
-   API_PORT_BLUE=8186
-   API_PORT_GREEN=8187
+   # This instance's port, required (FASTAPI-TEXT2SQL-412): blue 8186, green 8187, violet 8188, brown 8189
+   API_PORT=8186
+   # Optional, defaults to the clone folder suffix (fastapi-text2sql-blue -> blue)
+   # INSTANCE_NAME=blue
    
    # MCP (Model Context Protocol) — Claude connector at /mcp
    MCP_API_KEY=your_mcp_bearer_token_here
@@ -308,7 +309,7 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
 python main.py
 ```
 
-The API listens on `API_PORT_BLUE` for an even patch version and `API_PORT_GREEN` for an odd one (1.1.19: Green, `http://localhost:8187` with the production ports)
+The API listens on `API_PORT` from its `.env` (required; startup stops with a clear message without it), whatever the version (FASTAPI-TEXT2SQL-412).
 
 ### API Documentation
 
@@ -322,23 +323,24 @@ Once the server is running, visit:
 ```http
 GET /
 ```
-Answers both halves of the question a Blue/Green deployment raises: is this instance ready, and which one is it. Requires the `X-API-Key` header like every other endpoint.
+Answers both halves of the question a switch between instances raises: is this instance ready, and which one is it. Requires the `X-API-Key` header like every other endpoint.
 
 ```json
 {
   "message": "hello world! The universal answer is 42",
   "bktrees_ready": true,
-  "api_version": "1.1.18"
+  "api_version": "1.1.18",
+  "instance": "blue"
 }
 ```
 
 `bktrees_ready` is `false` while the background BK-tree warm-up is still running; the API already serves requests, and RapidFuzz resolution lazily builds whatever tree it needs in the meantime.
 
-`api_version` is the same value and format as the `api_version` field of a `/search/text2sql` response (raw `1.1.18`, never the zero-padded `001.001.018` used for cache keys). Since the colour of a deployment follows the parity of its patch number, this one field is enough to tell which colour a client just reached, with no token spent and no cache touched:
+`api_version` is the same value and format as the `api_version` field of a `/search/text2sql` response (raw `1.1.18`, never the zero-padded `001.001.018` used for cache keys). `instance` is the name of the instance (`INSTANCE_NAME`, the clone folder suffix by default; FASTAPI-TEXT2SQL-412). Since several instances may run the same version, `instance` is the field that tells which one a client just reached, with no token spent and no cache touched:
 
 ```bash
-curl -s -H "X-API-Key: $KEY" http://<host>:8186/   # even patch -> Blue
-curl -s -H "X-API-Key: $KEY" http://<host>:8187/   # odd patch  -> Green
+curl -s -H "X-API-Key: $KEY" http://<host>:8186/   # blue
+curl -s -H "X-API-Key: $KEY" http://<host>:8188/   # violet
 ```
 
 #### 2. Text to SQL Conversion
@@ -1711,7 +1713,7 @@ The build excludes `.env` from the build context (see `.dockerignore`), and the 
 
 ### Run with `--env-file`
 
-Keep the env file outside the app source tree, e.g. `/home/debian/docker/fastapi-text2sql-<color>/.env`, and pass it via `--env-file`:
+Keep the env file outside the image, e.g. `/home/debian/docker/fastapi-text2sql-<instance>/.env`, and pass it via `--env-file`:
 
 ```bash
 docker run -d --rm --network="host" \
@@ -1722,9 +1724,9 @@ docker run -d --rm --network="host" \
   fastapi-text2sql-blue-app
 ```
 
-The provided helper script ([restart.sh](restart.sh)) already uses this pattern, deciding the colour from the checkout folder it runs from — the host env files are expected at `/home/debian/docker/fastapi-text2sql-blue/.env` and `/home/debian/docker/fastapi-text2sql-green/.env` respectively.
+The provided helper script ([restart.sh](restart.sh)) already uses this pattern: the instance name is `INSTANCE_NAME` from the `.env` of the folder it runs from, else the folder suffix, and the port is that `.env`'s `API_PORT` (FASTAPI-TEXT2SQL-412). See *Instances* below and [doc/instances.md](doc/instances.md).
 
-### The second mount: one log folder for every colour
+### The second mount: one log folder for every instance
 
 The first mount carries the code. The second carries the **log corpus**, and it exists because without it there is no corpus, there are three. `LOGS_FOLDER` is the relative `"logs"` ([logs.py](logs.py)), so an unmounted container writes inside its own stack directory: blue into `fastapi-text2sql-blue/logs`, green into `fastapi-text2sql-green/logs`, and the third, colourless deployment into `fastapi-text2sql/logs`. Every analysis over "the logs" was then silently reading a third of them.
 
@@ -1797,7 +1799,7 @@ fastapi-text2sql/
 ├── .env.example             # Example environment variables template
 ├── .env                     # Environment variables (create from .env.example)
 ├── LICENSE                  # Project license file
-├── restart.sh               # Restart script, colour read from the checkout folder (-blue / -green)
+├── restart.sh               # Restart script, instance name from the .env or the folder suffix, port from API_PORT
 ├── archive-logs.sh           # Monthly log archiver (cron): packs past months into logs/archive/
 ├── migrate-logs-to-shared.sh # One-shot merge of the three old per-stack log dirs
 ├── purge-uploads.sh          # Daily 30-day purge of uploads/vision (cron): deletes, unlike archive-logs.sh
@@ -1845,7 +1847,7 @@ fastapi-text2sql/
 - **Endpoint Orchestration**: `main.py` coordinates request flow, recursive retry execution, and response/message merging
 - **Entity Detail Endpoints**: 18 endpoints returning full entity data with embedded relations, each with usage logging
 - **MCP Server**: FastMCP 2.x tools and resource exposed at `/mcp` for Claude clients (see `doc/MCP.md`)
-- **Blue/Green Deployment**: Automatic port selection based on API version (even: `API_PORT_BLUE`, 8186; odd: `API_PORT_GREEN`, 8187)
+- **Instances**: one port per instance, from its own `.env` (`API_PORT`), whatever the version (FASTAPI-TEXT2SQL-412)
 - **Processing Transparency**: Messages array tracks every processing step for debugging and analysis
 - **Version Management**: Utility functions for version comparison and automatic cache cleanup
 
@@ -2069,44 +2071,48 @@ Each API response includes a detailed `messages` array that tracks every process
 - **Cache Visibility**: Know which cache tier was used (exact, anonymized, or embeddings)
 - **Transparency**: Understand exactly how your question was processed
 
-### Blue/Green Deployment
+### Instances: one clone, one `.env`, one port (formerly Blue/Green)
 
-The API supports Blue/Green deployment strategy for zero-downtime updates:
+Since FASTAPI-TEXT2SQL-412 (2026-11-19) the API knows nothing about colours. An **instance** is three things on the VPS, and nothing else:
 
-**How It Works:**
-- **Even patch versions** (1.1.0, 1.1.2, 1.1.4, etc.) → **Blue environment** on `API_PORT_BLUE` (8186 in production)
-- **Odd patch versions** (1.1.1, 1.1.3, 1.1.5, etc.) → **Green environment** on `API_PORT_GREEN` (8187 in production)
-- Version controlled by `strapiversion` variable in `main.py`
-- Automatic port selection on startup (the code falls back to 8000 / 8001 when the two variables are unset)
+- a git clone in `~/docker/fastapi-text2sql-<name>` (blue, green, violet, brown, or any lowercase name);
+- its own `.env`, which declares the port, `API_PORT`, and nowhere else (`main.py` listens on it; the MCP loopback `MCP_INTERNAL_BASE_URL` defaults to it); `INSTANCE_NAME` is optional and defaults to the folder suffix;
+- a container `fastapi-text2sql-<name>` (image `fastapi-text2sql-<name>-app`), started by `restart.sh` from that folder.
 
-**Deployment Scripts:**
-- `restart.sh`: Deploys the colour of the checkout it lives in, Blue from `/home/debian/docker/fastapi-text2sql-blue`, Green from `/home/debian/docker/fastapi-text2sql-green`; stops anywhere else
+The **folder, the version and the port are independent**. Two instances may run the same version (to switch to a fresh container of 1.1.20 without a bump), and the version no longer moves the port: until -412 an even patch listened on `API_PORT_BLUE` and an odd one on `API_PORT_GREEN`, which allowed two instances at most and let the blue folder start on green's port. Adding an instance is a `git clone` and a `.env`, with no code change; the runbook, ports and firewall rules are in [doc/instances.md](doc/instances.md).
 
-**Benefits:**
-- Zero-downtime deployments
-- Easy rollback to previous version
-- A/B testing capabilities
-- Parallel version testing
+Production instances and ports:
 
-#### Clients of this API: read before flipping Blue/Green
-
-Bumping `strapiversion` moves the deployment to the other colour (even patch → Blue, `API_PORT_BLUE`, 8186; odd → Green, 8187). **Only one client follows that parity on its own.** Every other client has to be pointed by hand, and each does it differently, so the list below is the thing to check before and after a bump. Verified 2026-08-21 while moving to 1.1.18 on Blue.
-
-| client | how it picks a colour | what to change |
+| instance | port | tandem |
 |---|---|---|
-| **evaluator** (`text2sql-eval/text2sql-eval.py`) | derives the port from the parity of `--api-version`, [line 563](https://github.com/vaugouin/text2sql-eval/blob/main/text2sql-eval.py#L563), exactly like `main.py` does | nothing: pass the right `--api-version` |
-| **Claude, via MCP** | `https://www.vaugouin.com/mcp`, routed by **NGINX** | the `reverseproxy` repo, repoint the upstream port |
-| **tmdb-front** (PHP) | `$strtext2sqlapicolor`, **hard-coded** in `lib/global-light.inc.php` (~line 144); both URLs already sit in its `.env` as `TEXT2SQL_API_BLUE_URL` / `TEXT2SQL_API_GREEN_URL` | swap the two commented lines, then deploy the front |
-| **voice-agent** | `TEXT2SQL_BASE_URL` in its `.env`, port written in full | edit the port, restart the service |
-| **agent-runner** (Discord bot on the Hostinger server, tool `movie_db`, since 2026-11-08) | `T2S_BASE_URL` in `/etc/agent-runner/env` on Hostinger, port written in full, reached over Tailscale (`http://100.113.161.122:8186`) | `ssh hostinger`, edit the port, `sudo systemctl restart agent-discord-bot`; the VPS firewall already admits Hostinger on 8186 and 8187 (ufw rule 5e) |
+| blue | 8186 | even versions (1.1.20, 1.1.22, ...), with violet |
+| violet | 8188 | even versions, with blue |
+| green | 8187 | odd versions (1.1.21, ...), with brown |
+| brown | 8189 | odd versions, with green |
+
+The tandems are a convention of the operator, not of the code: a new version of a parity goes to whichever instance of its pair is not serving, so the serving one stays up while the other warms up, and the switch is a client-side change. `GET /` returns `instance` beside `api_version`, and every log record carries `"instance"` right after `"ts"`, since the version in a log's file name no longer tells which instance answered.
+
+**`restart.sh` refuses** a folder without `.env` (the `fastapi-text2sql-ops` clone of the crons is one, on purpose), a `.env` without `API_PORT` (with a hint when it still carries `API_PORT_BLUE` / `API_PORT_GREEN`), a port declared by another instance's `.env`, and a port still in use once its own container is stopped.
+
+#### Clients of this API: read before switching instance
+
+A client points at one instance by its port. Switching a client is a client-side change, listed below. Verified 2026-08-21 while moving to 1.1.18 on Blue, updated 2026-11-19 for -412.
+
+| client | how it picks an instance | what to change |
+|---|---|---|
+| **evaluator** (`text2sql-eval/text2sql-eval.py`) | still derives the port from the parity of `--api-version` (`API_PORT_BLUE` / `API_PORT_GREEN` in its own `.env`), [line 563](https://github.com/vaugouin/text2sql-eval/blob/main/text2sql-eval.py#L563); it cannot reach violet or brown until TEXT2SQL-EVAL-011 gives it an explicit URL | pass the right `--api-version` while the measured version is on blue or green |
+| **Claude, via MCP** | `/mcp` is closed (404) since 2026-11-15; when reopened, routed by **NGINX** | the `reverseproxy` repo, repoint the upstream port |
+| **t2s-front** (PHP) | `$strtext2sqlapicolor`, **hard-coded** in `lib/global-light.inc.php` (line 51), between the two URLs `TEXT2SQL_API_BLUE_URL` / `TEXT2SQL_API_GREEN_URL` of its `.env`; two instances only until T2S-FRONT-022 | swap the commented lines, then `git pull --ff-only` in `~/docker/t2s-front`; no restart |
+| **voice-agent** | `TEXT2SQL_BASE_URL` in its `.env`, port written in full | edit the port, recreate the container (`restart.sh`); a live switch without restart is VOICE-AGENT-278 |
+| **agent-runner** (Discord bot on the Hostinger server, tool `movie_db`, since 2026-11-08) | `T2S_BASE_URL` in `/etc/agent-runner/env` on Hostinger, port written in full, reached over Tailscale (`http://100.113.161.122:8186`) | `ssh hostinger`, edit the port, `sudo systemctl restart agent-discord-bot`; ufw rule 5e admits Hostinger on 8186 and 8187, rule 5f on 8188 and 8189 |
 
 Two things worth knowing.
 
-**tmdb-front can be tested on the other colour without switching anyone.** It accepts `?apicolor=Blue` on the URL and remembers it in a cookie, so the new version can be exercised through the real front-end, for one browser only, while everyone else stays on the live colour. That is the cheapest validation available and it needs no deployment.
+**t2s-front can be tested on the other colour without switching anyone.** It accepts `?apicolor=Blue` on the URL and remembers it in a cookie, so the new version can be exercised through the real front-end, for one browser only, while everyone else stays on the live instance. That is the cheapest validation available and it needs no deployment.
 
-**The evaluator is its own repository, `text2sql-eval`, since 2026-10-12.** It is a client of this API like `voice-agent` or `tmdb-front`, and `~/docker/text2sql-eval` on the VPS is a git clone of it (it used to be a hand copy of `eval/*`, which drifted silently). A change to the API that the evaluator must follow (a new response field, a new model selector) is two commits in two repositories. The scripts that import this repository's modules stayed here, in `checks/`. `~/docker/fastapi-text2sql-blue` had the same flat-copy problem until 2026-08-21, when it was converted to a git clone.
+**The evaluator is its own repository, `text2sql-eval`, since 2026-10-12.** It is a client of this API like `voice-agent` or `t2s-front`, and `~/docker/text2sql-eval` on the VPS is a git clone of it (it used to be a hand copy of `eval/*`, which drifted silently). A change to the API that the evaluator must follow (a new response field, a new model selector) is two commits in two repositories. The scripts that import this repository's modules stayed here, in `checks/`. `~/docker/fastapi-text2sql-blue` had the same flat-copy problem until 2026-08-21, when it was converted to a git clone.
 
-**Not clients, despite appearances:** `data-monitoring` (one mention, a design analogy in its `AGENTS.md`), `extract-movie-questions` (no reference at all). The old `eval-text2sql` repository no longer exists (404 on GitHub); its successor `text2sql-eval` is a client, above.
+**Not clients, despite appearances:** `extract-movie-questions` (no reference at all). `data-monitoring` watches the containers (`ops/tasks.yaml`, a fixed list of names: DATA-MONITORING-007). The old `eval-text2sql` repository no longer exists (404 on GitHub); its successor `text2sql-eval` is a client, above.
 
 ##### Redeploying in place, without bumping the version
 
@@ -2161,7 +2167,7 @@ work it out again.
 | **Claude, via MCP** | call `sql_search` with a **bare IMDb id** (`{"question": "tt0033467"}`): the bare-identifier fast path answers from an indexed lookup with no LLM call and no cache write, and the payload carries `api_version`. |
 | **tmdb-front** | no runtime marker is exposed to the outside; verification is at configuration level, `$strtext2sqlapicolor` **and** `$strtext2sqlapiblueversion` in `lib/global-light.inc.php`. |
 
-**What does NOT discriminate the colours, so do not spend time on it.** The MCP `tools/list`
+**What does NOT discriminate the instances, so do not spend time on it** (`GET /` does, through `instance`, since -412). The MCP `tools/list`
 payload is byte-identical between Blue and Green, and so is `GET /samples`; `serverInfo.version`
 in an MCP `initialize` is FastMCP's own version (3.4.7), not the API's. All three were tried on
 2026-08-23 before the `sql_search` route above was found.
@@ -2189,18 +2195,18 @@ in an MCP `initialize` is FastMCP's own version (3.4.7), not the API's. All thre
 **A flip is complete when** every client reports the new version by the means above, and the
 instance reports `bktrees_ready: true`.
 
-##### Probing the live API from the PC (Blue or Green)
+##### Probing the live API from the PC (any instance)
 
-Both colour ports are reachable from the PC over Tailscale at the VPS address
-`100.113.161.122` (Blue `8186`, Green `8187`); a bare port with no key returns 401, which
-is itself proof the colour is up. The `X-API-Key` value is `TEXT2SQL_API_KEY` in
+Every instance port is reachable from the PC over Tailscale at the VPS address
+`100.113.161.122` (blue `8186`, green `8187`, violet `8188`, brown `8189`); a bare port with no
+key returns 401, which is itself proof the instance is up. The `X-API-Key` value is `TEXT2SQL_API_KEY` in
 `~/Code/text2sql-eval/.env` (which also holds `API_PORT_BLUE` / `API_PORT_GREEN` and
 `TEXT2SQL_API_URL`). Read the key from there, never hard-code or print it.
 
 ```bash
 cd ~/Code/text2sql-eval
 KEY=$(grep '^TEXT2SQL_API_KEY=' .env | cut -d= -f2- | tr -d '"'\''\r')
-# Green = 8187, Blue = 8186. A bare identifier takes the fast path: no LLM call, no cache write.
+# blue 8186, green 8187, violet 8188, brown 8189. A bare identifier takes the fast path: no LLM call, no cache write.
 curl -s -H "X-API-Key: $KEY" -X POST http://100.113.161.122:8187/search/text2sql \
   -H 'Content-Type: application/json' -d '{"question":"tt0033467"}' \
   | python -c "import sys,json;d=json.load(sys.stdin);print({k:d.get(k) for k in ('api_version','result_kind','representation')})"
@@ -2294,7 +2300,7 @@ malformed parameters, and which tools it favours.
 Before FASTAPI-TEXT2SQL-276 each deployment wrote into its own stack directory, so the corpus existed in three copies of three different thirds. [migrate-logs-to-shared.sh](migrate-logs-to-shared.sh) merges them into the shared folder. **The merge is the work, not the mount**, because of one collision that destroys data if it is ignored:
 
 - **The monthly archives share their names.** `archive-logs.sh` writes `logs/archive/<YYYYMM>.tar.gz` in each directory, so blue's `202608.tar.gz` and green's are two different files carrying one name; a plain `mv` or `cp` silently keeps one. The script concatenates their members into a single archive per month and refuses to move on unless the merged member count equals the sum of the sources'.
-- **The loose files could collide, and in practice do not.** Their name is `YYYYMMDD-HHMMSS_<endpoint>_<version>_<md5>.json`, and the colours run different versions, so the version component separates them. A real collision means same second, same version and same payload hash, i.e. the same request logged twice; the script still compares the contents rather than assuming it, keeps one copy, and aborts without writing anything if the two differ.
+- **The loose files could collide, and in practice do not.** Their name is `YYYYMMDD-HHMMSS_<endpoint>_<version>_<md5>.json`, and the colours ran different versions, so the version component separated them. Since FASTAPI-TEXT2SQL-412 two instances may run one version; each record then carries its `"instance"`, which also makes the md5 differ. A real collision means same second, same version and same payload hash, i.e. the same request logged twice; the script still compares the contents rather than assuming it, keeps one copy, and aborts without writing anything if the two differ.
 
 ```bash
 ./migrate-logs-to-shared.sh                        # dry run: inventory + collision report
@@ -2323,7 +2329,7 @@ the current month are ever touched.
 
 # Run monthly via cron (1st of the month, 03:30). The container logs as root, so the
 # run needs sudo to delete the loose originals after archiving:
-# 30 3 1 * * sudo /home/debian/docker/fastapi-text2sql-blue/archive-logs.sh \
+# 30 3 1 * * sudo /home/debian/docker/fastapi-text2sql-ops/archive-logs.sh \
 #   >> /home/debian/docker/shared_data/fastapi-text2sql/logs/archive-run.log 2>&1
 ```
 
@@ -2355,7 +2361,7 @@ photo is not a request log, and Philippe set its retention at 30 days on 2026-09
 # Daily cron, 03:50 (twenty minutes after the archiver's monthly slot, so the two never
 # overlap on the 1st). ONE cron for the machine, not one per colour: the folder is shared,
 # and a cron in each stack would purge the same files three times.
-# 50 3 * * * /home/debian/docker/fastapi-text2sql-blue/purge-uploads.sh #   >> /home/debian/docker/shared_data/fastapi-text2sql/uploads/purge-run.log 2>&1
+# 50 3 * * * /home/debian/docker/fastapi-text2sql-ops/purge-uploads.sh #   >> /home/debian/docker/shared_data/fastapi-text2sql/uploads/purge-run.log 2>&1
 ```
 
 **It is a separate script from [archive-logs.sh](archive-logs.sh), and must stay one.** That one

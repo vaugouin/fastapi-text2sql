@@ -60,10 +60,10 @@ On the VPS, in Docker, same shape as section 2:
 
 ```bash
 docker run -it --rm --network="host" \
-  --env-file /home/debian/docker/fastapi-text2sql-blue/.env \
+  --env-file /home/debian/docker/fastapi-text2sql-<instance>/.env \
   --name fastapi-text2sql-check \
-  -v /home/debian/docker/fastapi-text2sql-blue:/app \
-  fastapi-text2sql-blue-app \
+  -v /home/debian/docker/fastapi-text2sql-<instance>:/app \
+  fastapi-text2sql-<instance>-app \
   python checks/check-chromadb.py
 ```
 
@@ -72,7 +72,7 @@ this script alone: the API image installs `chromadb` but its `Dockerfile` copies
 and `./data/`, so `checks/` never enters it; the evaluator image (text2sql-eval repo) has neither
 `chromadb` nor `data/`. Mounting the checkout over `/app` gives the API image the script and
 a `data/entity_resolution.json` read from disk rather than frozen at build time. Mount the
-colour currently serving, since its configuration is the one in force.
+instance currently serving (blue, green, violet, brown...), since its configuration is the one in force.
 
 Exit code 1 on any ERROR, so it can gate a deployment. Host and port come from `CHROMADB_HOST`
 and `CHROMADB_PORT`, defaulting to `localhost:8100`, which is what the VPS serves. Note that

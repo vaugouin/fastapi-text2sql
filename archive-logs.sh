@@ -10,6 +10,10 @@
 # originals are removed. The CURRENT (and any future) month is left untouched so
 # in-flight logging is never disturbed.
 #
+# The cron runs from ~/docker/fastapi-text2sql-ops since FASTAPI-TEXT2SQL-412: a clone that is
+# no instance (no .env, never started, restart.sh refuses it), updated by git pull. An instance
+# folder can then be added, renamed or retired without touching the crontab.
+#
 # ONE directory since FASTAPI-TEXT2SQL-276, where there used to be three. Blue, green
 # and the third, colourless deployment each wrote into their own stack dir, because the
 # docker run line mounted only the code, so the corpus was split in three. They now share
@@ -30,7 +34,7 @@
 # DIRECTORY, not on the file, which is why the restart scripts create the shared dir as
 # debian rather than letting Docker create it root-owned. sudo is kept here as the safe
 # default, for the case where that directory was created the other way:
-#   30 3 1 * * sudo /home/debian/docker/fastapi-text2sql-blue/archive-logs.sh \
+#   30 3 1 * * sudo /home/debian/docker/fastapi-text2sql-ops/archive-logs.sh \
 #     >> /home/debian/docker/shared_data/fastapi-text2sql/logs/archive-run.log 2>&1
 #
 # The log of the run sits in logs/, NOT in logs/archive/. The earlier version of this line
