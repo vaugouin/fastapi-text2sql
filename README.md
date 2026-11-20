@@ -46,10 +46,10 @@ A powerful FastAPI-based REST API that converts natural language questions into 
 
 ## 📊 Database Scale
 
-The API operates on a comprehensive entertainment database containing (2026-04-12):
-- **Movies**: More than 662,000 entries
-- **Series**: More than 95,000 entries
-- **Persons**: More than 324,000 entries (actors, directors, crew members)
+The API operates on a comprehensive entertainment database containing (2026-11-20):
+- **Movies**: More than 701,000 entries
+- **Series**: More than 104,000 entries
+- **Persons**: More than 347,000 entries (actors, directors, crew members)
 
 ## 🔄 Query Processing Pipeline
 
