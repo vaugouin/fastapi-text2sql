@@ -43,10 +43,8 @@ import samples_assertions as sa
 import feedback
 import openai_key
 
-# Load environment variables from .env file
 load_dotenv()
 
-# Convert API version to XXX.YYY.ZZZ format for comparison
 def format_api_version(version: str) -> str:
     """Convert version string to XXX.YYY.ZZZ format for comparison."""
     version_parts = version.split('.')
@@ -129,27 +127,26 @@ class SqlGuardRejected(Exception):
 # FASTAPI-TEXT2SQL-226: raised when entity resolution fell back to the user's own words and
 # those words carry no Latin letter. The equality that produces against a canonical TMDb name
 # column cannot match, so executing it is a guaranteed empty round trip. Same treatment as
-# -223 and for the same reason: the stronger-model retry already reads the execution-failure
-# flag, so the recovery path costs nothing new.
+# SqlGuardRejected above: the stronger-model retry already reads the execution-failure flag,
+# so the recovery path costs nothing new.
 class EntityFallbackUnmatchable(Exception):
     pass
 
 
 # FASTAPI-TEXT2SQL-223: a leading wildcard makes every B-tree index unusable, so the engine reads
-# the whole table. Measured on 2026-08-27: `CAST_CHARACTER LIKE '%psychiatrist%' AND LIKE
-# '%cannibal%'` took 100.64 s to return 0 rows, and `LIKE '%queen%' AND LIKE '%refused to marry%'`
-# took 98.68 s, also for 0 rows. `data/text_to_sql.md` already forbids LIKE for name, title,
-# character and ID matching, and LIKE appears nowhere else in that prompt, so nothing legitimate
-# is rejected here. A trailing-only wildcard (`LIKE 'abc%'`) stays indexable and is not matched.
+# the whole table: measured 2026-08-27, `CAST_CHARACTER LIKE '%psychiatrist%' AND LIKE
+# '%cannibal%'` took 100 s to return 0 rows. `data/text_to_sql.md` forbids LIKE for name, title,
+# character and ID matching and uses it nowhere else, so nothing legitimate is rejected here.
+# A trailing-only wildcard (`LIKE 'abc%'`) stays indexable and is not matched.
 SQL_GUARD_LEADING_WILDCARD_LIKE = re.compile(r"\bLIKE\s+'%", re.IGNORECASE)
 
 
 # FASTAPI-TEXT2SQL-303: a window count over the whole result, `COUNT(...) OVER ()`, forces the
-# engine to materialise every matching row before any LIMIT. It is how gpt-6-sol answered "How
-# many movies are there?" on 2026-09-27: the entity columns of ~688,000 movies plus the total on
-# each row, past the 60 s cap of -302, no answer. No question this API serves needs it: a total
-# is `SELECT COUNT(...)`, a per-entity count is `GROUP BY`. Refused before execution, then sent
-# to the one targeted regeneration with the reason, like the leading-wildcard LIKE above.
+# engine to materialise every matching row before any LIMIT: on 2026-09-27 gpt-6-sol answered
+# "How many movies are there?" that way over ~688,000 movies and hit the 60 s statement cap
+# with no answer. No question needs it: a total is `SELECT COUNT(...)`, a per-entity count is
+# `GROUP BY`. Refused before execution, then sent to the one targeted regeneration with the
+# reason, like the leading-wildcard LIKE above.
 SQL_GUARD_WINDOW_COUNT = re.compile(r"\bCOUNT\s*\([^()]*\)\s*OVER\s*\(\s*\)", re.IGNORECASE)
 
 
@@ -157,18 +154,14 @@ class SqlGuardWindowCount(Exception):
     pass
 
 
-# FASTAPI-TEXT2SQL-302. The generated SQL used to run with `cursor.execute` straight inside the
-# async endpoint, with no time limit. A slow query therefore blocked the event loop, and with it
-# every other request of every client: on 2026-09-27 a gpt-6-sol query for "How many movies are
-# there?" (`COUNT(*) OVER ()` over ~688,000 rows, DISTINCT on eleven columns, ORDER BY) froze
-# production until the query was killed by hand. The two -223 queries measured at ~100 s did
-# the same, unnoticed. Two fixes, both needed: the query runs in a worker thread
-# (asyncio.to_thread, like every LLM call), so it only delays its own request; and MariaDB caps
-# it with `SET STATEMENT max_statement_time=N FOR ...`, which kills it server side, so nothing
-# is left running in PROCESSLIST. The statement form scopes the cap to that one query and
-# leaves no session state behind on the shared connection.
+# FASTAPI-TEXT2SQL-302. Generated SQL used to run straight inside the async endpoint with no
+# time limit, so a slow query blocked the event loop and every request of every client: on
+# 2026-09-27 one froze production until it was killed by hand. Two fixes, both needed: the
+# query runs in a worker thread (asyncio.to_thread, like every LLM call), so it only delays its
+# own request; and `SET STATEMENT max_statement_time=N FOR ...` kills it server side, leaving
+# nothing in PROCESSLIST and no session state on the shared connection.
 # N = 60 s by default, measured: the slowest of the 1,739 executions of the 1.1.19 baseline
-# took 23.2 s, none reached 30 s, so the cap changes no answer of that baseline. 0 disables it.
+# took 23.2 s, so the cap changes no answer of that baseline. 0 disables it.
 SQL_MAX_STATEMENT_TIME = float(os.getenv("SQL_MAX_STATEMENT_TIME", "60") or 0)
 # MariaDB ER_STATEMENT_TIMEOUT, "Query execution was interrupted (max_statement_time exceeded)".
 _MARIADB_STATEMENT_TIMEOUT = 1969
@@ -261,7 +254,6 @@ def _read_place_coordinates(ids, rows, ui_language):
 
 # Change API version each time the prompt file in the data folder is updated and text2sql API container is restarted
 strapiversion = "1.1.20"
-# Convert API version to XXX.YYY.ZZZ format
 strapiversionformatted = format_api_version(strapiversion)
 
 # FASTAPI-TEXT2SQL-412: one instance, one port, declared in its own .env and nowhere else.
@@ -292,7 +284,6 @@ MCP_INTERNAL_BASE_URL = os.getenv(
 )
 
 intcleanupenabled = False
-#intcleanupenabled = True
 
 _startup_t0 = time.perf_counter()
 print(f"[startup] {logs.now_paris().isoformat(timespec='seconds')}", flush=True)
