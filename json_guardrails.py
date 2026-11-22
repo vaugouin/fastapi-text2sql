@@ -30,16 +30,9 @@ from typing import Any, Tuple
 # Unlisted keys are allowed (e.g. dynamic entity-extraction placeholder keys).
 _SCHEMAS = {
     # f_entity_extraction -> {"question": "...anonymized...", "<Placeholder>": "...", ...}
-    #
-    # FASTAPI-TEXT2SQL-255. `query_mode` is deliberately NOT required. Its absence is not a
-    # malformed shape, it is a lost optimisation: the value only routes
-    # `descriptive_identification` to complex resolution at main.py, and everything
-    # downstream reads the extraction through `question` plus the placeholder keys. Requiring
-    # it made a usable extraction fail the gate, which sent the pipeline down the fallback
-    # branch and handed Text2SQL the raw, non-anonymized question. That costs more than the
-    # routing it was meant to buy, and it misfired hardest on descriptive questions, exactly
-    # the ones `query_mode` exists to catch. A wrong value stays rejected by `allowed_values`:
-    # a mode outside the vocabulary is a real contract breach, a missing one is not.
+    # FASTAPI-TEXT2SQL-255: `query_mode` is deliberately NOT required. A missing one only loses
+    # the `descriptive_identification` routing; requiring it failed usable extractions and handed
+    # Text2SQL the raw, non-anonymized question. A value outside the vocabulary stays rejected.
     "entity_extraction": {
         "required": {"question": str},
         "types": {"question": str, "query_mode": str, "error": str, "raw_content": str},
@@ -49,12 +42,10 @@ _SCHEMAS = {
             },
         },
     },
-    # f_text2sql -> {"result_entity"?, "sql_query"|"error", "justification"?, "answer"?,
-    #                "dropped_clause"?}
-    # dropped_clause (FASTAPI-TEXT2SQL-220) names the part of the question the SQL does not
-    # implement, and is empty when it implements all of it. Typed like justification and answer
-    # because it is advisory prose; unlisted keys are allowed, so an older model that omits it
-    # stays valid.
+    # f_text2sql -> {"result_entity"?, "sql_query"|"error"|"requires_complex_resolution",
+    #                "justification"?, "answer"?, "dropped_clause"?}
+    # dropped_clause (FASTAPI-TEXT2SQL-220) is advisory prose, typed like justification; an older
+    # model that omits it stays valid.
     "text2sql": {
         "any_of_required": ["sql_query", "error", "requires_complex_resolution"],
         "types": {
@@ -65,21 +56,12 @@ _SCHEMAS = {
     },
     # f_resolve_complex_question ->
     #   {"question"|"error"|"authoritative_empty", "justification"?, "answer"?}
-    #
-    # FASTAPI-TEXT2SQL-221. `authoritative_empty` exists because the prompt asked the
-    # model to say something by staying silent, and this guardrail refused the silence.
-    # The rule at data/complex_question.md:75 prescribed an empty "question", empty
-    # "items" and empty "error" to mean "the database result is authoritative", a shape
-    # `any_of_required` rejects by construction. Every correct application of that
-    # branch was therefore recorded as a malformed output and the retry was abandoned.
-    # Measured on 18 097 calls, 2026-08-28: 13 of the 17 complex retries on 1.1.18, the
-    # live version, died here, and that version produced zero usable conclusions.
-    #
-    # Loosening `any_of_required` to accept three empty fields was the tempting fix and
-    # the wrong one: it would admit a genuinely empty output, indistinguishable from a
-    # model failure, which is precisely what -038 built this guardrail to catch. An
-    # authoritative empty is not an absence of answer, it is an affirmative one, so it
-    # gets a field and says so.
+    # FASTAPI-TEXT2SQL-221: an authoritative empty is an answer, so it gets its own field.
+    # The prompt used to signal it with an empty question, items and error, which this gate
+    # rejects: measured 2026-08-28, 13 of 17 complex retries died on that shape.
+    # Do not loosen any_of_required to accept three empty fields instead: that would admit
+    # a genuinely empty output, indistinguishable from a model failure, which is what this
+    # guardrail exists to catch.
     "complex_question": {
         "any_of_required": ["question", "error", "authoritative_empty"],
         "types": {
@@ -92,20 +74,11 @@ _SCHEMAS = {
     },
     # f_identify_from_image -> {"hints": {...}, "items": [...], "about_image", "image_answer",
     #                           "authoritative_empty", "justification", "error"}
-    #
-    # FASTAPI-TEXT2SQL-114. The sixth LLM task, and the only one whose input is an image. Its
-    # three legitimate outcomes are "here is what the image points at" (`items`), "here is the
-    # answer to your question about the pixels" (`image_answer`), and "there is nothing of
-    # cinema here, do not search" (`authoritative_empty`), so `any_of_required` lists all
-    # three beside `error`. `items` is checked by truthiness like every other entry, so an
-    # empty list does NOT satisfy the gate: a payload that identifies nothing has to SAY so
-    # through `authoritative_empty`, exactly the lesson -221 taught on the complex question,
-    # where a silence meant to be affirmative read as a malformed output.
-    #
-    # The per-item shape (type / value / year / confidence / evidence) is deliberately not
-    # validated here: the strict json_schema sent to the provider covers it when the route
-    # accepts it, and `_normalize_vision_items` cleans it defensively when it does not. A
-    # second hand-written copy of that shape would be a third place to keep in sync.
+    # FASTAPI-TEXT2SQL-114. An empty `items` list does NOT satisfy the gate: an image that
+    # identifies nothing must say so through `authoritative_empty`, as on complex_question:
+    # a silence meant as an answer reads as a malformed output.
+    # The per-item shape is deliberately not validated here: the provider's strict json_schema
+    # and `_normalize_vision_items` already cover it, and a third copy would drift.
     "vision_identification": {
         "any_of_required": ["items", "image_answer", "authoritative_empty", "error"],
         "types": {
@@ -131,7 +104,6 @@ def validate_llm_json(payload: Any, step: str) -> Tuple[bool, str]:
     if not isinstance(payload, dict):
         return False, f"{step}: expected a JSON object, got {type(payload).__name__}"
 
-    # A surfaced error is a valid, already-handled outcome.
     if isinstance(payload.get("error"), str) and payload.get("error").strip():
         return True, ""
 
@@ -142,12 +114,8 @@ def validate_llm_json(payload: Any, step: str) -> Tuple[bool, str]:
             return False, f"{step}: key '{key}' must be {typ.__name__}, got {type(payload[key]).__name__}"
 
     any_of = schema.get("any_of_required")
-    # Truthiness rather than a membership test against (None, ""), because a boolean
-    # key joined this list with -221 and `False not in (None, "")` is True: a model
-    # returning `authoritative_empty: false` alongside an empty question and an empty
-    # error would have satisfied the gate, which is the exact hole this guardrail
-    # exists to close. Equivalent for every string field already listed, where "" is
-    # falsy and any other value truthy, so no existing schema changes behaviour.
+    # Truthiness, not a test against (None, ""): `authoritative_empty`, a boolean, sits in these lists, and
+    # `authoritative_empty: false` with everything else empty would otherwise pass the gate.
     if any_of and not any(k in payload and bool(payload[k]) for k in any_of):
         return False, f"{step}: at least one of {any_of} must be present and non-empty"
 
