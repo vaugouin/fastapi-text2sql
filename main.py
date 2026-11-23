@@ -736,14 +736,12 @@ _RELATED_IMAGE_SOURCES = {
 
 # FASTAPI-TEXT2SQL-303: a single total ("How many movies are there?") answers with ONE cell,
 # `SELECT COUNT(...) AS X FROM ... [WHERE ...]`, and projects no id column by design. The
-# answer-entity guard below used to read that as the wrong entity and demand entity rows:
-# gpt-6-sol obeyed and failed (793, 2169-2172, 2313 in the 2026-09-28 rerun), gpt-4o failed to
-# regenerate and kept its count, passing by accident after paying a discarded LLM call.
+# answer-entity guard below used to read that as the wrong entity and demand entity rows,
+# which broke correct counts (5 failures in the 2026-09-28 rerun).
 # COUNT, AVG and SUM only, on purpose: "What is the longest movie?" written as SELECT MAX(RUNTIME)
 # is a wrong answer the guard must still correct into the movie row, whereas no single row can
-# carry an average or a sum. AVG and SUM added by FASTAPI-TEXT2SQL-311 on a measured case: "the
-# average runtime of Christopher Nolan movies", first written as one AVG cell, was regenerated
-# into one average per technical format (29 rows). ROUND() around the aggregate is accepted.
+# carry an average or a sum (FASTAPI-TEXT2SQL-311: a single AVG cell for "the average runtime of
+# Christopher Nolan movies" was regenerated into 29 rows). ROUND() around the aggregate is accepted.
 _AGGREGATE_ITEM = re.compile(r"^(?:ROUND\s*\(\s*)?(?:COUNT|AVG|SUM)\s*\(", re.IGNORECASE)
 
 
@@ -886,11 +884,10 @@ def _is_statistics_table_select(sql: str) -> bool:
 
 # Single source of truth: result_entity -> (id column, primary table).
 # Drives the answer-entity guard (FASTAPI-TEXT2SQL-117/-136) for EVERY entity the
-# text-to-SQL prompt can emit as `result_entity` (see data/text_to_sql.md line 16),
-# not just the original movie/serie/person trio. Keys mirror that vocabulary; the
-# id column / primary table mirror the entity detail-endpoint registry documented
-# in README.md. The `movie_serie` UNION value is intentionally absent — those
-# queries project ID_CONTENT + CONTENT_TYPE and are skipped by the guard.
+# text-to-SQL prompt (data/text_to_sql.md) can emit as `result_entity`. The id column
+# and primary table mirror the entity detail-endpoint registry documented in README.md.
+# The `movie_serie` UNION value is intentionally absent: those queries project
+# ID_CONTENT + CONTENT_TYPE and are skipped by the guard.
 _RESULT_ENTITY_SOURCES = {
     "movie": ("ID_MOVIE", "T_WC_T2S_MOVIE"),
     "serie": ("ID_SERIE", "T_WC_T2S_SERIE"),
