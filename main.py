@@ -961,7 +961,7 @@ def _timed_classify_result_entity(question: str, model: str):
 # result is a same-name cluster (homonym person, duplicate movie/serie title): the
 # user named ONE entity but the database holds several. `compute_name_ambiguity`
 # emits a NEUTRAL, DESCRIPTIVE flag stating that fact. It does NOT decide whether a
-# client should disambiguate or list — that is *intent*, which is NOT in the SQL
+# client should disambiguate or list: that is *intent*, which is NOT in the SQL
 # ("tell me about Dracula" and "list all movies called Dracula" produce the identical
 # WHERE, differing only by an incidental ORDER BY). A conversational client
 # (voice-agent) reads the flag and asks "which one?"; a plain display client
@@ -1129,7 +1129,7 @@ def compute_name_ambiguity(sql_query, result_entity, query_results, anchor_overr
             # (FASTAPI-TEXT2SQL-160). spec["year"] is DAT_RELEASE / DAT_FIRST_AIR.
             discriminator = {"year": year, "release_date": _iso_date(data.get(spec["year"]))}
         # Collapse ONLY true duplicates: rows sharing a non-empty external id (ID_IMDB)
-        # are the same work double-recorded. Never collapse on (title, year) — distinct
+        # are the same work double-recorded. Never collapse on (title, year): distinct
         # films share those (two different "Dracula" from 2025: tt31434030 vs tt32448239).
         # Persons carry no ID_IMDB in the projection, so they never collapse.
         imdb = ""
@@ -1301,7 +1301,7 @@ def hydrate_name_ambiguity_candidates(cursor, name_ambiguity):
 
 # Fallback columns projected per result_entity, mirroring the "Result Columns"
 # section of data/text_to_sql.md. At runtime the live (hot-reloaded) prompt is the
-# source of truth — see _fast_path_columns() — and this dict is only the safety net
+# source of truth (see _fast_path_columns()), and this dict is only the safety net
 # used when the prompt can't be parsed or a parsed column list fails to execute.
 _FAST_PATH_SELECT_COLUMNS_FALLBACK = {
     "movie": "ID_MOVIE, MOVIE_TITLE, DAT_RELEASE, ID_IMDB, IMDB_RATING, IMDB_RATING_WEIGHTED, POSTER_PATH, RUNTIME, TAGLINE",
@@ -7486,7 +7486,7 @@ def _all_collection_contexts(cursor, entity_type, entity_id, ui_language="en"):
     if not contexts:
         return []
     # Most-specific-first (FASTAPI-TEXT2SQL-159): fewest members leads, so the primary
-    # (contexts[0] = the backward-compat collection_* fields) is the tightest collection —
+    # (contexts[0] = the backward-compat collection_* fields) is the tightest collection:
     # the Dark Knight trilogy (3), not the Batman universe (109). Tie-break: soonest upcoming
     # "next" (a missing/NULL next sinks within the tie), then stable membership order. The
     # bool guard on `next_date is None` keeps NULLs from being compared against date strings.
@@ -10980,7 +10980,7 @@ async def get_samples(ui_language: Optional[str] = "en", set: Optional[str] = "s
                     children = build_subtree(cat_id)
                     samples = fetch_samples(cat_id)
                     # Prune empty branches: keep a category only if it (or a descendant)
-                    # carries at least one sample — the non-private front-end behavior.
+                    # carries at least one sample, the non-private front-end behavior.
                     if not children and not samples:
                         continue
                     cat["categories"] = children
@@ -11002,7 +11002,7 @@ async def get_samples(ui_language: Optional[str] = "en", set: Optional[str] = "s
 
 
 # ---------------------------------------------------------------------------
-# MCP (Model Context Protocol) server — tools, resource, middleware, mount
+# MCP (Model Context Protocol) server: tools, resource, middleware, mount
 # ---------------------------------------------------------------------------
 
 @mcp.tool(name="sql_search")
