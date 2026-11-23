@@ -3081,7 +3081,6 @@ async def search_text2sql(
     """
     total_start_time = time.time()
     
-    # Initialize messages list and position counter
     messages = []
     position_counter = 1
 
@@ -3131,16 +3130,10 @@ async def search_text2sql(
     # raised NameError rather than answering.
     original_question = request.question or ""
 
-    # Strip whitespace and carriage return characters from question if provided
     if request.question:
         original_question = request.question
-        # Strip all leading/trailing whitespace (including \n, \r, spaces, tabs)
         request.question = request.question.strip()
-        # Remove any remaining internal carriage returns and normalize newlines to spaces
-        #request.question = request.question.replace('\t', ' ')  # Normalize tabs
-        #request.question = request.question.replace('\r', '').replace('\n', ' ').strip()
-        #request.question = request.question.replace('\\r', '').replace('\\n', ' ').strip()
-        request.question = request.question.replace('  ', ' ')  # Normalize multiple spaces
+        request.question = request.question.replace('  ', ' ')
         request.question = request.question.replace('&#039;', "'").replace('’', "'")
         if original_question != request.question:
             messages.append(TextMessage(
@@ -3152,11 +3145,9 @@ async def search_text2sql(
     lngpage = request.page or 1
     lngrowsperpage = request.rows_per_page or lngrowsperpagedefault
 
-    # Open database connection once at the start
     connection = get_db_connection()
     print("Database connection established")
     
-    # Initialize variables
     cached_exact_question = False
     cached_anonymized_question = False
     cached_anonymized_question_embedding = False
@@ -3666,7 +3657,7 @@ async def search_text2sql(
             messages.append(TextMessage(position=position_counter, text=strvisionidentitymessage))
             position_counter += 1
 
-        # Case 3 of the ticket: the question is about the image itself, which no catalogue can
+        # The question is about the image itself, which no catalogue can
         # answer. The model answered it from the pixels; nothing is searched.
         if dctvision.get("about_image") and str(dctvision.get("image_answer") or "").strip():
             messages.append(TextMessage(
@@ -3680,7 +3671,7 @@ async def search_text2sql(
                 question_text=strvisionquestion,
             )
 
-        # Case 4, and the unreadable image: an affirmative emptiness. Never a plausible title
+        # No work in the image, or an unreadable one: an affirmative emptiness. Never a plausible title
         # offered "just in case", which is the one failure this path must not produce.
         if dctvision.get("authoritative_empty") or strvisioncomposed == "":
             messages.append(TextMessage(
