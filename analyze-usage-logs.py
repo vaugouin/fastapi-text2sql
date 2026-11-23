@@ -17,7 +17,7 @@ data-monitoring reports:
                                  what escalation produces (-009), failures by cause (-001),
                                  and the cost price of a call (-337): list-price dollars per
                                  search, server and CPU time per endpoint, entity routes included.
-  vision-evidence-YYYYMMDD.html  what the vision model (gpt-6-astra by default) read in each
+  vision-evidence-YYYYMMDD.html  what the vision model (gpt-6.2-sol by default since 2026-11-23) read in each
                                  image, and what of it reaches `vision_evidence`
                                  (FASTAPI-TEXT2SQL-114 and followers).
 

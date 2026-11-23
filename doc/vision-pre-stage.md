@@ -81,6 +81,11 @@ was computed from, and its family is declared in the reasoning block (**-274**) 
 `vision_identification` at the cheapest rung, `reasoning_effort: "low"`. Raise the rung only if
 recognition weakens on the bench.
 
+**Since 2026-11-23 the default is `gpt-6.2-sol`.** The vision campaign on API 1.1.20 (83 images per
+language) gave 53/83 in English and 53/83 in French, against 50 and 51 for `gpt-6-astra`, 53 and 51
+for `gpt-6.2-astra` and 36 and 38 for `claude-fable-5-2`, for about 1.4 cents a photo at the
+standard tier against about 7 for `gpt-6-astra`. The paragraph above records why Astra came first.
+
 **`_call_vision_llm` reads images through OpenAI and Anthropic.** It is not folded into
 `_call_chat_llm` because that dispatcher takes a string and every provider encodes an image
 differently. `claude-*` names go to `_call_vision_llm_anthropic` (**-375**, written to compare

@@ -89,8 +89,11 @@ strresultentitymodeldefault = "gpt-6-luna"
 # figure was computed from, and its family is declared in the reasoning block below since
 # FASTAPI-TEXT2SQL-274. Any other model is accepted, like everywhere else here, as long as it
 # reads images: see _call_vision_llm, which supports the OpenAI families only and says so.
+# 2026-11-23: the default moves to `gpt-6.2-sol`. Vision campaign on 1.1.20 (83 images per
+# language): 53/83 EN and 53/83 FR, against 50 and 51 for gpt-6-astra and 53 and 51 for
+# gpt-6.2-astra, for about a fifth of gpt-6-astra's cost (about 1.4 cents a photo at the standard tier).
 strvisionprompttemplate = "vision_identification.md"
-strvisionmodeldefault = "gpt-6-astra"
+strvisionmodeldefault = "gpt-6.2-sol"
 
 # The direct scalar answer (FASTAPI-TEXT2SQL-232, `stranswersinglevaluemodeldefault`,
 # `f_answer_single_value`) was removed on 2026-10-15 by FASTAPI-TEXT2SQL-331: it answered a
