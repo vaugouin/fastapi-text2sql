@@ -5273,7 +5273,6 @@ async def search_text2sql(
         ambiguous_question_for_text2sql = 1
         error_text2sql = error_text2sql or "Complex entity resolution is required before SQL generation"
 
-    # if the error element is found in json content
     if error_text2sql!="" and error_text2sql!=None:
         print("Problem detected so the Text-to-SQL cannot produce a SQL query")
         print("Error: ", error_text2sql)
@@ -5401,7 +5400,6 @@ async def search_text2sql(
     # never waited for it. The saving shows up in total_processing_time, where it belongs.
     embeddings_processing_time = (embeddings_end_time - embeddings_start_time) + entity_resolution_planning_time
 
-    # Execute the SQL query and get results
     query_results = []
     query_execution_time = 0.0
     if not ambiguous_question_for_text2sql:
@@ -5416,14 +5414,12 @@ async def search_text2sql(
         ))
         position_counter += 1
         with connection.cursor() as cursor:
-            # Measure SQL query execution time
             query_start_time = time.time()
-            # Calculate pagination parameters
             limit = lngrowsperpage
             calculated_offset = (lngpage - 1) * lngrowsperpage
             
-            # Check if SQL query already has LIMIT/OFFSET. Phase 3 lot E: only the LIMIT that ends
-            # the statement is the model's page size and is replaced; a LIMIT inside a CTE, a
+            # Only the LIMIT that ends the statement is the model's page size and is
+            # replaced; a LIMIT inside a CTE, a
             # derived table or one branch of a UNION belongs to the query and stays (it used to
             # be stripped wherever it was, which changed the meaning of a recursive CTE).
             _paged_base, _trailing_limit, _trailing_offset = sql_shapes.split_trailing_limit(sql_query)
@@ -5511,14 +5507,13 @@ async def search_text2sql(
                 print("cursor.execute(sql_query)")
                 # FASTAPI-TEXT2SQL-302: off the event loop, capped in time.
                 raw_results = await asyncio.to_thread(_run_generated_sql, connection, sql_query)
-                # Format results with integer index and record data
                 for index, record in enumerate(raw_results):
                     query_results.append({
                         "index": index,
                         "data": {k: html.unescape(v) if isinstance(v, str) else v for k, v in record.items()}
                     })
             except EntityFallbackUnmatchable as e:
-                # See FASTAPI-TEXT2SQL-226. Flagged as an execution failure on purpose: that
+                # FASTAPI-TEXT2SQL-226. Flagged as an execution failure on purpose: that
                 # is the flag can_retry_sql_execution_error already reads.
                 print(f"Entity fallback unmatchable, execution skipped: {e}")
                 sql_execution_failed = True
@@ -5575,7 +5570,7 @@ async def search_text2sql(
             except SqlGuardRejected as e:
                 # Treated as an execution failure on purpose: that is the flag the stronger-model
                 # retry already reads (can_retry_sql_execution_error), so the recovery path costs
-                # nothing new. See FASTAPI-TEXT2SQL-223.
+                # nothing new (FASTAPI-TEXT2SQL-223).
                 print(f"SQL guard rejected the generated query: {e}")
                 sql_execution_failed = True
                 sql_execution_failure_code = "sql_guard_rejected"
@@ -5842,7 +5837,7 @@ async def search_text2sql(
                         # execution block does, then re-append the suffix it computed.
                         _co_suffix_match = re.search(r"\s+LIMIT\s+\d+(?:\s+OFFSET\s+\d+)?\s*$", sql_query or "", re.IGNORECASE)
                         _co_suffix = _co_suffix_match.group(0) if _co_suffix_match else f" LIMIT {lngrowsperpage}"
-                        # Phase 3 lot E: the trailing LIMIT only, as the execution block does.
+                        # The trailing LIMIT only, as the execution block does.
                         _co_exec = sql_shapes.split_trailing_limit(_co_base)[0] + _co_suffix
                         messages.append(TextMessage(
                             position=position_counter,
