@@ -2442,9 +2442,8 @@ class Text2SQLResponse(BaseModel):
     # (FASTAPI-TEXT2SQL-351, the ranked quantity a client draws); representation is one
     # of entity-page | card-grid | number-card | stat-strip | ranked-bars | value-cards |
     # timeline | sequence-strip | trend-columns | table (value-cards: N entity rows each
-    # shown with the quantity asked, -354; the next three: phase 2 lot A, 2026-11-10). See
-    # result_shape.py, README "Result representations: the contract" and the design note
-    # voice-agent-243-result-representations.md.
+    # shown with the quantity asked; the next three since 2026-11-10). See result_shape.py
+    # and README "Result representations: the contract".
     result_kind: Optional[str] = None
     result_columns: Optional[list] = None
     representation: Optional[str] = None
@@ -2478,7 +2477,7 @@ class Text2SQLResponse(BaseModel):
     # never produced: dropping the filter widens the answer, and saying nothing would present
     # a narrower answer as if it were complete. Neutral like name_ambiguity: the API states
     # the fact, clients decide. Deliberately NOT wired into the empty-result retry decision,
-    # which -207 wants measured before it is changed.
+    # whose behaviour must be measured before it is changed.
     dropped_clause: str = ""
     error: str
     error_code: Optional[str] = None
@@ -2507,11 +2506,8 @@ class Text2SQLResponse(BaseModel):
     # marker of a retried request, more so than complex_model_used.
     complex_question_processing_time: float = 0.0
     # Wall clock of the direct scalar answer asked of the stronger model when SQL came back
-    # with a single cell worth 0 (FASTAPI-TEXT2SQL-233). It used to be billed silently: the
-    # call happens after the SQL step, so its seconds landed in total_processing_time with
-    # nothing to attribute them to, which is exactly the shape of latency that looks like
-    # database slowness in a campaign. Always 0.0 since FASTAPI-TEXT2SQL-331 removed the
-    # branch (2026-10-15); kept so the response shape and the evaluator columns hold.
+    # with a single cell worth 0 (FASTAPI-TEXT2SQL-233). Always 0.0 since FASTAPI-TEXT2SQL-331
+    # removed that branch (2026-10-15); kept so the response shape and the evaluator columns hold.
     answer_single_value_processing_time: float = 0.0
     # FASTAPI-TEXT2SQL-114, the sixth task. Wall clock of the vision call that read the image
     # and named what it points at, 0.0 when no image was sent AND on a recognition-cache hit.
@@ -2584,10 +2580,9 @@ class Text2SQLResponse(BaseModel):
     # and no placeholder existed to fall back (FASTAPI-TEXT2SQL-156).
     no_entity_extracted: bool = False
     # FASTAPI-TEXT2SQL-241. What the FIRST pass did before the stronger model took over, on a
-    # retried request only; all four stay empty otherwise. Until now the retry returned the
-    # INNER response, so the SQL that failed and the reason it failed survived nowhere: not in
-    # the response, not in a log file (the outer request returned before the log write). The
-    # 2026-09-08 "Pour le plaisir" trace had to be reconstructed from prompt token counts.
+    # retried request only; all four stay empty otherwise. The retry returns the INNER
+    # response, so without these fields the SQL that failed and the reason it failed would
+    # survive nowhere, neither in the response nor in a log file.
     # first_pass_failure_code is closed: text2sql_error, sql_guard_rejected,
     # descriptive_identification, requires_complex_resolution, unbacked_entity_literal,
     # entity_fallback_unmatchable, sql_execution_error, or no_results:<signal>[+<signal>] where
