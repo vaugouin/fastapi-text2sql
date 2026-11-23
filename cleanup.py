@@ -35,7 +35,6 @@ def cleanup_anonymized_queries_collection(anonymizedqueries, strapiversion: str)
                 break
             offset += batch_size
 
-        # Get all documents from the collection
         print("Retrieving all documents from the collection...")
         all_docs = anonymizedqueries.get(include=['metadatas'])
         
@@ -73,7 +72,6 @@ def cleanup_anonymized_queries_collection(anonymizedqueries, strapiversion: str)
             print("Deletion cancelled.")
             return
         
-        # Delete the documents
         print("Deleting old documents...")
         ids_to_delete = [doc['id'] for doc in docs_to_delete]
         

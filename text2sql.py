@@ -1,6 +1,5 @@
 import pandas as pd 
 import numpy as np 
-#pip install psutil
 import psutil
 
 import os
@@ -31,9 +30,7 @@ except Exception:
     genai = None
     genai_types = None
 
-# Get the virtual memory details
 memory_info = psutil.virtual_memory()
-# Print the available memory
 print("Démarrage de l'API")
 print(f"Total Memory: {memory_info.total / (1024 ** 3):.2f} GB")
 print(f"Available Memory: {memory_info.available / (1024 ** 3):.2f} GB")
@@ -45,16 +42,12 @@ dblavailableram=memory_info.available / (1024 ** 3)
 
 # Text-to-SQL feature
 strtext2sqlprompttemplate = "text_to_sql.md"
-# LLM-TASKS-010 (2026-10-03, Philippe's decision): gpt-6-sol, switched before the -305 rerun
-# that GPT-6-006 was waiting for (last measured: -19 EN / -14 FR against gpt-4o, before the
-# -305 prompt fixes). Also serves SQL regeneration and the answer-entity guard retry.
-# GPT-6-008 (2026-11-10, Philippe's decision): gpt-6.1-terra. Campaign of 2026-11-09 on 1.1.20,
-# 1,069 common questions: 937 against 927 EN, 926 against 919 FR, about even once the flips
-# caused by data drift are set aside; $1.59 per 1,000 text2sql calls against about $5. Served at
-# the standard tier: production requests never ask for Flex, and on Flex Terra's p90 tripled.
-# Reverted the same day (Philippe): at the standard tier Terra wrote SQL slower than Sol, 4.14 s
-# against 2.88 s median on 20 interleaved bank questions (62 against 87 output tokens/s), too much
-# for the voice path. Retest with text2sql-eval/latency-text2sql-models.py before switching again.
+# LLM-TASKS-010: gpt-6-sol since 2026-10-03. Also serves SQL regeneration and the answer-entity
+# guard retry.
+# GPT-6-008: gpt-6.1-terra was adopted on 2026-11-10 and reverted the same day. As accurate (937
+# against 927 EN, 926 against 919 FR on 1,069 questions) and cheaper ($1.59 per 1,000 calls against
+# about $5), but slower at the standard tier: 4.14 s against 2.88 s median on 20 bank questions, too
+# much for the voice path. Retest with text2sql-eval/latency-text2sql-models.py before switching.
 strtext2sqlmodeldefault = "gpt-6-sol"
 
 # Complex question feature (stronger model)
@@ -734,11 +727,9 @@ _REASONING_MODEL_PREFIXES = ("gpt-5", "gpt-6", "o1", "o3", "o4")
 # the API's p50 is 5.45 s end to end and there is no room for a thinking budget there. Only
 # the complex-question pair, which fires on ~1 % of requests, is allowed to spend.
 #
-# `vision_identification` is the sixth task (FASTAPI-TEXT2SQL-114). Its tier is declared here
-# ahead of the task itself so the family table below is complete on the day the task lands, and it
-# starts at the cheapest setting on purpose: begin at effort "low" and raise it
-# only if recognition weakens on the twenty-image bench. Its row costing ~4 cents a photo is a
-# reason to measure before spending, not a reason to pre-spend.
+# `vision_identification` (FASTAPI-TEXT2SQL-114) starts at the cheapest setting on purpose:
+# raise it only if recognition weakens on the twenty-image bench. Its row costing ~4 cents a
+# photo is a reason to measure before spending, not a reason to pre-spend.
 _DEFAULT_EFFORT_TIER = {
     "entity_extraction": "cheapest",
     "text2sql": "cheapest",
@@ -1203,10 +1194,8 @@ def f_text2sql(user_question: str, strtext2sqlmodel: str, ui_language: str = "en
         if json_content.endswith(";"):
             json_content = json_content[:-1].strip()
             
-        # Replace escaped newlines (\n) with spaces
         json_content = json_content.replace("\\n", " ")
             
-        # Strip any remaining whitespace
         json_content = json_content.strip()
         
         print(f"Generated JSON: {json_content}")

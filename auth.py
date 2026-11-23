@@ -5,7 +5,6 @@ from fastapi import Security, HTTPException, status
 from fastapi.security import APIKeyHeader
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
 _raw_keys = os.getenv("API_KEYS") or os.getenv("API_KEY", "")
