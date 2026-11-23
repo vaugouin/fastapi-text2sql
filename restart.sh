@@ -98,12 +98,18 @@ mkdir -p "$LOGS_DIR/archive" || echo "WARNING: could not create $LOGS_DIR, the c
 # backed up, not mirrored. Write that rule on the folder, never on the shared parent.
 UPLOADS_DIR=/home/debian/docker/shared_data/fastapi-text2sql/uploads
 mkdir -p "$UPLOADS_DIR/vision" || echo "WARNING: could not create $UPLOADS_DIR, the container will start with a root-owned uploads dir."
+# The OAuth client registrations and tokens of /mcp (mcp_auth.py), encrypted with
+# MCP_OAUTH_STORAGE_KEY. Shared by every instance for the same reason as uploads/: kept per
+# instance, each switch or restart would log every MCP client out. Back it up with the
+# secrets; losing it only forces a new login.
+MCP_OAUTH_DIR=/home/debian/docker/shared_data/fastapi-text2sql/mcp-oauth
+mkdir -p "$MCP_OAUTH_DIR" || echo "WARNING: could not create $MCP_OAUTH_DIR, the container will start with a root-owned OAuth store."
 docker build -t "$NAME-app" .
 # Secrets are injected at runtime via --env-file from a host-managed env file
 # kept outside the app source tree (never baked into the image). INSTANCE_NAME is passed
 # explicitly so a folder-derived name reaches the logs and GET / too.
-#docker run -it --rm --network="host" --env-file "$ENV_FILE" -e INSTANCE_NAME="$INSTANCE" -v "$STACK_DIR":/app -v "$LOGS_DIR":/app/logs -v "$UPLOADS_DIR":/app/uploads --name "$NAME" "$NAME-app"
-docker run -d --rm --network="host" --env-file "$ENV_FILE" -e INSTANCE_NAME="$INSTANCE" -v "$STACK_DIR":/app -v "$LOGS_DIR":/app/logs -v "$UPLOADS_DIR":/app/uploads --name "$NAME" "$NAME-app"
+#docker run -it --rm --network="host" --env-file "$ENV_FILE" -e INSTANCE_NAME="$INSTANCE" -v "$STACK_DIR":/app -v "$LOGS_DIR":/app/logs -v "$UPLOADS_DIR":/app/uploads -v "$MCP_OAUTH_DIR":/app/mcp-oauth --name "$NAME" "$NAME-app"
+docker run -d --rm --network="host" --env-file "$ENV_FILE" -e INSTANCE_NAME="$INSTANCE" -v "$STACK_DIR":/app -v "$LOGS_DIR":/app/logs -v "$UPLOADS_DIR":/app/uploads -v "$MCP_OAUTH_DIR":/app/mcp-oauth --name "$NAME" "$NAME-app"
 
 docker ps --filter "name=^${NAME}\$"
 echo "=== $(date '+%Y-%m-%d %H:%M:%S %Z') === $NAME (port $API_PORT)"

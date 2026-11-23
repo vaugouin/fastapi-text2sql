@@ -27,6 +27,11 @@ ENV PYTHONUNBUFFERED=1
 
 COPY requirements.txt /app/
 RUN pip install --upgrade pip && pip install -r requirements.txt
+# FastMCP pinned in its own layer: editing requirements.txt would rebuild the layer above and
+# pull the latest of every unpinned dependency at once (openai, chromadb, ...). The OAuth of
+# /mcp (mcp_auth.py) is written and tested against FastMCP 4.2.5; py-key-value-aio[disk] is
+# the store of the OAuth client registrations, shared by every instance.
+RUN pip install "fastmcp==4.2.5" "py-key-value-aio[disk]"
 COPY *.py /app/
 COPY ./data/ /app/data/
 CMD ["python", "./main.py"]

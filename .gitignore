@@ -1,5 +1,7 @@
 # Environment variables
 .env
+# OAuth store of /mcp (mcp_auth.py), mounted from shared_data in production
+mcp-oauth/
 .env.local
 .env.development
 .env.test

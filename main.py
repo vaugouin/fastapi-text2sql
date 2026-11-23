@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 import httpx
 from fastmcp import FastMCP
+import mcp_auth
 from auth import get_api_key
 from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 import pandas as pd 
@@ -274,7 +275,6 @@ API_PORT = _read_api_port()
 # the name of the clone folder (fastapi-text2sql-violet -> violet) unless the .env sets one.
 INSTANCE_NAME = os.getenv("INSTANCE_NAME", "").strip() or "local"
 logs.INSTANCE_NAME = INSTANCE_NAME
-MCP_API_KEY = os.getenv("MCP_API_KEY", "")
 _api_keys_raw = os.getenv("API_KEYS") or os.getenv("API_KEY", "")
 _api_keys_first = next((k.strip() for k in _api_keys_raw.split(",") if k.strip()), "")
 MCP_INTERNAL_API_KEY = os.getenv("MCP_INTERNAL_API_KEY", _api_keys_first)
@@ -288,18 +288,6 @@ intcleanupenabled = False
 _startup_t0 = time.perf_counter()
 print(f"[startup] {logs.now_paris().isoformat(timespec='seconds')}", flush=True)
 print(f"[startup] Booting Text2SQL API version {strapiversion}, instance {INSTANCE_NAME}, port {API_PORT}...", flush=True)
-
-# An empty MCP_API_KEY makes _verify_mcp_bearer a no-op and leaves /mcp open: a legitimate
-# development default and a silent hole in production. Found that way on 2026-08-23, when
-# tools/list answered 200 with no token, exposing sql_search and the 16 entity tools, and
-# nothing in the logs said so. Deliberately not fatal: failing closed would lock every MCP
-# client out on a misconfiguration, including the one you would use to diagnose it.
-if MCP_API_KEY:
-    print("[startup] MCP bearer authentication ENABLED on /mcp.", flush=True)
-else:
-    print("[startup] *** WARNING: MCP_API_KEY is empty, /mcp is OPEN, no bearer required. ***", flush=True)
-    print("[startup] *** Anyone reaching this port can call sql_search and every entity tool. ***", flush=True)
-    print("[startup] *** Set MCP_API_KEY in the runtime env file for any exposed deployment. ***", flush=True)
 
 # FASTAPI-TEXT2SQL-409: the API holds no OpenAI key. Each request brings its own in the
 # X-OpenAI-Key header (openai_key.py), and every OpenAI call made for it, the ChromaDB query
@@ -488,7 +476,12 @@ CAST_CHARACTER_EXCLUSIONS = {
     "Self (uncredited)",
 }
 
-mcp = FastMCP("text2sql")
+# /mcp sits behind a GitHub login and an allowlist of logins (mcp_auth.py). The static
+# bearer it had until 2026-11-15 is gone: ChatGPT and claude.ai clients only speak OAuth.
+_mcp_auth_provider = mcp_auth.build_auth_provider()
+for _line in mcp_auth.startup_lines(_mcp_auth_provider is not None):
+    print(_line, flush=True)
+mcp = FastMCP("text2sql", auth=_mcp_auth_provider, middleware=mcp_auth.build_middleware())
 mcp_app = mcp.http_app(stateless_http=True)
 # FastMCP lifespan: Pass mcp_app.lifespan to the FastAPI constructor
 app = FastAPI(title="Text2SQL API", version=strapiversion, description="Text2SQL API for text to SQL query conversion", lifespan=mcp_app.lifespan)
@@ -11105,12 +11098,21 @@ async def _mcp_sql_search(
                     "llm_model_result_entity": llm_model_result_entity,
                     "llm_model_vision": llm_model_vision,
                 },
-                headers={"X-API-Key": MCP_INTERNAL_API_KEY},
+                headers=_mcp_search_headers(),
             )
             r.raise_for_status()
             return r.text
     except Exception as e:
         return json.dumps({"error": str(e)})
+
+
+def _mcp_search_headers() -> dict:
+    """Headers of sql_search's internal call. The API holds no OpenAI key: without one in
+    X-OpenAI-Key it answers 401 to every question the cache does not hold."""
+    headers = {"X-API-Key": MCP_INTERNAL_API_KEY}
+    if mcp_auth.MCP_OWNER_OPENAI_KEY:
+        headers["X-OpenAI-Key"] = mcp_auth.MCP_OWNER_OPENAI_KEY
+    return headers
 
 
 async def _mcp_get(path: str, ui_language: str = "en", collection: Optional[str] = None,
@@ -11899,18 +11901,6 @@ async def _mcp_database_scope() -> str:
     ## Coverage
     ~620k movies, ~88k TV series, ~890k persons
     """
-
-
-async def _verify_mcp_bearer(request: Request, call_next):
-    if request.url.path.startswith("/mcp"):
-        if MCP_API_KEY:
-            auth = request.headers.get("Authorization", "")
-            if auth != f"Bearer {MCP_API_KEY}":
-                return JSONResponse(status_code=401, content={"error": "Unauthorized"})
-    return await call_next(request)
-
-
-app.add_middleware(BaseHTTPMiddleware, dispatch=_verify_mcp_bearer)
 
 
 class _RequestClock:

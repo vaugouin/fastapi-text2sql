@@ -283,8 +283,14 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    # Optional, defaults to the clone folder suffix (fastapi-text2sql-blue -> blue)
    # INSTANCE_NAME=blue
    
-   # MCP (Model Context Protocol) — Claude connector at /mcp
-   MCP_API_KEY=your_mcp_bearer_token_here
+   # MCP at /mcp, behind a GitHub login (mcp_auth.py; full list and comments in .env.example)
+   MCP_PUBLIC_BASE_URL=https://mcp.example.com
+   MCP_GITHUB_CLIENT_ID=...
+   MCP_GITHUB_CLIENT_SECRET=...
+   MCP_ALLOWED_GITHUB_LOGINS=your-github-login
+   MCP_OAUTH_JWT_SIGNING_KEY=...   # identical in every instance
+   MCP_OAUTH_STORAGE_KEY=...       # identical in every instance (Fernet key)
+   MCP_OWNER_OPENAI_KEY=...        # key sent by sql_search; empty: cache hits only
    MCP_INTERNAL_API_KEY=key_for_mcp
 
    # Pipeline shape (all read at import time, so a change needs a restart)
@@ -2390,7 +2396,7 @@ also holds `logs/` and its exactly opposite regime.
 ## 🔒 Security
 
 - **API Key Authentication**: All endpoints require a valid API key via `X-API-Key` header; multiple keys supported via `API_KEYS` env var
-- **MCP Bearer Token**: `/mcp` route is protected by a bearer token middleware (`MCP_API_KEY`); skipped when empty
+- **MCP OAuth**: `/mcp` sits behind a GitHub login through FastMCP's OAuth proxy, and only the logins of `MCP_ALLOWED_GITHUB_LOGINS` see or call the tools; with a setting missing, every call is refused (`mcp_auth.py`, `doc/MCP.md` section 6)
 - **Environment Variables**: Sensitive data like LLM API keys are stored in environment variables
 - **Request Logging**: All API usage is logged for monitoring and debugging
 

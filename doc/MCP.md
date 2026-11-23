@@ -33,8 +33,9 @@ import httpx
 import json
 import os
 
-# 1. Instantiate MCP — stateless_http is passed to http_app(), not to the constructor
-mcp = FastMCP("text2sql")
+# 1. Instantiate MCP, behind the GitHub OAuth proxy and the login allowlist (section 6).
+#    stateless_http is passed to http_app(), not to the constructor
+mcp = FastMCP("text2sql", auth=mcp_auth.build_auth_provider(), middleware=mcp_auth.build_middleware())
 mcp_app = mcp.http_app(stateless_http=True)
 
 # 2. Pass mcp_app.lifespan to FastAPI so FastMCP lifecycle hooks run correctly
@@ -43,7 +44,6 @@ app = FastAPI(title="Text2SQL API", version=strapiversion,
               lifespan=mcp_app.lifespan)
 
 API_PORT = _read_api_port()   # API_PORT from this instance's .env, required (FASTAPI-TEXT2SQL-412)
-MCP_API_KEY = os.getenv("MCP_API_KEY", "")
 _api_keys_raw = os.getenv("API_KEYS") or os.getenv("API_KEY", "")
 _api_keys_first = next((k.strip() for k in _api_keys_raw.split(",") if k.strip()), "")
 MCP_INTERNAL_API_KEY = os.getenv("MCP_INTERNAL_API_KEY", _api_keys_first)
@@ -393,17 +393,7 @@ async def _mcp_list_samples(ui_language: str = "en") -> str:
     (default) or "fr"."""
     return await _mcp_get("/samples", ui_language)
 
-# --- Bearer-token middleware and mount ---
-
-async def _verify_mcp_bearer(request: Request, call_next):
-    if request.url.path.startswith("/mcp"):
-        if MCP_API_KEY:                        # skip check when key is not set
-            auth = request.headers.get("Authorization", "")
-            if auth != f"Bearer {MCP_API_KEY}":
-                return JSONResponse(status_code=401, content={"error": "Unauthorized"})
-    return await call_next(request)
-
-app.add_middleware(BaseHTTPMiddleware, dispatch=_verify_mcp_bearer)
+# --- Mount (authentication: section 6, mcp_auth.py) ---
 
 # Mount at "" (not "/mcp") to avoid double /mcp/mcp path
 # Nginx proxies /mcp → FastAPI; FastAPI sees /mcp/… paths; FastMCP handles them
@@ -768,9 +758,7 @@ Since your FastAPI is already served over HTTPS, a remote MCP is the right appro
 3. URL: `https://yourdomain.com/mcp`
 4. Click **Add**
 
-> **Note:** The current Claude.ai connector UI only supports OAuth — it has no Bearer Token field.
-> Leave `MCP_API_KEY` empty in your `.env` so the middleware skips the bearer check.
-> Security relies on HTTPS transport. To enforce a static bearer token, use Claude Code CLI (see below).
+> **Note:** the connector logs in through the GitHub OAuth flow of section 6; there is no token to paste.
 
 The connector automatically syncs to Claude Desktop, Claude web, and Claude mobile (iOS/Android). Mobile users cannot add connectors directly from the app — they must be configured via claude.ai first.
 
@@ -779,51 +767,36 @@ The connector automatically syncs to Claude Desktop, Claude web, and Claude mobi
 If you also want to use the MCP from Claude Code CLI (local terminal), register it separately:
 
 ```bash
-claude mcp add text2sql --url https://yourdomain.com/mcp --header "Authorization: Bearer your-secret-key"
+claude mcp add --transport http text2sql https://yourdomain.com/mcp   # then /mcp in a session to log in
 ```
 
 ---
 
-## 6. API Key Authentication for the MCP Route
+## 6. OAuth on the MCP Route (GitHub login)
 
-The MCP route is locked with a bearer token. All other routes on your FastAPI app are unaffected.
+Since FASTAPI-TEXT2SQL-413 (2026-11-23), `/mcp` sits behind FastMCP's OAuth proxy with GitHub as the identity provider (`mcp_auth.py`). It replaced a static bearer (`MCP_API_KEY`): Claude.ai connectors and ChatGPT custom MCP plugins speak OAuth, not an arbitrary header, and leaving the route open is excluded because `sql_search` spends an OpenAI key. All other routes of the app are unaffected.
 
-### VPS — middleware
+### How it works
 
-```python
-from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi.responses import JSONResponse
-import os
+- The proxy presents a complete authorization server to MCP clients: `/.well-known/oauth-protected-resource/mcp`, `/.well-known/oauth-authorization-server`, dynamic client registration (`/register`), `/authorize`, `/token`, and the GitHub callback `/auth/callback`. All live at the root of the public host, which is why the MCP host is a dedicated one (`MCP_PUBLIC_BASE_URL`) rather than a path of the main site.
+- An unauthenticated call to `/mcp` gets a 401 whose `WWW-Authenticate` header points to the protected-resource metadata: that is how a client discovers the login.
+- **GitHub authenticates any GitHub user.** An `AuthMiddleware` check keeps the tools to the logins of `MCP_ALLOWED_GITHUB_LOGINS`: anyone else sees an empty tool list and has every call refused.
+- **Fail closed.** With any OAuth setting missing, the routes stay mounted but every tool call is refused, and startup names the missing settings.
+- **Shared by every instance.** `MCP_OAUTH_JWT_SIGNING_KEY` and `MCP_OAUTH_STORAGE_KEY` are identical in each instance `.env`, and the client store (`mcp-oauth/`, encrypted with Fernet) is mounted by `restart.sh` from `shared_data`. Otherwise a restart or an instance switch would log every client out.
+- **The OpenAI key.** The API holds none (FASTAPI-TEXT2SQL-409). `sql_search` sends `MCP_OWNER_OPENAI_KEY` in `X-OpenAI-Key` on its internal call; empty, it serves cache hits only. The entity tools call no model and need no key.
 
-MCP_API_KEY = os.getenv("MCP_API_KEY", "")   # empty → /mcp route is open
+### Setup
 
-async def _verify_mcp_bearer(request: Request, call_next):
-    if request.url.path.startswith("/mcp"):
-        if MCP_API_KEY:                        # skip check when key is not configured
-            auth = request.headers.get("Authorization", "")
-            if auth != f"Bearer {MCP_API_KEY}":
-                return JSONResponse(status_code=401, content={"error": "Unauthorized"})
-    return await call_next(request)
+1. Create a GitHub OAuth app (github.com > Settings > Developer settings > OAuth Apps): homepage `MCP_PUBLIC_BASE_URL`, callback `MCP_PUBLIC_BASE_URL/auth/callback`.
+2. Fill the `MCP_*` block of `.env.example` in every instance `.env` (same two keys everywhere).
+3. `bash restart.sh`. The boot log shows `MCP OAuth ENABLED (GitHub login)`.
+4. Check: `curl -s -o /dev/null -w "%{http_code}" -X POST https://<mcp host>/mcp` answers 401, and `curl -s https://<mcp host>/.well-known/oauth-protected-resource/mcp` returns the metadata.
 
-app.add_middleware(BaseHTTPMiddleware, dispatch=_verify_mcp_bearer)
-```
+### Clients
 
-Store the key in your environment:
-
-```bash
-# .env or Docker environment config
-MCP_API_KEY=your-secret-key
-```
-
-Generate a strong key:
-
-```bash
-openssl rand -hex 32
-```
-
-### Claude.ai — connector configuration
-
-The current Claude.ai connector UI only supports OAuth, not static bearer tokens. Leave `MCP_API_KEY` empty in your `.env` for the Claude.ai web connector — the middleware skips the bearer check when the value is empty, and HTTPS is the sole protection layer. To enforce a static bearer token, use the Claude Code CLI with `--header "Authorization: Bearer <key>"` which fully supports static tokens.
+- **Claude.ai**: Settings > Connectors > Add custom connector, URL `https://<mcp host>/mcp`, then log in with GitHub. Syncs to Claude Desktop and mobile.
+- **ChatGPT**: Plugins > custom MCP, URL `https://<mcp host>/mcp`, authentication OAuth.
+- **Claude Code**: `claude mcp add --transport http text2sql https://<mcp host>/mcp`, then `/mcp` in a session to log in.
 
 ---
 
@@ -955,7 +928,7 @@ Claude → formats and presents results to user
 | FastAPI `POST /uploads/vision` | The only route that carries bytes. Deposits a JPEG, a PNG or a WEBP and returns the `image_ref` that names it everywhere afterwards |
 | FastAPI `/movies/{id}` etc. | Returns full entity detail with embedded relations |
 | FastMCP mounted at `""` (root); Nginx routes `/mcp` → FastAPI | Exposes tools and resources over HTTPS |
-| Bearer token middleware | Guards `/mcp` paths; skipped when `MCP_API_KEY` is empty |
+| GitHub OAuth proxy + login allowlist (`mcp_auth.py`) | Guards `/mcp`; any OAuth setting missing refuses every call |
 | Tool docstrings (Layer 1) | Always loaded — scope, exclusions, URL patterns, resource pointer |
 | MCP Resource (Layer 2) | Loaded on demand — semantic entity and property reference |
 | Claude.ai Connectors | Registers the remote MCP, syncs to all Claude clients |
