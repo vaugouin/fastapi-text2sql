@@ -3203,6 +3203,10 @@ async def search_text2sql(
     # follows can record it. Set by the except branches of the execution block.
     sql_execution_failure_code = ""
     sql_execution_failure_reason = ""
+    # FASTAPI-TEXT2SQL-414: the raw database error text. It goes to the server log and to the
+    # SQL regeneration prompt only, never to the client: it can name tables, columns, values or
+    # the server, and the reason above is what the response carries.
+    sql_execution_failure_detail = ""
     # FASTAPI-TEXT2SQL-244: outcome of the no-entity rescue, "" until it is attempted.
     no_entity_rescue_outcome = ""
     # FASTAPI-TEXT2SQL-369: outcome of the co-constrained title rescue, "" until it is attempted.
@@ -5601,14 +5605,13 @@ async def search_text2sql(
                 print(f"Database operation failed: {e}")
                 sql_execution_failed = True
                 sql_execution_failure_code = "sql_execution_error"
-                sql_execution_failure_reason = f"database error: {str(e)}"
+                sql_execution_failure_reason = "database error (details in the server log)"
+                sql_execution_failure_detail = str(e)
                 messages.append(TextMessage(
                     position=position_counter, 
-                    text=f"Database query execution failed: {str(e)}"
+                    text="Database query execution failed (details in the server log)."
                 ))
                 position_counter += 1
-                # Database errors not returned directly to clients
-                # query_results = [{"error": str(e)}]
         query_end_time = time.time()
         query_execution_time = query_end_time - query_start_time
         messages.append(TextMessage(
@@ -5916,7 +5919,7 @@ async def search_text2sql(
                     # invites it to answer with literals, which the -252 provenance guard below
                     # would then reject.
                     f"Refused SQL: {sql_query_anonymized_base}\n"
-                    f"Reason: {sql_execution_failure_reason}\n"
+                    f"Reason: {sql_execution_failure_detail or sql_execution_failure_reason}\n"
                     "Regenerate the SQL for the SAME question. Do not simplify the question, do not "
                     "drop what it asks for. Fix only the offending clause, and check every column "
                     "against the table you qualify it with: a column of a junction table is not a "
@@ -6041,6 +6044,7 @@ async def search_text2sql(
                         sql_execution_failed = False
                         sql_execution_failure_code = ""
                         sql_execution_failure_reason = ""
+                        sql_execution_failure_detail = ""
                         sql_regeneration_outcome = "regenerated" if _regen_rows else "regenerated_empty"
                         messages.append(TextMessage(
                             position=position_counter,
@@ -6060,7 +6064,7 @@ async def search_text2sql(
                 print(f"SQL regeneration failed: {_regen_exc}")
                 messages.append(TextMessage(
                     position=position_counter,
-                    text=f"SQL regeneration failed ({type(_regen_exc).__name__}: {_regen_exc}); the refused query stands and the usual retry rules apply."
+                    text=f"SQL regeneration failed ({type(_regen_exc).__name__}, details in the server log); the refused query stands and the usual retry rules apply."
                 ))
                 position_counter += 1
 
