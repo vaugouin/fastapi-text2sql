@@ -8173,8 +8173,8 @@ async def get_series(id: int, ui_language: Optional[str] = "en", collection: Opt
             # never seasons). IMDB_RATED_EPISODES is its honest denominator: a running
             # season is scored on the episodes that have aired, and summing episode votes
             # would count the same viewers several times.
-            # FASTAPI-TEXT2SQL-179: rows come from T_WC_T2S_SEASON. SEASON_TITLE is the T2S name;
-            # No TITLE alias any more: dropped once VOICE-AGENT-199 read SEASON_TITLE (2026-10-05).
+            # FASTAPI-TEXT2SQL-179: rows come from T_WC_T2S_SEASON. SEASON_TITLE is the T2S name,
+            # with no TITLE alias since VOICE-AGENT-199 read SEASON_TITLE (2026-10-05).
             "seasons": ("""
                 SELECT s.ID_SEASON, s.SEASON_NUMBER, s.SEASON_TITLE, s.OVERVIEW, s.DAT_AIR,
                        s.AIR_YEAR, s.AIR_MONTH, s.AIR_DAY, s.POSTER_PATH, s.EPISODE_COUNT,
@@ -8467,8 +8467,8 @@ async def get_season(id_serie: int, season_number: int, ui_language: Optional[st
             """, (id_season,), "person"),
             # FASTAPI-TEXT2SQL-177 / -179: rows and IMDb fields both come from T_WC_T2S_EPISODE
             # (tmdb-movie-preprocess Process 28). A NULL rating is the correct answer for an
-            # episode that has not aired yet. EPISODE_TITLE is the T2S name; TITLE is a
-            # no longer duplicated as TITLE since VOICE-AGENT-199 (2026-10-05).
+            # episode that has not aired yet. EPISODE_TITLE is the T2S name, no longer
+            # duplicated as TITLE since VOICE-AGENT-199 (2026-10-05).
             "episodes": ("""
                 SELECT e.ID_EPISODE, e.EPISODE_NUMBER, e.EPISODE_TITLE, e.OVERVIEW, e.DAT_AIR,
                        e.AIR_YEAR, e.AIR_MONTH, e.AIR_DAY, e.RUNTIME, e.EPISODE_TYPE,
