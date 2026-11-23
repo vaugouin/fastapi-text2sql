@@ -121,7 +121,7 @@ Dry run, harmless: `~/docker/fastapi-text2sql-ops/purge-uploads.sh --dry-run`. U
 Example: 1.1.20 with new code, from blue to violet, no version bump.
 
 1. `git pull --ff-only` in violet, `bash restart.sh`, wait for `bktrees_ready: true` (section 3 command).
-2. Switch each client (`README.md` § *Instances*, client table): t2s-front (`TEXT2SQL_API_BLUE_URL` to `:8188`, or its colour line), voice-agent (`TEXT2SQL_BASE_URL`, then its `restart.sh`), agent-runner (`T2S_BASE_URL` on Hostinger). The evaluator reaches only blue and green until TEXT2SQL-EVAL-011.
+2. Switch each client (`README.md` § *Instances*, client table): t2s-front (`TEXT2SQL_API_BLUE_URL` to `:8188`, or its colour line), voice-agent (`TEXT2SQL_BASE_URL`, then its `restart.sh`), voice-demo (`TEXT2SQL_BASE_URL` in `.env.demo`, then `restart-demo.sh`), the MCP server (the port in `reverseproxy/includes/t2s-api-live.conf`, then `reload.sh`, once FASTAPI-TEXT2SQL-413 ships), agent-runner (`T2S_BASE_URL` on Hostinger), and the other clients of the table. The evaluator reaches only blue and green until TEXT2SQL-EVAL-011.
 3. Check each client reports `instance: violet` where it exposes it (`/voice-agent/tool/health` exposes `api_version` only until its next version; `GET /` of the instance always does).
 4. Leave blue running a couple of minutes (in-flight requests, up to about 90 s), then `docker stop fastapi-text2sql-blue` if the memory is needed.
 
