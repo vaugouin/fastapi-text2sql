@@ -73,8 +73,10 @@ do_check() {
         docker ps --format '{{.Names}}' | grep -qx "$c" || { printf '  %-38s %s\n' "$c" "not running"; continue; }
         printf '  %-38s %s\n' "$c /tool/health" "$(docker exec "$c" python -c "import urllib.request,json;h=json.load(urllib.request.urlopen('http://127.0.0.1:3000/tool/health'));print('source', h.get('api_url_source'), 'version', h.get('api_version'), 'reachable', h.get('api_reachable'))" 2>/dev/null || echo 'health unreadable')"
     done
-    echo "== Requests logged in the last $RECENT_MIN min, by instance (the proof: who still calls the old one)"
-    find "$LOGS_DIR" -maxdepth 1 -name '*.json' -mmin "-$RECENT_MIN" -print0 2>/dev/null \
+    # hello (GET /, version probes, this script's own) and start (an instance booting) are not client
+    # calls: counting them made a drained instance look busy. Every other route is (search, entities, uploads).
+    echo "== Client requests logged in the last $RECENT_MIN min, by instance (the proof: who still calls the old one)"
+    find "$LOGS_DIR" -maxdepth 1 -name '*.json' -mmin "-$RECENT_MIN" ! -name '*_hello_*' ! -name '*_start_*' -print0 2>/dev/null \
         | xargs -0 -r grep -h -m1 -o '"instance": *"[a-z]*"' | cut -d'"' -f4 | sort | uniq -c | sed 's/^/  /'
     echo "  (the evaluator still calls blue or green by design; agent-runner and PC tools are not checked here)"
 }
