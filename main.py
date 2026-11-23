@@ -289,13 +289,11 @@ _startup_t0 = time.perf_counter()
 print(f"[startup] {logs.now_paris().isoformat(timespec='seconds')}", flush=True)
 print(f"[startup] Booting Text2SQL API version {strapiversion}, instance {INSTANCE_NAME}, port {API_PORT}...", flush=True)
 
-# An empty MCP_API_KEY makes _verify_mcp_bearer a no-op and leaves /mcp open, which is
-# a legitimate development default and a silent hole in production. Found that way on
-# 2026-08-23: tools/list answered 200 with no token, and with a deliberately wrong one,
-# on both colours and through the public NGINX route, exposing sql_search and the 16
-# entity tools to anyone. Nothing in the logs said so. It does now. Deliberately not
-# fatal: failing closed here would lock every MCP client out on a misconfiguration,
-# including the one you would use to diagnose it.
+# An empty MCP_API_KEY makes _verify_mcp_bearer a no-op and leaves /mcp open: a legitimate
+# development default and a silent hole in production. Found that way on 2026-08-23, when
+# tools/list answered 200 with no token, exposing sql_search and the 16 entity tools, and
+# nothing in the logs said so. Deliberately not fatal: failing closed would lock every MCP
+# client out on a misconfiguration, including the one you would use to diagnose it.
 if MCP_API_KEY:
     print("[startup] MCP bearer authentication ENABLED on /mcp.", flush=True)
 else:
@@ -316,11 +314,11 @@ class OpenAIEmbeddingFunction:
     def __call__(self, input):
         """Generate embeddings for a list of texts using OpenAI's embedding model."""
         started = time.perf_counter()
-        response = openai.OpenAI(api_key=openai_key.require()).embeddings.create(  # -409
-            input=input, # Ensure parameter name matches ChromaDB's expectations
+        response = openai.OpenAI(api_key=openai_key.require()).embeddings.create(  # per-request key, never a module global
+            input=input,
             model=self.model
         )
-        logs.record_embedding_wait(time.perf_counter() - started)  # FASTAPI-TEXT2SQL-338
+        logs.record_embedding_wait(time.perf_counter() - started)
         self._record_usage(response)
         # Convert to numpy arrays for ChromaDB compatibility
         embeddings = [item.embedding for item in response.data]
@@ -328,20 +326,19 @@ class OpenAIEmbeddingFunction:
     
     def embed_query(self, input):
         """Generate embedding for a single query text - required by ChromaDB."""
-        # Handle both single string and list inputs
         if isinstance(input, str):
             query_input = [input]
         else:
             query_input = input
             
         started = time.perf_counter()
-        response = openai.OpenAI(api_key=openai_key.require()).embeddings.create(  # -409
+        response = openai.OpenAI(api_key=openai_key.require()).embeddings.create(  # per-request key, never a module global
             input=query_input,
             model=self.model
         )
-        logs.record_embedding_wait(time.perf_counter() - started)  # FASTAPI-TEXT2SQL-338
+        logs.record_embedding_wait(time.perf_counter() - started)
         self._record_usage(response)
-        # Return as a list of numpy arrays (same format as __call__ method)
+        # Same format as __call__
         embeddings = [item.embedding for item in response.data]
         return [np.array(embedding) for embedding in embeddings]
     
@@ -358,7 +355,6 @@ class OpenAIEmbeddingFunction:
         """Return the name of the embedding function for ChromaDB compatibility."""
         return f"openai_{self.model.replace('-', '_')}"
 
-# Initialize ChromaDB with persistent storage
 _chromadb_host = os.getenv("CHROMADB_HOST", "localhost")
 _chromadb_port = os.getenv("CHROMADB_PORT", 8000)
 print(f"[startup] Connecting to ChromaDB at {_chromadb_host}:{_chromadb_port}...", flush=True)
@@ -366,11 +362,9 @@ _t0 = time.perf_counter()
 chroma_client = chromadb.HttpClient(host=_chromadb_host, port=_chromadb_port)
 print(f"[startup] ChromaDB connected in {time.perf_counter() - _t0:.2f}s.", flush=True)
 
-# Initialize ChromaDB with OpenAI's embedding function
 embedding_function = OpenAIEmbeddingFunction(model="text-embedding-3-large")
 print("[startup] OpenAI embedding function initialized (text-embedding-3-large).", flush=True)
 
-# Create or load entity collections with the custom embedding function
 _collection_names = [
     # "persons" was dropped on 2026-10-09 and the collection deleted: person names resolve with
     # rapidfuzz on T_WC_T2S_PERSON / T_WC_T2S_PERSON_ALSO_KNOWN_AS (entity_resolution.json), where
@@ -385,8 +379,8 @@ _collection_names = [
     "topics",
     # "locations" (keyed on the Wikidata QID) was dropped from this list in 1.1.19: the
     # locations read-model reads t2slocations, opened below. Leaving the name here would
-    # not merely be dead weight, it would RECREATE an empty collection after
-    # EMBEDDING-UPDATE-010 deletes the old one, since this list uses get_or_create.
+    # not merely be dead weight, it would RECREATE an empty collection after the old one
+    # is deleted, since this list uses get_or_create.
     "groups",
     "characters",
     "lists",
@@ -429,17 +423,15 @@ except Exception as _exc:
           "source work entity resolution will be skipped until process 217 of embedding-update has built it.", flush=True)
 print(f"[startup] ChromaDB entity collections ready ({len(CHROMADB_COLLECTIONS_BY_NAME)}) in {time.perf_counter() - _t0:.2f}s.", flush=True)
 
-#Anonymized queries collection
 strentitycollection = "anonymizedqueries"
 print(f"[startup] Creating/loading {strentitycollection} cache collection...", flush=True)
 _t0 = time.perf_counter()
 anonymizedqueries = chroma_client.get_or_create_collection(
     name=strentitycollection,
-    embedding_function=embedding_function  # Custom embedding model
+    embedding_function=embedding_function
 )
 print(f"[startup] {strentitycollection} collection ready in {time.perf_counter() - _t0:.2f}s.", flush=True)
 
-# By default, do not use embeddings-based question cache (read/write) for anonymized queries.
 USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE = False
 
 # Fork-join scheduling (FASTAPI-TEXT2SQL-201): entity resolution depends only on the
@@ -450,16 +442,12 @@ USE_ANONYMIZEDQUERIES_EMBEDDINGS_CACHE = False
 # the strictly sequential path (same results, no overlap).
 ENTITY_RESOLUTION_PARALLEL = os.getenv("ENTITY_RESOLUTION_PARALLEL", "1").strip().lower() in {"1", "true", "yes", "on"}
 
-# FASTAPI-TEXT2SQL-212: an empty result is the worst possible moment to freeze a query.
-# It is precisely the case where the odds that the SQL is wrong rather than the data
-# empty are highest, and caching it makes the defect permanent for the whole anonymized
-# TEMPLATE, not just the question that produced it. Measured on 2026-08-25: a broken
-# "costume designer of {{Movie_title1}} with {{Person_name1}}" was written to cache at
-# 18:05:03 and served back verbatim at 18:06:36 without ever being regenerated, so every
-# film/actor pair on that pattern would have answered 0 rows for as long as the row lived.
-# The cost of not caching is one regeneration per legitimately empty question, a few
-# hundred a month at current volume. Set CACHE_EMPTY_RESULTS=1 to restore the old
-# behaviour.
+# FASTAPI-TEXT2SQL-212: an empty result is never cached. It is the case where the SQL is most
+# likely wrong rather than the data empty, and a cache row freezes the defect for the whole
+# anonymized TEMPLATE: on 2026-08-25 a broken "costume designer of {{Movie_title1}} with
+# {{Person_name1}}" was cached and served back 90 s later without regeneration. The cost of
+# not caching is one regeneration per legitimately empty question, a few hundred a month.
+# Set CACHE_EMPTY_RESULTS=1 to restore the old behaviour.
 CACHE_EMPTY_RESULTS = os.getenv("CACHE_EMPTY_RESULTS", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -482,14 +470,12 @@ if intcleanupenabled:
 
 # How many rows per page in the result set
 lngrowsperpagedefault = 50
-#similarity_threshold = 0.1
 """
 Similarity 0.2 is too wide because the following queries are deemed similar:
 Movies with Humphrey Bogart
 Movies with Humphrey Bogart and Lauren Bacall
 Which is wrong
 """
-#similarity_threshold = 0.2  
 similarity_threshold = 0.15
 
 CAST_CHARACTER_EXCLUSIONS = {
