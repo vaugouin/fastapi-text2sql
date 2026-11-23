@@ -4041,7 +4041,7 @@ async def search_text2sql(
             # Degrade gracefully (handled HTTP 200 with error_code "cache_miss")
             # instead of raising an uncaught ValueError that FastAPI turns into a
             # generic HTTP 500. Clients should resend the original `question` text so
-            # the text-fallback branch above fires. See FASTAPI-TEXT2SQL-135.
+            # the text-fallback branch above fires (FASTAPI-TEXT2SQL-135).
             print("question_hashed provided but not found in the SQL cache and no original question provided; returning handled cache-miss response")
             messages.append(TextMessage(
                 position=position_counter,
@@ -4120,7 +4120,6 @@ async def search_text2sql(
         entity_extraction_end_time = time.time()
         entity_extraction_processing_time = entity_extraction_end_time - entity_extraction_start_time
 
-        # High-level info
         messages.append(TextMessage(
             position=position_counter,
             text=(
@@ -4144,7 +4143,6 @@ async def search_text2sql(
         ))
         position_counter += 1
         
-        # Check if entity extraction was successful
         if isinstance(entity_extraction, dict) and 'error' in entity_extraction:
             print(f"Entity extraction failed: {entity_extraction['error']}")
             print("Falling back to original question without entity extraction")
@@ -4231,17 +4229,15 @@ async def search_text2sql(
                 else:
                     embeddings_cache_start_time = time.time()
                     try:
-                        # Extract entity variable names from the entity_extraction dictionary
                         entity_variables = []
                         if isinstance(entity_extraction, dict) and 'error' not in entity_extraction:
-                            # Extract all entity variable names (e.g., Person_name1, Person_name2)
                             entity_variables = [key for key, _ in entity.extracted_entity_items(entity_extraction)]
                             print(f"Entity variables to match: {entity_variables}")
 
                         print(f"Searching questions embeddings cache for: {input_text_anonymized}")
 
                         # First, get more results to filter through
-                        n_results_to_fetch = 10  # Get more results initially
+                        n_results_to_fetch = 10
                         with logs.chroma_call():  # FASTAPI-TEXT2SQL-338
                             embedding_results = anonymizedqueries.query(
                                 query_texts=[input_text_anonymized],
@@ -4259,7 +4255,6 @@ async def search_text2sql(
                                 text="Found potential matches in questions embeddings cache; filtering by entity variables."
                             ))
                             position_counter += 1
-                            # Filter results to find ones that contain all required entity variables
                             valid_result_found = False
                             valid_result_index = -1
 
@@ -4267,13 +4262,10 @@ async def search_text2sql(
                                 document = embedding_results['documents'][0][i]
                                 distance = embedding_results['distances'][0][i]
 
-                                # Extract entity variables from the document using regex
                                 doc_entity_vars = re.findall(r'{{(\w+\d*)}}', document)
                                 print(f"Result {i}: document='{document}', distance={distance}, vars={doc_entity_vars}")
 
-                                # Check if all required entity variables are present in this document
                                 if all(var in doc_entity_vars for var in entity_variables):
-                                    # Also check if distance is below threshold
                                     if distance < similarity_threshold:
                                         print(f"Found valid result at index {i} with all required variables and acceptable distance")
                                         messages.append(TextMessage(
@@ -4291,7 +4283,6 @@ async def search_text2sql(
                                     print(f"Result {i} missing variables: {missing_vars}")
 
                             if valid_result_found:
-                                # Use the valid result
                                 distance = embedding_results['distances'][0][valid_result_index]
                                 print(f"Using valid anonymized question from embeddings cache with distance: {distance}")
                                 cached_anonymized_question_embedding = True
@@ -4301,7 +4292,6 @@ async def search_text2sql(
                                 ))
                                 position_counter += 1
 
-                                # Extract SQL query from metadata
                                 metadata = embedding_results['metadatas'][0][valid_result_index]
                                 if 'sql_query_anonymized' in metadata:
                                     sql_query = metadata['sql_query_anonymized']
@@ -4795,9 +4785,9 @@ async def search_text2sql(
         # FASTAPI-TEXT2SQL-367. `authoritative_empty` defers to a database result, and when the
         # first pass wrote no SQL there is none: a descriptive identification is routed here
         # before Text2SQL, and a failed generation leaves nothing either. The model still takes
-        # the -221 branch on part of the calls ("the series linked to Keri Russell"), and the
+        # the authoritative-empty branch on part of the calls ("the series linked to Keri Russell"), and the
         # request ended on "Complex entity resolution is required". Asked once more, with the
-        # fact stated. A relationship question whose SQL ran and came back empty keeps -221.
+        # fact stated. A relationship question whose SQL ran and came back empty keeps its authoritative empty.
         if retry_payload.get("authoritative_empty") and not (first_pass_sql or "").strip():
             messages.append(TextMessage(
                 position=position_counter,
