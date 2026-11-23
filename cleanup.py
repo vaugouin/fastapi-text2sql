@@ -23,7 +23,6 @@ def cleanup_anonymized_queries_collection(anonymizedqueries, strapiversion: str)
             # Step 1: get all ids matching bb7f97e70d9481e0fc67d3b72508fd3fa78f939f06e8bdd1a8a533c37cda8461
             results = anonymizedqueries.get(include=[], limit=batch_size, offset=offset)
             ids = results["ids"]
-            #print(results["ids"])
             if not ids:
                 break
             ids_to_delete = [r for r in ids if r.startswith(stridtodelete)]

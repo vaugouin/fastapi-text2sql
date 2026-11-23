@@ -7,7 +7,7 @@ from typing import Any, Optional
 # gracefully when the column is absent (e.g. before the ALTER TABLE migration runs): on the
 # first "Unknown column" error this flag flips to False and all subsequent reads/writes use
 # the legacy column set, treating result_entity as empty. So a not-yet-migrated DB never
-# breaks cache reads/writes — it just doesn't persist result_entity until the column exists.
+# breaks cache reads/writes: it just doesn't persist result_entity until the column exists.
 _RESULT_ENTITY_COLUMN_AVAILABLE = True
 
 # RESULT_INTENT (FASTAPI-TEXT2SQL-353): the question's intent read when the SQL was written,

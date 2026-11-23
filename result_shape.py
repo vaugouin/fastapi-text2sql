@@ -45,19 +45,19 @@ REPRESENTATIONS = (
     "stat-strip",    # one row, 2 to 5 metrics, no entity
     "ranked-bars",   # N rows of a label (or entity) plus one ordered metric
     "value-cards",   # N entity rows, each with the quantity the question asked (-354)
-    "timeline",      # N entity rows placed on a time axis by the date the question asked (phase 2 lot A)
-    "sequence-strip",  # N entity rows in their order (by date or collection order), numbered (phase 2 lot A)
-    "trend-columns",   # N rows of a year or decade plus one metric, one column per period (phase 2 lot A)
-    "compare-cards",   # 2 to 4 named entities side by side, one or two quantities, the winner marked (phase 2 lot B)
-    "fact-card",       # one entity and the one quantity or date the question asks about (phase 2 lot B)
-    "verdict",         # a yes/no answer read from the rows: a row exists, none does, a count above zero (phase 2 lot B)
-    "histogram",       # rows that are bins of one quantity plus a count, drawn in bin order (phase 2 lot C)
-    "share-bar",       # 2 to 8 parts of a complete whole, or one share, as one 100% bar (phase 2 lot C)
-    "flag-list",       # countries with their flag and name, and the count when there is one (phase 2 lot C)
-    "scatter",         # N entity rows as dots over two quantities, x against y (phase 3 lot A)
-    "map",             # the countries of a flag list shaded on a world outline (phase 3 lot B)
-    "hierarchy",       # N entity rows under one or two levels of groups named in the rows (phase 3 lot C)
-    "chain",           # works joined by remake and adaptation links, from the API's lineage walk (phase 3 lot E)
+    "timeline",      # N entity rows placed on a time axis by the date the question asked
+    "sequence-strip",  # N entity rows in their order (by date or collection order), numbered
+    "trend-columns",   # N rows of a year or decade plus one metric, one column per period
+    "compare-cards",   # 2 to 4 named entities side by side, one or two quantities, the winner marked
+    "fact-card",       # one entity and the one quantity or date the question asks about
+    "verdict",         # a yes/no answer read from the rows: a row exists, none does, a count above zero
+    "histogram",       # rows that are bins of one quantity plus a count, drawn in bin order
+    "share-bar",       # 2 to 8 parts of a complete whole, or one share, as one 100% bar
+    "flag-list",       # countries with their flag and name, and the count when there is one
+    "scatter",         # N entity rows as dots over two quantities, x against y
+    "map",             # the countries of a flag list shaded on a world outline
+    "hierarchy",       # N entity rows under one or two levels of groups named in the rows
+    "chain",           # works joined by remake and adaptation links, from the API's lineage walk
     "cover-flow",      # the card grid's entity rows as a sweeping poster carousel, offered after it (2026-11-14)
     "table",         # the honest fallback, never an empty card
 )
@@ -87,7 +87,7 @@ _IMAGE_COLUMN_RE = re.compile(r"(?:POSTER|PROFILE|LOGO|IMAGE)_PATH$")
 def _image_row_count(rows):
     return sum(1 for r in rows if any(
         v and _IMAGE_COLUMN_RE.search(str(k)) for k, v in (r.items() if isinstance(r, dict) else ())))
-# Phase 3 lot A. A scatter needs five points carrying both quantities: fewer is a handful of
+# A scatter needs five points carrying both quantities: fewer is a handful of
 # cards, which value-cards or compare-cards already draw better than a near-empty plot.
 _SCATTER_MIN_POINTS = 5
 # The quantity a scatter axis carries, read from the column name; a date is a year. Two columns
@@ -116,10 +116,10 @@ _SCATTER_X_ORDER = ("year", "budget", "runtime", "seasons", "episodes", "count",
 # but the three biggest into one corner. A votes axis is logarithmic when its largest value is a
 # hundred times its smallest; no other quantity is (money and minutes read in plain amounts).
 _SCATTER_LOG_RATIO = 100
-# Phase 3 lot C. A hierarchy is entity rows (the leaves: films, places, persons) under one or two
+# A hierarchy is entity rows (the leaves: films, places, persons) under one or two
 # levels of groups whose names the rows carry (TRILOGY_NAME, REGION_NAME, COLLECTION_NAME...). Two
 # groups at least and four leaves at least, three levels at most (two group columns and the
-# leaves): a deeper tree needs data the base does not hold (decision 7 of 2026-11-12).
+# leaves): a deeper tree needs data the base does not hold (decided 2026-11-12).
 _HIERARCHY_MIN_GROUPS, _HIERARCHY_MIN_LEAVES, _HIERARCHY_MAX_GROUP_LEVELS = 2, 4, 2
 # The groups must be a partition, or close to one. A place comes back once per ancestor when the
 # SQL joins every ancestor of a type (Giverny under Eure, Giverny and Normandy): a leaf under two
@@ -150,10 +150,10 @@ _HIERARCHY_KINDS = (
     ("genre", re.compile(r"GENRE", re.IGNORECASE)),
     ("person", re.compile(r"PERSON", re.IGNORECASE)),
 )
-# Phase 2 lot C. A share bar holds two to eight parts: more falls back to ranked-bars (a bar of
+# A share bar holds two to eight parts: more falls back to ranked-bars (a bar of
 # thirty slivers says nothing), one part says nothing a number card does not.
 _SHARE_MIN_PARTS, _SHARE_MAX_PARTS = 2, 8
-# Phase 3 lot B. The shading of a map with a count: at most five steps from light to dark, each
+# The shading of a map with a count: at most five steps from light to dark, each
 # holding about as many countries (quantiles: film counts run from a handful to thousands, and
 # equal ranges would leave all but the United States in the lightest step).
 _MAP_STEPS = 5
@@ -176,7 +176,7 @@ _GENDER_RE = re.compile(r"^GENDER$|_GENDER$|^GENRE_SEXE$|^SEXE$", re.IGNORECASE)
 _COUNTRY_COLUMN_RE = re.compile(r"COUNTRY|PAYS", re.IGNORECASE)
 _LOCATION_COUNTRY_SQL_RE = re.compile(r"LOCATION_TYPE\s*=\s*'country'", re.IGNORECASE)
 _LIMIT_RE = re.compile(r"\bLIMIT\s+(\d+)(?:\s*,\s*(\d+))?(?:\s+OFFSET\s+(\d+))?", re.IGNORECASE)
-# Phase 2 lot B. A comparison is drawn side by side for two to four entities; more rows (homonyms
+# A comparison is drawn side by side for two to four entities; more rows (homonyms
 # of a named title, a set) keep value-cards. A comparison shows at most two quantities.
 _COMPARE_MIN_ROWS, _COMPARE_MAX_ROWS, _COMPARE_MAX_COLUMNS = 2, 4, 2
 # A month or a day projected beside a year (BIRTH_MONTH, BIRTH_DAY for "born before") is a part
@@ -1367,7 +1367,7 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
             value_col = _value_column(sql, columns, focus, order_col)
             order_is_metric = by_name.get(order_col, {}).get("role") == "metric"
             ranking = _is_entity_ranking(sql, order_col, columns, result_entity)
-            # Phase 2 lot B: two to four named entities and the quantity compared, side by side.
+            # Two to four named entities and the quantity compared, side by side.
             # A yes/no question that compares ("Is Titanic longer than Avatar?") lands here too
             # when its focus names the quantity; without a focus a verdict is an existence test.
             compare_cols = _compare_columns(focus, value_col if task == "compare" else None, by_name)
@@ -1378,13 +1378,13 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
             elif task == "compare" and value_col:
                 representation = "value-cards"
             elif task == "value" and value_col and not ranking and by_name.get(value_col, {}).get("role") == "date":
-                # Phase 2 lot A: "when were the Alien films released?" asks for a date per
+                # "when were the Alien films released?" asks for a date per
                 # item, which a time axis shows better than a date under each poster.
                 representation = "timeline"
             elif task == "value" and value_col and not ranking:
                 representation = "value-cards"
             elif task == "sequence" and in_sequence:
-                # Phase 2 lot A: "the Godfather trilogy in order", rows already in date or
+                # "the Godfather trilogy in order", rows already in date or
                 # collection order. A sequence the SQL ordered otherwise (by rating) stays a
                 # grid: a numbered strip would state a wrong order.
                 representation = "sequence-strip"
@@ -1428,7 +1428,7 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
         date_cols = [c for c in columns if c["role"] == "date"]
         trend_metric = (focus[0] if focus and by_name[focus[0]]["role"] == "metric"
                         else metric_cols[0]["name"] if len(metric_cols) == 1 else None)
-        # Phase 2 lot C: rows that are bins of one quantity plus a count (read before a text bin
+        # Rows that are bins of one quantity plus a count (read before a text bin
         # turns into a label below).
         histogram = _histogram(sql, rows, columns, order_col)
         if not label_cols:
@@ -1444,7 +1444,7 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
             value_col = histogram["value_column"]
             family = "histogram"
         elif task == "trend" and len(date_cols) == 1 and trend_metric and not label_cols:
-            # Phase 2 lot A: "how many films were released per decade", one period column
+            # "how many films were released per decade", one period column
             # (year or decade) plus the metric, drawn as one column per period.
             representation = "trend-columns"
             value_col = trend_metric
@@ -1482,7 +1482,7 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
     options = _options(representation, family, value_col is not None, bar_col is not None,
                        has_time_axis, has_sequence, bool(compare_cols))
 
-    # Phase 2 lot C. share-bar: offered wherever the rows are the parts of a complete whole; the
+    # Share-bar: offered wherever the rows are the parts of a complete whole; the
     # default when the question asks for parts ("what share", "split", "as a pie": requested_view
     # share, applied below with the other requested views) and for one share alone (FILM_SHARE
     # 0.74 is a part, never a bare 0.74). flag-list: the default wherever the rows are countries,
@@ -1509,7 +1509,7 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
             options = ["flag-list"] + [o for o in options if o != "flag-list"]
             if countries["value_column"] and not value_col:
                 value_col = countries["value_column"]
-    # Phase 3 lot B. map: offered wherever the flag list is and one country at least has a place
+    # Map: offered wherever the flag list is and one country at least has a place
     # on the outline (an ISO numeric code), right after the flag list; the default only when the
     # question asks for a map (requested_view map, applied below: "on a world map", "sur une
     # carte"). The flag list stays the default otherwise: it names every country, the map hides
@@ -1518,7 +1518,7 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
         options = [o for o in options if o != "map"]
         options.insert(options.index("flag-list") + 1 if "flag-list" in options else max(len(options) - 1, 0), "map")
 
-    # Phase 3 lot A. scatter: entity rows over the two quantities the question names, offered
+    # Scatter: entity rows over the two quantities the question names, offered
     # wherever five rows carry both; the default when the question asks how the two relate
     # (task relate: "Is there a link between runtime and rating?", "Does a bigger budget mean a
     # better rating?") or names the plot (requested_view scatter, below: "budget against revenue",
@@ -1532,7 +1532,7 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
             representation = "scatter"
             options = ["scatter"] + [o for o in options if o != "scatter"]
 
-    # Phase 3 lot C. hierarchy: entity rows under one or two levels of groups the rows name
+    # Hierarchy: entity rows under one or two levels of groups the rows name
     # (a TRILOGY_NAME, a REGION_NAME, the COLLECTION_NAME beside each film), offered wherever the
     # rows come grouped; the default when the question asks for the grouping (requested_view
     # hierarchy, applied below: "grouped by trilogy", "regroupees par region", "with the films of
@@ -1547,7 +1547,7 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
             representation = "hierarchy"
             options = ["hierarchy"] + [o for o in options if o != "hierarchy"]
 
-    # Phase 2 lot B, over the options of the shape they stand on (each is put first).
+    # Fact card and verdict, over the options of the shape they stand on (each is put first).
     # fact-card: a value task on one entity, or on homonyms of one title (every row carries the
     # same label and the rows come in the default sort, so the first row is the title meant),
     # with a focus column projected: "How long is Lawrence of Arabia?", "When was Vertigo
@@ -1605,7 +1605,7 @@ def classify_result(sql_query, result_rows, result_entity="", id_columns=None, i
             summary = {"count": 0, "total": None, "value_column": None, "unit": None, "order": None,
                        "order_direction": None, "top": None}
         summary["verdict"], summary["verdict_basis"] = verdict, basis
-    # Phase 2 lot C, each where its form is offered.
+    # The summary each form needs, set only where that form is offered.
     if histogram and "histogram" in options:
         summary["histogram"] = histogram
     if share and "share-bar" in options:

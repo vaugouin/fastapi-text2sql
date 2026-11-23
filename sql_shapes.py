@@ -85,7 +85,7 @@ def detect_person_role_collapse(sql_query, result_entity):
     return False
 
 
-# --- Paging: only the statement's own trailing LIMIT (phase 3 lot E) -------------------
+# --- Paging: only the statement's own trailing LIMIT -------------------
 # The execution block used to strip every `LIMIT n` it found anywhere in the SQL before
 # appending its page, including one inside a recursive CTE, a derived table or one branch of
 # a UNION, which silently changed the meaning of the query (the phase 3 study, 2026-11-11:

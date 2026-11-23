@@ -34,7 +34,7 @@ FICTION_TYPES = ("fiction",)
 # gets one statement.
 MAX_IDS = 200
 STATEMENT_SECONDS = 2
-# The default (decision 4 of 2026-11-12): the map is the default over the card grid of place
+# The default (decided 2026-11-12): the map is the default over the card grid of place
 # photos from two pins on. With one pin, or areas only, it is offered.
 MIN_DEFAULT_PINS = 2
 

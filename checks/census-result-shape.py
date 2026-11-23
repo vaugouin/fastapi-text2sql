@@ -155,7 +155,7 @@ def census(exec_dir, old, new, assertions, rsa):
         sources["stored (" + str(stored.get("source") or "?") + ")" if stored else ("rules" if core else "none")] += 1
         o = old.classify_result(sql, rows, ent, intent=core) if (core and old_intent) else old.classify_result(sql, rows, ent)
         c = new.classify_result(sql, rows, ent, intent=core) if core else new.classify_result(sql, rows, ent)
-        # Phase 3 lot E: `chain` needs the lineage walk, a second query on the database, so the
+        # `chain` needs the lineage walk, a second query on the database, so the
         # census cannot offer it; it counts where the live API would walk (the gate is pure).
         _plan = result_chain.plan(q, core, api.get("entity_match_scores") or [], rows, ent)
         if _plan:

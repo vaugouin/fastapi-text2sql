@@ -258,7 +258,7 @@ def strip_franchise_words(norm: str, words=None) -> str:
 #
 # NOT HERE, ON PURPOSE. Leading articles ("il", "the", "die"): they raise every score carrying one,
 # so they loosen the gate, and several are words in another language (Die Hard, Las Vegas). Accents
-# and hyphens: candidates to measure, each shipped on its own figures (see the ticket).
+# and hyphens: candidates to measure, each shipped on its own figures.
 
 # Every form an apostrophe takes in typed or pasted text: right and left single quotation marks,
 # modifier letter apostrophe, acute accent, grave accent (backtick), prime.

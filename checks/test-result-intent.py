@@ -147,7 +147,7 @@ one = rs.classify_result("SELECT SUM(RUNTIME) AS TOTAL_RUNTIME FROM T", [{"index
 check("scalar: number card, options", (one["representation"], one["representation_options"], one["summary_facts"]["unit"]), ("number-card", ["number-card", "table"], "minutes"))
 check("empty: no facts", rs.classify_result("SELECT 1", [], "movie", intent=ri.core_intent("x films"))["summary_facts"], None)
 
-# Phase 2 lot A (2026-11-10): timeline, sequence-strip, trend-columns, and the "when" rule.
+# Timeline, sequence-strip, trend-columns, and the "when" rule.
 check("rules when", (ri.rules_task("When were the Alien films released?"), ri.rules_focus("When were the Alien films released?")), ("value", ["release_date"]))
 check("rules quand, long metrage is no runtime", ri.rules_intent("Quand sont sortis les longs métrages réalisés par Hayao Miyazaki ?")["focus"], ["release_date"])
 check("rules en quelles annees", ri.rules_task("En quelles années les films Jurassic Park sont-ils sortis ?"), "value")
@@ -170,7 +170,7 @@ check("trend: columns, value, options", (tr["representation"], tr["summary_facts
 check("trend asked as a table", rs.classify_result(DEC_SQL, DECADES, "", intent=ri.core_intent("How many films did Woody Allen direct per decade, as a table?"))["representation"], "table")
 check("grouped by decade without a trend intent stays a table", rs.classify_result(DEC_SQL, DECADES, "")["representation"], "table")
 
-# Phase 2 lot B (2026-11-11): compare-cards, fact-card, verdict, and the yes/no rules.
+# Compare-cards, fact-card, verdict, and the yes/no rules.
 VERDICT_RULES = [
     ("Did Ridley Scott direct Gladiator?", "verdict"),
     ("Can you show me the Kubrick films?", "list"),
@@ -234,7 +234,7 @@ check("verdict on a count of zero", rs.classify_result("SELECT COUNT(*) AS N FRO
 check("verdict on a sum: no verdict", rs.classify_result("SELECT SUM(RUNTIME) AS TOTAL_RUNTIME FROM T", [{"index": 0, "data": {"TOTAL_RUNTIME": 9}}], "", intent=YES)["representation"], "number-card")
 check("empty without a verdict: no facts, no verdict", (vn["summary_facts"] is not None, rs.classify_result("SELECT 1", [], "movie")["representation"]), (True, "card-grid"))
 
-# 5d. Phase 2 lot C: histogram, share-bar, flag-list (made-up questions and rows, not the bank's).
+# 5d. Histogram, share-bar, flag-list (made-up questions and rows, not the bank's).
 COUNT_TASK = {"task": "count", "focus": ["count"], "requested_view": "", "source": "llm"}
 H_SQL = ("SELECT FLOOR(T_WC_T2S_MOVIE.RUNTIME / 30) * 30 AS RUNTIME_BUCKET, COUNT(DISTINCT T_WC_T2S_MOVIE.ID_MOVIE) AS FILM_COUNT "
          "FROM T_WC_T2S_MOVIE WHERE X GROUP BY FLOOR(T_WC_T2S_MOVIE.RUNTIME / 30) ORDER BY RUNTIME_BUCKET ASC LIMIT 100")
@@ -342,7 +342,7 @@ pie = rs.classify_result(S_SQL, s_rows, "", intent=ri.core_intent("Show the spli
 check("pie: share-bar with shape pie", (pie["representation"], pie["summary_facts"]["share"]["shape"]), ("share-bar", "pie"))
 check("pie: a bar otherwise, and on a single share", (sb["summary_facts"]["share"]["shape"], one["summary_facts"]["share"]["shape"]), ("bar", "bar"))
 
-# 5e. Phase 3 lot A: scatter (made-up questions and rows, not the bank's).
+# 5e. Scatter (made-up questions and rows, not the bank's).
 check("scatter view words", [ri.rules_requested_view(q) for q in (
       "Scatter plot of the runtime and the rating of the Pixar films",
       "Montre la durée des films de Lynch en nuage de points",
@@ -402,7 +402,7 @@ check("scatter: votes over two orders of magnitude are a log axis", (vr["x"]["co
 vl = rs.classify_result(SC_SQL, scatter_rows([(3e5, 6.1), (4e5, 6.5), (5e5, 7.2), (8e5, 8.1), (9e5, 8.8)], x="IMDB_VOTES", y="IMDB_RATING"), "movie", intent=VR)["summary_facts"]["scatter"]
 check("scatter: close votes stay linear", vl["x"]["scale"], "linear")
 
-# 5f. Phase 3 lot B: map of countries (made-up questions and rows, not the bank's).
+# 5f. Map of countries (made-up questions and rows, not the bank's).
 check("map view words", [ri.rules_requested_view(q) for q in (
       "Show on a world map the countries that produced the most westerns",
       "World map of the number of anime series per country",
@@ -451,7 +451,7 @@ check("map: as a chart is still the ranking", rs.classify_result(C_SQL, MAP_ROWS
       "ranked-bars")
 
 
-# 5g. Phase 3 lot C: hierarchy (made-up questions and rows, not the bank's).
+# 5g. Hierarchy (made-up questions and rows, not the bank's).
 check("hierarchy view words", [ri.rules_requested_view(q) for q in (
       "The Mission: Impossible films grouped by director",
       "Which towns of Spain were used as filming locations, by region?",
@@ -617,7 +617,7 @@ check("both missing: legacy write", "RESULT_ENTITY" in conn.queries[-1][0], Fals
 check("flags after both", (sql_cache._RESULT_ENTITY_COLUMN_AVAILABLE, sql_cache._RESULT_INTENT_COLUMN_AVAILABLE), (False, False))
 reset_flags()
 
-# 7. Phase 3 lot E: lineage wording (made-up questions, not the bank's 2930 to 2939, which the
+# 7. Lineage wording (made-up questions, not the bank's 2930 to 2939, which the
 # lineage walk's own check reads: checks/test-result-chain.py).
 LINEAGE = (
     ("Trace Ben-Hur back to the novel it comes from", ("strong", "up")),

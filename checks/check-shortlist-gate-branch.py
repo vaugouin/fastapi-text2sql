@@ -124,7 +124,7 @@ print("2. With the documents production really indexes, name plus description")
 # it indexes cannot be known from this side, and the rejection trace now prints the documents
 # so the next occurrence answers it. Until then this file does NOT cover the rescue path, and
 # saying so is the point: an assertion that passes for a reason other than the one it names is
-# worse than an absent one, which is the lesson of -216.
+# worse than an absent one.
 check("resolution lands on the TMDb collection 4944", "docid=4944" in joined, True)
 check("no rejection was emitted", "rejected best embeddings candidate" in joined, False)
 

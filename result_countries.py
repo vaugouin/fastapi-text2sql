@@ -292,7 +292,7 @@ NO_FLAG = {
     'ZR': ('Zaire', 'Zaïre'),
 }
 
-# ISO 3166-1 numeric code per alpha-2 code, for the `map` representation (phase 3 lot B): the world
+# ISO 3166-1 numeric code per alpha-2 code, for the `map` representation: the world
 # outline both fronts draw (world-atlas 2.0.2, Natural Earth) keys its countries by numeric code.
 # Generated on 2026-11-12 from the iso-codes data pycountry 26.2.16 carries, for every code of
 # NAMES it knows; then by hand, a code TMDb still files under that names the same territory as a

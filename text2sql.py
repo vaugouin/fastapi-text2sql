@@ -109,9 +109,6 @@ strvisionmodeldefault = "gpt-6-astra"
 # OpenAI/Gemini (whose caching is automatic/prefix-based and needs no marker).
 CACHE_BOUNDARY_MARKER = "<!--CACHE_BOUNDARY-->"
 
-#print("Text to SQL prompt template", strtext2sqlprompttemplate)
-#print("Entity extraction prompt template", strentityextractionprompttemplate)
-
 # Prompt templates are loaded and kept up-to-date via the data_watcher module.
 # They are initialized to empty strings here and populated synchronously by
 # the register() calls below.
@@ -738,8 +735,8 @@ _REASONING_MODEL_PREFIXES = ("gpt-5", "gpt-6", "o1", "o3", "o4")
 # the complex-question pair, which fires on ~1 % of requests, is allowed to spend.
 #
 # `vision_identification` is the sixth task (FASTAPI-TEXT2SQL-114). Its tier is declared here
-# ahead of that ticket so the family table below is complete on the day the task lands, and it
-# starts at the cheapest setting on purpose: -114 says to begin at effort "low" and to raise it
+# ahead of the task itself so the family table below is complete on the day the task lands, and it
+# starts at the cheapest setting on purpose: begin at effort "low" and raise it
 # only if recognition weakens on the twenty-image bench. Its row costing ~4 cents a photo is a
 # reason to measure before spending, not a reason to pre-spend.
 _DEFAULT_EFFORT_TIER = {
@@ -1181,8 +1178,7 @@ def f_text2sql(user_question: str, strtext2sqlmodel: str, ui_language: str = "en
     print("Text2SQL LLM model:", model_to_use)
 
     try:
-        # Use the text2sql_prompt_template from the data/prompt.txt file
-        #print("Text to SQL prompt template")
+        # text2sql_prompt_template holds data/text_to_sql.md, hot-reloaded by data_watcher
         formatted_prompt = text2sql_prompt_template.replace("{user_question}", user_question)
         formatted_prompt = formatted_prompt.replace("{ui_language}", ui_language)
         if correction_hint:
@@ -1933,7 +1929,7 @@ def f_resolve_complex_question_retry_payload(user_question: str, strcomplexquest
 # OpenAI bills an image by patches: a 1024x1024 photo at detail "high" is
 # ceil(1024/32)^2 = 1024 patches, billed ceil(1024 * 1.2) = 1229 tokens, about $0.0123 at
 # $10 per million. "low" divides that by twenty and loses the credits block of a poster,
-# which the ticket calls the most discriminating clue a poster carries. So: "high", and let the client
+# the most discriminating clue a poster carries. So: "high", and let the client
 # bound the bill by resizing before the deposit (the front resizes to ~1024 px, q~0.8).
 VISION_IMAGE_DETAIL = "high"
 
@@ -1941,7 +1937,7 @@ VISION_IMAGE_DETAIL = "high"
 # A candidate that clearly dominates opens its entry, with the alternative reported beside it;
 # candidates that sit close are all presented, which is rule VOICE-AGENT-093.
 #
-# **These two values are PROVISIONAL and have not been measured.** The ticket is explicit that
+# **These two values are PROVISIONAL and have not been measured.** The rule is that
 # the threshold is settled on the twenty-image bench and not guessed, and that bench does not
 # exist yet (FASTAPI-TEXT2SQL-277). They are named constants precisely so the measurement has
 # somewhere to land: do not inline them, and do not tune them on a single bad photo.
@@ -2089,7 +2085,7 @@ _VISION_PERSON_QUESTION_MARKERS = (
 # Each entry is deliberately a WHOLE role word and not a stem. "film" was in the first draft
 # and it would have disabled the feature in French on its own: "qui sont les acteurs de ce
 # film ?" contains it, so every French person question would have fallen back to the cast, the
-# exact behaviour this ticket exists to stop. Same reasoning removed "edit" (edition), "shot"
+# exact behaviour this list exists to stop. Same reasoning removed "edit" (edition), "shot"
 # and "score".
 _VISION_ROLE_VERBS = (
     "directed", "director", "wrote", "writer", "written", "screenplay", "screenwriter",
@@ -2250,7 +2246,7 @@ def select_vision_candidates(payload) -> dict:
     ranked = sorted(works + people, key=lambda c: -c["confidence"])
     # What a question about the SUBJECT is answered from: the work when there is one, the
     # people when the image shows no work at all (a portrait), which is the case that had no
-    # answer before this ticket.
+    # answer before.
     pool = works or people
     if not pool:
         return {"ranked": ranked, "works": works, "people": people,

@@ -43,7 +43,7 @@ load_dotenv()
 
 DEFAULT_MOVIE_ID = 1368337  # The Odyssey (2026), long EN and FR articles, many relations
 
-# Endpoint order is the order of the ticket: the 15 routes that can serve wikipedia_content.
+# The 15 routes that can serve wikipedia_content.
 ENDPOINTS = [
     "movies", "series", "seasons", "episodes", "persons", "collections", "topics", "lists",
     "movements", "technicals", "groups", "deaths", "awards", "nominations", "locations",

@@ -28,22 +28,22 @@ import json
 import re
 
 INTENT_TASKS = ("list", "value", "rank", "count", "compare", "sequence", "trend", "relate", "verdict")
-# "share" (phase 2 lot C): the question asks for parts of a whole ("what share of", "split", "as a
+# "share": the question asks for parts of a whole ("what share of", "split", "as a
 # pie", "repartition", "en camembert"). Only the keyword rules read it, whatever the source: the
 # classifier's vocabulary predates it (core_intent below).
-# "scatter" (phase 3 lot A): the question names a scatter plot ("scatter plot", "nuage de points"),
+# "scatter": the question names a scatter plot ("scatter plot", "nuage de points"),
 # or sets two quantities against each other ("the budget against the revenue", "versus", "en
 # fonction de", "a link between the runtime and the rating"). Read by the rules whatever the
 # source, as "share": the classifier reads "plot" as chart, which drew bars of one quantity.
-# "map" (phase 3 lot B): the question asks for a map ("on a world map", "map of", "sur une carte",
+# "map": the question asks for a map ("on a world map", "map of", "sur une carte",
 # "carte des"). Read by the rules whatever the source, as "share"; it only moves a result whose
 # rows are countries (result_shape: the map is offered where the flag list is), so a map asked of
 # anything else changes nothing.
-# "hierarchy" (phase 3 lot C): the question asks for the rows grouped under a parent ("grouped by
+# "hierarchy": the question asks for the rows grouped under a parent ("grouped by
 # trilogy", "by region", "with the films of each", "regroupes par region", "par trilogie"). Read by
 # the rules whatever the source, over the classifier's "" only; it only moves entity rows that carry
 # a group column (result_shape: two groups and four leaves at least), so it changes nothing else.
-# "chain" (phase 3 lot E): the question asks for a lineage of adaptations or remakes ("the chain of
+# "chain": the question asks for a lineage of adaptations or remakes ("the chain of
 # remakes behind", "trace X back to its source", "which films descend from", "filiation", "remonte
 # jusqu'a"). Read by the rules whatever the source, over the classifier's "" only, from the strong
 # lineage words of rules_lineage below; the weak ones ("based on", "adapte de") name a source, not a
@@ -182,7 +182,7 @@ _VALUE_RE = re.compile(
     r"|\bcombien (?:de saisons|d'episodes) compte\b|\bwith (?:their|its|the) (?:\w+ )?(?:runtime|duration|budget|revenue|box office|rating|imdb rating|seasons|episodes)\b"
     r"|\b(?:runtime|duration|budget|revenue|rating) of each\b|\bavec (?:la|le|les|leur|leurs) (?:\w+ )?(?:duree|budget|recette|recettes|note|notes|saisons|episodes)\b"
     r"|\bde chacun(?:e)?\b|\bpour chaque\b|\bof each\b|\bfor each\b|\bhow much\b|\bcombien a coute\b|\bwhat is the (?:runtime|budget|revenue|rating)\b")
-# A question asking when (phase 2 lot A, the timeline): a date per item, so a value task whose
+# A question asking when: a date per item, so a value task whose
 # focus is the release date. "when"/"quand" only at the start, so "films released when X was
 # alive" is not one.
 _WHEN_RE = re.compile(
@@ -191,7 +191,7 @@ _WHEN_RE = re.compile(
 _NOT_FOCUS_RE = re.compile(r"\blongs?[ -]metrages?\b")
 _COUNT_RE = re.compile(r"\bhow many\b|\bnumber of\b|\bcount\b|\bcombien\b|\bnombre de\b")
 _VERDICT_RE = re.compile(r"^(?:did|does|do|is|was|were|are|has|have|had|can)\s|^(?:est-ce qu|est-ce que)\b")
-# Phase 2 lot B. A request worded as a question is not a yes/no question ("Can you show me the
+# A request worded as a question is not a yes/no question ("Can you show me the
 # Kubrick films?", "Pouvez-vous ..."), and French asks yes/no by inversion ("Spielberg a-t-il
 # realise Jaws ?", "Titanic est-il plus long qu'Avatar ?") when no question word asks for
 # something else ("Quels films Spielberg a-t-il realises ?" is a list).
@@ -202,7 +202,7 @@ _FR_INVERSION_RE = re.compile(r"\b\w+-(?:t-)?(?:il|elle|ils|elles)\b")
 _FR_QUESTION_WORD_RE = re.compile(
     r"\b(?:qui|quoi|quel|quelle|quels|quelles|lequel|laquelle|lesquels|lesquelles|quand|comment|combien|pourquoi)\b|^ou\b|^qu'|^que\b")
 _RELATE_RE = re.compile(r"\bconnected\b|\brelationship between\b|\bin common\b|\bboth\b.*\band\b|\bpoint commun\b|\ben commun\b|\blien entre\b")
-# Phase 3 lot A. A scatter named as such, whatever else the question says.
+# A scatter named as such, whatever else the question says.
 _SCATTER_VIEW_RE = re.compile(
     r"\bscatter\s*(?:plot|chart|graph|diagram)?s?\b|\bscatterplot\b|\bnuages? de points\b|\ben nuage\b"
     r"|\bdiagramme de dispersion\b|\bgraphique de dispersion\b")
@@ -217,14 +217,14 @@ _VIEW_RES = (
     # posters" is the carousel, not the plain cards.
     ("cover-flow", re.compile(r"\bcover[ -]?flow\b|\bcarousel\b|\bcarrousel\b|\bdefilement d'affiches\b")),
     ("table", re.compile(r"\bas a table\b|\bin a table\b|\btabular\b|\ben tableau\b|\bsous forme de tableau\b|\bdans un tableau\b")),
-    # Phase 2 lot C: parts of a whole. Before "chart", so "as a pie chart" is the share form.
+    # Parts of a whole. Before "chart", so "as a pie chart" is the share form.
     ("share", re.compile(
         r"\b(?:as|in|on) a (?:pie|donut|doughnut)\b|\bpie[ -]chart\b|\bwhat (?:share|proportion|percentage|fraction)\b"
         r"|\b(?:the )?(?:share|proportion|percentage) of\b|\bsplit\b|\bbreakdown\b|\bbroken down\b"
         r"|\b(?:donut|doughnut) (?:chart|graph)\b|\ben (?:beignet|anneau|secteurs)\b|\b(?:diagramme|graphique) (?:circulaire|en secteurs)\b"
         r"|\ben camembert\b|\bcamembert\b|\brepartition\b|\bse repartiss|\bquelle (?:part|proportion)\b|\bquel pourcentage\b"
         r"|\b(?:la )?(?:part|proportion|pourcentage) (?:des|de|du|d')")),
-    # Phase 3 lot B: a map. Before "chart", so "plot them on a map" is the map. A question that
+    # A map. Before "chart", so "plot them on a map" is the map. A question that
     # starts with "map" names the form ("Map of the filming locations", "Map the countries...");
     # mid-sentence only "a/the map of" does, so a title such as "The Map of Tiny Perfect Things"
     # can read as one, harmless on rows that are not countries. "en cartes" stays cards.
@@ -236,7 +236,7 @@ _VIEW_RES = (
         r"|\bcartographi")),
     ("chart", re.compile(r"\bas a (?:bar )?(?:chart|graph)\b|\bbar chart\b|\bplot\b|\ben graphique\b|\bsous forme de graphique\b|\bhistogramme\b")),
     ("cards", re.compile(r"\bas cards\b|\bwith (?:the )?posters\b|\ben cartes\b|\bavec (?:les )?affiches\b")),
-    # Phase 3 lot C: a grouping under a parent. Last, so an explicit table, chart or cards wins.
+    # A grouping under a parent. Last, so an explicit table, chart or cards wins.
     # "by" or "par" alone is no grouping ("films by Nolan", "realise par"): only before the name
     # of a parent level, or in "grouped by", "regroupes par", "with the films of each".
     ("hierarchy", re.compile(
@@ -271,7 +271,7 @@ def _share_shape_key(question):
     return {"share_shape": "pie"} if question and rules_share_shape(question) == "pie" else {}
 
 
-# Phase 3 lot E: lineage wording, read on the folded question. STRONG words ask for the lineage
+# Lineage wording, read on the folded question. STRONG words ask for the lineage
 # itself (a chain, a descent, a trace back to the origin) and set requested_view "chain"; WEAK words
 # name one source ("based on", "adapted from", "d'apres") and only let the API walk from a work the
 # question names. The direction: UP toward the sources, DOWN toward the works made from it; both
@@ -389,12 +389,12 @@ def rules_focus(question):
 def rules_requested_view(question):
     q = _fold(question)
     view = next((view for view, rx in _VIEW_RES if rx.search(q)), "")
-    # Phase 3 lot A: a scatter wins over "chart" ("Plot the budget against the revenue" is not a
+    # A scatter wins over "chart" ("Plot the budget against the revenue" is not a
     # bar chart) and over nothing; an explicit table, share or cards stays.
     if view in ("", "chart") and (_SCATTER_VIEW_RE.search(q) or (
             _SCATTER_RELATION_RE.search(q) and len(rules_focus(question)) >= 2)):
         return "scatter"
-    # Phase 3 lot E: strong lineage words ask for the chain, over nothing only.
+    # Strong lineage words ask for the chain, over nothing only.
     if view == "":
         lineage = rules_lineage(question)
         if lineage and lineage["strength"] == "strong":
@@ -474,13 +474,13 @@ def core_intent(question, llm_intent=None, cached_intent=None):
     for candidate in (llm_intent, cached_intent):
         if isinstance(candidate, dict) and candidate.get("task") in INTENT_TASKS:
             view = candidate.get("requested_view") if candidate.get("requested_view") in REQUESTED_VIEWS else ""
-            # Phase 2 lot C: "share" comes from the keyword rules whatever the source, since the
+            # "share" comes from the keyword rules whatever the source, since the
             # classifier is not asked for it. It wins over "" and over "chart": "as a pie" reads
-            # chart to the classifier, and a pie is the share form. Phase 3 lot A: "scatter" the
-            # same way ("plot X against Y" reads chart to the classifier). Phase 3 lot B: "map" too
+            # chart to the classifier, and a pie is the share form. "scatter" the
+            # same way ("plot X against Y" reads chart to the classifier). "map" too
             # ("Show on a world map..." reads "" to the classifier, "plot them on a map" chart).
-            # Phase 3 lot C: "hierarchy" the same way, over "" only ("grouped by trilogy" reads ""
-            # to the classifier; a chart it read stays a chart). Phase 3 lot E: "chain" the same
+            # "hierarchy" the same way, over "" only ("grouped by trilogy" reads ""
+            # to the classifier; a chart it read stays a chart). "chain" the same
             # way, over "" only ("Trace Nosferatu back to its source" reads "" to the classifier).
             if view in ("", "chart") and question and rules_requested_view(question) in ("share", "scatter", "map"):
                 view = rules_requested_view(question)
