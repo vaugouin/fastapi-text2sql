@@ -6412,7 +6412,6 @@ async def search_text2sql(
                     text="Storing anonymized question and SQL query to embeddings cache."
                 ))
                 position_counter += 1
-                # Extract entity variables for metadata
                 entity_vars_for_metadata = []
                 if isinstance(entity_extraction, dict) and 'error' not in entity_extraction:
                     entity_vars_for_metadata = [key for key, _ in entity.extracted_entity_items(entity_extraction)]
@@ -6427,7 +6426,7 @@ async def search_text2sql(
                                 "answer": answer_anonymized or "",
                                 "result_entity": result_entity or "",
                                 "api_version": strapiversionformatted,
-                                "entity_variables": ",".join(entity_vars_for_metadata),  # Store as comma-separated string
+                                "entity_variables": ",".join(entity_vars_for_metadata),
                                 "entity_extraction_processing_time": entity_extraction_processing_time,
                                 "text2sql_processing_time": text2sql_processing_time,
                                 "dat_creat": logs.now_paris().isoformat(timespec="seconds")
@@ -6440,7 +6439,6 @@ async def search_text2sql(
     localize_search_results(query_results, normalize_ui_language(request.ui_language), connection)
     connection.close()
 
-    # Generate question hash if we have a question and no hash was provided
     response_question_hash = request.question_hashed
     if not response_question_hash and request.question:
         response_question_hash = hashlib.sha256(request.question.encode('utf-8')).hexdigest()
@@ -6450,7 +6448,7 @@ async def search_text2sql(
     total_processing_time = total_end_time - total_start_time
     
     # Surface prompt-cache observations (one per LLM call this request made, across
-    # entity extraction, text2sql, complex-question retry, and single-value; for
+    # entity extraction, text2sql and complex-question retry; for
     # OpenAI / Anthropic / Google) into the response messages so caching is
     # verifiable through the API itself, not only the server stdout.
     for _cache_event in t2s.drain_prompt_cache_events():
@@ -6560,8 +6558,8 @@ async def search_text2sql(
     _result_shape = result_shape.classify_result(
         sql_query, query_results, result_entity, _RESULT_ENTITY_ID_COLUMNS, intent=_intent_core
     )
-    # Phase 3 lot E: the lineage walk behind `chain`. A second, read-only query run by the API
-    # (decision 5 of 2026-11-12), only when the question asks for a lineage of remakes or
+    # The lineage walk behind `chain`. A second, read-only query run by the API,
+    # only when the question asks for a lineage of remakes or
     # adaptations (or the task is relate) and names a work, or the rows are works of one
     # lineage; bounded in depth, works and time (result_chain.py). Any failure leaves the
     # result as classify_result made it.
@@ -6591,9 +6589,9 @@ async def search_text2sql(
                 text=f"Lineage walk skipped: {type(_chain_exc).__name__}: {_chain_exc}."
             ))
             position_counter += 1
-    # Phase 3 lot D: the coordinates behind the map of places. A second, read-only query by
-    # ID_LOCATION (decision 3 of 2026-11-12: LATITUDE and LONGITUDE written on T_WC_T2S_LOCATION
-    # by tmdb-movie-preprocess), only when the rows are places. Any failure, or a base without
+    # The coordinates behind the map of places. A second, read-only query by ID_LOCATION
+    # (LATITUDE and LONGITUDE, written on T_WC_T2S_LOCATION by tmdb-movie-preprocess),
+    # only when the rows are places. Any failure, or a base without
     # the two columns, leaves the result as classify_result made it.
     _places_ids = result_places.plan(query_results, result_entity)
     if _places_ids:
@@ -6704,7 +6702,6 @@ async def search_text2sql(
         **t2s.snapshot_usage_fields(),
     )
     
-    # Log the request and response
     log_data = {
         "request_id": feedback.current_request_id(),  # FASTAPI-TEXT2SQL-061
         "cache_bypassed_by_feedback": intcachebypassfeedback,
