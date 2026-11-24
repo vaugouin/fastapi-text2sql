@@ -67,16 +67,6 @@ NAME="fastapi-text2sql-$INSTANCE"
 echo "=== $(date '+%Y-%m-%d %H:%M:%S %Z') === $NAME (port $API_PORT)"
 docker ps --filter "name=^${NAME}\$"
 
-docker stop "$NAME" 2>/dev/null
-
-# The port must be free once our own container is stopped: anything still listening there is
-# another process, and the new container would die on bind.
-if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${API_PORT}\$"; then
-    echo "ERROR: port $API_PORT is still in use after stopping $NAME, not started:"
-    ss -ltnp 2>/dev/null | grep -E "[:.]${API_PORT}[[:space:]]" || true
-    exit 1
-fi
-
 cd "$STACK_DIR" || exit 1
 # Ensure ChromaDB is healthy before (re)starting the API — main.py connects to
 # Chroma at import time and the container crashes on boot if it is unreachable.
@@ -104,7 +94,24 @@ mkdir -p "$UPLOADS_DIR/vision" || echo "WARNING: could not create $UPLOADS_DIR, 
 # secrets; losing it only forces a new login.
 MCP_OAUTH_DIR=/home/debian/docker/shared_data/fastapi-text2sql/mcp-oauth
 mkdir -p "$MCP_OAUTH_DIR" || echo "WARNING: could not create $MCP_OAUTH_DIR, the container will start with a root-owned OAuth store."
-docker build -t "$NAME-app" .
+# Build BEFORE stopping (2026-11-24): the running container keeps serving during the build, so
+# the outage shrinks to the stop and start, a few seconds. Stopping first had cut every client
+# for the whole build, over six minutes on 2026-11-24 when a new python base image emptied the
+# Docker cache. A failed build now leaves the running container untouched.
+if ! docker build -t "$NAME-app" .; then
+    echo "ERROR: docker build failed, $NAME left running on its previous image, nothing restarted."
+    exit 1
+fi
+
+docker stop "$NAME" 2>/dev/null
+
+# The port must be free once our own container is stopped: anything still listening there is
+# another process, and the new container would die on bind.
+if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${API_PORT}\$"; then
+    echo "ERROR: port $API_PORT is still in use after stopping $NAME, not started:"
+    ss -ltnp 2>/dev/null | grep -E "[:.]${API_PORT}[[:space:]]" || true
+    exit 1
+fi
 # Secrets are injected at runtime via --env-file from a host-managed env file
 # kept outside the app source tree (never baked into the image). INSTANCE_NAME is passed
 # explicitly so a folder-derived name reaches the logs and GET / too.
