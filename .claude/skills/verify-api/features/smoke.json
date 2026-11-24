@@ -18,6 +18,6 @@
     {"feature": "representations", "question": "What are the 5 longest films directed by Christopher Nolan?",
      "expect": {"max_rows": 5, "result_kind": "entity_rows", "representation": "ranked-bars",
                 "first_row_contains": "Oppenheimer", "within_first": 1},
-     "known_issue": "2026-11-24: an anthology of shorts ('Cinema16: British Short Films', where Nolan directed one short) ranks first; feature-film scope is not applied to 'films directed by'"}
+     "known_issue": "FASTAPI-TEXT2SQL-416 (2026-11-24): an anthology of shorts ('Cinema16: British Short Films', where Nolan directed one short) ranks first; feature-film scope is not applied to 'films directed by'"}
   ]
 }
