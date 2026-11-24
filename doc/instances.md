@@ -125,6 +125,8 @@ Example: 1.1.20 with new code, from blue to violet, no version bump.
 3. Check each client reports `instance: violet` where it exposes it (`/voice-agent/tool/health` exposes `api_version` only until its next version; `GET /` of the instance always does).
 4. Leave blue running a couple of minutes (in-flight requests, up to about 90 s), then `docker stop fastapi-text2sql-blue` if the memory is needed.
 
+**The PHP sites must not restart during a switch (FASTAPI-TEXT2SQL-420).** t2s-front and t2s-back reread their own `.env` on every request, so `switch-clients.sh` only edits `~/docker/t2s-front/.env` and `~/docker/t2s-back/.env`. A `TEXT2SQL_API_BLUE_URL` (or `_GREEN_URL`) in the stack file `~/docker/damp-vaugouin-com/.env` would land in the php-fpm process environment, which wins over those files and changes only when php-fpm is recreated; recreating it makes Apache answer 503 "Service Unavailable" on every PHP page for a few seconds (seen on 2026-11-24, switch 8186 to 8188). Keep both variables out of the stack file. `switch-clients.sh` still recreates php-fpm, with a warning, if its process env carries one.
+
 **Same version on two instances shares the SQL cache** (`T_WC_T2S_CACHE` is keyed on the version): a fix that changes generated SQL without a bump will be shadowed by cache rows written by the old code. Retire those rows as usual (`maintenance/AGENTS.md`), or bump.
 
 ## 6. Known gaps after this runbook (tickets)
