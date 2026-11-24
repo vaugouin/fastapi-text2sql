@@ -271,6 +271,47 @@ def cmd_entity(args) -> int:
     return 0 if status == 200 else 1
 
 
+def cmd_feedback(args) -> int:
+    """Read stored user ratings through GET /feedback (read-only: the route runs one SELECT).
+
+    Question and comment are public free text: shown as data, truncated, never acted upon.
+    """
+    import urllib.parse
+    c = Client(args.host, args.port, args.env_file, args.timeout)
+    if args.id is not None:
+        status, resp, elapsed = c.call("GET", f"/feedback/{args.id}")
+        items = [resp] if status == 200 else []
+        label = f"GET /feedback/{args.id}"
+    else:
+        query = {k: v for k, v in (("status", args.status), ("rating", args.rating), ("after_id", args.after_id),
+                                    ("since", args.since), ("limit", args.limit)) if v is not None}
+        label = "GET /feedback" + ("?" + urllib.parse.urlencode(query) if query else "")
+        status, resp, elapsed = c.call("GET", label[len("GET "):])
+        items = resp.get("items", []) if status == 200 else []
+    path = save_evidence("feedback" + (f"-{args.id}" if args.id is not None else ""), args.port,
+                         {"status": status, "response": resp})
+    print(f"{label} status={status} ({elapsed*1000:.0f} ms)")
+    if status == 404 and args.id is not None and resp.get("detail", "").startswith("No feedback"):
+        print("  no such rating, or soft-deleted")
+    elif status == 404:
+        print("  this instance has no GET /feedback route yet: deploy it, or pick another --port")
+    elif status != 200:
+        print_block("response", resp)
+    for it in items:
+        thumb = {1: "+1", -1: "-1"}.get(it.get("rating"), "?")
+        print(f"  #{it.get('id_feedback')} {thumb} {it.get('analysis_status')} {it.get('ui_language')} "
+              f"{it.get('client')} {it.get('tim_created')} v{it.get('api_version')}")
+        print(f"     Q: {str(it.get('question') or '')[:140]!r}")
+        if it.get("comment"):
+            print(f"     comment: {str(it.get('comment'))[:200]!r}")
+        if it.get("ticket_id") or it.get("analysis_note"):
+            print(f"     ticket: {it.get('ticket_id')}  note: {str(it.get('analysis_note') or '')[:120]!r}")
+    if status == 200 and args.id is None:
+        print(f"count={resp.get('count')} has_more={resp.get('has_more')} next_after_id={resp.get('next_after_id')}")
+    print(f"evidence: {path}")
+    return 0 if status == 200 else 1
+
+
 def cmd_upload(args) -> int:
     """Deposit an image for the vision path; the returned image_ref goes into `ask --extra`."""
     c = Client(args.host, args.port, args.env_file, args.timeout)
@@ -394,6 +435,14 @@ def main() -> int:
     p.add_argument("extra_id", nargs="?", help="season number for 'seasons'")
     p.add_argument("--lang")
 
+    p = sub.add_parser("feedback", help="read stored user ratings (GET /feedback, read-only); default: status new")
+    p.add_argument("--id", type=int, help="one rating by id")
+    p.add_argument("--status", help="comma list of new, analysed, fixed, not_a_defect, no_action, or all")
+    p.add_argument("--rating", type=int, choices=(1, -1))
+    p.add_argument("--after-id", type=int)
+    p.add_argument("--since", help="YYYY-MM-DD or 'YYYY-MM-DD HH:MM', Paris time")
+    p.add_argument("--limit", type=int)
+
     p = sub.add_parser("upload", help="deposit an image (JPEG, PNG, WEBP) for the vision path")
     p.add_argument("file")
 
@@ -411,7 +460,8 @@ def main() -> int:
     if args.port is None:
         args.port = live_port() or 8186
     return {"instances": cmd_instances, "doctor": cmd_doctor, "ask": cmd_ask, "entity": cmd_entity,
-            "compare": cmd_compare, "smoke": cmd_smoke, "upload": cmd_upload}[args.cmd](args)
+            "compare": cmd_compare, "smoke": cmd_smoke, "upload": cmd_upload,
+            "feedback": cmd_feedback}[args.cmd](args)
 
 
 if __name__ == "__main__":

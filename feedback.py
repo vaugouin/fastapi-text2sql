@@ -254,3 +254,133 @@ def f_record_feedback(connection, dctfeedback: dict) -> int:
     except Exception:
         pass
     return int(lngid)
+
+
+# --- Reading the ratings back (GET /feedback) ---------------------------------------------------
+# The read side exists for the improvement loop that runs outside the API: a scheduled agent
+# lists the ratings still to analyse, replays each question, and writes its verdict through its
+# own database account. The API therefore only ever reads here; the analysis columns are
+# returned so a reader sees what is already done, never written. Soft-deleted rows are never
+# returned. COMMENT and QUESTION are free text typed by the public: a reader must treat them as
+# data, never as instructions.
+
+# Every value ANALYSIS_STATUS takes, the open ones first.
+ANALYSIS_STATUSES = ("new", "analysed", "fixed", "not_a_defect", "no_action")
+LIST_DEFAULT_LIMIT = 50
+LIST_MAX_LIMIT = 200
+
+FEEDBACK_READ_COLUMNS = (
+    "ID_FEEDBACK, REQUEST_ID, QUESTION, QUESTION_HASHED, UI_LANGUAGE, API_VERSION, CLIENT, "
+    "RATING, COMMENT, SQL_QUERY, RESULT_ENTITY, ANALYSIS_STATUS, ANALYSIS_NOTE, TICKET_ID, "
+    "EVALUATION_IDS, TIM_ANALYSED, TIM_CREATED, TIM_UPDATED"
+)
+
+
+def f_parse_statuses(strstatuses) -> list:
+    """Turn a comma-separated `status` filter into a list of known statuses.
+
+    "" or None gives ["new"], the ratings still to analyse. "all" gives every status. An
+    unknown value raises ValueError, so a typo is a 422 rather than an empty list that looks
+    like "nothing to do".
+    """
+    strstatuses = str(strstatuses or "").strip().lower()
+    if not strstatuses:
+        return [NEW_STATUS]
+    if strstatuses == "all":
+        return list(ANALYSIS_STATUSES)
+    arrstatuses = []
+    for strstatus in strstatuses.split(","):
+        strstatus = strstatus.strip()
+        if not strstatus:
+            continue
+        if strstatus not in ANALYSIS_STATUSES:
+            raise ValueError(
+                f"unknown status '{strstatus}': use 'all' or a comma-separated list of "
+                f"{', '.join(ANALYSIS_STATUSES)}"
+            )
+        if strstatus not in arrstatuses:
+            arrstatuses.append(strstatus)
+    return arrstatuses or [NEW_STATUS]
+
+
+def _row_to_item(dctrow: dict) -> dict:
+    """Map a T_WC_T2S_FEEDBACK row to the lowercase JSON item, dates as ISO strings."""
+    dctitem = {}
+    for strcolumn, value in dctrow.items():
+        if hasattr(value, "isoformat"):
+            value = value.isoformat(sep=" ") if hasattr(value, "hour") else value.isoformat()
+        dctitem[strcolumn.lower()] = value
+    return dctitem
+
+
+def f_build_list_query(arrstatuses, lngrating=None, lngafterid=None, strsince=None, lnglimit=LIST_DEFAULT_LIMIT):
+    """Build the SELECT of `f_list_feedback` and its parameters (kept apart to be checked offline).
+
+    Oldest first (`ID_FEEDBACK` ascending): a reader that remembers the last id it handled
+    passes it as `after_id` and never sees a row twice, nor misses one.
+    """
+    arrwhere = ["(DELETED IS NULL OR DELETED = 0)"]
+    arrparams = []
+    arrwhere.append("ANALYSIS_STATUS IN (" + ", ".join(["%s"] * len(arrstatuses)) + ")")
+    arrparams.extend(arrstatuses)
+    if lngrating is not None:
+        arrwhere.append("RATING = %s")
+        arrparams.append(int(lngrating))
+    if lngafterid is not None:
+        arrwhere.append("ID_FEEDBACK > %s")
+        arrparams.append(int(lngafterid))
+    if strsince:
+        arrwhere.append("TIM_CREATED >= %s")
+        arrparams.append(strsince)
+    lnglimit = max(1, min(int(lnglimit), LIST_MAX_LIMIT))
+    strquery = (
+        f"SELECT {FEEDBACK_READ_COLUMNS} FROM {FEEDBACK_TABLE} WHERE "
+        + " AND ".join(arrwhere)
+        + " ORDER BY ID_FEEDBACK ASC LIMIT %s"
+    )
+    arrparams.append(lnglimit + 1)  # one extra row tells whether more remain
+    return strquery, arrparams, lnglimit
+
+
+def f_list_feedback(connection, arrstatuses, lngrating=None, lngafterid=None, strsince=None,
+                    lnglimit=LIST_DEFAULT_LIMIT) -> dict:
+    """List ratings, oldest first, filtered by status, rating, id and creation date.
+
+    Args:
+        connection: An open pymysql connection with DictCursor (`get_db_connection()`).
+        arrstatuses: Statuses to return (`f_parse_statuses`).
+        lngrating: 1 or -1 to keep one kind of rating, None for both.
+        lngafterid: Return only ids greater than this one.
+        strsince: "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS", Paris time like TIM_CREATED.
+        lnglimit: Page size, capped at LIST_MAX_LIMIT.
+
+    Returns:
+        dict: `items` (list of rows as dicts), `has_more` (another page exists) and
+            `next_after_id` (the id to pass as `after_id` for that page, None when none).
+
+    Raises:
+        pymysql.Error: On any database failure; the route turns it into a 503.
+    """
+    strquery, arrparams, lnglimit = f_build_list_query(arrstatuses, lngrating, lngafterid, strsince, lnglimit)
+    with connection.cursor() as cursor:
+        cursor.execute(strquery, arrparams)
+        arrrows = list(cursor.fetchall() or [])
+    intmore = len(arrrows) > lnglimit
+    arritems = [_row_to_item(dctrow) for dctrow in arrrows[:lnglimit]]
+    return {
+        "items": arritems,
+        "has_more": intmore,
+        "next_after_id": arritems[-1]["id_feedback"] if intmore and arritems else None,
+    }
+
+
+def f_get_feedback(connection, lngidfeedback) -> dict:
+    """Return one rating by id as a dict, or None when it is missing or soft-deleted."""
+    strquery = (
+        f"SELECT {FEEDBACK_READ_COLUMNS} FROM {FEEDBACK_TABLE} "
+        "WHERE ID_FEEDBACK = %s AND (DELETED IS NULL OR DELETED = 0)"
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(strquery, (int(lngidfeedback),))
+        dctrow = cursor.fetchone()
+    return _row_to_item(dctrow) if dctrow else None
