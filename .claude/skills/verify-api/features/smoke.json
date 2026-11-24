@@ -7,6 +7,7 @@
     {"feature": "entity-endpoints", "free": true, "method": "GET", "path": "/movies/15"},
     {"feature": "entity-endpoints", "free": true, "method": "GET", "path": "/persons/2636"},
     {"feature": "samples", "free": true, "method": "GET", "path": "/samples?ui_language=fr"},
+    {"feature": "feedback-read", "free": true, "method": "GET", "path": "/feedback?status=all&limit=1"},
 
     {"feature": "search", "question": "Which films did Alfred Hitchcock direct in the 1950s?",
      "expect": {"min_rows": 9, "max_rows": 14, "result_kind": "entity_rows", "representation": "card-grid",
