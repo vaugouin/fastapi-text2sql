@@ -104,6 +104,17 @@ if ! docker build -t "$NAME-app" .; then
 fi
 
 docker stop "$NAME" 2>/dev/null
+# docker stop returns before the daemon has removed a --rm container: run right after it fails
+# with "container name already in use". The long build used to hide that race; since the build
+# comes first (2026-11-24) it bit on the first run. Wait for the removal, 30 s at most.
+for _ in $(seq 60); do
+    docker container inspect "$NAME" >/dev/null 2>&1 || break
+    sleep 0.5
+done
+if docker container inspect "$NAME" >/dev/null 2>&1; then
+    echo "ERROR: $NAME still exists 30 s after docker stop, not started."
+    exit 1
+fi
 
 # The port must be free once our own container is stopped: anything still listening there is
 # another process, and the new container would die on bind.
