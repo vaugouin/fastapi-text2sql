@@ -11,5 +11,5 @@ voice-agent and t2s-front photo search; MCP clients pass an `image_ref` deposite
 - `verify_api.py upload <file.jpg>` then `verify_api.py ask "what is this film?" --extra '{"image_ref": "<ref>"}'`.
 
 ## Gotchas
-- **Only upload images that may sit on the production server for 30 days**: a poster or a film still, never a personal photo.
+- **Only upload images that may sit on the production server for 30 days**: a poster or a film still, never a personal photo. An image uploaded by mistake is removed by Philippe on the VPS: `rm ~/docker/shared_data/fastapi-text2sql/uploads/vision/<image_ref>` (the `vision/` subfolder is the kind; the file belongs to the container user, so `rm` asks to confirm a write-protected file).
 - The vision call is OpenAI only, by design.
