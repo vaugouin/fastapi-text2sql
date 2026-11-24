@@ -88,23 +88,10 @@ async def _mcp_sql_search(
     the resource context://database-scope before formulating complex questions.
 
     Data coverage: ~620k movies, ~88k TV series, ~890k persons. Up to early 2024.
-    Movie IDs      → https://myapp.com/movies/{ID_MOVIE}
-    Series IDs     → https://myapp.com/series/{ID_SERIE}
-    Person IDs     → https://myapp.com/persons/{ID_PERSON}
-    Collection IDs → https://myapp.com/collections/{ID_T2S_COLLECTION}
-    Topic IDs      → https://myapp.com/topics/{ID_TOPIC}
-    List IDs       → https://myapp.com/lists/{ID_T2S_LIST}
-    Movement IDs   → https://myapp.com/movements/{ID_MOVEMENT}
-    Technical IDs  → https://myapp.com/technicals/{ID_TECHNICAL}
-    Genre IDs      → https://myapp.com/genres/{ID_GENRE}
-    Group IDs      → https://myapp.com/groups/{ID_GROUP}
-    Death IDs      → https://myapp.com/deaths/{ID_DEATH}
-    Award IDs      → https://myapp.com/awards/{ID_AWARD}
-    Nomination IDs → https://myapp.com/nominations/{ID_NOMINATION}
-    Company IDs    → https://myapp.com/companies/{ID_COMPANY}
-    Network IDs    → https://myapp.com/networks/{ID_NETWORK}
-    Location IDs   → https://myapp.com/locations/{ID_LOCATION}
-    Source work IDs → https://myapp.com/sourceworks/{ID_SOURCE_WORK}
+    Links: link entity names to their page on the public catalogue ({lang} = en or fr):
+    Movie IDs       → <MCP_ENTITY_LINK_BASE_URL>/{lang}/movie.php?movieid={ID_MOVIE}
+    Series IDs      → <MCP_ENTITY_LINK_BASE_URL>/{lang}/serie.php?serieid={ID_SERIE}
+    ... one line per entity type (17), built at startup by _mcp_entity_links_doc() in main.py
     """
     try:
         async with httpx.AsyncClient(timeout=60) as client:
@@ -784,6 +771,7 @@ Since FASTAPI-TEXT2SQL-413 (2026-11-23), `/mcp` sits behind FastMCP's OAuth prox
 - **Fail closed.** With any OAuth setting missing, the routes stay mounted but every tool call is refused, and startup names the missing settings.
 - **Shared by every instance.** `MCP_OAUTH_JWT_SIGNING_KEY` and `MCP_OAUTH_STORAGE_KEY` are identical in each instance `.env`, and the client store (`mcp-oauth/`, encrypted with Fernet) is mounted by `restart.sh` from `shared_data`. Otherwise a restart or an instance switch would log every client out.
 - **The OpenAI key.** The API holds none (FASTAPI-TEXT2SQL-409). `sql_search` sends `MCP_OWNER_OPENAI_KEY` in `X-OpenAI-Key` on its internal call; empty, it serves cache hits only. The entity tools call no model and need no key.
+- **Entity links.** The `sql_search` description tells the model how to link result IDs, and the model follows it to the letter: until 2026-11-23 it held a placeholder domain, and claude.ai linked every title to it. The links now point to the public web front, one page per entity under `/en/` or `/fr/`, on the host given by `MCP_ENTITY_LINK_BASE_URL` (for example `https://www.example.com`, no trailing slash). Empty, the description forbids links instead. It is read at startup: a change needs a restart.
 
 ### Setup
 
@@ -864,7 +852,7 @@ Claude
   │  Formats response in natural language with Markdown links
   ▼
 User
-     "Here are the top Nolan films: [Inception](https://myapp.com/movies/27205) (8.4)..."
+     "Here are the top Nolan films: [Inception](https://<front host>/en/movie.php?movieid=27205) (8.4)..."
 ```
 
 ### Drill-down query (two-step)

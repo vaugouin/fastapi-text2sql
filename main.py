@@ -11002,7 +11002,56 @@ async def get_samples(ui_language: Optional[str] = "en", set: Optional[str] = "s
 # MCP (Model Context Protocol) server: tools, resource, middleware, mount
 # ---------------------------------------------------------------------------
 
+# Entity links in the sql_search description. The model that calls the tool turns result IDs
+# into Markdown links by following this table, so it must name real pages: until 2026-11-23 it
+# held a placeholder domain (myapp.com) and claude.ai answers linked every title there. The
+# pages are those of the public web front (t2s-front), one per entity, under a language prefix
+# (/en/ or /fr/). The domain comes from the environment so this public repository names none;
+# without it the description forbids links rather than let the model invent a URL.
+MCP_ENTITY_LINK_BASE_URL = os.getenv("MCP_ENTITY_LINK_BASE_URL", "").strip().rstrip("/")
+_MCP_ENTITY_PAGES = (
+    ("Movie IDs", "movie.php?movieid={ID_MOVIE}"),
+    ("Series IDs", "serie.php?serieid={ID_SERIE}"),
+    ("Person IDs", "person.php?personid={ID_PERSON}"),
+    ("Collection IDs", "t2scollection.php?collectionid={ID_T2S_COLLECTION}"),
+    ("Topic IDs", "t2stopic.php?topicid={ID_TOPIC}"),
+    ("List IDs", "t2slist.php?listid={ID_T2S_LIST}"),
+    ("Movement IDs", "movement.php?movementid={ID_MOVEMENT}"),
+    ("Technical IDs", "technical.php?technicalid={ID_TECHNICAL}"),
+    ("Genre IDs", "genre.php?genreid={ID_GENRE}"),
+    ("Group IDs", "group.php?groupid={ID_GROUP}"),
+    ("Death IDs", "death.php?deathid={ID_DEATH}"),
+    ("Award IDs", "award.php?awardid={ID_AWARD}"),
+    ("Nomination IDs", "nomination.php?nominationid={ID_NOMINATION}"),
+    ("Company IDs", "company.php?companyid={ID_COMPANY}"),
+    ("Network IDs", "network.php?networkid={ID_NETWORK}"),
+    ("Location IDs", "location.php?locationid={ID_LOCATION}"),
+    ("Source work IDs", "sourcework.php?sourceworkid={ID_SOURCE_WORK}"),
+)
+
+
+def _mcp_entity_links_doc() -> str:
+    if not MCP_ENTITY_LINK_BASE_URL:
+        return ("Links: these IDs have no public page. Do not turn them into links and never "
+                "invent a URL; give names as plain text.")
+    lines = [
+        "Links: link entity names to their page on the public catalogue, with {lang} = fr when",
+        "    the conversation is in French and en otherwise. Use exactly these patterns, never",
+        "    another domain or path:",
+    ]
+    for label, path in _MCP_ENTITY_PAGES:
+        lines.append(f"    {label:<15} → {MCP_ENTITY_LINK_BASE_URL}/{{lang}}/{path}")
+    return "\n".join(lines)
+
+
+def _with_entity_links(fn):
+    """Fills the __ENTITY_LINKS__ slot of a tool docstring before FastMCP reads it."""
+    fn.__doc__ = fn.__doc__.replace("__ENTITY_LINKS__", _mcp_entity_links_doc())
+    return fn
+
+
 @mcp.tool(name="sql_search")
+@_with_entity_links
 async def _mcp_sql_search(
     question: str = "",
     ui_language: str = "en",
@@ -11065,22 +11114,7 @@ async def _mcp_sql_search(
     the resource context://database-scope before formulating complex questions.
 
     Data coverage: ~620k movies, ~88k TV series, ~890k persons. Up to early 2024.
-    Movie IDs      → https://myapp.com/movies/{ID_MOVIE}
-    Series IDs     → https://myapp.com/series/{ID_SERIE}
-    Person IDs     → https://myapp.com/persons/{ID_PERSON}
-    Collection IDs → https://myapp.com/collections/{ID_T2S_COLLECTION}
-    Topic IDs      → https://myapp.com/topics/{ID_TOPIC}
-    List IDs       → https://myapp.com/lists/{ID_T2S_LIST}
-    Movement IDs   → https://myapp.com/movements/{ID_MOVEMENT}
-    Genre IDs      → https://myapp.com/genres/{ID_GENRE}
-    Group IDs      → https://myapp.com/groups/{ID_GROUP}
-    Death IDs      → https://myapp.com/deaths/{ID_DEATH}
-    Award IDs      → https://myapp.com/awards/{ID_AWARD}
-    Nomination IDs → https://myapp.com/nominations/{ID_NOMINATION}
-    Company IDs    → https://myapp.com/companies/{ID_COMPANY}
-    Network IDs    → https://myapp.com/networks/{ID_NETWORK}
-    Location IDs   → https://myapp.com/locations/{ID_LOCATION}
-    Source work IDs → https://myapp.com/sourceworks/{ID_SOURCE_WORK}
+    __ENTITY_LINKS__
     """
     if not str(question or "").strip() and not str(image_ref or "").strip():
         return json.dumps({"error": "Provide a question, an image_ref, or both."})
