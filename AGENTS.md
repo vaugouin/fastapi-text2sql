@@ -297,6 +297,8 @@ When updating prompt templates, schema, or resolver behavior:
 
 Pick verification by blast radius, and say exactly what was not run and why when MariaDB, ChromaDB, keys or quota are unavailable.
 
+- **Live checks go through the `verify-api` skill** (`.claude/skills/verify-api/`): a CLI that drives a running instance like a client (`instances`, `doctor`, `ask`, `entity`, `compare`, `smoke`, `upload`), with cache write off, and saves every response under `.verify-api/` (git-ignored) as evidence; its `features/` folder maps every feature of the API to the request that reaches it and the fields to read. Run it yourself before calling a change done, rather than asking Philippe to look. When a request or response field, an endpoint or an expected answer changes, update the matching `features/*.md` and `features/smoke.json` in the same commit.
+
 - Python-only change: the narrowest relevant check, plus pyflakes.
 - Prompt, placeholder, resolver, cache or schema-facing change: representative `/search/text2sql` questions, with `store_to_cache=false` when inspecting behaviour.
 - Evaluation-sensitive change: a focused evaluator subset before a full run (`../text2sql-eval/README.md`).

@@ -1,0 +1,23 @@
+{
+  "about": "Probes run by `verify_api.py smoke`. `free: true` spends no token (no LLM call, no cache write). Paid probes run with cache read and write off, so each one goes through the whole pipeline; on a warm provider cache the set costs about 0.10 USD, the first question after a restart about 0.13 USD alone. Expectations were measured on 1.1.20 (violet) on 2026-11-24. A probe with `known_issue` reports KNOWN instead of FAIL while the defect it names is open; remove the field when the fix ships, so the probe guards against a regression.",
+  "probes": [
+    {"feature": "health", "free": true, "method": "GET", "path": "/"},
+    {"feature": "fast-path", "free": true, "question": "tt0033467",
+     "expect": {"min_rows": 1, "max_rows": 1, "first_row_contains": "Citizen Kane"}},
+    {"feature": "entity-endpoints", "free": true, "method": "GET", "path": "/movies/15"},
+    {"feature": "entity-endpoints", "free": true, "method": "GET", "path": "/persons/2636"},
+    {"feature": "samples", "free": true, "method": "GET", "path": "/samples?ui_language=fr"},
+
+    {"feature": "search", "question": "Which films did Alfred Hitchcock direct in the 1950s?",
+     "expect": {"min_rows": 9, "max_rows": 14, "result_kind": "entity_rows", "representation": "card-grid",
+                "first_row_contains": "Vertigo", "sql_contains": "T_WC_T2S_PERSON_MOVIE"}},
+    {"feature": "languages", "lang": "fr", "question": "Quels films Alfred Hitchcock a-t-il réalisés dans les années 1950 ?",
+     "expect": {"min_rows": 9, "max_rows": 14, "representation": "card-grid", "first_row_contains": "Sueurs froides"}},
+    {"feature": "representations", "question": "How many feature films did Stanley Kubrick direct?",
+     "expect": {"max_rows": 1, "result_kind": "count", "representation": "number-card"}},
+    {"feature": "representations", "question": "What are the 5 longest films directed by Christopher Nolan?",
+     "expect": {"max_rows": 5, "result_kind": "entity_rows", "representation": "ranked-bars",
+                "first_row_contains": "Oppenheimer", "within_first": 1},
+     "known_issue": "2026-11-24: an anthology of shorts ('Cinema16: British Short Films', where Nolan directed one short) ranks first; feature-film scope is not applied to 'films directed by'"}
+  ]
+}
