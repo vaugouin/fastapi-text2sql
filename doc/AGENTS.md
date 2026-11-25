@@ -16,6 +16,7 @@ moving either would break that convention.
 | [instances.md](instances.md) | creating, migrating or switching an API instance on the VPS: one clone, one `.env`, one port (FASTAPI-TEXT2SQL-412), firewall rules, crons clone, client switch |
 | [MCP.md](MCP.md) | working on the MCP server: tool code, resource reference, client setup, bearer token, end-to-end flow |
 | [RAPIDFUZZ.md](RAPIDFUZZ.md) | touching the RapidFuzz path: setup, and the `*_NORM` / `*_KEY` generated columns and FULLTEXT indexes it requires |
+| [why-mariadb-not-postgresql.md](why-mariadb-not-postgresql.md) | someone asks why the stack is not on PostgreSQL, or whether a database could replace the BK-tree and RapidFuzz layer (checked against MariaDB 12.3 and PostgreSQL `pg_trgm` / `fuzzystrmatch`) |
 | [EXTEND_T2S_TECHNICAL.md](EXTEND_T2S_TECHNICAL.md) | extending `Technical_format`: schema, prompt and resolver changes, and the retired `Aspect_ratio` history |
 | [closed-vocab-entity-plan.md](closed-vocab-entity-plan.md) | adding a closed-vocabulary entity, the rollout pattern and its checklist |
 | [sql/](sql/) | reference DDL for the canonical tables. **Read-only** unless a task explicitly says otherwise |
