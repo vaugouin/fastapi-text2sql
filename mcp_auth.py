@@ -21,11 +21,14 @@ listing is empty and every call refused, and startup says so. The routes stay mo
 so a misconfigured instance is visible rather than open.
 """
 
+import json
 import os
+import threading
+import time
 from typing import Optional
 
 from fastmcp.server.auth import AuthContext
-from fastmcp.server.middleware import AuthMiddleware
+from fastmcp.server.middleware import AuthMiddleware, Middleware, MiddlewareContext
 
 MCP_PUBLIC_BASE_URL = os.getenv("MCP_PUBLIC_BASE_URL", "").strip().rstrip("/")
 MCP_GITHUB_CLIENT_ID = os.getenv("MCP_GITHUB_CLIENT_ID", "").strip()
@@ -93,8 +96,83 @@ def allowlisted(ctx: AuthContext) -> bool:
     return bool(MCP_ALLOWED_GITHUB_LOGINS) and github_login(ctx) in MCP_ALLOWED_GITHUB_LOGINS
 
 
+# Journal of MCP tool calls, one JSON line per call, keyed on the caller's GitHub login.
+# The per-request logs (logs/<date>_<endpoint>_...json) cannot answer "who asked what": every
+# MCP tool reaches the API through an internal HTTP call made with the server's own API key,
+# so those logs see the MCP server as the caller, never the account behind it. This journal is
+# the only place that ties a call to an account, which is what a per-account quota and the
+# analysis of a rating left from Claude or ChatGPT need. One file per month in the logs folder
+# (the shared_data mount, so every instance appends to the same one); the .jsonl extension
+# keeps it out of the readers that glob *.json for request logs (switch-clients.sh check).
+# Refused calls are journaled too: the journal sits outside the allowlist check.
+MCP_JOURNAL_MAX_ARG_CHARS = 2000
+_journal_lock = threading.Lock()
+
+
+def _journal_login() -> tuple:
+    """(login, client_id) of the caller, (None, None) when the call carries no token."""
+    try:
+        from fastmcp.server.dependencies import get_access_token
+        token = get_access_token()
+    except Exception:
+        return None, None
+    if token is None:
+        return None, None
+    login = (getattr(token, "claims", None) or {}).get("login")
+    return (str(login).lower() if login else None), getattr(token, "client_id", None)
+
+
+def _journal_args(arguments) -> dict:
+    out = {}
+    for key, value in (arguments or {}).items():
+        if isinstance(value, str) and len(value) > MCP_JOURNAL_MAX_ARG_CHARS:
+            value = value[:MCP_JOURNAL_MAX_ARG_CHARS] + "..."
+        out[key] = value
+    return out
+
+
+def journal_write(record: dict) -> None:
+    """Append one record; a journal failure never fails the tool call."""
+    import logs
+    try:
+        stamp = logs.now_paris()
+        record = {"ts": stamp.isoformat(timespec="seconds"), "instance": logs.INSTANCE_NAME, **record}
+        os.makedirs(logs.LOGS_FOLDER, exist_ok=True)
+        path = os.path.join(logs.LOGS_FOLDER, f"mcp-calls-{stamp:%Y-%m}.jsonl")
+        line = json.dumps(record, ensure_ascii=False, default=str) + "\n"
+        with _journal_lock, open(path, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception as exc:
+        print(f"[mcp-journal] write failed: {type(exc).__name__}: {exc}")
+
+
+class CallJournal(Middleware):
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        login, client_id = _journal_login()
+        message = context.message
+        record = {
+            "login": login,
+            "client_id": client_id,
+            "tool": getattr(message, "name", None),
+            "arguments": _journal_args(getattr(message, "arguments", None)),
+        }
+        started = time.monotonic()
+        try:
+            result = await call_next(context)
+        except Exception as exc:
+            record.update(outcome="error", error=f"{type(exc).__name__}: {str(exc)[:300]}",
+                          duration_ms=round((time.monotonic() - started) * 1000))
+            journal_write(record)
+            raise
+        record.update(outcome="ok", duration_ms=round((time.monotonic() - started) * 1000))
+        journal_write(record)
+        return result
+
+
 def build_middleware() -> list:
-    return [AuthMiddleware(auth=allowlisted)]
+    # Journal first: middleware run in list order, so it wraps the allowlist check and also
+    # records the calls that check refuses.
+    return [CallJournal(), AuthMiddleware(auth=allowlisted)]
 
 
 def startup_lines(auth_enabled: bool) -> list:
