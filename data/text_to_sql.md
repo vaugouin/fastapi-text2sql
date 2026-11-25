@@ -216,6 +216,13 @@ CREATE TABLE T_WC_T2S_SERIE_GENRE (
   ID_GENRE INT NOT NULL
 );
 
+CREATE TABLE T_WC_T2S_GENRE (
+  ID_GENRE INT NOT NULL,
+  GENRE_NAME VARCHAR(250),
+  APPLIES_TO_MOVIE TINYINT NOT NULL,
+  APPLIES_TO_SERIE TINYINT NOT NULL
+);
+
 ### Production companies
 
 CREATE TABLE T_WC_T2S_COMPANY (
@@ -967,7 +974,7 @@ CREATE TABLE T_WC_T2S_SERIE_RECOMMENDATION (
 ### General
 - When a field is included in the SELECT clause, it must be specified with the table name, for instance T_WC_T2S_MOVIE.ID_IMDB
 - Always use the DISTINCT keyword in the SELECT statement to remove duplicate rows from the result set. This applies even when the SELECT projects columns from only one side of a join: a join to a one-row-per-reference table (for example T_WC_T2S_MOVIE_LOCATION, which holds one row per movie/location/role, or any T_WC_T2S_*_* junction table) fans out and would otherwise return the same entity repeated, so DISTINCT is required there too.
-- Use exact equality comparisons (=) for name, title, character, and ID matching — never use LIKE
+- Use exact equality comparisons (=) for name, title, character, and ID matching. Never use LIKE, anywhere in the query: a character is matched with `CAST_CHARACTER = '{{Character_nameN}}'`, like any other name
 - MOVIE_TITLE is the main title of the movie. Always use this field to search for a movie by its title 
 - SERIE_TITLE is the main title of the tv serie. Always use this field to search for a serie by its title 
 - PERSON_NAME is the name of the person. Always use this field to search for a person by her/his name
@@ -1145,10 +1152,10 @@ Use when the user NAMES a film or series they have seen / liked and asks what to
 - **Scope (for now): recommendations only.** Do NOT use the *similar* tables (`T_WC_T2S_MOVIE_SIMILAR` / `T_WC_T2S_SERIE_SIMILAR`), and do NOT add a collection "next / sequel" here — those are handled separately. A "similar to / des films comme X" phrasing is out of scope of this rule.
 - **Movie source → `result_entity = movie`.** JOIN the source movie (by title) to `T_WC_T2S_MOVIE_RECOMMENDATION` on `ID_MOVIE`, then to the recommended movie on `ID_MOVIE_RECOMMENDED`; `ORDER BY DISPLAY_ORDER`. Return the *Movies* columns of the **recommended** movie (aliased `rec`).
   Example: "I saw {{Movie_title1}}, what do you recommend?" →
-  `SELECT DISTINCT rec.ID_MOVIE, rec.MOVIE_TITLE, rec.DAT_RELEASE, rec.ID_IMDB, rec.IMDB_RATING, rec.IMDB_RATING_WEIGHTED, rec.POSTER_PATH, rec.RUNTIME, rec.TAGLINE FROM T_WC_T2S_MOVIE src JOIN T_WC_T2S_MOVIE_RECOMMENDATION mr ON mr.ID_MOVIE = src.ID_MOVIE JOIN T_WC_T2S_MOVIE rec ON rec.ID_MOVIE = mr.ID_MOVIE_RECOMMENDED WHERE src.MOVIE_TITLE = '{{Movie_title1}}' ORDER BY mr.DISPLAY_ORDER`
+  `SELECT DISTINCT rec.ID_MOVIE, rec.MOVIE_TITLE, rec.DAT_RELEASE, rec.ID_IMDB, rec.IMDB_RATING, rec.IMDB_RATING_WEIGHTED, rec.IMDB_VOTES, rec.POSTER_PATH, rec.RUNTIME, rec.TAGLINE, rec.ID_CRITERION_SPINE FROM T_WC_T2S_MOVIE src JOIN T_WC_T2S_MOVIE_RECOMMENDATION mr ON mr.ID_MOVIE = src.ID_MOVIE JOIN T_WC_T2S_MOVIE rec ON rec.ID_MOVIE = mr.ID_MOVIE_RECOMMENDED WHERE src.MOVIE_TITLE = '{{Movie_title1}}' ORDER BY mr.DISPLAY_ORDER`
 - **Series source → `result_entity = serie`.** Same shape through `T_WC_T2S_SERIE_RECOMMENDATION` (`ID_SERIE` → `ID_SERIE_RECOMMENDED`); return the *Series* columns of the **recommended** series.
   Example: "j'ai regardé {{Serie_title1}}, que me conseilles-tu ?" →
-  `SELECT DISTINCT rec.ID_SERIE, rec.SERIE_TITLE, rec.DAT_FIRST_AIR, rec.DAT_LAST_AIR, rec.ID_IMDB, rec.IMDB_RATING, rec.IMDB_RATING_WEIGHTED, rec.POSTER_PATH, rec.NUMBER_OF_SEASONS, rec.NUMBER_OF_EPISODES, rec.TAGLINE FROM T_WC_T2S_SERIE src JOIN T_WC_T2S_SERIE_RECOMMENDATION sr ON sr.ID_SERIE = src.ID_SERIE JOIN T_WC_T2S_SERIE rec ON rec.ID_SERIE = sr.ID_SERIE_RECOMMENDED WHERE src.SERIE_TITLE = '{{Serie_title1}}' ORDER BY sr.DISPLAY_ORDER`
+  `SELECT DISTINCT rec.ID_SERIE, rec.SERIE_TITLE, rec.DAT_FIRST_AIR, rec.DAT_LAST_AIR, rec.ID_IMDB, rec.IMDB_RATING, rec.IMDB_RATING_WEIGHTED, rec.IMDB_VOTES, rec.POSTER_PATH, rec.NUMBER_OF_SEASONS, rec.NUMBER_OF_EPISODES, rec.TAGLINE, rec.ID_CRITERION_SPINE FROM T_WC_T2S_SERIE src JOIN T_WC_T2S_SERIE_RECOMMENDATION sr ON sr.ID_SERIE = src.ID_SERIE JOIN T_WC_T2S_SERIE rec ON rec.ID_SERIE = sr.ID_SERIE_RECOMMENDED WHERE src.SERIE_TITLE = '{{Serie_title1}}' ORDER BY sr.DISPLAY_ORDER`
 - The named title is ALWAYS the source filter, NEVER the result: the SELECT must project the **recommended** entity's id (`rec.ID_MOVIE` / `rec.ID_SERIE`). If it projects the source's id, you targeted the wrong row — fix it.
 - If the named title resolves to nothing, or has no stored recommendations, the query simply returns no rows — do NOT fall back to invented titles.
 
@@ -1188,7 +1195,7 @@ Examples, the shapes to follow:
 `SELECT COUNT(DISTINCT T_WC_T2S_MOVIE.ID_MOVIE) AS MOVIE_COUNT FROM T_WC_T2S_MOVIE`
 `SELECT COUNT(DISTINCT T_WC_T2S_MOVIE.ID_MOVIE) AS DOCUMENTARY_COUNT FROM T_WC_T2S_MOVIE WHERE T_WC_T2S_MOVIE.IS_DOCUMENTARY = 1`
 `SELECT COUNT(*) AS MOVIE_VIDEO_COUNT FROM T_WC_T2S_MOVIE_VIDEO`
-`SELECT SUM(T_WC_T2S_MOVIE.RUNTIME) AS TOTAL_RUNTIME FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_MOVIE_COLLECTION ON T_WC_T2S_MOVIE_COLLECTION.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE JOIN T_WC_T2S_COLLECTION ON T_WC_T2S_COLLECTION.ID_T2S_COLLECTION = T_WC_T2S_MOVIE_COLLECTION.ID_T2S_COLLECTION WHERE T_WC_T2S_COLLECTION.COLLECTION_NAME = 'Harry Potter Collection'`
+`SELECT SUM(T_WC_T2S_MOVIE.RUNTIME) AS TOTAL_RUNTIME FROM T_WC_T2S_MOVIE JOIN T_WC_T2S_MOVIE_COLLECTION ON T_WC_T2S_MOVIE_COLLECTION.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE JOIN T_WC_T2S_COLLECTION ON T_WC_T2S_COLLECTION.ID_T2S_COLLECTION = T_WC_T2S_MOVIE_COLLECTION.ID_T2S_COLLECTION WHERE T_WC_T2S_COLLECTION.COLLECTION_NAME = '{{Collection_name1}}'`
 
 #### A distribution: one row per bin
 
@@ -1200,7 +1207,7 @@ A question that asks how a set **is distributed** over one quantity ("How are Hi
 A question that asks for entities **grouped under a parent** ("Show the Star Wars films grouped by trilogy", "Which cities of Italy appear as filming locations, grouped by region?", "List the James Bond films grouped by the actor who played Bond", "Which collections make up the Marvel Cinematic Universe, with the films of each?", "regroupés par région", "par trilogie") answers with **one row per grouped entity** (the films, the places), never with the parents and a `GROUP_CONCAT` of their members:
 
 - Project the Result Columns of that entity, then the parent's name in one more column whose alias ends in `_NAME` and names the level (`TRILOGY_NAME`, `COLLECTION_NAME`, `REGION_NAME`, `STATE_NAME`, `NATION_NAME`, `BOND_ACTOR_NAME`); when the parent is a collection or a person, project its id (`ID_T2S_COLLECTION`, `ID_PERSON`) just before it. A third level (collections inside a universe) is a second parent column, the outer one first. Never alias a parent `GROUP_NAME`: that is the column of `T_WC_T2S_GROUP`.
-- **One parent per row.** The groups are the collections inside the named one that hold its films, whatever their size (the exactly-three rule of "Collections" is for a question that looks for a trilogy, not for one that groups by trilogy). An actor who played a character is read from the cast credit of each film, `CAST_CHARACTER LIKE '%<character>%'`, on movies only. For places, the parent is the widest place of the asked type inside the named place (`LOCATION_TYPE = 'region'` for a region or a state, `'country'` for a nation of the United Kingdom): of the ancestors of that type inside the named place, keep the one that has no ancestor of the same type inside the named place (`NOT EXISTS`), so Paris comes once, under Île-de-France, not under Grand Paris too.
+- **One parent per row.** The groups are the collections inside the named one that hold its films, whatever their size (the exactly-three rule of "Collections" is for a question that looks for a trilogy, not for one that groups by trilogy). An actor who played a character is read from the cast credit of each film, `T_WC_T2S_PERSON_MOVIE.CAST_CHARACTER = '{{Character_name1}}'`, on movies only. For places, the parent is the widest place of the asked type inside the named place (`LOCATION_TYPE = 'region'` for a region or a state, `'country'` for a nation of the United Kingdom): of the ancestors of that type inside the named place, keep the one that has no ancestor of the same type inside the named place (`NOT EXISTS`), so Paris comes once, under Île-de-France, not under Grand Paris too.
 - `ORDER BY` the parent name, then the entity's default order (`DISPLAY_ORDER` in a collection, the place name).
 
 Example, the shape to follow ("Which cities of Italy appear as filming locations, grouped by region?"):
@@ -1255,10 +1262,9 @@ a reconstruction.
 | 14 | `NUMBER_OF_EPISODES` | `NULL` | `NUMBER_OF_EPISODES` |
 | 15 | `ID_CRITERION_SPINE` | `ID_CRITERION_SPINE` | `ID_CRITERION_SPINE` |
 
-Slot 15 is the same column on both sides, added 2026-09-01 with the series columns. It is
-NULL for the vast majority of rows, and that is fine: it is the only way a spine-ordered
-answer can show the number it is ordered by, which is the defect FASTAPI-TEXT2SQL-191
-already documented for `IMDB_VOTES`. It sits in BOTH single-type lists too, because the two
+Slot 15 is the same column on both sides. It is NULL for the vast majority of rows, and
+that is fine: it is the only way a spine-ordered answer can show the number it is ordered
+by, for the same reason as `IMDB_VOTES` below. It sits in BOTH single-type lists too, because the two
 sides must stay identical for a UNION to remain possible.
 
 Two asymmetries are real and must not be "fixed" by inventing a value. A movie has ONE date,
@@ -1267,18 +1273,17 @@ so it fills both date slots with `DAT_RELEASE`; that is deliberate, not a copy-p
 the two entities: a series has no single runtime and a movie has no seasons.
 
 **Why the single-type lists keep their own names.** `ID_MOVIE` and `ID_SERIE` do not become
-`ID_CONTENT` outside a UNION. Renaming them everywhere would break 545 frozen result
-assertions in the evaluation bank (461 on `ID_MOVIE`, 84 on `ID_SERIE`) and the client that
-reads them. The aliases exist FOR the UNION and only there.
+`ID_CONTENT` outside a UNION: the client reads single-type results by these names. The
+aliases exist FOR the UNION and only there.
 
-> **Why `IMDB_VOTES` is in both lists** (added 2026-08-07). A rating without its denominator is
+> **Why `IMDB_VOTES` is in both lists.** A rating without its denominator is
 > an opinion of unknown weight, and this whole app now rests on one rating: the TMDb figures were
 > removed precisely because too few people produce them. The count is what makes the rating
 > readable — 8.4 from a dozen voters and 8.4 from a million are not the same claim. The client is
 > already built for it and renders `8.4 (1.2M)` as soon as the column arrives. It is also the
 > column the model sorts and filters on ("the most voted", `IMDB_VOTES > 10000` for "not
-> obscure"), and **a ranking whose criterion is invisible on screen is the defect FASTAPI-TEXT2SQL-191
-> already documented**: the rows came back ordered by a number the viewer could not see.
+> obscure"), and **a ranking whose criterion is invisible on screen is a defect**: the rows
+> come back ordered by a number the viewer cannot see.
 
 ### Movies AND Series (UNION) - return for a movie and for a serie:
 CRITICAL: both SELECT sides of the UNION must have exactly the same number of columns (15). Use NULL placeholders for columns that do not exist on one side. Never use the Movies-only or Series-only column lists above for a UNION query.
@@ -1439,7 +1444,6 @@ The spine number is the position in the publisher's catalogue, and it is carried
 - **Every `CREDIT_TYPE = 'cast'` filter on `T_WC_T2S_PERSON_MOVIE` carries the self-appearance exclusion**, whichever direction the question runs: the cast of a movie ("actors in X"), the movies of a person ("movies with Humphrey Bogart"), or a named actor used as a condition inside an `EXISTS`. A person credited as themselves or through archive footage did not act in that film. Documentaries are exempt, since appearing as oneself is what a documentary credit means, so the exclusion is always written as this exact condition, joined with `AND`, on the same credit instance that carries `CREDIT_TYPE = 'cast'` (replace `T_WC_T2S_PERSON_MOVIE` with its alias when the instance is aliased):
   `AND (T_WC_T2S_MOVIE.IS_DOCUMENTARY = 1 OR T_WC_T2S_PERSON_MOVIE.CAST_CHARACTER NOT IN ('Self', 'Himself', 'Herself', '(archive footage)', 'Self (archive footage)', 'Self (archive footage) (uncredited)', 'Self (uncredited)'))`
   It requires `T_WC_T2S_MOVIE` in the query; join it if the query does not already. Series credits (`T_WC_T2S_PERSON_SERIE`) take no exclusion.
-- When searching for a cast CREDIT_TYPE for a documentary, always search this person in the cast section of movie credits with no exclusion.
 - **Every `CREDIT_TYPE = 'crew'` filter that ties a person to a work also excludes the tribute credits**, whichever direction the question runs (the crew of a movie, the movies of a person, a named person inside an `EXISTS`): `AND T_WC_T2S_PERSON_MOVIE.CREW_JOB NOT IN ('Thanks', 'In Memory Of')`, and `T_WC_T2S_PERSON_SERIE.CREW_JOB NOT IN ('Thanks', 'In Memory Of')` for series. A person thanked in the credits, or to whose memory a work is dedicated, did not work on it: Yasujirō Ozu is credited "In Memory Of" on Wings of Desire (1987), made 24 years after his death. Only a question about those credits themselves ("who is thanked in X", "films dedicated to Ozu") filters `CREW_JOB = 'Thanks'` or `CREW_JOB = 'In Memory Of'` instead.
 - CREW_DEPARTMENT possible values: Art, Camera, Costume & Make-Up, Crew, Directing, Editing, Lighting, Production, Sound, Visual Effects, Writing
 - For a TV serie, there is an additional CREW_DEPARTMENT value, Creator, that must be used when looking for the creator of a series. 
@@ -1459,7 +1463,6 @@ The spine number is the position in the publisher's catalogue, and it is carried
   - Movies: `T_WC_T2S_PERSON_MOVIE.CREDIT_TYPE = 'cast' AND (T_WC_T2S_MOVIE.IS_DOCUMENTARY = 1 OR T_WC_T2S_PERSON_MOVIE.CAST_CHARACTER NOT IN ('Self', 'Himself', 'Herself', '(archive footage)', 'Self (archive footage)', 'Self (archive footage) (uncredited)', 'Self (uncredited)'))`
   - Series: `T_WC_T2S_PERSON_SERIE.CREDIT_TYPE = 'cast'`
   - For person-search queries about actors with no film context (e.g. "list actors", "actors born in 1962"), use `T_WC_T2S_PERSON.KNOWN_FOR_DEPARTMENT = 'Acting'` directly — the value `'Acting'` is the canonical KNOWN_FOR value for cast roles and never reaches this prompt as a `{{Department_nameN}}` placeholder.
-  - The movie line above already carries the `CAST_CHARACTER` self-appearance exclusion; never drop it, including when the actor is a filter rather than the answer ("movies with Humphrey Bogart"). The series line carries none.
 - ID_PERSON is the TMDb ID field for a person (The Movie Database)
 
 #### Two persons, two roles: never collapse them into one
@@ -1526,8 +1529,8 @@ Example, the shape to follow for a comparison (a year named with a title narrows
 - When display movies for a given collection, ORDER BY T_WC_T2S_MOVIE_COLLECTION.DISPLAY_ORDER ASC
 - When display series for a given collection, ORDER BY T_WC_T2S_SERIE_COLLECTION.DISPLAY_ORDER ASC
 - Movements → IMDB_RATING_WEIGHTED DESC
-- When display movies for a given collection, ORDER BY T_WC_T2S_MOVIE_MOVEMENT.DISPLAY_ORDER ASC
-- When display series for a given collection, ORDER BY T_WC_T2S_SERIE_MOVEMENT.DISPLAY_ORDER ASC
+- When display movies for a given movement, ORDER BY T_WC_T2S_MOVIE_MOVEMENT.DISPLAY_ORDER ASC
+- When display series for a given movement, ORDER BY T_WC_T2S_SERIE_MOVEMENT.DISPLAY_ORDER ASC
 - Technicals → MOVIE_COUNT DESC
 - When display movies for a given technical, ORDER BY T_WC_T2S_MOVIE.IMDB_RATING_WEIGHTED DESC
 - When listing technicals as siblings of a given technical (same `TECHNICAL_TYPE`), ORDER BY MOVIE_COUNT DESC
@@ -1548,7 +1551,7 @@ Example, the shape to follow for a comparison (a year named with a title narrows
 - When display movies for a given nomination, ORDER BY T_WC_T2S_MOVIE_NOMINATION.DISPLAY_ORDER ASC
 - When display series for a given nomination, ORDER BY T_WC_T2S_SERIE_NOMINATION.DISPLAY_ORDER ASC
 - When display persons for a given nomination, ORDER BY T_WC_T2S_PERSON_NOMINATION.DISPLAY_ORDER ASC
-- When listing movies AND series together (UNION) for a given collection, movement, topic, list, award, nomination, or group: the junction-specific DISPLAY_ORDER columns are not part of the 13-column UNION SELECT shape, so they cannot be referenced in the outer ORDER BY. Fall back to `ORDER BY IMDB_RATING_WEIGHTED DESC` on the UNION result, except for a "when" or "in order" question, which sorts on `DAT_FIRST_AIR` (see "Ordering by a date or a year"). Never emit an unqualified `ORDER BY DISPLAY_ORDER` after a UNION.
+- When listing movies AND series together (UNION) for a given collection, movement, topic, list, award, nomination, or group: the junction-specific DISPLAY_ORDER columns are not part of the 15-column UNION SELECT shape, so they cannot be referenced in the outer ORDER BY. Fall back to `ORDER BY IMDB_RATING_WEIGHTED DESC` on the UNION result, except for a "when" or "in order" question, which sorts on `DAT_FIRST_AIR` (see "Ordering by a date or a year"). Never emit an unqualified `ORDER BY DISPLAY_ORDER` after a UNION.
 - Persons → POPULARITY DESC
 - When display persons for a given movie (cast or crew), ORDER BY T_WC_T2S_PERSON_MOVIE.DISPLAY_ORDER ASC
 - When display persons for a given serie (cast or crew), ORDER BY T_WC_T2S_PERSON_SERIE.DISPLAY_ORDER ASC
@@ -1558,9 +1561,6 @@ Example, the shape to follow for a comparison (a year named with a title narrows
 - Networks → ID_NETWORK ASC
 - Topics → IMDB_RATING_WEIGHTED DESC
 - Lists → IMDB_RATING_WEIGHTED DESC
-- Collections → IMDB_RATING_WEIGHTED DESC
-- Movements → IMDB_RATING_WEIGHTED DESC
-- Technicals → MOVIE_COUNT DESC
 - Groups → POPULARITY DESC
 - Deaths → POPULARITY DESC
 - Awards → IMDB_RATING_WEIGHTED DESC
@@ -1595,17 +1595,16 @@ MariaDB sorts `NULL` **first** in an ascending order. A nullable date or year co
 - T_WC_T2S_PERSON_MOVIE.ID_PERSON = T_WC_T2S_PERSON.ID_PERSON
 - T_WC_T2S_PERSON_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE
 - T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_GENRE.ID_MOVIE
-- T_WC_T2S_COMPANY.ID_COMPANY = T_WC_T2S_COMPANY.ID_COMPANY
+- T_WC_T2S_GENRE.ID_GENRE = T_WC_T2S_MOVIE_GENRE.ID_GENRE
 - T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_PRODUCTION_COUNTRY.ID_MOVIE
 - T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_SPOKEN_LANGUAGE.ID_MOVIE
 - T_WC_T2S_MOVIE_COMPANY.ID_COMPANY = T_WC_T2S_COMPANY.ID_COMPANY
-- T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_PRODUCTION_COUNTRY.ID_MOVIE
-- T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_SPOKEN_LANGUAGE.ID_MOVIE
 - T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_TOPIC.ID_MOVIE
 - T_WC_T2S_TOPIC.ID_TOPIC = T_WC_T2S_MOVIE_TOPIC.ID_TOPIC
 - T_WC_T2S_PERSON_SERIE.ID_PERSON = T_WC_T2S_PERSON.ID_PERSON
 - T_WC_T2S_PERSON_SERIE.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE
 - T_WC_T2S_SERIE.ID_SERIE = T_WC_T2S_SERIE_GENRE.ID_SERIE
+- T_WC_T2S_GENRE.ID_GENRE = T_WC_T2S_SERIE_GENRE.ID_GENRE
 - T_WC_T2S_SERIE_COMPANY.ID_COMPANY = T_WC_T2S_COMPANY.ID_COMPANY
 - T_WC_T2S_SERIE_NETWORK.ID_NETWORK = T_WC_T2S_NETWORK.ID_NETWORK
 - T_WC_T2S_SERIE.ID_SERIE = T_WC_T2S_SERIE_PRODUCTION_COUNTRY.ID_SERIE
@@ -1647,6 +1646,7 @@ MariaDB sorts `NULL` **first** in an ascending order. A nullable date or year co
 - T_WC_T2S_PERSON.ID_PERSON = T_WC_T2S_PERSON_NOMINATION.ID_PERSON
 - T_WC_T2S_NOMINATION.ID_NOMINATION = T_WC_T2S_PERSON_NOMINATION.ID_NOMINATION
 - T_WC_T2S_MOVIE.ID_MOVIE = T_WC_T2S_MOVIE_TECHNICAL.ID_MOVIE
+- T_WC_T2S_TECHNICAL.ID_TECHNICAL = T_WC_T2S_MOVIE_TECHNICAL.ID_TECHNICAL
 - T_WC_T2S_MOVIE_COMPANY.ID_MOVIE = T_WC_T2S_MOVIE.ID_MOVIE
 - T_WC_T2S_SERIE_COMPANY.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE
 - T_WC_T2S_SERIE_NETWORK.ID_SERIE = T_WC_T2S_SERIE.ID_SERIE

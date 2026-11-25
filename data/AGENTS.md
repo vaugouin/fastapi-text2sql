@@ -80,6 +80,17 @@ prompt change without a bump.
 eagerly at import time and raises if one is absent, so renaming a file here without changing
 the module that registers it does not degrade, it stops the API from starting.
 
+## Notes taken out of `text_to_sql.md`
+
+Moved here on 2026-11-25 (FASTAPI-TEXT2SQL-421), because the model paid for them on every call:
+
+- `ID_MOVIE` and `ID_SERIE` keep their names outside a UNION also because renaming them would
+  break 545 frozen result assertions of the evaluation bank (461 on `ID_MOVIE`, 84 on
+  `ID_SERIE`, counted 2026-09-01).
+- `IMDB_VOTES` joined both column lists on 2026-08-07 and `ID_CRITERION_SPINE` on 2026-09-01,
+  both for the defect of FASTAPI-TEXT2SQL-191: a ranking ordered by a number the screen did not
+  show.
+
 **Keep everything UTF-8.** These files carry non-ASCII titles, names and multilingual examples.
 An editor or a terminal that rewrites them in another encoding turns them into mojibake that
 the model then reads as content.
