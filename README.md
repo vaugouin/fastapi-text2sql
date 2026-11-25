@@ -412,7 +412,7 @@ Content-Type: application/json
   - Current defaults:
     - `llm_model_entity_extraction` → `gpt-6-sol` (since 2026-10-03, LLM-TASKS-010)
     - `llm_model_text2sql` → `gpt-6-sol` (since 2026-10-03, LLM-TASKS-010; `gpt-6.1-terra` tried on 2026-11-10 and reverted for latency, GPT-6-008)
-    - `llm_model_complex` → `gpt-6.1-sol` (since 2026-10-17, GPT-6-007)
+    - `llm_model_complex` → `gpt-6.2-sol` (since 2026-11-25, escalated subset on 1.1.20: 7 questions fixed and 1 lost against `gpt-6.1-sol`, 81/96 EN and 88/114 FR; `gpt-6.1-sol` from 2026-10-17, GPT-6-007)
     - `llm_model_result_entity` → `gpt-6-luna` (since 2026-09-29, GPT-6-003)
     - `llm_model_vision` → `gpt-6.2-sol` (since 2026-11-23, vision campaign on 1.1.20: 53/83 EN and FR against 50 and 51 for `gpt-6-astra`, at about a fifth of the cost)
 

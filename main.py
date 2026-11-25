@@ -2948,8 +2948,8 @@ async def search_text2sql(
               "default" resolves to gpt-6-sol (gpt-4o until LLM-TASKS-010, 2026-10-03;
               gpt-6.1-terra for a few hours on 2026-11-10, GPT-6-008, reverted for latency).
             - llm_model_complex (str, default "default"): Stronger LLM used for
-              complex-question escalation and one-time retry. "default" resolves to gpt-6.1-sol
-              (gpt-4o until GPT-6-007, 2026-10-17).
+              complex-question escalation and one-time retry. "default" resolves to gpt-6.2-sol
+              since 2026-11-25 (gpt-6.1-sol from GPT-6-007, 2026-10-17; gpt-4o before).
             - llm_model_result_entity (str, default "default"): LLM for the answer-entity
               classifier, which decides from the ORIGINAL question what kind of thing the
               rows should be. "default" resolves to gpt-6-luna (gpt-4o until GPT-6-003,
@@ -11248,8 +11248,8 @@ async def _mcp_sql_search(
     persons). Use it to ask the user which one they mean before drilling in.
 
     Optional model overrides (each defaults to "default" = the server's configured
-    model: gpt-6-sol for entity extraction and text-to-SQL, gpt-6.1-sol for the complex
-    question, gpt-6-luna for the answer-entity classifier, and gpt-6-astra for the
+    model: gpt-6-sol for entity extraction and text-to-SQL, gpt-6.2-sol for the complex
+    question, gpt-6-luna for the answer-entity classifier, and gpt-6.2-sol for the
     vision one). The pipeline makes five distinct LLM calls and each has its own selector:
     llm_model_entity_extraction, llm_model_text2sql, llm_model_complex,
     llm_model_result_entity (the answer-entity classifier) and llm_model_vision (the

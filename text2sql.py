@@ -56,7 +56,10 @@ strcomplexquestionprompttemplate = "complex_question.md"
 # same prompt, same day: on the questions both escalated, gpt-6.1-sol 28/48 EN and 38/65 FR,
 # gpt-6-sol 26 and 36, gpt-4o 24 and 31 (retired by OpenAI on 2027-01-14). Cost: about +2.2 s
 # median on the step (3.3 s against 1.1 s), escalated questions only.
-strcomplexquestionmodeldefault = "gpt-6.1-sol"
+# 2026-11-25 (Philippe's decision): gpt-6.2-sol. Escalated subset on 1.1.20, against gpt-6.1-sol
+# on the same questions: 7 fixed, 1 lost, 81/96 EN and 88/114 FR, about 3 s on the step.
+# gpt-6.2-astra did barely better (+9/-1) at about 3.6 times gpt-6.2-sol's cost.
+strcomplexquestionmodeldefault = "gpt-6.2-sol"
 # LLM-TASKS-002 / LLM-TASKS-012 (2026-10-17): the one-time fallback when the complex model is not
 # found or not accessible. It was a hardcoded gpt-4o, which OpenAI retires on 2027-01-14; it is now
 # the previous Sol, measured on the same subset (26/48 EN, 36/65 FR) and known to answer our key.
