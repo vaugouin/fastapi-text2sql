@@ -11164,6 +11164,14 @@ async def get_samples(ui_language: Optional[str] = "en", set: Optional[str] = "s
 # (/en/ or /fr/). The domain comes from the environment so this public repository names none;
 # without it the description forbids links rather than let the model invent a URL.
 MCP_ENTITY_LINK_BASE_URL = os.getenv("MCP_ENTITY_LINK_BASE_URL", "").strip().rstrip("/")
+# One page prefix per conversation language. Default: the host above plus /en or /fr. Set them
+# to point the links at another folder of the front, for example a public bring-your-own-key
+# prefix, when /en/ and /fr/ sit behind a password: an entity page calls no model, so a visitor
+# without a key still reads it.
+MCP_ENTITY_LINK_URL_EN = (os.getenv("MCP_ENTITY_LINK_URL_EN", "").strip().rstrip("/")
+                          or (f"{MCP_ENTITY_LINK_BASE_URL}/en" if MCP_ENTITY_LINK_BASE_URL else ""))
+MCP_ENTITY_LINK_URL_FR = (os.getenv("MCP_ENTITY_LINK_URL_FR", "").strip().rstrip("/")
+                          or (f"{MCP_ENTITY_LINK_BASE_URL}/fr" if MCP_ENTITY_LINK_BASE_URL else ""))
 _MCP_ENTITY_PAGES = (
     ("Movie IDs", "movie.php?movieid={ID_MOVIE}"),
     ("Series IDs", "serie.php?serieid={ID_SERIE}"),
@@ -11186,16 +11194,17 @@ _MCP_ENTITY_PAGES = (
 
 
 def _mcp_entity_links_doc() -> str:
-    if not MCP_ENTITY_LINK_BASE_URL:
+    if not (MCP_ENTITY_LINK_URL_EN and MCP_ENTITY_LINK_URL_FR):
         return ("Links: these IDs have no public page. Do not turn them into links and never "
                 "invent a URL; give names as plain text.")
     lines = [
-        "Links: link entity names to their page on the public catalogue, with {lang} = fr when",
-        "    the conversation is in French and en otherwise. Use exactly these patterns, never",
-        "    another domain or path:",
+        "Links: link entity names to their page on the public catalogue, with {prefix} =",
+        f"    {MCP_ENTITY_LINK_URL_FR} when the conversation is in French and",
+        f"    {MCP_ENTITY_LINK_URL_EN} otherwise. Use exactly these patterns, never another",
+        "    domain or path:",
     ]
     for label, path in _MCP_ENTITY_PAGES:
-        lines.append(f"    {label:<15} → {MCP_ENTITY_LINK_BASE_URL}/{{lang}}/{path}")
+        lines.append(f"    {label:<15} → {{prefix}}/{path}")
     return "\n".join(lines)
 
 

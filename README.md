@@ -292,6 +292,8 @@ The API implements a sophisticated multi-stage pipeline to efficiently convert n
    MCP_OAUTH_STORAGE_KEY=...       # identical in every instance (Fernet key)
    MCP_OWNER_OPENAI_KEY=...        # key sent by sql_search; empty: cache hits only
    MCP_ENTITY_LINK_BASE_URL=https://www.example.com   # public front host for result links; empty: no links
+   MCP_ENTITY_LINK_URL_EN=https://www.example.com/demo     # optional, replaces <host>/en (e.g. a public BYOK prefix)
+   MCP_ENTITY_LINK_URL_FR=https://www.example.com/demo-fr  # optional, replaces <host>/fr
    MCP_INTERNAL_API_KEY=key_for_mcp
 
    # Pipeline shape (all read at import time, so a change needs a restart)
