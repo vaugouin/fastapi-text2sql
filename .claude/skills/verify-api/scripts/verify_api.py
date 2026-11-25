@@ -15,6 +15,7 @@ import datetime as dt
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import urllib.error
@@ -52,7 +53,21 @@ def fingerprint(value: str) -> str:
 
 
 def live_port() -> int | None:
-    """The port NGINX sends public traffic to, read from the reverseproxy checkout if present."""
+    """The port NGINX sends MCP traffic to.
+
+    Asked from the VPS first (`ssh vps-agent api-check`, row "MCP host"): since reverseproxy
+    1.0.20 git no longer tracks includes/t2s-api-live.conf, switch-clients.sh rewrites it on the
+    VPS at every switch, so a local checkout only holds what it had when it was last tracked.
+    That local file is the fallback when the VPS cannot be reached (Tailscale down).
+    """
+    try:
+        out = subprocess.run(["ssh", "-o", "ConnectTimeout=8", "vps-agent", "api-check"],
+                             capture_output=True, text=True, timeout=40).stdout
+        m = re.search(r"^\s*MCP host\b.*?:(818\d)\b", out, re.M)
+        if m:
+            return int(m.group(1))
+    except (OSError, subprocess.SubprocessError):
+        pass
     if LIVE_CONF.is_file():
         m = re.search(r"server\s+[\d.]+:(\d+)", LIVE_CONF.read_text(encoding="utf-8"))
         if m:

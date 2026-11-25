@@ -12,6 +12,9 @@
 # as <file>.bak-<YYYYMMDD-HHMMSS>. Clients a switch cannot reach from here are listed at the end:
 # agent-runner (Hostinger), the evaluator (port derived from the version, TEXT2SQL-EVAL-011), the PC tools.
 # Edits keep the scheme and host of each URL and change the port only.
+# The MCP host is one of the clients: its upstream port lives in reverseproxy/includes/t2s-api-live.conf,
+# a file git does not track (each switch rewrites it on the VPS), and a switch that edits it reloads
+# NGINX through reverseproxy/reload.sh; on a refused reload the file is restored, MCP stays on the old port.
 set -u
 D=${DOCKER_ROOT:-$HOME/docker}
 LOGS_DIR=${LOGS_DIR:-$D/shared_data/fastapi-text2sql/logs}
@@ -32,8 +35,11 @@ instance_on() {  # instance_on <port>: "violet ready" / "blue loading" / "down"
 
 port_of() { printf '%s' "$1" | sed -n 's#.*:\([0-9][0-9]*\).*#\1#p'; }
 
-# Clients: label | file | variable (empty: the file's first line is the URL) | default when unset
+# Clients: label | file | variable (empty: the file's first line is the URL; @server: the "server"
+# line of an NGINX upstream) | default when unset
+MCP_UPSTREAM=$D/reverseproxy/includes/t2s-api-live.conf
 CLIENTS=(
+    "MCP host (reverseproxy upstream)|$MCP_UPSTREAM|@server|"
     "t2s-front (/en/ /fr/ /private/ demos)|$D/t2s-front/.env|TEXT2SQL_API_BLUE_URL|"
     "t2s-back (/back-new/)|$D/t2s-back/.env|TEXT2SQL_API_BLUE_URL|"
     "damp-vaugouin-com stack .env (to unset)|$D/damp-vaugouin-com/.env|TEXT2SQL_API_BLUE_URL|"
@@ -48,7 +54,8 @@ CLIENTS=(
 read_url() {  # read_url <file> <var> <default>
     local f=$1 v=$2 def=$3
     [ -f "$f" ] || { echo "(absent)"; return; }
-    if [ -z "$v" ]; then grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$f" | head -1
+    if [ "$v" = "@server" ]; then grep -m1 -E '^[[:space:]]*server[[:space:]]' "$f" | sed -E 's/^[[:space:]]*server[[:space:]]+//; s/;.*//'
+    elif [ -z "$v" ]; then grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$f" | head -1
     else
         local line; line=$(grep -m1 "^$v=" "$f" | cut -d= -f2- | tr -d '"')
         [ -n "$line" ] && echo "$line" || echo "${def:-(unset)}${def:+ (default)}"
@@ -85,7 +92,11 @@ do_check() {
 swap_port() {  # swap_port <file> <var> <from> <to> <default>
     local f=$1 v=$2 from=$3 to=$4 def=$5
     [ -f "$f" ] || { echo "  SKIP  $f (absent)"; return; }
-    if [ -z "$v" ]; then
+    if [ "$v" = "@server" ]; then
+        grep -qE "^[[:space:]]*server[[:space:]]+[^;]*:$from([^0-9]|\$)" "$f" || { echo "  SKIP  $f: upstream not on :$from"; return; }
+        cp -p "$f" "$f.$STAMP"; sed -i -E "s#^([[:space:]]*server[[:space:]]+[^;]*:)$from([^0-9]|\$)#\\1$to\\2#" "$f"
+        sed -i -E "/^[[:space:]]*server[[:space:]]/ s|;.*|;  # set by switch-clients.sh on $(date +%Y-%m-%d), from :$from|" "$f"
+    elif [ -z "$v" ]; then
         grep -q ":$from" "$f" || { echo "  SKIP  $f (not on :$from)"; return; }
         cp -p "$f" "$f.$STAMP"; sed -i "s#:$from\b#:$to#" "$f"
     elif grep -q "^$v=" "$f"; then
@@ -129,6 +140,15 @@ do_switch() {
     # t2s-web reads its .env at start only: /t2s-web/ is down for a few seconds here (FASTAPI-TEXT2SQL-420).
     [ -d "$D/t2s-web" ] && (cd "$D/t2s-web" && docker compose up -d --force-recreate)
     [ -f "$D/listening-companion/.env" ] && (cd "$D/listening-companion" && docker compose up -d --wait --wait-timeout 120)
+    if [ -f "$MCP_UPSTREAM.$STAMP" ]; then
+        if bash "$D/reverseproxy/reload.sh"; then
+            echo "  MCP host: NGINX reloaded, MCP now on :$to (OAuth logins survive: shared signing key and store)."
+        else
+            cp -p "$MCP_UPSTREAM.$STAMP" "$MCP_UPSTREAM"
+            echo "  ERROR MCP host: NGINX reload refused, $MCP_UPSTREAM restored, MCP STAYS ON :$from."
+            echo "        Do not restart :$from before MCP is moved (bash $D/reverseproxy/reload.sh after a fix)."
+        fi
+    fi
     echo "  voice-agent and voice-demo reread their runtime file on the next call (VOICE-AGENT-280): no restart."
     echo
     do_check
