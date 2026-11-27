@@ -7272,6 +7272,9 @@ def _resolve_wikipedia_page_row(cursor, id_wikidata, ui_language="en"):
         WHERE p.ID_WIKIDATA = %s
           AND p.LANG IN (%s, %s)
           AND (p.DELETED IS NULL OR p.DELETED = 0)
+          -- wikipedia-crawler 1.1.39 sets PAGE_EXISTS = 0 on a page deleted from Wikipedia or
+          -- unlinked from its Wikidata item (and deletes its sections): never credit it.
+          AND p.PAGE_EXISTS = 1
     """, (id_wikidata, lang, DEFAULT_UI_LANGUAGE))
     rows = {row["LANG"]: row for row in cursor.fetchall()}
     if not rows:
